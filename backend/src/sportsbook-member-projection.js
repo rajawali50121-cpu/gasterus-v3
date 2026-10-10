@@ -1,5 +1,14 @@
 function clean(value) { return String(value ?? '').trim(); }
 
+const MEMBER_MARKET_SOURCE_LABELS = Object.freeze({
+  'api-sports': 'API-Sports',
+  'the-odds-api': 'The Odds API',
+  sharpapi: 'SharpAPI',
+  'public-market': 'Gasterus Market Feed',
+  'footballdata-io': 'FootballData.io',
+  sportmonks: 'Sportmonks'
+});
+
 const MEMBER_LIST_MARKET_CAP = 12;
 const MEMBER_LIST_PRIORITY = Object.freeze([
   '1X2:FT',
@@ -85,6 +94,8 @@ export function projectMemberMarkets(markets = []) {
     line: market.line,
     suspended: market.suspended,
     mainLine: market.mainLine ?? null,
+    bookmaker: market.bookmaker || null,
+    sourceLabel: MEMBER_MARKET_SOURCE_LABELS[clean(market.source).toLowerCase()] || null,
     selections: (market.selections || []).map(selection => ({
       key: selection.key,
       label: selection.label,

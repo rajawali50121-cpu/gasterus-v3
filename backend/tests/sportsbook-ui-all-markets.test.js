@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import { ticketCalculation } from '../src/sportsbook-calculation.js';
+import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
+const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 
 test('member sportsbook lazy-loads complete event market details rather than only compact list markets', () => {
@@ -23,8 +26,10 @@ test('detailed markets are refreshed by feed revision and stale odds cannot plac
 
 test('event cards render only provider-backed primary markets and do not advertise inactive bet builder tabs', () => {
   assert.match(frontend, /import \{ primaryMarketColumns \} from '\.\/sportsbook-markets\.js'/);
-  assert.match(frontend, /const fullTimeMarkets = primaryMarketColumns\(e, 'FT'\)/);
-  assert.match(frontend, /const firstHalfMarkets = primaryMarketColumns\(e, '1H'\)/);
+  assert.match(frontend, /function eventMarketPeriods\(event\)/);
+  assert.match(frontend, /data-match-period=/);
+  assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);
+  assert.match(frontend, /\$\{marketsCount \? `<div class="sb-detail-markets-wrapper">/);
   assert.match(frontend, /Odds utama belum tersedia dari provider/);
   assert.doesNotMatch(frontend, /<button[^>]*>Bet Builder<\/button>/);
 });
@@ -39,7 +44,29 @@ test('sportsbook filters and mix-parlay shortcuts update the actual active betti
   assert.match(frontend, /function setMatchFilter\(filter\)[\s\S]*aria-pressed[\s\S]*renderAll\(\)/);
   assert.match(frontend, /setSlipTab\('parlay'\)/);
   assert.match(frontend, /setMatchFilter\(currentFilter === 'fav' \? 'today' : 'fav'\)/);
-  assert.match(frontend, /mixParlayButton\.classList\.toggle\('active', tab === 'parlay'\)/);
+  assert.match(frontend, /mixParlayButton\.classList\.toggle\('active', activeSlipTab === 'parlay'\)/);
+});
+
+test('member betslip exposes server-quoted System combinations with matching total stake calculation', () => {
+  assert.match(page, /data-bstab="system"/);
+  assert.match(page, /data-slip-tab="system"/);
+  assert.match(frontend, /betType: type,[\s\S]*type === 'SYSTEM' \? \{ systemSize: activeSystemSize \}/);
+  assert.match(frontend, /systemBetMetrics\(stake, legs\.map\(leg => Number\(leg\.odds\)\), systemSize\)/);
+  assert.match(frontend, /metrics\.totalStake > betslipBalance\(\)/);
+  assert.match(frontend, /betslipReady\(\)/);
+  assert.match(frontend, /metrics\.totalStake > bettingConfig\.maxStake \|\| metrics\.totalStake > betslipBalance\(\)/);
+  assert.match(frontend, /if \(nextTab !== activeSlipTab\)[\s\S]*quoteGeneration \+= 1/);
+});
+
+test('System betslip payout matches backend combination count and payout rounding', () => {
+  const odds = [1.45, 1.82, 2.1, 1.67, 2.35];
+  const stake = 2500;
+  for (const systemSize of [2, 3, 4]) {
+    const ui = systemBetMetrics(stake, odds, systemSize);
+    const backend = ticketCalculation('SYSTEM', stake, odds.map(value => ({ selection: { odds: value } })), systemSize);
+    assert.equal(ui.combinationCount, backend.combinationCount);
+    assert.equal(ui.potentialPayout, backend.potentialPayout);
+  }
 });
 
 test('sportsbook does not fabricate live scores and clears suspended or unpriced betslip legs', () => {
@@ -78,13 +105,14 @@ test('match cards present fixtures and provider-backed markets as a responsive s
   const styles = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
   const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
   assert.match(page, /<h1>Pertandingan &amp; Odds<\/h1>/);
+  assert.match(page, /og:title" content="GASTERUS Sportsbook \| Pertandingan & Odds"/);
   assert.match(frontend, /<div class="sb-match-info">[\s\S]*<div class="sb-teams-row">[\s\S]*<div class="sb-match-market-head">/);
   assert.match(frontend, /PASAR UTAMA/);
   assert.match(styles, /\.sb-match-card\s*\{[\s\S]*grid-template-columns: minmax\(176px, 0\.72fr\) minmax\(0, 1\.7fr\)/);
   assert.match(styles, /\.sb-market-grid\s*\{[\s\S]*repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(styles, /@media \(max-width: 860px\)[\s\S]*?\.sb-match-card\s*\{[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
-  assert.match(page, /sportsbook-v3\.css\?v=20261010-sportsbook-premium/);
-  assert.match(page, /sportsbook\.js\?v=20261010-sportsbook-premium/);
+  assert.match(page, /sportsbook-v3\.css\?v=20261010-sportsbook-board-r4/);
+  assert.match(page, /sportsbook\.js\?v=20261010-sportsbook-board-r4/);
 });
 
 test('sportsbook cashout action routes to the dedicated cashout page instead of a duplicate bets modal', () => {
@@ -112,6 +140,13 @@ test('full market explorer exposes provider markets with working type, period, a
 test('market explorer reports the number of markets matching the active filters', () => {
   assert.match(frontend, /data-market-browser-summary/);
   assert.match(frontend, /function applyMarketBrowserFilters\(panel\)[\s\S]*summary\.textContent/);
+});
+
+test('market explorer labels HT and FT periods clearly and does not confuse odd/even with totals', () => {
+  assert.match(frontend, /FT: 'FT · Full Time', '1H': 'HT · Babak 1'/);
+  assert.match(frontend, /ODD_EVEN: 'Ganjil \/ Genap'/);
+  assert.match(frontend, /sb-market-browser-filter-label/);
+  assert.match(frontend, /countFor\(value\)/);
 });
 
 test('odds movement indicators remain readable long enough to identify direction', () => {

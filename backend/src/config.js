@@ -145,9 +145,10 @@ export const config = Object.freeze({
   theOddsApiEnabled: pricedProviderEnabled('THE_ODDS_API_ENABLED', theOddsApiKey),
   theOddsApiRegions: text('THE_ODDS_API_REGIONS', 'eu,uk'),
   theOddsApiMarkets: text('THE_ODDS_API_MARKETS', 'h2h,spreads,totals'),
-  theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', false),
+  theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', isProduction && Boolean(theOddsApiKey)),
   theOddsApiEventMarkets: text('THE_ODDS_API_EVENT_MARKETS', 'h2h_3_way_h1,spreads_h1,totals_h1,btts,btts_h1,double_chance,double_chance_h1,halftime_fulltime'),
   theOddsApiEventMaxEventsPerSport: int('THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT', 8, 0, 50),
+  theOddsApiEventMaxTotalEvents: int('THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS', 8, 0, 120),
   // Hard global ceiling for all the-odds-api sports combined. Keeps the in-memory
   // sportsbook catalog well inside the Railway container budget even when NBA,
   // tennis ATP/WTA and esports sport keys are enabled alongside football leagues.

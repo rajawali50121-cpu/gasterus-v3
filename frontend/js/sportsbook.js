@@ -14,6 +14,7 @@ import api from './api.js';
 import auth from './auth.js';
 import { formatRupiah, showToast, escapeHtml } from './utils.js';
 import { primaryMarketColumns } from './sportsbook-markets.js';
+import { chooseCombinations, systemBetMetrics } from './sportsbook-slip-calculation.js';
 
 const STREAM_URL = '/api/member/sportsbook/stream';
 const SNAPSHOT_URL = '/api/member/sportsbook/events';
@@ -30,6 +31,7 @@ const eventDetails = new Map();
 const eventDetailRequests = new Map();
 const pendingEventDetails = new Set();
 const expandedEventMarkets = new Set();
+const selectedEventPeriods = new Map();
 let currentSport = 'all';
 let currentLeague = 'all';
 let currentFilter = 'all'; // all | live | today | early | fav
@@ -40,7 +42,7 @@ let favLeagues = new Set();
 try { favLeagues = new Set(JSON.parse(localStorage.getItem(FAV_KEY) || '[]')); } catch { favLeagues = new Set(); }
 let lastRenderRevision = '';
 let lastStructureRevision = '';
-let bettingConfig = { minStake: 1000, maxStake: 50000000, maxLegs: 12, quoteRequired: true };
+let bettingConfig = { minStake: 1000, maxStake: 50000000, maxLegs: 12, maxSystemCombinations: 120, quoteRequired: true, types: ['SINGLE', 'PARLAY', 'SYSTEM'] };
 let streamClosed = false;
 let quote = null; // last successful server quote
 let quoteGeneration = 0;
@@ -816,7 +818,8 @@ function openLeagueModal() {
 // Slip Sheet helpers (Mobile SBOBET-style slide-up betslip)
 // ---------------------------------------------------------------------------
 let slipSheetOpen = false;
-let activeSlipTab = 'single'; // 'single' | 'parlay'
+let activeSlipTab = 'single';
+let activeSystemSize = 2;
 
 function openSlipSheet() {
   // Don't open mobile sheet on desktop - betslip is already visible in sidebar
@@ -854,25 +857,28 @@ function closeSlipSheet() {
 }
 
 function setSlipTab(tab) {
-  activeSlipTab = tab;
+  const nextTab = ['single', 'parlay', 'system'].includes(tab) ? tab : 'single';
+  if (nextTab !== activeSlipTab) {
+    activeSlipTab = nextTab;
+    quote = null;
+    quoteGeneration += 1;
+  }
   const mixParlayButton = el('btn-toggle-parlay');
-  if (mixParlayButton) mixParlayButton.classList.toggle('active', tab === 'parlay');
+  if (mixParlayButton) mixParlayButton.classList.toggle('active', activeSlipTab === 'parlay');
   // Single mode hanya mendukung 1 selection — batasi dengan aman + pesan jelas.
-  if (tab === 'single' && selected.size > 1) {
+  if (activeSlipTab === 'single' && selected.size > 1) {
     const [firstKey, firstLeg] = [...selected.entries()][0];
     selected.clear();
     selected.set(firstKey, firstLeg);
-    quote = null;
-    quoteGeneration += 1;
     showToast('Mode Single hanya mendukung 1 pilihan. Pilihan lain dihapus — gunakan tab Parlay untuk mix parlay.', 'warning');
   }
   // Update mobile sheet tabs
   document.querySelectorAll('.sb-slip-tab').forEach((t) => {
-    t.classList.toggle('active', t.getAttribute('data-slip-tab') === tab);
+    t.classList.toggle('active', t.getAttribute('data-slip-tab') === activeSlipTab);
   });
   // Update desktop betslip tabs
   document.querySelectorAll('.sb-bs-tab').forEach((t) => {
-    t.classList.toggle('active', t.getAttribute('data-bstab') === tab);
+    t.classList.toggle('active', t.getAttribute('data-bstab') === activeSlipTab);
   });
   renderBetslip();
 }
@@ -990,6 +996,15 @@ function bindEventHandlers() {
   const ev = el('sb-events');
   if (!ev) return;
   ev.addEventListener('click', (e) => {
+    const periodButton = e.target.closest('[data-match-period]');
+    if (periodButton) {
+      const match = periodButton.closest('.sb-match-card');
+      if (match) {
+        selectedEventPeriods.set(match.dataset.evid, periodButton.dataset.matchPeriod);
+        renderAll();
+      }
+      return;
+    }
     const odd = e.target.closest('.sb-odd-cell');
     if (odd && !odd.classList.contains('disabled') && !odd.classList.contains('locked')) {
       handleOddClick(odd);
@@ -1227,6 +1242,27 @@ function findMarket(e, type, period) {
   );
 }
 
+const MARKET_PERIOD_LABELS = {
+  FT: 'FT · Full Time', '1H': 'HT · Babak 1', '2H': '2H · Babak 2',
+  Q1: 'Kuarter 1', Q2: 'Kuarter 2', Q3: 'Kuarter 3', Q4: 'Kuarter 4'
+};
+const MARKET_PERIOD_ORDER = ['FT', '1H', '2H', 'Q1', 'Q2', 'Q3', 'Q4'];
+
+function eventMarketPeriods(event) {
+  const periods = new Set();
+  for (const market of event?.markets || []) {
+    if (market?.suspended || !Array.isArray(market?.selections)) continue;
+    if (!market.selections.some(selection => !selection?.suspended && Number(selection?.odds) > 1)) continue;
+    periods.add(String(market.period || 'FT').toUpperCase());
+  }
+  return [...periods].sort((left, right) => {
+    const leftOrder = MARKET_PERIOD_ORDER.indexOf(left);
+    const rightOrder = MARKET_PERIOD_ORDER.indexOf(right);
+    return (leftOrder < 0 ? Number.MAX_SAFE_INTEGER : leftOrder) -
+      (rightOrder < 0 ? Number.MAX_SAFE_INTEGER : rightOrder) || left.localeCompare(right);
+  });
+}
+
 function findMarketSelection(market, aliases, fallbackIndex, allowPrefix = false) {
   const selections = Array.isArray(market?.selections) ? market.selections : [];
   const knownAliases = ['home', '1', 'away', '2', 'draw', 'x', 'over', 'under'];
@@ -1324,7 +1360,7 @@ function eventProviderBadges(e) {
   const markets = Array.isArray(e?.markets) ? e.markets : [];
 
   for (const market of markets) {
-    const source = market?.provider || market?.source || market?.bookmaker || market?.supplier || '';
+    const source = market?.bookmaker || market?.sourceLabel || market?.provider || market?.source || market?.supplier || '';
     if (source) providers.add(String(source).trim());
   }
 
@@ -1344,14 +1380,16 @@ function renderMatch(e) {
   const hdpLine = Number(bpHdp?.line ?? 0);
   const isHomeFav = hdpLine < 0;
   const isAwayFav = hdpLine > 0;
-  const fullTimeMarkets = primaryMarketColumns(e, 'FT');
-  const firstHalfMarkets = primaryMarketColumns(e, '1H');
+  const availablePeriods = eventMarketPeriods(e);
+  const requestedPeriod = selectedEventPeriods.get(e.id);
+  const activePeriod = availablePeriods.includes(requestedPeriod)
+    ? requestedPeriod
+    : availablePeriods.includes('FT') ? 'FT' : availablePeriods[0] || 'FT';
+  const activeMarkets = primaryMarketColumns(e, activePeriod);
   const eventDetail = eventDetails.get(e.id);
   const detailIsCurrent = eventDetail?.revision === String(feed.source?.feedRevision || '');
   const marketsPanelOpen = expandedEventMarkets.has(e.id);
-  const marketsCount = Number(e.availableMarketCount || 0);
-  const displayedMarketCount = fullTimeMarkets.length + firstHalfMarkets.length;
-  const hasMoreMarkets = marketsCount > displayedMarketCount;
+  const marketsCount = Math.max(Number(e.availableMarketCount || 0), e.markets?.length || 0);
   const providerSummary = eventProviderBadges(e);
   const marketSummaryText = marketsCount ? `${marketsCount} pasar aktif` : 'Pasar live';
 
@@ -1392,23 +1430,27 @@ function renderMatch(e) {
         <span class="sb-market-summary-text">${marketSummaryText}</span>
       </div>
 
+      <div class="sb-market-period-tabs" role="group" aria-label="Periode odds">
+        ${availablePeriods.map(period => `<button type="button" class="sb-market-period-tab${period === activePeriod ? ' active' : ''}"
+          data-match-period="${escapeHtml(period)}" aria-pressed="${period === activePeriod ? 'true' : 'false'}">
+          ${escapeHtml(MARKET_PERIOD_LABELS[period] || period)}
+        </button>`).join('')}
+      </div>
+
       <div class="sb-matrix-table">
-        ${fullTimeMarkets.length
-          ? `<div class="sb-market-period"><span>FULL TIME</span></div>${renderMarketColumns(e, fullTimeMarkets)}`
+        ${activeMarkets.length
+          ? `<div class="sb-market-period"><span>${escapeHtml(MARKET_PERIOD_LABELS[activePeriod] || activePeriod)}</span></div>${renderMarketColumns(e, activeMarkets)}`
           : ''}
-        ${firstHalfMarkets.length
-          ? `<div class="sb-market-period"><span>1ST HALF</span></div>${renderMarketColumns(e, firstHalfMarkets)}`
-          : ''}
-        ${!fullTimeMarkets.length && !firstHalfMarkets.length
+        ${!activeMarkets.length
           ? '<div class="sb-no-primary-odds">Odds utama belum tersedia dari provider untuk pertandingan ini.</div>'
           : ''}
       </div>
 
-      ${hasMoreMarkets ? `<div class="sb-detail-markets-wrapper">
+      ${marketsCount ? `<div class="sb-detail-markets-wrapper">
         <button type="button" class="sb-accordion-top-tab sb-detail-markets-toggle"
           data-toggle-event-markets="${escapeHtml(e.id)}" data-market-count="${marketsCount}"
           aria-expanded="${marketsPanelOpen ? 'true' : 'false'}">
-          ${marketsPanelOpen ? 'Tutup pasar' : 'Lihat semua pasar'}${marketsCount ? ` · ${marketsCount}` : ''}
+          ${marketsPanelOpen ? 'Tutup semua pasar' : 'Semua pasar'} · ${fmt(marketsCount)}
         </button>
         <div class="sb-detail-markets" id="event-markets-${escapeHtml(e.id)}"${marketsPanelOpen ? '' : ' hidden'}>
           ${marketsPanelOpen
@@ -1443,7 +1485,7 @@ function renderAllEventMarkets(event) {
     DOUBLE_CHANCE: 'Double Chance',
     DRAW_NO_BET: 'Draw No Bet',
     TEAM_TOTAL: 'Total Tim',
-    ODD_EVEN: 'Over / Under',
+    ODD_EVEN: 'Ganjil / Genap',
     HT_FT: 'Half Time / Full Time',
     CORRECT_SCORE: 'Skor Tepat',
     CORNERS: 'Tendangan Sudut',
@@ -1452,16 +1494,26 @@ function renderAllEventMarkets(event) {
     BET_BUILDER: 'Bet Builder',
     OTHER: 'Lainnya'
   };
-  const filters = (dimension, values, labelFor) => values.length < 2 ? '' : `
-    <div class="sb-market-browser-filters" role="group" aria-label="${dimension === 'type' ? 'Filter jenis pasar' : 'Filter periode'}">
-      <button type="button" class="sb-market-browser-chip active"
-        data-market-browser-filter="all" data-market-browser-dimension="${dimension}" aria-pressed="true">Semua</button>
-      ${values.map(value => `<button type="button" class="sb-market-browser-chip"
-        data-market-browser-filter="${escapeHtml(value)}" data-market-browser-dimension="${dimension}" aria-pressed="false">
-        ${escapeHtml(labelFor(value))}
-      </button>`).join('')}
+  const filters = (dimension, values, labelFor) => {
+    if (values.length < 2) return '';
+    const countFor = value => markets.filter(market =>
+      String(dimension === 'type' ? market.type || 'OTHER' : market.period || 'FT').toUpperCase() === value
+    ).length;
+    const title = dimension === 'type' ? 'Jenis pasar' : 'Periode';
+    return `
+    <div class="sb-market-browser-filter-group">
+      <span class="sb-market-browser-filter-label">${title}</span>
+      <div class="sb-market-browser-filters" role="group" aria-label="Filter ${title.toLowerCase()}">
+        <button type="button" class="sb-market-browser-chip active"
+          data-market-browser-filter="all" data-market-browser-dimension="${dimension}" aria-pressed="true">Semua <span>${markets.length}</span></button>
+        ${values.map(value => `<button type="button" class="sb-market-browser-chip"
+          data-market-browser-filter="${escapeHtml(value)}" data-market-browser-dimension="${dimension}" aria-pressed="false">
+          ${escapeHtml(labelFor(value))} <span>${countFor(value)}</span>
+        </button>`).join('')}
+      </div>
     </div>`;
-  const periodLabel = period => period === '1H' ? 'Babak 1' : period === '2H' ? 'Babak 2' : period === 'FT' ? 'Full Time' : period;
+  };
+  const periodLabel = period => MARKET_PERIOD_LABELS[period] || period;
   return `<div class="sb-market-browser">
     <div class="sb-market-browser-toolbar">
       <label class="sb-market-browser-search">
@@ -1479,7 +1531,7 @@ function renderAllEventMarkets(event) {
       data-market-category="${escapeHtml(String(market.type || 'OTHER').toUpperCase())}">
       <h4 class="sb-detail-market-heading">
         <span>${escapeHtml(market.label || market.type || 'Pasar')}</span>
-        <span>${escapeHtml(market.period || 'FT')}${market.line !== null && market.line !== undefined ? ` · ${escapeHtml(String(market.line))}` : ''}</span>
+        <span>${escapeHtml(periodLabel(String(market.period || 'FT').toUpperCase()))}${market.line !== null && market.line !== undefined ? ` · ${escapeHtml(String(market.line))}` : ''}</span>
       </h4>
       <div class="sb-accordion-grid">
         ${market.selections.map(selection => `
@@ -1523,7 +1575,7 @@ async function toggleEventMarkets(eventId) {
     const button = panel?.closest('.sb-match-card')?.querySelector('[data-toggle-event-markets]');
     if (button) {
       button.setAttribute('aria-expanded', 'false');
-      button.textContent = `Lihat semua pasar${button.dataset.marketCount ? ` · ${button.dataset.marketCount}` : ''}`;
+      button.textContent = `Semua pasar${button.dataset.marketCount ? ` · ${fmt(button.dataset.marketCount)}` : ''}`;
     }
     return;
   }
@@ -1539,7 +1591,7 @@ async function toggleEventMarkets(eventId) {
   const button = panel?.closest('.sb-match-card')?.querySelector('[data-toggle-event-markets]');
   if (button) {
     button.setAttribute('aria-expanded', 'true');
-    button.textContent = `Tutup pasar${button.dataset.marketCount ? ` · ${button.dataset.marketCount}` : ''}`;
+    button.textContent = `Tutup semua pasar${button.dataset.marketCount ? ` · ${fmt(button.dataset.marketCount)}` : ''}`;
   }
   await loadEventMarkets(eventId);
 }
@@ -1753,9 +1805,36 @@ function handleOddClick(btn) {
 // Betslip — WAM-style accumulator, backed by Gasterus server quotes
 // ---------------------------------------------------------------------------
 function betType() {
-  // Tab Single = selalu SINGLE bet (tidak pernah otomatis jadi Mix Parlay).
   if (activeSlipTab === 'single') return 'SINGLE';
+  if (activeSlipTab === 'system') return 'SYSTEM';
   return selected.size > 1 ? 'PARLAY' : 'SINGLE';
+}
+
+function systemSizeOptions(legCount) {
+  return Array.from({ length: Math.max(0, legCount - 2) }, (_, index) => index + 2)
+    .filter(size => chooseCombinations(legCount, size) <= bettingConfig.maxSystemCombinations);
+}
+
+function betslipMetrics(stake, legs = [...selected.values()]) {
+  const type = betType();
+  const isSystem = type === 'SYSTEM';
+  const sizes = isSystem ? systemSizeOptions(legs.length) : [];
+  const systemSize = isSystem ? sizes.includes(activeSystemSize) ? activeSystemSize : sizes[0] ?? activeSystemSize : null;
+  const systemCalculation = isSystem
+    ? systemBetMetrics(stake, legs.map(leg => Number(leg.odds)), systemSize)
+    : null;
+  const combinationCount = isSystem ? systemCalculation.combinationCount : 1;
+  const totalStake = stake * combinationCount;
+  const potentialPayout = isSystem
+    ? systemCalculation.potentialPayout
+    : Math.floor(stake * totalOdds());
+  return { type, systemSize, combinationCount, totalStake, potentialPayout };
+}
+
+function betslipReady(legs = [...selected.values()]) {
+  if (activeSlipTab === 'single') return legs.length === 1;
+  if (activeSlipTab === 'parlay') return legs.length >= 2;
+  return systemSizeOptions(legs.length).includes(activeSystemSize);
 }
 
 function totalOdds() {
@@ -1798,7 +1877,9 @@ function renderBetslip() {
 
   // Update desktop mode badge
   const mode = el('betslip-mode');
-  if (mode) mode.textContent = selected.size > 0 ? (betType() === 'SINGLE' ? 'Single' : `Parlay · ${selected.size} leg`) : '';
+  if (mode) mode.textContent = selected.size > 0
+    ? betType() === 'SINGLE' ? 'Single' : betType() === 'SYSTEM' ? `System ${activeSystemSize}/${selected.size}` : `Parlay · ${selected.size} leg`
+    : '';
 
   const legs = [...selected.values()];
   const detailsPending = legs.some(leg => pendingEventDetails.has(leg.eventId));
@@ -1813,21 +1894,38 @@ function renderBetslip() {
 
   let stake = betslipStake();
   if (!stake) stake = bettingConfig.minStake;
+  const isSystem = betType() === 'SYSTEM';
+  const availableSystemSizes = isSystem ? systemSizeOptions(legs.length) : [];
+  if (isSystem && availableSystemSizes.length && !availableSystemSizes.includes(activeSystemSize)) activeSystemSize = availableSystemSizes[0];
+  const metrics = betslipMetrics(stake, legs);
   const odds = totalOdds();
-  const est = Math.floor(stake * odds);
+  const est = metrics.potentialPayout;
   const balance = betslipBalance();
-  const overBalance = stake > balance;
-  const isParlay = activeSlipTab === 'parlay' || legs.length > 1;
+  const overBalance = metrics.totalStake > balance;
+  const overMaxStake = metrics.totalStake > bettingConfig.maxStake;
+  const isSystemMode = metrics.type === 'SYSTEM';
+  const isParlay = metrics.type === 'PARLAY';
+  const ready = betslipReady(legs);
 
-  const parlayInfo = isParlay && legs.length > 1 ? `<div class="sb-parlay-info">Mix Parlay ${legs.length} pilihan &mdash; Total odds: <b>${odds.toFixed(2)}</b></div>` : '';
-  const singleInfo = !isParlay ? '<div class="sb-single-mode-label">Mode Single &mdash; Stake berlaku per pilihan</div>' : '';
+  const parlayInfo = isParlay ? `<div class="sb-parlay-info">Mix Parlay · ${legs.length} pilihan · Odds ${odds.toFixed(2)}</div>` : '';
+  const systemInfo = isSystem ? `<div class="sb-parlay-info">System ${metrics.systemSize}/${legs.length} · ${metrics.combinationCount} kombinasi</div>` : '';
+  const singleInfo = metrics.type === 'SINGLE' ? '<div class="sb-single-mode-label">Single · Stake untuk satu pilihan</div>' : '';
+  const systemSelector = isSystemMode && availableSystemSizes.length ? `<label class="sb-system-size">Kombinasi
+      <select id="sb-system-size" aria-label="Ukuran kombinasi System">
+        ${availableSystemSizes.map(size =>
+          `<option value="${size}"${size === metrics.systemSize ? ' selected' : ''}>${size}/${legs.length} · ${chooseCombinations(legs.length, size)} kombinasi</option>`
+        ).join('')}
+      </select>
+    </label>` : '';
+  const betButtonLabel = placing ? 'Memproses…' : detailsPending ? 'Memperbarui odds…' : !ready ? (isSystemMode ? 'Pilih minimal 3 pertandingan' : isParlay ? 'Pilih minimal 2 pertandingan' : 'Pilih 1 pertandingan') : 'Pasang Taruhan';
 
   const html = `
-    ${isParlay ? parlayInfo : singleInfo}
+    ${isSystemMode ? systemInfo : isParlay ? parlayInfo : singleInfo}
     <div class="sb-slip-legs">${legs.map(slipLegHtml).join('')}</div>
+    ${systemSelector}
     <div class="sb-slip-summary">
       <div class="sb-slip-row"><span>Jumlah pilihan</span><b>${legs.length}</b></div>
-      <div class="sb-slip-row"><span>Total odds</span><b>${odds.toFixed(2)}</b></div>
+      ${isSystemMode ? `<div class="sb-slip-row"><span>Kombinasi</span><b>${metrics.combinationCount}</b></div>` : `<div class="sb-slip-row"><span>Total odds</span><b>${odds.toFixed(2)}</b></div>`}
       <div class="sb-slip-row"><span>Saldo</span><b>${formatRupiah(balance)}</b></div>
       <div id="slip-quote" class="sb-slip-quote"></div>
       <div id="sb-quote-error" class="sb-quote-error" hidden></div>
@@ -1838,12 +1936,14 @@ function renderBetslip() {
       <div class="sb-quick" role="group">
         ${[10000, 25000, 50000, 100000].map((v) => `<button type="button" class="sb-quick-btn" data-quick="${v}">${fmt(v)}</button>`).join('')}
       </div>
-      <div class="sb-slip-row" style="margin-top:6px"><span>Stake</span><b>${formatRupiah(stake)}</b></div>
+      <div class="sb-slip-row" style="margin-top:6px"><span>${isSystemMode ? 'Stake per kombinasi' : 'Stake'}</span><b>${formatRupiah(stake)}</b></div>
+      ${isSystemMode ? `<div class="sb-slip-row"><span>Total stake</span><b id="slip-total-stake">${formatRupiah(metrics.totalStake)}</b></div>` : ''}
       <div class="sb-slip-row"><span>Estimasi menang</span><b class="sb-win" id="slip-est">${formatRupiah(est)}</b></div>
       <div class="sb-slip-hint">Min ${formatRupiah(bettingConfig.minStake)} · Maks ${formatRupiah(bettingConfig.maxStake)}</div>
-      ${overBalance ? `<div class="sb-slip-hint" style="color:#ef4444">Stake melebihi saldo. <a href="/deposit.html" style="color:#ef4444"><u>Deposit</u></a></div>` : ''}
+      ${overBalance ? `<div class="sb-slip-hint" style="color:#b84639">Total stake melebihi saldo. <a href="/deposit.html" style="color:#b84639"><u>Deposit</u></a></div>` : ''}
+      ${overMaxStake ? `<div class="sb-slip-hint" style="color:#b84639">Total stake melewati batas taruhan.</div>` : ''}
     </div>
-    <button type="button" id="btn-place-bet" class="sb-btn sb-btn-place sb-btn-block"${(placing || overBalance || detailsPending) ? ' disabled' : ''}>${placing ? '⏳ Memproses…' : detailsPending ? '⏳ Memperbarui odds…' : '⚽ Pasang Taruhan'}</button>
+    <button type="button" id="btn-place-bet" class="sb-btn sb-btn-place sb-btn-block"${(placing || overBalance || overMaxStake || detailsPending || !ready) ? ' disabled' : ''}>${betButtonLabel}</button>
     <button type="button" id="btn-clear-slip" class="sb-btn sb-btn-ghost sb-btn-block sb-btn-sm">Kosongkan betslip</button>`;
 
   // Render ONLY to the active target based on screen size to prevent double views
@@ -1855,7 +1955,7 @@ function renderBetslip() {
     bindBetslipEvents(mobileBody); 
   }
 
-  if (stake >= bettingConfig.minStake) requestQuote();
+  if (stake >= bettingConfig.minStake && betslipReady(legs)) requestQuote();
 }
 
 function slipLegHtml(s) {
@@ -1876,16 +1976,20 @@ let quoteInFlight = false;
 let stakeTimer;
 
 async function requestQuote() {
-  if (quoteInFlight || !selected.size) return;
+  if (quoteInFlight || !betslipReady()) return;
   if ([...selected.values()].some(selection => pendingEventDetails.has(selection.eventId))) return;
   const stake = betslipStake();
   if (stake < bettingConfig.minStake || stake > bettingConfig.maxStake) return;
+  const metrics = betslipMetrics(stake);
+  if (metrics.totalStake > bettingConfig.maxStake || metrics.totalStake > betslipBalance()) return;
   const requestGeneration = quoteGeneration;
   quoteInFlight = true;
   try {
+    const type = betType();
     const payload = {
-      betType: betType(),
+      betType: type,
       stake,
+      ...(type === 'SYSTEM' ? { systemSize: activeSystemSize } : {}),
       oddsChangePolicy: 'REJECT',
       selections: [...selected.values()].map((s) => ({
         eventId: s.eventId,
@@ -1906,7 +2010,7 @@ async function requestQuote() {
     showQuoteError(err?.message || 'Gagal membuat quote.');
   } finally {
     quoteInFlight = false;
-    if (requestGeneration !== quoteGeneration && selected.size &&
+    if (requestGeneration !== quoteGeneration && betslipReady() &&
       ![...selected.values()].some(selection => pendingEventDetails.has(selection.eventId))) {
       void requestQuote();
     }
@@ -1918,7 +2022,9 @@ function renderQuote(q) {
   if (!host) return;
   if (!q) { host.innerHTML = ''; return; }
   const expires = q.expiresAt ? new Date(q.expiresAt) : null;
-  host.innerHTML = `<div class="sb-slip-row sb-quote-ok"><span>Quote server terkunci</span><b>${Number(q.totalOdds).toFixed(2)}</b></div>
+  const quoteLabel = q.betType === 'SYSTEM' ? `System ${q.systemSize}/${q.selectionCount}` : 'Total odds terkunci';
+  const quoteValue = q.betType === 'SYSTEM' ? `${q.combinationCount} kombinasi` : Number(q.totalOdds).toFixed(2);
+  host.innerHTML = `<div class="sb-slip-row sb-quote-ok"><span>${quoteLabel}</span><b>${quoteValue}</b></div>
     <div class="sb-slip-row"><span>Potensi bayar (server)</span><b class="sb-win">${formatRupiah(Number(q.potentialPayout || 0))}</b></div>
     ${expires ? `<div class="sb-slip-hint">Berlaku sampai ${expires.toLocaleTimeString('id-ID')}</div>` : ''}`;
   const err = el('sb-quote-error');
@@ -1945,6 +2051,13 @@ function bindBetslipEvents(root) {
   }));
   const stakeInput = el('sb-stake');
   if (stakeInput) stakeInput.addEventListener('input', onStakeChange);
+  const systemSize = root.querySelector('#sb-system-size');
+  if (systemSize) systemSize.addEventListener('change', () => {
+    activeSystemSize = Number(systemSize.value) || 2;
+    quote = null;
+    quoteGeneration += 1;
+    renderBetslip();
+  });
   const place = el('btn-place-bet');
   if (place) place.addEventListener('click', placeBet);
   const clear = el('btn-clear-slip');
@@ -1953,20 +2066,24 @@ function bindBetslipEvents(root) {
 
 function onStakeChange() {
   const stake = betslipStake(); // juga menyimpan ke lastStake
+  const metrics = betslipMetrics(stake);
   const est = el('slip-est');
-  if (est) est.textContent = formatRupiah(Math.floor(stake * totalOdds()));
+  if (est) est.textContent = formatRupiah(metrics.potentialPayout);
+  const totalStake = el('slip-total-stake');
+  if (totalStake) totalStake.textContent = formatRupiah(metrics.totalStake);
   const pot = el('slip-potential');
-  if (pot) pot.textContent = formatRupiah(Math.floor(stake * totalOdds()));
+  if (pot) pot.textContent = formatRupiah(metrics.potentialPayout);
   const place = el('btn-place-bet');
-  const over = stake > betslipBalance();
+  const over = metrics.totalStake > betslipBalance() || metrics.totalStake > bettingConfig.maxStake;
   const detailsPending = [...selected.values()].some(selection => pendingEventDetails.has(selection.eventId));
-  if (place && !placing) place.disabled = over || detailsPending;
+  if (place && !placing) place.disabled = over || detailsPending || !betslipReady() ||
+    stake < bettingConfig.minStake || stake > bettingConfig.maxStake;
   quote = null;
   quoteGeneration += 1;
   const host = el('slip-quote');
   if (host) host.innerHTML = '';
   clearTimeout(stakeTimer);
-  stakeTimer = setTimeout(() => { if (selected.size && stake >= bettingConfig.minStake) requestQuote(); }, 500);
+  stakeTimer = setTimeout(() => { if (betslipReady() && stake >= bettingConfig.minStake) requestQuote(); }, 500);
 }
 
 async function placeBet() {
@@ -1975,15 +2092,20 @@ async function placeBet() {
     setTimeout(() => { window.location.href = '/index.html?msg=login_required'; }, 1200);
     return;
   }
-  if (placing || !selected.size) return;
+  if (placing || !betslipReady()) {
+    if (!betslipReady()) showToast(activeSlipTab === 'system' ? 'System bet membutuhkan minimal 3 pilihan.' : 'Jumlah pilihan belum sesuai dengan tipe taruhan.', 'warning');
+    return;
+  }
   if ([...selected.values()].some(selection => pendingEventDetails.has(selection.eventId))) {
     showToast('Odds sedang diperbarui. Tunggu sebelum memasang taruhan.', 'warning');
     return;
   }
   const stake = betslipStake() || lastStake || bettingConfig.minStake;
+  const metrics = betslipMetrics(stake);
   if (stake < bettingConfig.minStake) { showToast(`Minimal taruhan ${formatRupiah(bettingConfig.minStake)}.`, 'warning'); return; }
   if (stake > bettingConfig.maxStake) { showToast(`Maksimal taruhan ${formatRupiah(bettingConfig.maxStake)}.`, 'warning'); return; }
-  if (stake > betslipBalance()) { showToast('Stake melebihi saldo. Silakan deposit dulu.', 'warning'); return; }
+  if (metrics.totalStake > bettingConfig.maxStake) { showToast(`Total taruhan ${formatRupiah(metrics.totalStake)} melewati batas.`, 'warning'); return; }
+  if (metrics.totalStake > betslipBalance()) { showToast('Total stake melebihi saldo. Silakan deposit dulu.', 'warning'); return; }
   if (bettingConfig.quoteRequired && !quote?.quoteToken) {
     showToast('Quote server belum siap. Coba lagi sebentar.', 'warning');
     return;

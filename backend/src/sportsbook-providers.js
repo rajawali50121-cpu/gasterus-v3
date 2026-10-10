@@ -145,7 +145,7 @@ function normalizedSelection(event, marketKey, label, odds, { line = null, sourc
     priceVersion: hash('price', event, marketKey, resolvedSourceSelectionId || cleanLabel, resolvedLine ?? '', price)
   };
 }
-function normalizedMarket(event, { key, name, type, period = 'FT', line = null, selections = [], source, sourceMarketId = null, suspended = false, updatedAt = null, mainLine = null }) {
+function normalizedMarket(event, { key, name, type, period = 'FT', line = null, selections = [], source, sourceMarketId = null, bookmaker = null, suspended = false, updatedAt = null, mainLine = null }) {
   const valid = selections.filter(Boolean);
   if (!valid.length) return null;
   const resolvedType = type || marketType(name, key);
@@ -162,6 +162,7 @@ function normalizedMarket(event, { key, name, type, period = 'FT', line = null, 
     updatedAt: iso(updatedAt),
     source,
     sourceMarketId: clean(sourceMarketId, 180) || null,
+    bookmaker: clean(bookmaker, 120) || null,
     mainLine: mainLine === null ? null : Boolean(mainLine),
     selections: valid
   };
@@ -442,6 +443,7 @@ function normalizeSharpApiRows(rows = []) {
         selections,
         source: 'sharpapi',
         sourceMarketId: sample.market_id || sample.market_ref?.id || null,
+        bookmaker: chosenBook,
         suspended: selections.some(selection => selection.suspended),
         updatedAt: latest,
         mainLine: group.some(row => row.is_main_line !== false && row.is_alternate_line !== true)
@@ -497,7 +499,7 @@ function isHandicapOddsValid(selections, line) {
   return true;
 }
 
-function oddsApiMarket(event, market, source = 'the-odds-api') {
+function oddsApiMarket(event, market, source = 'the-odds-api', bookmaker = null) {
   const type = marketType(market.key, market.key);
   const period = periodFromName(market.name || market.key, market.key);
   const marketLine = market.outcomes?.[0]?.point ?? null;
@@ -510,7 +512,7 @@ function oddsApiMarket(event, market, source = 'the-odds-api') {
     const selection = normalizedSelection(event.id, `${market.key}:${line ?? ''}`, label, outcome.price, {
       line,
       source,
-      sourceSelectionId: `${outcome.name}:${line ?? ''}`
+      sourceSelectionId: `${bookmaker || source}:${outcome.name}:${line ?? ''}`
     });
     if (!selection) continue;
     const key = `${slug(label)}|${line ?? ''}`;
@@ -532,12 +534,40 @@ function oddsApiMarket(event, market, source = 'the-odds-api') {
     name: marketLabel(type, market.name || market.key, market.key),
     type,
     period,
+    line: marketLine,
     selections,
     source,
+    bookmaker,
     updatedAt: market.last_update
   });
 }
 const oddsApiEventDetailCache = new Map();
+let oddsApiEventSportCursor = 0;
+
+function allocateOddsApiEventMarkets(sports) {
+  const allocations = new Map(sports.map(sport => [sport, 0]));
+  const perSportLimit = Math.max(0, Number(config.theOddsApiEventMaxEventsPerSport) || 0);
+  let remaining = Math.min(
+    Math.max(0, Number(config.theOddsApiEventMaxTotalEvents) || 0),
+    sports.length * perSportLimit
+  );
+  if (!sports.length || !remaining || !perSportLimit) return allocations;
+
+  const start = oddsApiEventSportCursor % sports.length;
+  while (remaining > 0) {
+    let allocated = false;
+    for (let offset = 0; offset < sports.length && remaining > 0; offset += 1) {
+      const sport = sports[(start + offset) % sports.length];
+      if (allocations.get(sport) >= perSportLimit) continue;
+      allocations.set(sport, allocations.get(sport) + 1);
+      remaining -= 1;
+      allocated = true;
+    }
+    if (!allocated) break;
+  }
+  oddsApiEventSportCursor = (start + 1) % sports.length;
+  return allocations;
+}
 
 function mergeOddsApiBookmakers(base = [], extra = []) {
   const byBook = new Map();
@@ -556,15 +586,15 @@ function mergeOddsApiBookmakers(base = [], extra = []) {
   return [...byBook.values()];
 }
 
-async function fetchOddsApiEventMarkets(sportKey, rawEvents) {
+async function fetchOddsApiEventMarkets(sportKey, rawEvents, maxEvents = config.theOddsApiEventMaxEventsPerSport) {
   const markets = commaList(config.theOddsApiEventMarkets);
-  if (!config.theOddsApiEventMarketsEnabled || !markets.length || !rawEvents.length) return rawEvents;
-  const maxEvents = Math.max(0, config.theOddsApiEventMaxEventsPerSport);
+  if (!config.theOddsApiEventMarketsEnabled || !markets.length || !rawEvents.length || !maxEvents) return rawEvents;
+  const eventLimit = Math.max(0, Math.min(Number(maxEvents) || 0, config.theOddsApiEventMaxEventsPerSport));
   const refreshMs = config.theOddsApiEventRefreshSeconds * 1000;
   const selected = rawEvents
     .filter(event => event?.id && !event.completed)
     .sort((a, b) => Date.parse(a.commence_time || '') - Date.parse(b.commence_time || ''))
-    .slice(0, maxEvents);
+    .slice(0, eventLimit);
   const extras = new Map();
   await Promise.all(selected.map(async event => {
     const cacheKey = `${sportKey}:${event.id}:${markets.join(',')}:${config.theOddsApiRegions}:${config.theOddsApiBookmakers || ''}`;
@@ -611,9 +641,15 @@ function normalizeOddsApiEvent(raw) {
     away: raw.away_team
   });
   const sourceMarkets = new Map();
+  const preferredBookmakers = commaList(config.theOddsApiBookmakers).map(value => value.toLowerCase());
+  const bookmakerRank = bookmaker => {
+    const index = preferredBookmakers.findIndex(value => bookmaker.toLowerCase() === value || bookmaker.toLowerCase().includes(value));
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  };
   for (const bookmaker of raw.bookmakers || []) {
     for (const market of bookmaker.markets || []) {
-      const normalized = oddsApiMarket(event, market);
+      const bookmakerName = clean(bookmaker.title || bookmaker.name || bookmaker.key, 120);
+      const normalized = oddsApiMarket(event, market, 'the-odds-api', bookmakerName);
       if (!normalized) continue;
       const key = marketIdentity(normalized);
       const impliedTotal = normalized.selections.reduce((sum, selection) => sum + 1 / selection.odds, 0);
@@ -621,8 +657,9 @@ function normalizeOddsApiEvent(raw) {
         || (normalized.type === '1X2' && normalized.selections.length === 3))
         && (impliedTotal < 1 || impliedTotal > 1.25)) continue;
       const current = sourceMarkets.get(key);
-      if (!current || impliedTotal < current.impliedTotal) {
-        sourceMarkets.set(key, { market: normalized, impliedTotal });
+      if (!current || impliedTotal < current.impliedTotal ||
+        (impliedTotal === current.impliedTotal && bookmakerRank(bookmaker.key || bookmakerName) < bookmakerRank(current.bookmakerKey))) {
+        sourceMarkets.set(key, { market: normalized, impliedTotal, bookmakerKey: bookmaker.key || bookmakerName });
       }
     }
   }
@@ -632,6 +669,7 @@ function normalizeOddsApiEvent(raw) {
 export async function fetchTheOddsApi() {
   if (!config.theOddsApiEnabled || !config.theOddsApiKey) return { provider: 'the-odds-api', enabled: false, events: [] };
   const sports = commaList(config.theOddsApiSportKeys);
+  const eventMarketAllocations = allocateOddsApiEventMarkets(sports);
   const settled = await Promise.allSettled(sports.map(async sportKey => {
     const url = new URL(`${config.theOddsApiBaseUrl.replace(/\/$/, '')}/sports/${encodeURIComponent(sportKey)}/odds`);
     url.searchParams.set('apiKey', config.theOddsApiKey);
@@ -643,7 +681,7 @@ export async function fetchTheOddsApi() {
     const cacheKey = `the-odds-api:${sportKey}:${config.theOddsApiRegions}:${config.theOddsApiMarkets}:${config.theOddsApiBookmakers || ''}`;
     const payload = await cachedRequest(cacheKey, config.theOddsApiRefreshSeconds * 1000, () => requestJson(url, { label: 'The Odds API' }));
     const rawEvents = Array.isArray(payload) ? payload : [];
-    const enriched = await fetchOddsApiEventMarkets(sportKey, rawEvents);
+    const enriched = await fetchOddsApiEventMarkets(sportKey, rawEvents, eventMarketAllocations.get(sportKey) || 0);
     return enriched.map(normalizeOddsApiEvent);
   }));
   const events = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []).slice(0, Math.min(MAX_PROVIDER_EVENTS, Math.max(0, Number(config.theOddsApiMaxTotalEvents) || MAX_PROVIDER_EVENTS)));
@@ -930,6 +968,7 @@ function apiSportsMarket(event, bet, source = 'api-sports') {
   const name = clean(bet.name || bet.label || bet.market || 'Market');
   const type = marketType(name, bet.id);
   const period = periodFromName(name, bet.key || bet.id || '');
+  const bookmaker = clean(bet.bookmaker || bet.bookmaker_name || bet.bookmaker_id, 120) || null;
   const grouped = new Map();
   for (const value of bet.values || bet.outcomes || []) {
     const rawLabel = clean(value.value || value.name || value.label || 'Selection');
@@ -939,7 +978,7 @@ function apiSportsMarket(event, bet, source = 'api-sports') {
     const selection = normalizedSelection(event.id, `${bet.id || name}:${line ?? ''}`, label, value.odd ?? value.odds ?? value.price, {
       line,
       source,
-      sourceSelectionId: value.id || rawLabel,
+      sourceSelectionId: `${bookmaker || source}:${value.id || rawLabel}`,
       suspended: value.suspended || value.status === 'SUSPENDED'
     });
     if (!selection) continue;
@@ -954,6 +993,7 @@ function apiSportsMarket(event, bet, source = 'api-sports') {
     period,
     selections: [...grouped.values()],
     source,
+    bookmaker,
     updatedAt: bet.update
   });
 }
@@ -966,8 +1006,9 @@ function extractApiSportsOdds(payload) {
     if (Array.isArray(record.bets)) bets.push(...record.bets);
     if (Array.isArray(record.markets)) bets.push(...record.markets);
     for (const bookmaker of record.bookmakers || record.odds || []) {
-      if (Array.isArray(bookmaker.bets)) bets.push(...bookmaker.bets);
-      else if (Array.isArray(bookmaker.markets)) bets.push(...bookmaker.markets);
+      const bookmakerName = clean(bookmaker.name || bookmaker.title || bookmaker.id, 120);
+      if (Array.isArray(bookmaker.bets)) bets.push(...bookmaker.bets.map(bet => ({ ...bet, bookmaker: bookmakerName })));
+      else if (Array.isArray(bookmaker.markets)) bets.push(...bookmaker.markets.map(market => ({ ...market, bookmaker: bookmakerName })));
       else if (Array.isArray(bookmaker.values) || Array.isArray(bookmaker.outcomes)) bets.push(bookmaker);
     }
     const current = byFixture.get(fixtureId) || [];
@@ -1001,7 +1042,16 @@ function normalizeApiSportsFixture(raw, bets = []) {
       'FT': { home: number(raw.score?.fulltime?.home ?? raw.goals?.home), away: number(raw.score?.fulltime?.away ?? raw.goals?.away) }
     }
   });
-  event.markets = bets.map(bet => apiSportsMarket(event, bet)).filter(Boolean);
+  const candidates = new Map();
+  for (const bet of bets) {
+    const market = apiSportsMarket(event, bet);
+    if (!market) continue;
+    const key = marketIdentity(market);
+    const impliedTotal = market.selections.reduce((sum, selection) => sum + 1 / selection.odds, 0);
+    const current = candidates.get(key);
+    if (!current || impliedTotal < current.impliedTotal) candidates.set(key, { market, impliedTotal });
+  }
+  event.markets = [...candidates.values()].map(item => item.market);
   return event;
 }
 async function apiSports(path, params = {}) {
@@ -1292,6 +1342,7 @@ export function publicEvent(event) {
       updatedAt: market.updatedAt,
       source: market.source || null,
       sourceMarketId: market.sourceMarketId || null,
+      bookmaker: market.bookmaker || null,
       mainLine: market.mainLine ?? null,
       lifecycleState: market.lifecycleState || null,
       lifecycleReason: market.lifecycleReason || null,
@@ -1329,7 +1380,8 @@ export const __sportsbookProviders = {
   extractApiSportsOdds,
   apiSportsQuotaFloorSeconds,
   suspendStaleLiveMarkets,
-  providerRequestCache
+  providerRequestCache,
+  allocateOddsApiEventMarkets
 };
 
 // Builder helpers shared by provider adapters (e.g. sportsbook-footballdataio.js)
