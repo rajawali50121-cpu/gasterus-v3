@@ -73,7 +73,21 @@ test('free-tier football-data provider is included in the sportsbook refresh des
 test('member requests do not wait on a competing feed refresh beyond the proxy budget', () => {
   assert.match(feed,/const REFRESH_LOCK_WAIT_MS = 5000/);
   assert.match(feed,/SPORTS_REFRESH_IN_PROGRESS/);
-  assert.equal(feed.match(/if \(error\?\.code === 'SPORTS_REFRESH_IN_PROGRESS'\) throw error/g)?.length, 2);
+  assert.equal(feed.match(/if \(error\?\.code === 'SPORTS_REFRESH_IN_PROGRESS'\) throw error/g)?.length, 1);
+});
+
+test('request refresh contention serves cached markets read-only instead of failing or accepting stale bets', () => {
+  assert.match(feed, /reason === 'request-expired-cache'/);
+  assert.match(feed, /cachedFeedReadOnlyForContention\(cached\)/);
+  assert.match(feed, /events: suspendedEvents\(feed\.events\)/);
+  assert.match(feed, /bettableMarkets: 0/);
+  assert.match(feed, /sameContentionFallback/);
+  assert.match(feed, /Sportsbook refresh is owned by another process; serving cached markets read-only/);
+});
+
+test('background refresh contention is logged as a skipped cycle, not an upstream failure', () => {
+  assert.match(feed, /error\?\.code !== 'SPORTS_REFRESH_IN_PROGRESS'\) throw error/);
+  assert.match(feed, /Sportsbook background poll skipped; refresh is owned by another process/);
 });
 
 test('E2E enforces expanded event volume and core market coverage without requiring derived markets per event', () => {

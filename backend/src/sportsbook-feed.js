@@ -757,6 +757,23 @@ function suspendedEvents(events = []) {
   }));
 }
 
+function cachedFeedReadOnlyForContention(feed) {
+  return {
+    ...feed,
+    events: suspendedEvents(feed.events),
+    providers: (feed.providers || []).map(provider => provider.enabled
+      ? { ...provider, healthy: false, bettingAllowed: false, bettableMarkets: 0 }
+      : provider),
+    expiresAt: Date.now() + REFRESH_MS,
+    readOnlySource: true,
+    bettableMarkets: 0,
+    error: {
+      code: 'SPORTS_REFRESH_IN_PROGRESS',
+      message: 'Sportsbook feed refresh is still in progress; cached odds are read-only.'
+    }
+  };
+}
+
 async function markCachedFeedReadOnly(error, { reason = 'refresh-failed' } = {}) {
   if (!memory.events.length) return null;
   const now = Date.now();
@@ -930,7 +947,24 @@ export async function refreshSportsbookFeed({ reason = 'scheduled' } = {}) {
     });
     return refreshed;
   } catch (error) {
-    if (error?.code === 'SPORTS_REFRESH_IN_PROGRESS') throw error;
+    if (error?.code === 'SPORTS_REFRESH_IN_PROGRESS') {
+      if (reason === 'request-expired-cache') {
+        const cached = await readRedisCache();
+        if (cached?.events?.length) {
+          memory = cached.expiresAt > Date.now()
+            ? cached
+            : cachedFeedReadOnlyForContention(cached);
+          if (memory.readOnlySource && memory.error?.code === 'SPORTS_REFRESH_IN_PROGRESS') {
+            logger.info('Sportsbook refresh is owned by another process; serving cached markets read-only', {
+              events: memory.events.length,
+              cacheAgeSeconds: Math.max(0, Math.round((Date.now() - Number(memory.fetchedAt || 0)) / 1000))
+            });
+          }
+          return memory;
+        }
+      }
+      throw error;
+    }
     const stale = await markCachedFeedReadOnly(error, { reason });
     if (stale) return stale;
     throw error;
@@ -947,6 +981,12 @@ export async function refreshSportsbookFeedFromPoll({ reason = 'background-poll'
   backgroundPollInFlight = true;
   try {
     return await refreshSportsbookFeed({ reason });
+  } catch (error) {
+    if (error?.code !== 'SPORTS_REFRESH_IN_PROGRESS') throw error;
+    const cached = await readRedisCache();
+    if (cached?.events?.length && Number(cached.fetchedAt || 0) >= Number(memory.fetchedAt || 0)) memory = cached;
+    logger.info('Sportsbook background poll skipped; refresh is owned by another process', { reason });
+    return memory;
   } finally {
     backgroundPollInFlight = false;
   }
@@ -956,7 +996,12 @@ async function currentFeed({ force = false } = {}) {
   const now = Date.now();
   if (!force) {
     const cached = await readRedisCache();
-    if (cached?.events?.length && Number(cached.fetchedAt || 0) >= Number(memory.fetchedAt || 0)) memory = cached;
+    const sameContentionFallback = memory.readOnlySource
+      && memory.error?.code === 'SPORTS_REFRESH_IN_PROGRESS'
+      && Number(cached?.fetchedAt || 0) === Number(memory.fetchedAt || 0);
+    if (cached?.events?.length
+      && Number(cached.fetchedAt || 0) >= Number(memory.fetchedAt || 0)
+      && !sameContentionFallback) memory = cached;
     if (memory.events.length && memory.expiresAt > now) return memory;
   }
   if (!inFlight) {
