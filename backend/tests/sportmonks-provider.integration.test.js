@@ -36,8 +36,10 @@ const fixture = {
     { id: 1, market_id: 1, market_description: 'Match Winner', label: 'Home', value: '1.9' },
     { id: 2, market_id: 1, market_description: 'Match Winner', label: 'Draw', value: '3.4' },
     { id: 3, market_id: 1, market_description: 'Match Winner', label: 'Away', value: '4.1' },
-    { id: 4, market_id: 6, market_description: 'Asian Handicap', label: 'Home', value: '1.9', handicap: '-0.5' },
-    { id: 5, market_id: 80, market_description: 'Goals Over/Under', label: 'Over', value: '1.8', total: '2.5' }
+    { id: 4, market_id: 6, market_description: 'Asian Handicap', bookmaker_id: 2, label: 'Home', value: '1.9', handicap: '-0.5' },
+    { id: 5, market_id: 6, market_description: 'Asian Handicap', bookmaker_id: 2, label: 'Away', value: '1.9', handicap: '-0.5' },
+    { id: 6, market_id: 80, market_description: 'Goals Over/Under', bookmaker_id: 2, label: 'Over', value: '1.8', total: '2.5' },
+    { id: 7, market_id: 80, market_description: 'Goals Over/Under', bookmaker_id: 2, label: 'Under', value: '2.0', total: '2.5' }
   ]
 };
 

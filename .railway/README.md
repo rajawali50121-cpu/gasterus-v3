@@ -127,6 +127,9 @@ Sportmonks is opt-in and requires both `SPORTMONKS_ENABLED=true` and
 `SPORTMONKS_API_KEY`. The provider reads fixtures sequentially in pages of 25,
 normalizes each fixture before requesting the next page, and filters odds to
 verified market IDs `1,6,80` (match result, Asian handicap, and goals over/under).
+Asian handicap and totals are grouped by line and bookmaker, and only complete
+outcome sets are kept; an invalid price quarantines that line rather than every
+alternate line in the fixture.
 The default seven-day window and 400-fixture cap are resource safeguards, not
 provider pagination sizes. Requests are paced at 20.5 seconds by default to stay
 within the account's observed 180 requests/hour quota; odds snapshots are cached

@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { fetchSharpApi, fetchApiSports, fetchTheOddsApi, fetchSportmonks, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
+import { isValidSportsbookDecimalOdds } from './sportsbook-odds-validation.js';
 import { fetchPublicMarketFeed } from './sportsbook-public-market.js';
 import { fetchFootballDataIo } from './sportsbook-footballdataio.js';
 import { advanceProviderLifecycle, publicProviderLifecycle, shouldProbeProvider, transitionProviderLifecycle } from './sportsbook-provider-lifecycle.js';
@@ -21,9 +22,6 @@ import { projectMemberMarkets } from './sportsbook-member-projection.js';
 
 const MIN_1X2_OVERROUND = 1.00;
 const MAX_1X2_OVERROUND = 1.25;
-// Keeps Indonesian negative odds at or above -5.00 (decimal odds >= 1.20).
-const MIN_DECIMAL_ODDS = 1.20;
-
 function hasValidQuarterLine(line) {
   if (line === null || line === undefined || line === '') return true;
   const value = Number(line);
@@ -69,7 +67,7 @@ export function validateAllHandicapOdds(events = []) {
         }
 
         if (market.suspended || selection.suspended) continue;
-        if (!Number.isFinite(odds) || odds < MIN_DECIMAL_ODDS || odds > 100) {
+        if (!isValidSportsbookDecimalOdds(odds)) {
           reason ||= 'ODDS_RANGE';
           continue;
         }

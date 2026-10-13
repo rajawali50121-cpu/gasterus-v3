@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { isValidSportsbookDecimalOdds } from '../src/sportsbook-odds-validation.js';
 
 const feedSource = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 const publicMarketSource = readFileSync(new URL('../src/sportsbook-public-market.js', import.meta.url), 'utf8');
@@ -17,8 +18,9 @@ const validationLogger = {
 };
 const validateAllHandicapOdds = new Function(
   'logger',
+  'isValidSportsbookDecimalOdds',
   `${validationBlock}; return validateAllHandicapOdds;`
-)(validationLogger);
+)(validationLogger, isValidSportsbookDecimalOdds);
 
 const oddsHelpersStart = publicMarketSource.indexOf('function bookOddsFromProbability');
 const oddsHelpersEnd = publicMarketSource.indexOf('\nfunction asianComponent', oddsHelpersStart);

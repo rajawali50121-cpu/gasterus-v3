@@ -30,7 +30,11 @@ const odds = Array.from({ length: 318 }, (_, index) => {
     id: index + 1,
     market_id: marketId,
     market_description: description,
-    label: index % 2 === 0 ? 'Home' : 'Away',
+    label: marketId === 1
+      ? ['Home', 'Draw', 'Away'][index % 3]
+      : marketId === 6
+        ? (index % 2 === 0 ? 'Home' : 'Away')
+        : (index % 2 === 0 ? 'Over' : 'Under'),
     value: '1.95',
     handicap: '-0.5',
     total: '2.5'

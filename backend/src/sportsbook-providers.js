@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 import { ensureBoundedCacheCapacity, pruneExpiredCacheEntries, setBoundedCacheEntry } from './bounded-cache.js';
 import { readBoundedResponseText } from './bounded-response.js';
+import { isValidSportsbookDecimalOdds } from './sportsbook-odds-validation.js';
 
 const MAX_PROVIDER_EVENTS = 500;
 const MAX_ODDS_API_DETAIL_CACHE_ENTRIES = 100;
@@ -855,13 +856,19 @@ function normalizeSportmonksFixture(raw, oddsRows = []) {
   const home = participants.find(participant => participant?.meta?.location === 'home') || participants[0];
   const away = participants.find(participant => participant?.meta?.location === 'away') || participants[1];
   if (!home?.name || !away?.name) return null;
-  const byMarket = new Map();
+  const oddsByMarketLineBookmaker = new Map();
   for (const row of Array.isArray(oddsRows) ? oddsRows : []) {
     const marketId = String(row?.market_id ?? '');
     if (!marketId) continue;
-    const list = byMarket.get(marketId) || [];
+    const description = clean(row.market_description || row.name || `Market ${marketId}`, 120);
+    const type = sportmonksMarketType(description);
+    if (type === 'OTHER') continue;
+    const line = sportmonksLine(type, row);
+    const bookmakerId = String(row.bookmaker_id ?? row.bookmaker?.id ?? row.bookmaker_name ?? 'unknown');
+    const key = [marketId, slug(description), bookmakerId, line ?? ''].join('|');
+    const list = oddsByMarketLineBookmaker.get(key) || [];
     list.push(row);
-    byMarket.set(marketId, list);
+    oddsByMarketLineBookmaker.set(key, list);
   }
   const current = (Array.isArray(raw?.scores) ? raw.scores : []).find(entry => clean(entry?.description).toUpperCase() === 'CURRENT')?.score || {};
   const event = normalizedEvent({
@@ -883,9 +890,23 @@ function normalizeSportmonksFixture(raw, oddsRows = []) {
     venue: raw?.venue?.name || null,
     periodScores: sportmonksPeriodScores(raw?.scores)
   });
-  // Unsupported market families (shots, winning margin, specials, player props…)
-  // classify as OTHER and are dropped; the per-event market cap keeps memory bounded.
-  event.markets = [...byMarket.values()].map(rows => sportmonksMarket(event, rows)).filter(Boolean).slice(0, 120);
+  const marketCandidates = new Map();
+  for (const rows of oddsByMarketLineBookmaker.values()) {
+    const market = sportmonksMarket(event, rows);
+    if (!market) continue;
+    const key = `${market.type}|${market.period}|${market.line ?? ''}|${slug(market.label)}`;
+    const bookmakerId = String(rows[0]?.bookmaker_id ?? rows[0]?.bookmaker?.id ?? rows[0]?.bookmaker_name ?? 'unknown');
+    const previous = marketCandidates.get(key);
+    const updatedAt = Date.parse(market.updatedAt || '') || 0;
+    const previousUpdatedAt = Date.parse(previous?.market.updatedAt || '') || 0;
+    if (!previous || updatedAt > previousUpdatedAt
+      || (updatedAt === previousUpdatedAt && bookmakerId.localeCompare(previous.bookmakerId) < 0)) {
+      marketCandidates.set(key, { market, bookmakerId });
+    }
+  }
+  // Keep one fresh, coherent bookmaker quote per line; the feed validator can now
+  // quarantine a bad line without discarding every handicap/total for the fixture.
+  event.markets = [...marketCandidates.values()].map(candidate => candidate.market).slice(0, 120);
   return event;
 }
 function sportmonksMarket(event, rows) {
@@ -898,6 +919,8 @@ function sportmonksMarket(event, rows) {
   for (const row of rows) {
     const line = sportmonksLine(type, row);
     const label = sportmonksLabel(type, row);
+    const odds = safeOdds(row?.value);
+    if (odds === null || !isValidSportsbookDecimalOdds(odds)) continue;
     const selection = normalizedSelection(event.id, `m${sample.market_id}:${line ?? ''}`, label, row?.value, {
       line,
       source: 'sportmonks',
@@ -908,10 +931,16 @@ function sportmonksMarket(event, rows) {
     if (!selection) continue;
     const key = `${slug(label)}|${line ?? ''}`;
     const previous = grouped.get(key);
-    if (!previous || selection.odds > previous.odds) grouped.set(key, selection);
+    const updatedAt = Date.parse(row?.latest_bookmaker_update || '') || 0;
+    const previousUpdatedAt = Date.parse(previous?.updatedAt || '') || 0;
+    if (!previous || updatedAt > previousUpdatedAt
+      || (updatedAt === previousUpdatedAt && selection.odds > previous.odds)) {
+      grouped.set(key, selection);
+    }
   }
   const selections = [...grouped.values()];
-  if (!selections.length) return null;
+  const requiredSelections = type === '1X2' ? 3 : ['HANDICAP', 'TOTALS'].includes(type) ? 2 : 1;
+  if (selections.length !== requiredSelections) return null;
   const updatedAt = rows.reduce((latest, row) => {
     const at = iso(row?.latest_bookmaker_update);
     return at && (!latest || at > latest) ? at : latest;
@@ -921,9 +950,11 @@ function sportmonksMarket(event, rows) {
     name: marketLabel(type, description, `m${sample.market_id}`),
     type,
     period,
+    line: sportmonksLine(type, sample),
     selections,
     source: 'sportmonks',
     sourceMarketId: sample.market_id ? `m${sample.market_id}` : null,
+    bookmaker: sample.bookmaker_name || sample.bookmaker?.name || null,
     suspended: selections.every(selection => selection.suspended),
     updatedAt
   });
