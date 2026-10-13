@@ -157,9 +157,9 @@ test('staging and development can explicitly enable derived markets', () => {
   }
 });
 
-test('Sportmonks is hard-disabled and cannot be re-enabled by production environment variables', () => {
-  assert.match(config, /sportmonksEnabled:\s*false/);
-  assert.doesNotMatch(feed, /fetchSportmonks|code:\s*'sportmonks'/);
+test('Sportmonks requires an explicit enable flag and API key', () => {
+  assert.match(config, /sportmonksEnabled:\s*bool\('SPORTMONKS_ENABLED',\s*false\)\s*&&\s*Boolean\(sportmonksKey\)/);
+  assert.match(feed, /fetchSportmonks/);
 
   const script = `
     const { fetchSportmonks } = await import('./src/sportsbook-providers.js');
@@ -180,8 +180,8 @@ test('Sportmonks is hard-disabled and cannot be re-enabled by production environ
       SESSION_HMAC_KEY: 's'.repeat(48),
       API_KEY_PEPPER: 'p'.repeat(48),
       MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
-      SPORTMONKS_ENABLED: 'true',
-      SPORTMONKS_API_KEY: 'configured-but-disabled'
+      SPORTMONKS_ENABLED: 'false',
+      SPORTMONKS_API_KEY: 'configured-but-not-enabled'
     }
   });
   assert.equal(result.status, 0, result.stderr);

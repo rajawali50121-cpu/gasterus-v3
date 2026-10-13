@@ -120,3 +120,16 @@ command reports the API error without falling back to a configuration apply.
 - Use `group("Name", [resources])` to keep large projects organized on the Railway canvas.
 - Secrets imported from Railway are rendered as `preserve()` so existing values are retained without writing secret values to source. Use `railway config pull --omit-preserved-variables` for a smaller import. `railway config pull --include-variables` decrypts and inlines non-sealed values (including secrets that were never sealed).
 - `railway config migrate` finds every `railway.json` / `railway.toml` in the repository and writes them into this one file.
+
+## Sportmonks fixture feed
+
+Sportmonks is opt-in and requires both `SPORTMONKS_ENABLED=true` and
+`SPORTMONKS_API_KEY`. The provider reads fixtures sequentially in pages of 25,
+normalizes each fixture before requesting the next page, and filters odds to
+verified market IDs `1,6,80` (match result, Asian handicap, and goals over/under).
+The default seven-day window and 400-fixture cap are resource safeguards, not
+provider pagination sizes. Requests are paced at 20.5 seconds by default to stay
+within the account's observed 180 requests/hour quota; odds snapshots are cached
+for 15 minutes. A single response is capped at 6 MB and transient failures are
+retried at most three times. These controls reduce memory and quota risk but cannot
+guarantee that a process can never run out of memory.

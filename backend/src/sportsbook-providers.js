@@ -213,7 +213,7 @@ function normalizedEvent({ provider, providerId, sport, league, country = '', st
   };
 }
 
-async function requestJson(url, { headers = {}, label = 'sports provider' } = {}) {
+async function requestJson(url, { headers = {}, label = 'sports provider', maxBytes = config.sportsProviderCacheMaxEntryBytes } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.sportsFeedRequestTimeoutMs);
   try {
@@ -222,8 +222,14 @@ async function requestJson(url, { headers = {}, label = 'sports provider' } = {}
       signal: controller.signal,
       redirect: 'error'
     });
-    if (!response.ok) throw new Error(`${label} returned HTTP ${response.status}`);
-    const text = await readBoundedResponseText(response, label, config.sportsProviderCacheMaxEntryBytes);
+    if (!response.ok) {
+      const error = new Error(`${label} returned HTTP ${response.status}`);
+      error.status = response.status;
+      const retryAfter = Number(response.headers.get('retry-after'));
+      if (Number.isFinite(retryAfter) && retryAfter > 0) error.retryAfterMs = Math.min(retryAfter * 1000, 300_000);
+      throw error;
+    }
+    const text = await readBoundedResponseText(response, label, maxBytes);
     return JSON.parse(text);
   } finally {
     clearTimeout(timeout);
@@ -784,12 +790,6 @@ export async function fetchTheOddsApi() {
 }
 
 // --- Sportmonks (v3 football) ---
-// The supplied Sportmonks plan does not expose the standalone /football/odds/*
-// endpoints (HTTP 404) and the `markets` filter is ignored on fixture includes, so
-// prematch prices are collected per fixture via `include=odds;scores` (~1.5 MB
-// each, every market/bookmaker). Payloads are parsed and normalized once, cached
-// as ready events, and the global event cap bounds both resident memory and the
-// number of outbound odds requests per refresh cycle.
 const sportmonksEventCache = new Map();
 const SPORTMONKS_LIVE_STATES = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT', 'INPLAY']);
 const SPORTMONKS_FINISHED_STATES = new Set(['FT', 'AET', 'PEN', 'FINISHED', 'ENDED']);
@@ -929,43 +929,63 @@ function sportmonksMarket(event, rows) {
   });
 }
 
-// Cache untuk data Sportmonks dengan TTL 2 menit
 const sportmonksCache = new Map();
-const SPORTMONKS_CACHE_TTL = 2 * 60 * 1000; // 2 menit
+let sportmonksNextRequestAt = 0;
+let sportmonksInFlight = null;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// Fetch semua halaman data dari Sportmonks dengan pagination
-async function fetchAllPages(base, endpoint, params, maxPages = 10) {
-  const allData = [];
-  let page = 1;
-  let hasMore = true;
-  
-  while (hasMore && page <= maxPages) {
+async function paceSportmonks(minimumDelayMs = config.sportmonksRequestDelayMs) {
+  const waitMs = Math.max(0, sportmonksNextRequestAt - Date.now());
+  if (waitMs) await sleep(waitMs);
+  sportmonksNextRequestAt = Date.now() + Math.max(minimumDelayMs, config.sportmonksRequestDelayMs);
+}
+
+async function* fetchSportmonksFixtures(base, date, maxPages) {
+  const endpoint = `/football/fixtures/date/${date}`;
+  for (let page = 1; page <= maxPages; page += 1) {
     const url = new URL(`${base}${endpoint}`);
-    url.searchParams.set('api_token', config.sportmonksKey);
     url.searchParams.set('page', String(page));
-    url.searchParams.set('per_page', '50');
-    for (const [key, value] of Object.entries(params)) {
-      url.searchParams.set(key, value);
-    }
-    
-    try {
-      const payload = await requestJson(url, { label: `Sportmonks page ${page}` });
-      const data = payload?.data || [];
-      if (data.length === 0) {
-        hasMore = false;
-      } else {
-        allData.push(...data);
-        // Cek apakah masih ada halaman berikutnya
-        hasMore = data.length >= 50 && payload?.pagination?.has_more;
-        page++;
+    url.searchParams.set('per_page', String(config.sportmonksPageSize));
+    url.searchParams.set('include', 'state;scores;league;odds;participants');
+    url.searchParams.set('filters', `markets:${config.sportmonksMarketIds}`);
+
+    let payload;
+    for (let attempt = 0; ; attempt += 1) {
+      await paceSportmonks(attempt ? 0 : config.sportmonksRequestDelayMs);
+      try {
+        payload = await requestJson(url, {
+          headers: { authorization: config.sportmonksKey },
+          label: `Sportmonks ${date} page ${page}`,
+          maxBytes: config.sportmonksMaxResponseBytes
+        });
+        break;
+      } catch (error) {
+        const retryable = !Number.isInteger(error.status) || error.status === 429 || error.status >= 500;
+        if (!retryable || attempt >= config.sportmonksMaxRetries) throw error;
+        const backoffMs = error.retryAfterMs || Math.min(60_000, 1000 * 2 ** attempt);
+        logger.warn('Sportmonks request failed; retrying', {
+          date, page, attempt: attempt + 1, status: error.status || null, backoffMs
+        });
+        sportmonksNextRequestAt = Math.max(sportmonksNextRequestAt, Date.now() + backoffMs);
       }
-    } catch (error) {
-      logger.warn(`Sportmonks pagination error page ${page}: ${error.message}`);
-      hasMore = false;
     }
+
+    const rows = payload?.data;
+    if (!Array.isArray(rows)) throw new Error(`Sportmonks ${date} page ${page} returned an invalid data shape`);
+    if (payload?.errors && Object.keys(payload.errors).length) {
+      throw new Error(`Sportmonks ${date} page ${page} returned an API error`);
+    }
+    if (!rows.length && payload?.message) {
+      logger.info('Sportmonks returned no matching fixtures', { date, page, message: clean(payload.message, 200) });
+    }
+    for (const fixture of rows) yield fixture;
+
+    const pagination = payload?.pagination || {};
+    const hasMore = pagination.has_more === true
+      || (Number.isInteger(Number(pagination.current_page)) && Number.isInteger(Number(pagination.last_page))
+        && Number(pagination.current_page) < Number(pagination.last_page));
+    if (rows.length === 0 || pagination.has_more === false || (pagination.last_page && !hasMore)) break;
   }
-  
-  return allData;
 }
 
 export async function fetchSportmonks() {
@@ -974,34 +994,45 @@ export async function fetchSportmonks() {
     return { provider: 'sportmonks', enabled: false, events: [] };
   }
   
+  const now = Date.now();
+  const cacheKey = `sportmonks:all-events:${utcDate(0)}`;
+  const cacheTtlMs = Math.max(60, Number(config.sportmonksOddsRefreshSeconds) || 900) * 1000;
+  
+  // Reuse the last fully normalized snapshot while the provider quota window is paced.
+  const cached = sportmonksCache.get(cacheKey);
+  if (cached && now - cached.fetchedAt < cacheTtlMs) {
+    logger.info('Sportmonks: returning cached data', { age: Math.round((now - cached.fetchedAt) / 1000) + 's' });
+    return { provider: 'sportmonks', enabled: true, events: cached.events, errors: cached.errors || [] };
+  }
+  if (sportmonksInFlight) return sportmonksInFlight;
+  sportmonksInFlight = refreshSportmonks();
+  try {
+    return await sportmonksInFlight;
+  } finally {
+    sportmonksInFlight = null;
+  }
+}
+
+async function refreshSportmonks() {
   const base = config.sportmonksBaseUrl.replace(/\/$/, '');
   const now = Date.now();
   const cacheKey = `sportmonks:all-events:${utcDate(0)}`;
-  
-  // Cek cache terlebih dahulu (TTL 2 menit)
-  const cached = sportmonksCache.get(cacheKey);
-  if (cached && now - cached.fetchedAt < SPORTMONKS_CACHE_TTL) {
-    logger.info('Sportmonks: returning cached data', { age: Math.round((now - cached.fetchedAt) / 1000) + 's' });
-    return { provider: 'sportmonks', enabled: true, events: cached.events, errors: [] };
-  }
-  
   const daysAhead = Math.max(0, Number(config.sportmonksDaysAhead) || 0);
   const dates = [];
   for (let offset = 0; offset <= daysAhead; offset += 1) dates.push(utcDate(offset));
   
   const errors = [];
-  const allFixtures = [];
+  const events = [];
   const seen = new Set();
+  const maxEvents = Math.max(0, Number(config.sportmonksMaxTotalEvents) || 0);
+  const maxPagesPerDate = Math.ceil(maxEvents / config.sportmonksPageSize);
+  let scannedFixtures = 0;
   
-  // Fetch fixtures untuk setiap tanggal dengan pagination
   for (const date of dates) {
+    if (events.length >= maxEvents || scannedFixtures >= maxEvents) break;
     try {
-      // Gunakan include untuk mendapatkan semua data dalam satu request
-      const fixtures = await fetchAllPages(base, `/football/fixtures/date/${date}`, {
-        include: 'state;participants;league.country;odds;scores'
-      });
-      
-      for (const fixture of fixtures) {
+      for await (const fixture of fetchSportmonksFixtures(base, date, maxPagesPerDate)) {
+        if (++scannedFixtures > maxEvents) break;
         const id = String(fixture?.id ?? '');
         if (!id || seen.has(id)) continue;
         seen.add(id);
@@ -1010,42 +1041,17 @@ export async function fetchSportmonks() {
         if (state !== 'SCHEDULED' && state !== 'LIVE') continue;
         if (fixture.has_odds === false) continue;
         
-        allFixtures.push(fixture);
+        const event = normalizeSportmonksFixture(fixture, fixture.odds || []);
+        if (event?.markets?.length) events.push(event);
+        if (events.length >= maxEvents) break;
       }
     } catch (error) {
       errors.push(`Date ${date}: ${error.message}`);
     }
   }
-  
-  // Filter dan urutkan fixtures
-  const maxEvents = Math.max(0, Number(config.sportmonksMaxTotalEvents) || 0);
-  const selected = allFixtures
-    .filter(f => {
-      const start = Number(f.starting_at_timestamp) * 1000 || Date.parse(f.starting_at || '') || 0;
-      return !start || start >= now - 3 * 60 * 60 * 1000;
-    })
-    .sort((a, b) => {
-      const aStart = Number(a.starting_at_timestamp) * 1000 || Date.parse(a.starting_at || '') || 0;
-      const bStart = Number(b.starting_at_timestamp) * 1000 || Date.parse(b.starting_at || '') || 0;
-      return aStart - bStart;
-    })
-    .slice(0, maxEvents);
-  
-  // Normalize fixtures menjadi events
-  const events = [];
-  for (const fixture of selected) {
-    try {
-      const event = normalizeSportmonksFixture(fixture, fixture.odds || []);
-      if (event && event.markets.length) {
-        events.push(event);
-      }
-    } catch (error) {
-      errors.push(`Fixture ${fixture.id}: ${error.message}`);
-    }
-  }
-  
-  // Simpan ke cache
-  sportmonksCache.set(cacheKey, { fetchedAt: now, events });
+
+  events.sort((a, b) => Date.parse(a.startTime || '') - Date.parse(b.startTime || ''));
+  sportmonksCache.set(cacheKey, { fetchedAt: Date.now(), events, errors });
   
   // Bounded cache: hapus entri lama jika terlalu banyak
   if (sportmonksCache.size > 10) {

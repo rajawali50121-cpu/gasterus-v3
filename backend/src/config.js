@@ -20,6 +20,7 @@ const footballDataIoKey = optionalSecret('FOOTBALLDATA_IO_KEY');
 const rapidApiKey = optionalSecret('RAPIDAPI_CASINO_KEY') || optionalSecret('RAPIDAPI_KEY');
 const betnexApiKey = optionalSecret('BETNEX_API_KEY');
 const betnexCallbackKey = optionalSecret('BETNEX_CALLBACK_KEY') || betnexApiKey;
+const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
 function pricedProviderEnabled(name, key) {
   const raw = String(process.env[name] ?? '').trim().toLowerCase();
   if (!raw || raw === 'auto') return isProduction && Boolean(key);
@@ -168,18 +169,19 @@ export const config = Object.freeze({
   footballDataIoEnabled: pricedProviderEnabled('FOOTBALLDATA_IO_ENABLED', footballDataIoKey),
   footballDataIoRefreshSeconds: int('FOOTBALLDATA_IO_REFRESH_SECONDS', 300, 60, 1800),
   footballDataIoUpcomingLimit: int('FOOTBALLDATA_IO_UPCOMING_LIMIT', 500, 10, 1000),
-  // Disabled: this credential currently returns HTTP 401, and this source does not
-  // provide bettable markets for our feed. Do not re-enable from environment variables.
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
-  sportmonksEnabled: false,
-  sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 2, 0, 7),
+  sportmonksKey,
+  sportmonksEnabled: bool('SPORTMONKS_ENABLED', false) && Boolean(sportmonksKey),
+  sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 7, 0, 7),
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
-  sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 180, 30, 1800),
-  // Cap diturunkan 40->20: Sportmonks include=odds ~1.5MB/fixture. 40 events =
-  // ~60MB payload mentah per siklus di heap feed-worker 256MB. 20 events tetap
-  // cukup untuk 2 hari matchday, dan env override tetap bisa naikkan lagi.
-  sportmonksMaxTotalEvents: int('SPORTMONKS_MAX_TOTAL_EVENTS', 20, 0, 250),
-  sportmonksMaxParallel: int('SPORTMONKS_MAX_PARALLEL', 6, 1, 12),
+  sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 900, 60, 1800),
+  sportmonksMaxTotalEvents: int('SPORTMONKS_MAX_TOTAL_EVENTS', 400, 0, 500),
+  sportmonksPageSize: int('SPORTMONKS_PAGE_SIZE', 25, 1, 25),
+  sportmonksMarketIds: text('SPORTMONKS_MARKET_IDS', '1,6,80'),
+  sportmonksRequestDelayMs: int('SPORTMONKS_REQUEST_DELAY_MS', 20500, 0, 120000),
+  sportmonksMaxRetries: int('SPORTMONKS_MAX_RETRIES', 3, 0, 5),
+  sportmonksMaxResponseBytes: int('SPORTMONKS_MAX_RESPONSE_BYTES', 6_000_000, 262_144, 12_000_000),
+  sportmonksMaxParallel: int('SPORTMONKS_MAX_PARALLEL', 1, 1, 12),
   sportsSourceRegistryEnabled: bool('SPORTS_SOURCE_REGISTRY_ENABLED', true),
   sportsSourceEvictUnhealthyHours: int('SPORTS_SOURCE_EVICT_UNHEALTHY_HOURS', 2, 1, 720),
   // Safe floor: promotion is always gated by isConfigEnabled(), so the registry
