@@ -174,7 +174,82 @@ test('Worker republishes cached snapshots before their ingestion freshness windo
   );
   assert.match(workerSource, /Math\.min\(config\.theOddsApiRefreshSeconds,\s*Math\.floor\(config\.sportsbookIngestMaxAgeSeconds\s*\/\s*2\)\)/);
   assert.match(workerSource, /fetchOddsApi:\s*fetchTheOddsApi/);
-  assert.doesNotMatch(workerSource, /fetchSportmonks|fetchApiSports/);
+  // Sportmonks primer + The Odds API cadangan keduanya disambungkan ke worker;
+  // hanya adapter api-sports yang memang tidak dipakai.
+  assert.match(workerSource, /fetchSportmonks/);
+  assert.doesNotMatch(workerSource, /fetchApiSports/);
+});
+
+test('Worker combines Sportmonks primary with The Odds API fallback in one snapshot', async () => {
+  const order = [];
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async options => {
+      order.push('sportmonks');
+      assert.deepEqual(options, { maxEvents: 100 });
+      return { provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'sm-1', league: 'Premier League' })] };
+    },
+    fetchOddsApi: async options => {
+      order.push('the-odds-api');
+      assert.deepEqual(options, { maxEvents: 100 });
+      return { provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'odds-1', league: 'Serie A' })] };
+    },
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+
+  assert.deepEqual(order, ['sportmonks', 'the-odds-api'], 'provider berjalan sekuensial, Sportmonks lebih dulu');
+  assert.equal(snapshot.eventCount, 2);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'the-odds-api']);
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
+});
+
+test('Worker keeps publishing when Sportmonks fails (The Odds API fallback survives)', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => { throw new Error('Sportmonks down'); },
+    fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'fallback-1' })] }),
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 1);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['the-odds-api']);
+});
+
+test('Worker still publishes when The Odds API fails (Sportmonks primary survives)', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'primary-1' })] }),
+    fetchOddsApi: async () => { throw new Error('quota exhausted'); },
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 1);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks']);
+});
+
+test('Worker dedupes overlapping fixtures preferring Sportmonks as primary', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'dup', home: 'Alpha', away: 'Beta' })] }),
+    fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'dup-odds', home: 'Alpha', away: 'Beta' })] }),
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 1, 'fixture sama dari dua provider tidak boleh ganda');
+  const selected = snapshot.providerResults.find(result => result.events.length);
+  assert.equal(selected.provider, 'sportmonks', 'Sportmonks menang untuk fixture prematch yang sama');
+});
+
+test('Worker fails closed when every provider fetch throws', async () => {
+  await assert.rejects(
+    buildSportsbookRenderSnapshot({
+      fetchSportmonks: async () => { throw new Error('no key'); },
+      fetchOddsApi: async () => { throw new Error('quota'); },
+      teamKey
+    }),
+    /No sportsbook provider could be fetched/
+  );
 });
 
 test('Worker snapshot freshness starts after provider fetches finish', async () => {

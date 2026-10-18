@@ -21,7 +21,7 @@ configureProviderOnlyRuntime();
 
 const [
   { config },
-  { fetchTheOddsApi, teamKey },
+  { fetchTheOddsApi, fetchSportmonks, teamKey },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot }
 ] = await Promise.all([
@@ -50,6 +50,7 @@ while (!shutdown.signal.aborted) {
   try {
     const snapshot = await buildSportsbookRenderSnapshot({
       fetchOddsApi: fetchTheOddsApi,
+      fetchSportmonks,
       maxEvents: config.sportsbookRenderMaxEvents,
       teamKey
     });

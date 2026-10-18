@@ -92,13 +92,34 @@ export function combineSportsbookProviderResults(providerResults, {
 
 export async function buildSportsbookRenderSnapshot({
   fetchOddsApi,
+  fetchSportmonks,
   maxEvents = 500,
   teamKey,
   now
 }) {
+  // Sportmonks adalah sumber utama cakupan luas (maks 30 halaman x 20 = 600
+  // kandidat, dibatasi maxEvents). The Odds API dipertahankan sebagai CADANGAN
+  // sehingga feed tidak pernah kosong bila salah satu provider gagal (dan
+  // sebaliknya). Fetcher dijalankan SEKUENSIAL dan tiap kegagalan diisolasi:
+  // hanya satu payload provider yang hidup pada satu waktu, sehingga heap
+  // worker 224MB tetap dapat diprediksi (anti-OOM).
+  const fetchers = [
+    { provider: 'sportmonks', fetch: fetchSportmonks },
+    { provider: 'the-odds-api', fetch: fetchOddsApi }
+  ];
   const providerResults = [];
-  if (typeof fetchOddsApi === 'function') {
-    providerResults.push(await fetchOddsApi({ maxEvents }));
+  const failures = [];
+  for (const { provider, fetch } of fetchers) {
+    if (typeof fetch !== 'function') continue;
+    try {
+      const result = await fetch({ maxEvents });
+      if (result) providerResults.push(result);
+    } catch (error) {
+      failures.push(`${provider}: ${error?.message || String(error)}`);
+    }
+  }
+  if (!providerResults.length) {
+    throw new Error(`No sportsbook provider could be fetched; snapshot was not sent. ${failures.join('; ')}`);
   }
 
   const combined = combineSportsbookProviderResults(providerResults, {

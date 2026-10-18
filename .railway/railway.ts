@@ -95,13 +95,17 @@ export default defineRailway(() => {
       WORKER_HEAP_MB: preserve()
     }
   });
-  // Scraper odds (The Odds API) berjalan sebagai service TERPISAH agar beban
-  // scrape tidak pernah menyentuh memori service web (anti-OOM). Pengaman:
+  // Scraper odds berjalan sebagai service TERPISAH agar beban scrape tidak
+  // pernah menyentuh memori service web (anti-OOM). Pengaman:
   //   - heap V8 dikunci 224MB lewat NODE_OPTIONS (container ~512MB)
-  //   - hanya 5 liga andalan; h2h x eu = 1 kredit/request; refresh 720 dtk
-  //     (di bawah jendela harga prematch 900 dtk)
-  //   - market per-event dimatikan (tanpa fetch tambahan), cache provider
-  //     berbatas byte, snapshot berbatas 500 event / 6MB
+  //   - Sportmonks SUMBER UTAMA cakupan luas: halaman dibatasi 30 x 20 = 600
+  //     kandidat -> snapshot maks 500 event; key diwariskan dari web sehingga
+  //     tidak perlu service/platform baru
+  //   - The Odds API CADANGAN 5 liga andalan; h2h x eu = 1 kredit/request;
+  //     refresh 720 dtk (di bawah jendela harga prematch 900 dtk)
+  //   - provider dijalankan sekuensial (satu payload pada satu waktu), market
+  //     per-event dimatikan (tanpa fetch tambahan), cache provider berbatas
+  //     byte, snapshot berbatas 500 event / 6MB
   const sportsbookRenderWorker = service("sportsbook-render-worker", {
     source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile.sportsbook-render-worker" },
@@ -125,7 +129,14 @@ export default defineRailway(() => {
       THE_ODDS_API_EVENT_MARKETS_ENABLED: "false",
       THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT: "0",
       THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS: "0",
-      THE_ODDS_API_SPORT_KEYS: "soccer_epl,soccer_spain_la_liga,soccer_italy_serie_a,soccer_germany_bundesliga,soccer_uefa_champs_league"
+      THE_ODDS_API_SPORT_KEYS: "soccer_epl,soccer_spain_la_liga,soccer_italy_serie_a,soccer_germany_bundesliga,soccer_uefa_champs_league",
+      // Sportmonks primer (cakupan luas). Key & batas diwariskan/diset di
+      // worker yang sama — service web tetap bebas beban scrape Sportmonks.
+      SPORTMONKS_ENABLED: "true",
+      SPORTMONKS_API_KEY: "${{web.SPORTMONKS_API_KEY}}",
+      SPORTMONKS_MAX_TOTAL_EVENTS: "500",
+      SPORTMONKS_REFRESH_SECONDS: "300",
+      SPORTMONKS_REQUEST_DELAY_MS: "0"
     }
   });
 

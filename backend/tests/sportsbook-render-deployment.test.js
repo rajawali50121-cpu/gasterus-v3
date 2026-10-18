@@ -32,7 +32,7 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(renderDockerfile, /CMD \["node", "backend\/src\/sportsbook-render-worker\.js"\]/);
 });
 
-test('worker fetch stays limited to flagship leagues so Railway RAM stays safe', () => {
+test('worker runs Sportmonks as primary with The Odds API fallback inside the quota/RAM budget', () => {
   assert.equal(railwayWorkerEnv('THE_ODDS_API_ENABLED'), 'true');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_REGIONS'), 'eu');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_MARKETS'), 'h2h');
@@ -40,6 +40,15 @@ test('worker fetch stays limited to flagship leagues so Railway RAM stays safe',
   assert.equal(railwayWorkerEnv('THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS'), '0');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
   assert.match(worker, /fetchOddsApi:\s*fetchTheOddsApi/);
+
+  // Sportmonks primer di worker yang sama: key diwariskan dari web (tanpa
+  // service/platform baru) dan dibatasi 500 event agar heap 224MB aman.
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), '500');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '300');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '0');
+  assert.match(worker, /fetchSportmonks/);
 
   const sportKeys = (railwayWorkerEnv('THE_ODDS_API_SPORT_KEYS') || '').split(',').map(v => v.trim()).filter(Boolean);
   assert.ok(sportKeys.includes('soccer_epl'), 'Premier League wajib termasuk dalam cakupan scraper');
