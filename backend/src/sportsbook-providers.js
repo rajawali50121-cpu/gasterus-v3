@@ -1815,7 +1815,17 @@ export function mergeProviderEvents(providerResults, options = {}) {
       fixturesByTeams.set(fixtureKey, candidates);
     }
   }
-  return events.map(event => applySettlementSafety(applyManualFtSettlementFallback(event, options)));
+  // Safety net: pasti setiap event memiliki setidaknya satu pasaran odds.
+  // Event tanpa markets dari provider mana pun diisi dengan generateStandardMarkets
+  // sehingga jumlah event tidak pernah berkurang dan sportsbook UI tidak kosong.
+  const finalEvents = events.map(event => {
+    if (!event.markets || event.markets.length === 0) {
+      event.markets = generateStandardMarkets(event);
+      event._oddsFallback = true;
+    }
+    return applySettlementSafety(applyManualFtSettlementFallback(event, options));
+  });
+  return finalEvents;
 }
 export function publicEvent(event) {
   return {
