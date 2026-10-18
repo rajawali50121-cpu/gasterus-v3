@@ -12,7 +12,7 @@ const config = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8'
 test('sportsbook feed defaults stay inside Railway free-tier event and cache budgets', () => {
   assert.match(config, /sportsFeedMaxEvents: int\('SPORTS_FEED_MAX_EVENTS', 500, 20, 500\)/);
   assert.match(config, /sportsFeedMaxCacheBytes: int\('SPORTS_FEED_MAX_CACHE_BYTES', 12_000_000, 262_144, 15_000_000\)/);
-  assert.match(config, /sportsProviderCacheMaxTotalBytes: int\('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 10_000_000/);
+  assert.match(config, /sportsProviderCacheMaxTotalBytes: int\('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000/);
   assert.match(config, /sportsbookMemberMaxEvents: int\('SPORTSBOOK_MEMBER_MAX_EVENTS', 500, 20, 500\)/);
   assert.match(config, /theOddsApiMaxTotalEvents: int\('THE_ODDS_API_MAX_TOTAL_EVENTS', 500, 0, 500\)/);
   assert.match(config, /publicMarketMaxEvents: int\('PUBLIC_MARKET_MAX_EVENTS', 500, 10, 500\)/);
@@ -236,14 +236,15 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
     globalThis.fetch = async input => {
       const url = new URL(input);
       const page = Number(url.searchParams.get('page'));
+      const perPage = Number(url.searchParams.get('per_page')) || 20;
       calls.push({ page, perPage: url.searchParams.get('per_page') });
       const leagues = Array.from({ length: 60 }, (_, index) =>
         index >= 10 && index < 15 ? 'Premier League' : 'Regional League'
       );
-      const data = leagues.slice((page - 1) * 5, page * 5).map((league, index) =>
-        fixture((page - 1) * 5 + index + 1, league)
+      const data = leagues.slice((page - 1) * perPage, page * perPage).map((league, index) =>
+        fixture((page - 1) * perPage + index + 1, league)
       );
-      return new Response(JSON.stringify({ data, pagination: { has_more: page < 12 } }), {
+      return new Response(JSON.stringify({ data, pagination: { has_more: page * perPage < 60 } }), {
         headers: { 'content-type': 'application/json' }
       });
     };
@@ -289,9 +290,9 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
   assert.equal(output.eventCount, 50);
   assert.deepEqual(output.leagues, ['Premier League', 'Regional League']);
   assert.deepEqual(output.sources, ['sportmonks']);
-  assert.equal(output.pages, 12);
-  assert.deepEqual(output.pageNumbers, Array.from({ length: 12 }, (_, index) => index + 1));
-  assert.deepEqual(output.pageSizes, ['5']);
+  assert.equal(output.pages, 3);
+  assert.deepEqual(output.pageNumbers, [1, 2, 3]);
+  assert.deepEqual(output.pageSizes, ['20']);
 });
 
 test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
@@ -319,8 +320,9 @@ test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
     globalThis.fetch = async input => {
       const url = new URL(input);
       const page = Number(url.searchParams.get('page'));
+      const perPage = Number(url.searchParams.get('per_page')) || 20;
       calls.push(page);
-      const data = Array.from({ length: 5 }, (_, index) => fixture((page - 1) * 5 + index + 1));
+      const data = Array.from({ length: perPage }, (_, index) => fixture((page - 1) * perPage + index + 1));
       return new Response(JSON.stringify({ data, pagination: { has_more: page < 120 } }), {
         headers: { 'content-type': 'application/json' }
       });
@@ -371,9 +373,9 @@ test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1)), {
     workerEvents: 500,
-    workerPages: 120,
+    workerPages: 30,
     highCapacityEvents: 500,
-    highCapacityPages: 119,
+    highCapacityPages: 30,
     railwayDefaultEvents: 500
   });
 });

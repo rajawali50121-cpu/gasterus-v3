@@ -20,10 +20,30 @@ export function primaryMarketColumns(event, period) {
     })
     .map((market) => {
       const type = String(market.type || '').toUpperCase();
+      let selections = Array.isArray(market.selections) ? market.selections : [];
+      // Batasi HANDICAP / TOTALS ke satu line utama agar kartu Over/Under
+      // tidak melebar menjadi belasan kolom sempit yang membuat teks
+      // line & odds saling bertumpuk. Pilih line dengan jumlah pilihan
+      // paling lengkap (prefer 2 arah), lalu line terkecil sebagai main line.
+      if ((type === 'HANDICAP' || type === 'TOTALS') && selections.length > 2) {
+        const byLine = new Map();
+        for (const selection of selections) {
+          const key = selection?.line ?? market.line ?? '';
+          const list = byLine.get(key) || [];
+          list.push(selection);
+          byLine.set(key, list);
+        }
+        const ranked = [...byLine.entries()].sort((a, b) => {
+          const countDiff = b[1].length - a[1].length;
+          if (countDiff) return countDiff;
+          return Number(a[0]) - Number(b[0]) || String(a[0]).localeCompare(String(b[0]));
+        });
+        selections = ranked[0]?.[1] || selections;
+      }
       return {
         title: MARKET_NAMES[type] || market.label || market.type || 'Pasar',
         market,
-        outcomes: market.selections.map((selection, index) => {
+        outcomes: selections.map((selection, index) => {
           const text = `${selection.label || ''} ${selection.key || ''}`.trim().toLowerCase();
           const tokens = text.split(/[^a-z0-9]+/).filter(Boolean);
           let label = selection.label || selection.key || `Pilihan ${index + 1}`;
@@ -31,8 +51,11 @@ export function primaryMarketColumns(event, period) {
             label = tokens.includes('home') || tokens.includes('1') ? '1' :
               tokens.includes('away') || tokens.includes('2') ? '2' : label;
           } else if (type === 'TOTALS') {
-            label = tokens.includes('over') || tokens.includes('o') ? 'O' :
-              tokens.includes('under') || tokens.includes('u') ? 'U' : label;
+            // Hindari false-positive token satu huruf ('o'/'u'): hanya
+            // petakan kata utuh over/under, atau label satu huruf O/U.
+            const raw = String(selection.label || selection.key || '').trim().toLowerCase();
+            label = tokens.includes('over') || raw === 'o' ? 'O' :
+              tokens.includes('under') || raw === 'u' ? 'U' : label;
           } else if (type === '1X2') {
             label = tokens.includes('home') || tokens.includes('1') ? '1' :
               tokens.includes('draw') || tokens.includes('x') ? 'X' :

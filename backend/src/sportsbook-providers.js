@@ -1059,7 +1059,7 @@ async function waitForSportmonksRequestSlot() {
 async function fetchAllPages(base, endpoint, params, maxPages = 4, onPage = () => {}) {
   let page = 1;
   let hasMore = true;
-  
+
   while (hasMore && page <= maxPages) {
     const url = new URL(`${base}${endpoint}`);
     url.searchParams.set('api_token', config.sportmonksKey);
@@ -1068,8 +1068,7 @@ async function fetchAllPages(base, endpoint, params, maxPages = 4, onPage = () =
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, value);
     }
-    
-    await waitForSportmonksRequestSlot();
+
     await waitForSportmonksRequestSlot();
     const payload = await requestJson(url, {
       label: `Sportmonks page ${page}`,
@@ -1080,7 +1079,11 @@ async function fetchAllPages(base, endpoint, params, maxPages = 4, onPage = () =
       hasMore = false;
     } else {
       await onPage(data);
-      hasMore = data.length >= SPORTMONKS_PAGE_SIZE && payload?.pagination?.has_more;
+      // Jangan hentikan pagination hanya karena satu halaman parsial:
+      // Sportmonks bisa mengembalikan halaman terakhir parsial padahal
+      // flag pagination.has_more masih true (atau sebaliknya). Selama
+      // server menyatakan masih ada halaman berikut, lanjutkan.
+      hasMore = payload?.pagination?.has_more === true || data.length >= SPORTMONKS_PAGE_SIZE;
       page++;
     }
   }
