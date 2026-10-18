@@ -52,6 +52,7 @@ while (!shutdown.signal.aborted) {
       fetchOddsApi: fetchTheOddsApi,
       fetchSportmonks,
       maxEvents: config.sportsbookRenderMaxEvents,
+      maxPages: config.sportsbookRenderMaxPages,
       teamKey
     });
     const accepted = await postSportsbookSnapshot(endpoint, snapshot, {

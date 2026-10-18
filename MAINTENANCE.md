@@ -318,6 +318,7 @@ volatile-lru`. Pengaman memori worker:
 | 10 Okt 2026 | MAINTENANCE.md | Tambah bagian "ENV RUNTIME, MEMORI & ANTI-OOM" (`TREE_RSS_LIMIT_MB`, `SPORTS_SOURCE_BROWSER_EXECUTABLE`, kontrol spawn Chromium, state Redis TOTO) | Cline |
 | 10 Okt 2026 | memory-guard.js | Batas tree RSS otomatis dari cgroup (75% limit container) — env jadi opsional | Cline |
 | 16 Okt 2026 | .railway/railway.ts + sportsbook-render-worker* + MAINTENANCE.md | Scraper odds The Odds API sebagai service Railway terpisah (heap 224MB, 5 liga); Redis `--maxmemory` 128MB dipulihkan; guard kuota 429 + test topologi deploy | Cline |
+| 18 Okt 2026 | sportsbook-providers.js + sportsbook-render-worker* + .railway/railway.ts | Pagination Sportmonks round-robin per tanggal (maks 120 halaman/refresh, berhenti awal saat 600 kandidat) — snapshot ingest tidak lagi terpotong ~17 match; `maxPages` kini diteruskan dari `SPORTSBOOK_RENDER_MAX_PAGES`; batas OOM 4MB/12MB tidak berubah | Cline |
 
 ---
 Update dokumen ini setiap kali ada perubahan signifikan pada CSS/HTML structure.

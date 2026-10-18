@@ -84,7 +84,7 @@ test('Worker requests up to 500 fixtures from the licensed odds adapter', async 
   });
 
   assert.equal(oddsApiCalled, true);
-  assert.deepEqual(oddsApiOptions, { maxEvents: 500 });
+  assert.deepEqual(oddsApiOptions, { maxEvents: 500, maxPages: 120 });
   assert.equal(snapshot.eventCount, 300);
   assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['the-odds-api']);
   assert.equal(snapshot.providerResults[0].events.length, 300);
@@ -133,7 +133,7 @@ test('Worker signs and delivers a full 500-fixture snapshot within the payload b
     now: NOW
   });
 
-  assert.deepEqual(requestedOptions, { maxEvents: 500 });
+  assert.deepEqual(requestedOptions, { maxEvents: 500, maxPages: 120 });
   assert.equal(snapshot.eventCount, 500, 'seluruh 500 fixture lolos normalisasi tanpa dedupe keliru');
   assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['the-odds-api']);
 
@@ -185,12 +185,12 @@ test('Worker combines Sportmonks primary with The Odds API fallback in one snaps
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async options => {
       order.push('sportmonks');
-      assert.deepEqual(options, { maxEvents: 100 });
+      assert.deepEqual(options, { maxEvents: 100, maxPages: 120 });
       return { provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'sm-1', league: 'Premier League' })] };
     },
     fetchOddsApi: async options => {
       order.push('the-odds-api');
-      assert.deepEqual(options, { maxEvents: 100 });
+      assert.deepEqual(options, { maxEvents: 100, maxPages: 120 });
       return { provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'odds-1', league: 'Serie A' })] };
     },
     maxEvents: 100,
@@ -202,6 +202,22 @@ test('Worker combines Sportmonks primary with The Odds API fallback in one snaps
   assert.equal(snapshot.eventCount, 2);
   assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'the-odds-api']);
   assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
+});
+
+test('Worker bounds the Sportmonks page budget before any provider fetch runs', async () => {
+  let fetched = false;
+  await assert.rejects(
+    buildSportsbookRenderSnapshot({
+      fetchSportmonks: async () => { fetched = true; return { provider: 'sportmonks', enabled: true, events: [] }; },
+      fetchOddsApi: async () => { fetched = true; return { provider: 'the-odds-api', enabled: true, events: [] }; },
+      maxEvents: 100,
+      maxPages: 0,
+      teamKey,
+      now: NOW
+    }),
+    /maxPages must be an integer between 1 and 120/
+  );
+  assert.equal(fetched, false, 'budget halaman tidak valid harus ditolak sebelum scrape dimulai');
 });
 
 test('Worker keeps publishing when Sportmonks fails (The Odds API fallback survives)', async () => {

@@ -866,8 +866,8 @@ export async function fetchTheOddsApi({ maxEvents = config.theOddsApiMaxTotalEve
 }
 
 // --- Sportmonks (v3 football) ---
-// Fixture includes contain full odds payloads, so keep pages small and cap the
-// total page count while retaining only the best normalized events in memory.
+// Fixture includes contain full odds payloads, so keep pages small and stream
+// them one at a time; only the best normalized events stay in memory.
 let sportmonksNextRequestAt = 0;
 const SPORTMONKS_PAGE_SIZE = 20;
 const SPORTMONKS_MAX_PAGES_PER_REFRESH = 120;
@@ -1056,37 +1056,26 @@ async function waitForSportmonksRequestSlot() {
 }
 
 // Read one small page at a time so raw odds payloads are not retained across pages.
-async function fetchAllPages(base, endpoint, params, maxPages = 4, onPage = () => {}) {
-  let page = 1;
-  let hasMore = true;
+async function fetchSportmonksPage(base, date, page) {
+  const url = new URL(`${base}/football/fixtures/date/${date}`);
+  url.searchParams.set('api_token', config.sportmonksKey);
+  url.searchParams.set('page', String(page));
+  url.searchParams.set('per_page', String(SPORTMONKS_PAGE_SIZE));
+  url.searchParams.set('include', 'state;participants;league.country;odds;scores');
 
-  while (hasMore && page <= maxPages) {
-    const url = new URL(`${base}${endpoint}`);
-    url.searchParams.set('api_token', config.sportmonksKey);
-    url.searchParams.set('page', String(page));
-    url.searchParams.set('per_page', String(SPORTMONKS_PAGE_SIZE));
-    for (const [key, value] of Object.entries(params)) {
-      url.searchParams.set(key, value);
-    }
-
-    await waitForSportmonksRequestSlot();
-    const payload = await requestJson(url, {
-      label: `Sportmonks page ${page}`,
-      maxBytes: config.sportsFeedMaxCacheBytes
-    });
-    const data = payload?.data || [];
-    if (data.length === 0) {
-      hasMore = false;
-    } else {
-      await onPage(data);
-      // Jangan hentikan pagination hanya karena satu halaman parsial:
-      // Sportmonks bisa mengembalikan halaman terakhir parsial padahal
-      // flag pagination.has_more masih true (atau sebaliknya). Selama
-      // server menyatakan masih ada halaman berikut, lanjutkan.
-      hasMore = payload?.pagination?.has_more === true || data.length >= SPORTMONKS_PAGE_SIZE;
-      page++;
-    }
-  }
+  await waitForSportmonksRequestSlot();
+  const payload = await requestJson(url, {
+    label: `Sportmonks ${date} page ${page}`,
+    maxBytes: config.sportsFeedMaxCacheBytes
+  });
+  const data = payload?.data || [];
+  // Jangan hentikan pagination hanya karena satu halaman parsial:
+  // Sportmonks bisa mengembalikan halaman terakhir parsial padahal
+  // flag pagination.has_more masih true (atau sebaliknya). Selama
+  // server menyatakan masih ada halaman berikut, lanjutkan.
+  const hasMore = data.length > 0
+    && (payload?.pagination?.has_more === true || data.length >= SPORTMONKS_PAGE_SIZE);
+  return { data, hasMore };
 }
 
 function sportmonksLeaguePriority(event, configuredLeagues) {
@@ -1142,24 +1131,35 @@ export async function fetchSportmonks({
     Math.ceil(maxEvents * SPORTMONKS_CANDIDATE_MULTIPLIER),
     maxPages * SPORTMONKS_PAGE_SIZE
   );
-  const totalPages = Math.min(
-    maxPages,
-    Math.ceil(candidateLimit / SPORTMONKS_PAGE_SIZE)
-  );
-  const basePagesPerDate = Math.floor(totalPages / dates.length);
-  let extraPages = totalPages % dates.length;
   const rankedEvents = [];
   const seen = new Set();
-  
-  for (const date of dates) {
-    const pagesForDate = basePagesPerDate + (extraPages > 0 ? 1 : 0);
-    if (extraPages > 0) extraPages -= 1;
-    if (pagesForDate === 0) continue;
-    try {
-      await fetchAllPages(base, `/football/fixtures/date/${date}`, {
-        include: 'state;participants;league.country;odds;scores'
-      }, pagesForDate, fixtures => {
-        for (const fixture of fixtures) {
+  // Scanning round-robin per tanggal. Skema lama membagi statis totalPages
+  // (ceil(1.2 x maxEvents / 20) = 30 halaman) ke seluruh tanggal; dengan
+  // cakrawala SPORTMONKS_DAYS_AHEAD=30 itu berarti HANYA 1 halaman (20
+  // fixture) per tanggal dan tanggal terakhir kelewat sama sekali — snapshot
+  // ingest pun terpotong di ~17 match karena fixture awal hari jarang punya
+  // odds inti. Round-robin mengambil halaman pertama tiap tanggal lebih dulu
+  // (survei), lalu menembak halaman berikutnya secara bergantian memakai
+  // SELURUH anggaran maxPages (maks 120 halaman = 2.400 kandidat), berhenti
+  // lebih awal hanya bila kandidat terkumpul penuh. Heap tetap aman: payload
+  // halaman diproses satu per satu dan kandidat disangga maksimal
+  // candidateLimit; event akhir tetap dibatasi maxEvents (≤500).
+  const cursors = dates.map(date => ({ date, page: 1, exhausted: false }));
+  let pagesFetched = 0;
+  while (
+    pagesFetched < maxPages
+    && rankedEvents.length < candidateLimit
+    && cursors.some(cursor => !cursor.exhausted)
+  ) {
+    for (const cursor of cursors) {
+      if (cursor.exhausted) continue;
+      if (pagesFetched >= maxPages || rankedEvents.length >= candidateLimit) break;
+      try {
+        const { data, hasMore } = await fetchSportmonksPage(base, cursor.date, cursor.page);
+        pagesFetched += 1;
+        cursor.page += 1;
+        cursor.exhausted = !hasMore;
+        for (const fixture of data) {
           const id = String(fixture?.id ?? '');
           if (!id || seen.has(id)) continue;
           seen.add(id);
@@ -1180,17 +1180,19 @@ export async function fetchSportmonks({
             };
             rankedEvents.push(candidate);
             rankedEvents.sort(compareSportmonksEvents);
-            if (rankedEvents.length > maxEvents) rankedEvents.pop();
+            if (rankedEvents.length > candidateLimit) rankedEvents.pop();
           } catch (error) {
             errors.push(`Fixture ${fixture.id}: ${error.message}`);
           }
         }
-      });
-    } catch (error) {
-      errors.push(`Date ${date}: ${error.message}`);
+      } catch (error) {
+        // Kegagalan satu tanggal diisolasi: tanggal lain tetap discan.
+        cursor.exhausted = true;
+        errors.push(`Date ${cursor.date}: ${error.message}`);
+      }
     }
   }
-  const events = rankedEvents.map(candidate => candidate.event);
+  const events = rankedEvents.slice(0, Math.min(MAX_PROVIDER_EVENTS, maxEvents)).map(candidate => candidate.event);
   const fetchedAtStamp = new Date(now).toISOString();
   for (const event of events) {
     for (const market of event.markets) {

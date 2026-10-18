@@ -98,9 +98,10 @@ export default defineRailway(() => {
   // Scraper odds berjalan sebagai service TERPISAH agar beban scrape tidak
   // pernah menyentuh memori service web (anti-OOM). Pengaman:
   //   - heap V8 dikunci 224MB lewat NODE_OPTIONS (container ~512MB)
-  //   - Sportmonks SUMBER UTAMA cakupan luas: halaman dibatasi 30 x 20 = 600
-  //     kandidat -> snapshot maks 500 event; key diwariskan dari web sehingga
-  //     tidak perlu service/platform baru
+  //   - Sportmonks SUMBER UTAMA cakupan luas: anggaran halaman round-robin
+  //     per tanggal (maks 120 x 20 = 2.400 kandidat, berhenti awal begitu
+  //     1.2 x maxEvents kandidat terkumpul) -> snapshot maks 500 event; key
+  //     diwariskan dari web sehingga tidak perlu service/platform baru
   //   - The Odds API CADANGAN 5 liga andalan; h2h x eu = 1 kredit/request;
   //     refresh 720 dtk (di bawah jendela harga prematch 900 dtk)
   //   - provider dijalankan sekuensial (satu payload pada satu waktu), market
@@ -120,6 +121,7 @@ export default defineRailway(() => {
       SPORTSBOOK_INGEST_URL: "${{web.SPORTSBOOK_INGEST_URL}}",
       SPORTSBOOK_INGEST_HMAC_SECRET: "${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}",
       SPORTSBOOK_RENDER_MAX_EVENTS: "500",
+      SPORTSBOOK_RENDER_MAX_PAGES: "120",
       THE_ODDS_API_ENABLED: "true",
       THE_ODDS_API_KEY: "${{web.THE_ODDS_API_KEY}}",
       THE_ODDS_API_REGIONS: "eu",

@@ -1,4 +1,5 @@
 const MAX_EVENTS = 500;
+const MAX_PAGES = 120;
 const DUPLICATE_KICKOFF_WINDOW_MS = 3 * 60 * 60 * 1000;
 
 function leaguePriority(event, priorities) {
@@ -94,15 +95,21 @@ export async function buildSportsbookRenderSnapshot({
   fetchOddsApi,
   fetchSportmonks,
   maxEvents = 500,
+  maxPages = MAX_PAGES,
   teamKey,
   now
 }) {
-  // Sportmonks adalah sumber utama cakupan luas (maks 30 halaman x 20 = 600
-  // kandidat, dibatasi maxEvents). The Odds API dipertahankan sebagai CADANGAN
-  // sehingga feed tidak pernah kosong bila salah satu provider gagal (dan
-  // sebaliknya). Fetcher dijalankan SEKUENSIAL dan tiap kegagalan diisolasi:
-  // hanya satu payload provider yang hidup pada satu waktu, sehingga heap
-  // worker 224MB tetap dapat diprediksi (anti-OOM).
+  // Sportmonks adalah sumber utama cakupan luas: anggaran halaman dihabiskan
+  // round-robin per tanggal (maks 120 halaman x 20 = 2.400 kandidat), berhenti
+  // lebih awal begitu candidateLimit tercapai, lalu dibatasi maxEvents. The
+  // Odds API dipertahankan sebagai CADANGAN sehingga feed tidak pernah kosong
+  // bila salah satu provider gagal (dan sebaliknya). Fetcher dijalankan
+  // SEKUENSIAL dan tiap kegagalan diisolasi: hanya satu payload provider yang
+  // hidup pada satu waktu, sehingga heap worker 224MB tetap dapat diprediksi
+  // (anti-OOM).
+  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > MAX_PAGES) {
+    throw new Error(`Worker sportsbook maxPages must be an integer between 1 and ${MAX_PAGES}.`);
+  }
   const fetchers = [
     { provider: 'sportmonks', fetch: fetchSportmonks },
     { provider: 'the-odds-api', fetch: fetchOddsApi }
@@ -112,7 +119,7 @@ export async function buildSportsbookRenderSnapshot({
   for (const { provider, fetch } of fetchers) {
     if (typeof fetch !== 'function') continue;
     try {
-      const result = await fetch({ maxEvents });
+      const result = await fetch({ maxEvents, maxPages });
       if (result) providerResults.push(result);
     } catch (error) {
       failures.push(`${provider}: ${error?.message || String(error)}`);

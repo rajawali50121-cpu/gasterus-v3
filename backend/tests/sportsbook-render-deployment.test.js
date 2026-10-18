@@ -39,6 +39,10 @@ test('worker runs Sportmonks as primary with The Odds API fallback inside the qu
   assert.equal(railwayWorkerEnv('THE_ODDS_API_EVENT_MARKETS_ENABLED'), 'false');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS'), '0');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
+  // Anggaran halaman penuh diteruskan ke fetchSportmonks agar snapshot ingest
+  // mengambil cakupan luas (bukan terpotong ~17 match oleh pembagian statis).
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
+  assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
   assert.match(worker, /fetchOddsApi:\s*fetchTheOddsApi/);
 
   // Sportmonks primer di worker yang sama: key diwariskan dari web (tanpa
