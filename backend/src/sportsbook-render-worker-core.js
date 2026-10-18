@@ -63,8 +63,8 @@ export function combineSportsbookProviderResults(providerResults, {
   const candidates = enabledResults.flatMap(result =>
     (Array.isArray(result.events) ? result.events : [])
       // Pertandingan tanpa pasar (display-only) ikut snapshot: cakupan feed
-      // tidak boleh dipotong oleh ketersediaan odds provider.
-      .filter(event => Array.isArray(event?.markets))
+      // tidak boleh dipotong oleh ketersediaan odds provider. Semua event
+      // terstruktur (termasuk yang tanpa odds) dihitung dalam eventCount.
       .map(event => ({ provider: result.provider, event }))
   );
   candidates.sort((a, b) => compareCandidates(a, b, priorityLeagues));
@@ -206,7 +206,7 @@ export async function buildSportsbookRenderSnapshot({
     teamKey
   });
   if (!combined.eventCount) {
-    throw new Error('No enabled sportsbook provider returned normalized, priced fixtures; snapshot was not sent.');
+    throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
   }
 
   const snapshot = {

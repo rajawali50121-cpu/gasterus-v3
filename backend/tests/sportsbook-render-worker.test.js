@@ -166,7 +166,7 @@ test('Worker fails closed if neither provider returns priced fixtures', async ()
       fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: false, events: [] }),
       teamKey
     }),
-    /No enabled sportsbook provider returned normalized, priced fixtures/
+    /No enabled sportsbook provider returned normalized fixtures/
   );
 });
 
