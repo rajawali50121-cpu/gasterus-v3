@@ -115,10 +115,14 @@ export const config = Object.freeze({
   sportsSourceBackgroundPollEnabled: bool('SPORTS_SOURCE_BACKGROUND_POLL_ENABLED', true),
   feedWorkerEnabled: bool('FEED_WORKER_ENABLED', true),
   sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 500, 20, 500),
+  // Feed snapshot byte-cap dipertahankan 12MB agar 500 event muat penuh tanpa
+  // dipotong binary-search di cacheWithinLimit. Penghematan RAM dilakukan di
+  // provider cache (entries/total-bytes) + interval polling, bukan di feed.
   sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 12_000_000, 262_144, 15_000_000),
-  sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 120, 1, 10000),
-  sportsProviderCacheMaxEntryBytes: int('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 3_145_728, 1024, 100_000_000),
-  sportsProviderCacheMaxTotalBytes: int('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 10_000_000, 1024, 100_000_000),
+  // Eviction agresif provider cache: entri lama langsung dibuang sebelum menumpuk di RAM.
+  sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 40, 1, 10000),
+  sportsProviderCacheMaxEntryBytes: int('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 1_048_576, 1024, 100_000_000),
+  sportsProviderCacheMaxTotalBytes: int('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000, 1024, 100_000_000),
 
   // Provider credentials are read only by core and may be mounted as Docker secrets.
   apiSportsKey,
@@ -206,7 +210,9 @@ export const config = Object.freeze({
   publicMarketPriceMaxAgeSeconds: int('PUBLIC_MARKET_PRICE_MAX_AGE_SECONDS', 604800, 900, 604800),
   sportsbookRiskRepricingEnabled: bool('SPORTSBOOK_RISK_REPRICING_ENABLED', true),
   sportsbookRiskRepricingMaxShadeBps: int('SPORTSBOOK_RISK_REPRICING_MAX_SHADE_BPS', 600, 0, 2000),
-  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 30, 5, 300),
+  // Background poll diperlambat 30s -> 90s agar worker tidak request berturut-turut.
+  // Volume event TETAP penuh (500); yang dikurangi hanya frekuensi refresh.
+  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 90, 5, 300),
   sportsFeedStaleSeconds: int('SPORTS_FEED_STALE_SECONDS', 180, 30, 3600),
   sportsbookFinishedEventRetentionSeconds: int('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600, 3600, 86400),
   sportsbookMemberHorizonDays: int('SPORTSBOOK_MEMBER_HORIZON_DAYS', 30, 1, 60),

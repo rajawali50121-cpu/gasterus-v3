@@ -141,6 +141,11 @@ let inFlight = null;
 // dari core bisa saling tumpang tindih — terutama saat Redis down dan
 // cross-process lock tidak tersedia. Siklus yang sudah jalan di-skip, bukan antre.
 let backgroundPollInFlight = false;
+// Throttle antar-siklus background poll: cegah request berturut-turut menumpuk
+// di heap bila feed-worker memanggil lebih cepat dari interval konfigurasi.
+// Volume event TIDAK dikurangi — hanya jeda antar refresh yang ditegakkan.
+let lastBackgroundPollAt = 0;
+const BACKGROUND_POLL_MIN_GAP_MS = 60_000;
 function clean(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -423,7 +428,14 @@ async function writeRedisCache(value, { alreadyBounded = false } = {}) {
   const bounded = alreadyBounded ? value : cacheWithinLimit(value);
   if (!redis.isOpen) return bounded;
   try {
-    await redis.set(CACHE_KEY, JSON.stringify(bounded), { EX: Math.max(config.sportsFeedStaleSeconds * 2, 300) });
+    // TTL agresif: snapshot lama di-evict secepatnya setelah stale, jangan
+    // menumpuk di Redis. Volume event tetap penuh (500) — hanya TTL yang ketat.
+    const tightTtlSeconds = Math.max(
+      Number(config.sportsFeedStaleSeconds) || 180,
+      (Number(config.sportsFeedRefreshSeconds) || 90) * 2,
+      180
+    );
+    await redis.set(CACHE_KEY, JSON.stringify(bounded), { EX: tightTtlSeconds });
   } catch (error) {
     logger.warn('Sportsbook Redis cache write failed', { error: error.message });
   }
@@ -924,11 +936,25 @@ export async function refreshSportsbookFeedFromPoll({ reason = 'background-poll'
     logger.info('Sportsbook background poll skipped; previous cycle still running', { reason });
     return memory;
   }
+  // Throttle: jangan jalankan siklus baru bila siklus sebelumnya belum lama
+  // selesai — cegah request berturut-turut menumpuk di heap/RAM.
+  const now = Date.now();
+  if (now - lastBackgroundPollAt < BACKGROUND_POLL_MIN_GAP_MS) {
+    logger.info('Sportsbook background poll throttled; min gap not reached', {
+      reason,
+      elapsedMs: now - lastBackgroundPollAt,
+      minGapMs: BACKGROUND_POLL_MIN_GAP_MS
+    });
+    return memory;
+  }
   backgroundPollInFlight = true;
+  lastBackgroundPollAt = now;
   try {
     return await refreshSportsbookFeed({ reason });
   } finally {
     backgroundPollInFlight = false;
+    // Catat waktu SELESAI agar jeda dihitung dari akhir siklus (anti-burst).
+    lastBackgroundPollAt = Date.now();
   }
 }
 
