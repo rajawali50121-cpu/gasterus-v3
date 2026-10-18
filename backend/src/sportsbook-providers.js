@@ -1086,6 +1086,12 @@ function sportmonksLeaguePriority(event, configuredLeagues) {
 
 function compareSportmonksEvents(a, b) {
   if (a.event.live !== b.event.live) return Number(b.event.live) - Number(a.event.live);
+  // Retention ranking: fixture berharga (punya pasar) menang atas fixture
+  // display-only pada slot yang sama sehingga anggaran 500 event selalu
+  // diprioritaskan untuk pertandingan yang bisa ditampilkan odds-nya.
+  const aPriced = a.event.markets?.length ? 1 : 0;
+  const bPriced = b.event.markets?.length ? 1 : 0;
+  if (aPriced !== bPriced) return bPriced - aPriced;
   if (a.leaguePriority !== b.leaguePriority) return a.leaguePriority - b.leaguePriority;
   return a.startTime - b.startTime || a.event.id.localeCompare(b.event.id);
 }
@@ -1166,13 +1172,19 @@ export async function fetchSportmonks({
 
           const state = sportmonksState(fixture.state);
           if (state !== 'SCHEDULED' && state !== 'LIVE') continue;
-          if (fixture.has_odds === false) continue;
 
           const start = Number(fixture.starting_at_timestamp) * 1000 || Date.parse(fixture.starting_at || '') || 0;
           if (start && start < now - 3 * 60 * 60 * 1000) continue;
           try {
             const event = normalizeSportmonksFixture(fixture, fixture.odds || []);
-            if (!event || !event.markets.length) continue;
+            // Pertandingan aktif TANPA odds tetap ikut feed (display-only).
+            // Filter lama (menandai fixture tanpa odds / tanpa pasar inti sebagai
+            // skip) menyembunyikan ratusan pertandingan aktif dan menutup cakupan
+            // di ~18 match; sekarang hanya fixture tanpa nama tim yang dibuang.
+            // Event tanpa markets tetap valid di schema ingest (markets boleh
+            // kosong) dan frontend menampilkan kartu "odds belum tersedia" —
+            // taruhan tetap mustahil tanpa seleksi berharga.
+            if (!event) continue;
             const candidate = {
               event,
               leaguePriority: sportmonksLeaguePriority(event, configuredPriorityLeagues),
@@ -1625,7 +1637,7 @@ export function publicEvent(event) {
     availableMarketCount: Number(event.availableMarketCount || event.markets?.length || 0),
     detailLoaded: Boolean(event.detailFetchedAt),
     detailFetchedAt: event.detailFetchedAt || null,
-    markets: event.markets.map(market => ({
+    markets: (event.markets || []).map(market => ({
       id: market.id,
       key: market.key,
       type: market.type,

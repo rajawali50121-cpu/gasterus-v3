@@ -53,6 +53,7 @@ while (!shutdown.signal.aborted) {
       fetchSportmonks,
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
+      maxPayloadBytes: config.sportsbookIngestMaxPayloadBytes,
       teamKey
     });
     const accepted = await postSportsbookSnapshot(endpoint, snapshot, {

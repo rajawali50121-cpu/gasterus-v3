@@ -5,7 +5,10 @@ const baseUrl = String(process.env.SPORTSBOOK_BASE_URL || railwayBaseUrl || 'htt
 const requestTimeoutMs = 25000;
 const maxRetries = 2;
 const retryDelayMs = 500;
-const minimumEvents = 25;
+// Katalog aktif (pre-match + live, termasuk fixture display-only tanpa odds)
+// wajib ratusan pertandingan; ini guard live-coverage anti-regresi.
+const minimumEvents = 300;
+const minimumPricedEvents = 25;
 const minimumInspectedEvents = 10;
 const requiredCoreMarketTypes = ['1X2', 'HANDICAP', 'TOTALS'];
 
@@ -90,6 +93,12 @@ async function main() {
 
   const labeledEvents = snapshot.events.filter(event => String(event.country || event.category || '').trim() && String(event.league || '').trim());
   assert(labeledEvents.length > 0, 'No event includes both a league and country/category in the API payload');
+
+  // Pertandingan tanpa odds (display-only) sah, tetapi cakupan odds harus tetap
+  // ada — minimal 25 pertandingan berharga untuk memastikan pipeline harga hidup.
+  const pricedEvents = snapshot.events.filter(event => Array.isArray(event.markets) && event.markets.length > 0);
+  assert(pricedEvents.length >= minimumPricedEvents,
+    `events endpoint returned only ${pricedEvents.length} priced events; expected at least ${minimumPricedEvents}`);
   const labelSample = {
     country: labeledEvents[0].country || labeledEvents[0].category,
     league: labeledEvents[0].league,
@@ -98,7 +107,7 @@ async function main() {
   assert(labelSample.displayLeague.includes(' - '), `formatted league label is missing country separator: ${labelSample.displayLeague}`);
 
   const inspected = [];
-  for (const event of snapshot.events.slice(0, Math.min(12, snapshot.events.length))) {
+  for (const event of pricedEvents.slice(0, Math.min(12, pricedEvents.length))) {
     const detail = await getJson(`/api/member/sportsbook/events/${encodeURIComponent(event.id)}`);
     const fullEvent = detail.event;
     assert(fullEvent?.id === event.id, `event detail did not match requested event ${event.id}`);

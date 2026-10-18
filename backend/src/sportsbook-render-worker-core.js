@@ -25,6 +25,13 @@ function compareCandidates(a, b, priorities) {
 
 function compareDuplicateCandidates(a, b, priorities) {
   if (a.event.live !== b.event.live) return Number(b.event.live) - Number(a.event.live);
+  // Salinan fixture yang berharga (punya pasar) selalu menang atas salinan
+  // display-only yang sama, sekalipun berasal dari provider cadangan — odds
+  // nyata tidak boleh hilang hanya karena provider primer belum menghargai
+  // pertandingan itu.
+  const aPriced = a.event.markets?.length ? 1 : 0;
+  const bPriced = b.event.markets?.length ? 1 : 0;
+  if (aPriced !== bPriced) return bPriced - aPriced;
   const sourceDifference = providerPriority(b.provider, b.event.live) - providerPriority(a.provider, a.event.live);
   if (sourceDifference) return sourceDifference;
   return compareCandidates(a, b, priorities);
@@ -55,7 +62,9 @@ export function combineSportsbookProviderResults(providerResults, {
   const enabledResults = providerResults.filter(result => result?.enabled === true);
   const candidates = enabledResults.flatMap(result =>
     (Array.isArray(result.events) ? result.events : [])
-      .filter(event => event?.markets?.length)
+      // Pertandingan tanpa pasar (display-only) ikut snapshot: cakupan feed
+      // tidak boleh dipotong oleh ketersediaan odds provider.
+      .filter(event => Array.isArray(event?.markets))
       .map(event => ({ provider: result.provider, event }))
   );
   candidates.sort((a, b) => compareCandidates(a, b, priorityLeagues));
@@ -91,11 +100,74 @@ export function combineSportsbookProviderResults(providerResults, {
   };
 }
 
+const PAYLOAD_MARKET_TRIM_CAPS = [60, 30, 15, 8, 4, 2, 1];
+
+function snapshotBytes(snapshot) {
+  return Buffer.byteLength(JSON.stringify(snapshot), 'utf8');
+}
+
+function rebuildSnapshot(snapshot, flatEvents) {
+  let cursor = 0;
+  const providerResults = snapshot.providerResults.map(result => {
+    const events = flatEvents.slice(cursor, cursor + (result.events?.length || 0));
+    cursor += events.length;
+    return { ...result, events };
+  });
+  return {
+    ...snapshot,
+    providerResults,
+    eventCount: flatEvents.length
+  };
+}
+
+function capEventMarkets(event, cap) {
+  return (event.markets || []).length > cap ? { ...event, markets: event.markets.slice(0, cap) } : event;
+}
+
+// Endpoint ingest menolak payload di atas anggaran byte; snapshot yang gagal
+// dipublikasikan membuat feed member nyangkut di snapshot lama yang kecil.
+// Trim deterministik: pasar per event diturunkan dulu (event berperingkat
+// terbaik dipertahankan utuh), baru event terendah di ujung daftar dibuang —
+// sehingga selalu ada snapshot terbesar yang MUAT dan terkirim.
+export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0) return snapshot;
+  if (snapshotBytes(snapshot) <= maxBytes) return snapshot;
+  const flatEvents = snapshot.providerResults.flatMap(result => result.events || []);
+  if (!flatEvents.length) return snapshot;
+
+  // Tahap 1: semua event bertahan; batasi jumlah pasar tiap event.
+  for (const cap of PAYLOAD_MARKET_TRIM_CAPS) {
+    const capped = rebuildSnapshot(snapshot, flatEvents.map(event => capEventMarkets(event, cap)));
+    if (snapshotBytes(capped) <= maxBytes) return capped;
+  }
+
+  // Tahap 2: bahkan satu event penuh tidak muat — buang event berperingkat
+  // terendah (akhir daftar) dengan pencarian biner.
+  let low = 1;
+  let high = flatEvents.length;
+  let best = null;
+  while (low <= high) {
+    const keep = Math.floor((low + high) / 2);
+    const candidate = rebuildSnapshot(snapshot, flatEvents.slice(0, keep).map(event => capEventMarkets(event, 1)));
+    if (snapshotBytes(candidate) <= maxBytes) {
+      best = candidate;
+      low = keep + 1;
+    } else {
+      high = keep - 1;
+    }
+  }
+  // best === null hanya bila SATU event dengan SATU pasar pun melebihi budget;
+  // kembalikan versi minimal agar kegagalan (bila tetap terjadi) tetap terlihat
+  // jelas di log worker, bukan diam-diam.
+  return best || rebuildSnapshot(snapshot, [capEventMarkets(flatEvents[0], 1)]);
+}
+
 export async function buildSportsbookRenderSnapshot({
   fetchOddsApi,
   fetchSportmonks,
   maxEvents = 500,
   maxPages = MAX_PAGES,
+  maxPayloadBytes = null,
   teamKey,
   now
 }) {
@@ -137,10 +209,24 @@ export async function buildSportsbookRenderSnapshot({
     throw new Error('No enabled sportsbook provider returned normalized, priced fixtures; snapshot was not sent.');
   }
 
-  return {
+  const snapshot = {
     schemaVersion: 1,
     generatedAt: new Date(now ?? Date.now()).toISOString(),
     providerResults: combined.providerResults,
     eventCount: combined.eventCount
   };
+  // Selaraskan dengan anggaran payload ingest (SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES)
+  // sebelum berangkat: lebih baik memotong deterministik daripada seluruh push
+  // ditolak 413 dan feed member nyangkut di snapshot lama.
+  const fitted = fitSnapshotToPayloadBudget(snapshot, maxPayloadBytes);
+  if (fitted !== snapshot) {
+    console.warn(JSON.stringify({
+      service: 'sportsbook-render-worker',
+      event: 'snapshot-payload-trimmed',
+      originalEvents: snapshot.eventCount,
+      fittedEvents: fitted?.eventCount ?? snapshot.eventCount,
+      maxPayloadBytes
+    }));
+  }
+  return fitted;
 }

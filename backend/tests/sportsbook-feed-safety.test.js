@@ -209,6 +209,15 @@ test('Sportmonks responses, page sizes, and retained caches stay bounded', () =>
   assert.match(providers, /url\.searchParams\.set\('per_page', String\(SPORTMONKS_PAGE_SIZE\)\)/);
   assert.match(providers, /SPORTMONKS_MAX_PAGES_PER_REFRESH = 120/);
   assert.match(providers, /if \(sportmonksCache\.size > 1\)/);
+  // Filter yang menyembunyikan pertandingan aktif tanpa odds harus dibuang;
+  // cakupan feed tidak lagi dipotong oleh ketersediaan harga provider.
+  assert.doesNotMatch(providers, /has_odds === false/);
+  assert.match(providers, /if \(!event\) continue;/);
+});
+
+test('member snapshot default page returns the whole active catalog for direct server curls', () => {
+  assert.match(feed, /DEFAULT_SNAPSHOT_PAGE_SIZE = 500/);
+  assert.match(feed, /MAX_SNAPSHOT_PAGE_SIZE = 500/);
 });
 
 test('Sportmonks prioritizes configured top leagues while normalizing paginated fixture odds', () => {
@@ -293,6 +302,82 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
   assert.equal(output.pages, 3);
   assert.deepEqual(output.pageNumbers, [1, 2, 3]);
   assert.deepEqual(output.pageSizes, ['20']);
+});
+
+test('Sportmonks keeps active fixtures without odds instead of hiding them from the feed', () => {
+  const script = `
+    const originalFetch = globalThis.fetch;
+    const start = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
+    const fixture = (id, priced) => ({
+      id,
+      starting_at: start,
+      starting_at_timestamp: Math.floor(Date.parse(start) / 1000),
+      state: { short_name: 'NS', name: 'Not Started' },
+      has_odds: priced,
+      participants: [
+        { name: 'Home ' + id, meta: { location: 'home' } },
+        { name: 'Away ' + id, meta: { location: 'away' } }
+      ],
+      league: { name: 'Premier League', country: { name: 'England' } },
+      odds: priced ? [
+        { market_id: 1, market_description: 'Fulltime Result', label: 'Home', value: '2.0' },
+        { market_id: 1, market_description: 'Fulltime Result', label: 'Draw', value: '3.2' },
+        { market_id: 1, market_description: 'Fulltime Result', label: 'Away', value: '3.5' }
+      ] : []
+    });
+    globalThis.fetch = async input => {
+      const url = new URL(input);
+      const page = Number(url.searchParams.get('page')) || 1;
+      const perPage = Number(url.searchParams.get('per_page')) || 20;
+      const pool = [fixture('p-1', true), fixture('u-1', false), fixture('u-2', false)];
+      const data = pool.slice((page - 1) * perPage, page * perPage);
+      return new Response(JSON.stringify({ data, pagination: { has_more: false } }), {
+        headers: { 'content-type': 'application/json' }
+      });
+    };
+    try {
+      const { fetchSportmonks } = await import('./src/sportsbook-providers.js');
+      const result = await fetchSportmonks();
+      console.log(JSON.stringify({
+        eventCount: result.events.length,
+        // event.id di-hash oleh normalizer; kenali lewat nama tim.
+        homes: result.events.map(event => event.home.name).sort(),
+        unpricedCount: result.events.filter(event => !event.markets.length).length,
+        pricedCounts: result.events.map(event => event.markets.length).sort((a, b) => a - b)
+      }));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      DATABASE_URL: '******example.com/db',
+      REDIS_URL: 'redis://example.com:6379',
+      MEMBER_PROXY_SECRET: 'm'.repeat(48),
+      ADMIN_PROXY_SECRET: 'a'.repeat(48),
+      OPS_INTERNAL_SECRET: 'o'.repeat(48),
+      SESSION_HMAC_KEY: 's'.repeat(48),
+      API_KEY_PEPPER: 'p'.repeat(48),
+      MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
+      SPORTMONKS_ENABLED: 'true',
+      SPORTMONKS_API_KEY: 'configured-sportmonks-key',
+      SPORTMONKS_DAYS_AHEAD: '0',
+      SPORTMONKS_MAX_TOTAL_EVENTS: '50',
+      SPORTMONKS_REQUEST_DELAY_MS: '0'
+    }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
+  assert.deepEqual(output, {
+    eventCount: 3,
+    homes: ['Home p-1', 'Home u-1', 'Home u-2'],
+    unpricedCount: 2,
+    pricedCounts: [0, 0, 1]
+  });
 });
 
 test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {

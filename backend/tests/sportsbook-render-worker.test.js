@@ -13,7 +13,7 @@ Object.assign(process.env, {
   MFA_ENCRYPTION_KEY_BASE64: process.env.MFA_ENCRYPTION_KEY_BASE64 || Buffer.alloc(32, 1).toString('base64')
 });
 
-const [{ buildSportsbookRenderSnapshot }, { teamKey }, { validateSportsbookSnapshot }] = await Promise.all([
+const [{ buildSportsbookRenderSnapshot, fitSnapshotToPayloadBudget }, { teamKey }, { validateSportsbookSnapshot }] = await Promise.all([
   import('../src/sportsbook-render-worker-core.js'),
   import('../src/sportsbook-providers.js'),
   import('../src/sportsbook-ingestion.js')
@@ -28,7 +28,8 @@ function event(provider, {
   home = `Home ${id}`,
   away = `Away ${id}`,
   startTime = new Date(NOW + 3600000).toISOString(),
-  live = false
+  live = false,
+  markets
 } = {}) {
   return {
     id,
@@ -40,7 +41,7 @@ function event(provider, {
     live,
     home: { name: home, score: null, logo: null },
     away: { name: away, score: null, logo: null },
-    markets: [{
+    markets: markets || [{
       id: `market-${id}`,
       type: '1X2',
       period: 'FT',
@@ -129,6 +130,7 @@ test('Worker signs and delivers a full 500-fixture snapshot within the payload b
       return { provider: 'the-odds-api', enabled: true, events: bulk };
     },
     maxEvents: 500,
+    maxPayloadBytes: 6_291_456,
     teamKey,
     now: NOW
   });
@@ -218,6 +220,114 @@ test('Worker bounds the Sportmonks page budget before any provider fetch runs', 
     /maxPages must be an integer between 1 and 120/
   );
   assert.equal(fetched, false, 'budget halaman tidak valid harus ditolak sebelum scrape dimulai');
+});
+
+test('Worker keeps active unpriced fixtures in the snapshot as display-only events', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => ({
+      provider: 'sportmonks',
+      enabled: true,
+      events: [
+        event('sportmonks', { id: 'priced-1', league: 'Premier League' }),
+        event('sportmonks', { id: 'unpriced-1', league: 'Serie A', markets: [] }),
+        event('sportmonks', { id: 'unpriced-2', league: 'La Liga', markets: [] })
+      ]
+    }),
+    fetchOddsApi: async () => { throw new Error('quota exhausted'); },
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 3, 'fixture aktif tanpa odds tidak boleh dibuang dari snapshot');
+  assert.deepEqual(
+    snapshot.providerResults[0].events.map(item => item.id).sort(),
+    ['priced-1', 'unpriced-1', 'unpriced-2']
+  );
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks']);
+});
+
+test('Worker prefers the priced copy when the same fixture arrives from two providers', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => ({
+      provider: 'sportmonks',
+      enabled: true,
+      events: [event('sportmonks', { id: 'dup-unpriced', home: 'Alpha', away: 'Beta', markets: [] })]
+    }),
+    fetchOddsApi: async () => ({
+      provider: 'the-odds-api',
+      enabled: true,
+      events: [event('the-odds-api', { id: 'dup-priced', home: 'Alpha', away: 'Beta' })]
+    }),
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 1, 'fixture ganda tetap dide-dup');
+  const survivor = snapshot.providerResults.flatMap(result => result.events)[0];
+  assert.equal(survivor.id, 'dup-priced', 'salinan berharga menang atas salinan display-only');
+  assert.ok(survivor.markets.length > 0);
+});
+
+test('Worker trims oversized snapshots to the ingestion payload budget instead of failing every push', async () => {
+  const fat = Array.from({ length: 80 }, (_, index) => event('sportmonks', {
+    id: `fat-${index}`,
+    startTime: new Date(NOW + (index + 1) * 60000).toISOString()
+  }));
+  for (const item of fat) {
+    item.markets = Array.from({ length: 40 }, (_, marketIndex) => ({
+      ...item.markets[0],
+      id: `market-${item.id}-${marketIndex}`,
+      selections: Array.from({ length: 3 }, (_, selectionIndex) => ({
+        ...item.markets[0].selections[0],
+        key: `selection-${item.id}-${marketIndex}-${selectionIndex}`,
+        label: ['Home', 'Draw', 'Away'][selectionIndex],
+        odds: 1.5 + selectionIndex,
+        padding: 'x'.repeat(200)
+      }))
+    }));
+  }
+  const maxPayloadBytes = 300_000;
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: fat }),
+    fetchOddsApi: async () => { throw new Error('quota exhausted'); },
+    maxEvents: 100,
+    maxPayloadBytes,
+    teamKey,
+    now: NOW
+  });
+  const bytes = Buffer.byteLength(JSON.stringify(snapshot), 'utf8');
+  assert.ok(bytes <= maxPayloadBytes, `payload ${bytes} bytes wajib muat dalam ${maxPayloadBytes}`);
+  assert.equal(snapshot.eventCount, 80, 'tahap trim pasar mempertahankan seluruh event');
+  assert.equal(snapshot.providerResults[0].events[0].id, 'fat-0', 'event berperingkat terbaik dipertahankan utuh');
+  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 80);
+
+  // Anggaran ekstrem: even the market cap cannot hold every event -> event
+  // terendah dibuang secara biner dan payload tetap terkirim.
+  const tiny = buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: fat }),
+    fetchOddsApi: async () => { throw new Error('quota exhausted'); },
+    maxEvents: 100,
+    maxPayloadBytes: 12_000,
+    teamKey,
+    now: NOW
+  }).then(trimmed => {
+    const trimmedBytes = Buffer.byteLength(JSON.stringify(trimmed), 'utf8');
+    assert.ok(trimmedBytes <= 12_000, `payload ${trimmedBytes} bytes wajib muat dalam 12_000`);
+    assert.ok(trimmed.eventCount >= 1 && trimmed.eventCount < 80, `eventCount ekstrem tidak wajar: ${trimmed.eventCount}`);
+    assert.equal(trimmed.providerResults[0].events[0].id, 'fat-0');
+  });
+  await tiny;
+});
+
+test('Payload fitting is a no-op when the snapshot already fits the budget', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'small-1' })] }),
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  assert.equal(fitSnapshotToPayloadBudget(snapshot, 6_291_456), snapshot);
+  assert.equal(fitSnapshotToPayloadBudget(snapshot, null), snapshot);
 });
 
 test('Worker keeps publishing when Sportmonks fails (The Odds API fallback survives)', async () => {

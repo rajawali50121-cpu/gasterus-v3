@@ -167,8 +167,11 @@ const WIB_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit'
 });
 const SUMMARY_MARKET_TYPES = new Set(['1X2', 'HANDICAP', 'TOTALS']);
-const DEFAULT_SNAPSHOT_PAGE_SIZE = 30;
-const MAX_SNAPSHOT_PAGE_SIZE = 100;
+// Halaman katalog member memakai DEFAULT/MAX yang sama (500 = sportsbookMemberMaxEvents)
+// sehingga curl langsung ke /api/member/sportsbook/events mengembalikan SELURUH
+// katalog aktif dalam satu respons, bukan terpotong default 30/maks 100.
+const DEFAULT_SNAPSHOT_PAGE_SIZE = 500;
+const MAX_SNAPSHOT_PAGE_SIZE = 500;
 
 function isSoccerEvent(event) {
   const sport = clean(event?.sport).toLowerCase();

@@ -43,6 +43,9 @@ test('worker runs Sportmonks as primary with The Odds API fallback inside the qu
   // mengambil cakupan luas (bukan terpotong ~17 match oleh pembagian statis).
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
   assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
+  // Snapshot besar wajib selaras dengan anggaran payload ingest SEBELUM berangkat
+  // (trim deterministik, bukan gagal 413 diam-diam yang membekukan feed).
+  assert.match(worker, /maxPayloadBytes: config\.sportsbookIngestMaxPayloadBytes/);
   assert.match(worker, /fetchOddsApi:\s*fetchTheOddsApi/);
 
   // Sportmonks primer di worker yang sama: key diwariskan dari web (tanpa

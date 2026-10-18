@@ -70,7 +70,10 @@ test('member requests do not wait on a competing feed refresh beyond the proxy b
 });
 
 test('E2E enforces expanded event volume and core market coverage without requiring derived markets per event', () => {
-  assert.match(e2e,/const minimumEvents = 25/);
+  // Katalog aktif wajib ratusan pertandingan (termasuk fixture display-only
+  // tanpa odds) plus jaminan minimal pertandingan berharga tetap ada.
+  assert.match(e2e,/const minimumEvents = 300/);
+  assert.match(e2e,/const minimumPricedEvents = 25/);
   assert.match(e2e,/const requiredCoreMarketTypes = \['1X2', 'HANDICAP', 'TOTALS'\]/);
   assert.match(e2e,/const marketPeriodCoverage/);
   assert.doesNotMatch(e2e,/minimumDerivedMarkets|hasDerivedTypes/);

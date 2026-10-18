@@ -89,6 +89,38 @@ test('accepts a fresh HMAC-signed snapshot and stores only its verified JSON', a
   assert.equal(storedBytes, signed.body.toString());
 });
 
+test('accepts active display-only events that carry no priced markets yet', async () => {
+  const payload = snapshot();
+  payload.providerResults[0].events.push({
+    id: 'event-unpriced',
+    sport: 'Football',
+    league: 'Serie A',
+    country: 'Italy',
+    startTime: new Date(NOW + 7200000).toISOString(),
+    status: 'SCHEDULED',
+    live: false,
+    home: { name: 'Home B FC' },
+    away: { name: 'Away B FC' },
+    markets: [],
+    _refs: { sportmonks: 'provider-event-unpriced' },
+    _sources: ['sportmonks']
+  });
+  const signed = signedRequest(payload);
+  let stored;
+  const result = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async value => { stored = value; }
+    }
+  );
+
+  assert.equal(result.eventCount, 2, 'event aktif tanpa pasar tetap diterima sebagai katalog display-only');
+  assert.equal(stored.providerResults[0].events.length, 2);
+  assert.deepEqual(stored.providerResults[0].events[1].markets, []);
+});
+
 test('rejects an invalid signature without storing the snapshot', async () => {
   const signed = signedRequest(snapshot());
   signed.headers['x-sportsbook-signature'] = '0'.repeat(64);

@@ -86,7 +86,7 @@ function validateEvent(event, provider) {
     || typeof event.live !== 'boolean'
     || !isRecord(event.home) || !requiredString(event.home.name, 120)
     || !isRecord(event.away) || !requiredString(event.away.name, 120)
-    || !Array.isArray(event.markets) || event.markets.length === 0 || event.markets.length > MAX_MARKETS_PER_EVENT
+    || !Array.isArray(event.markets) || event.markets.length > MAX_MARKETS_PER_EVENT
     || !isRecord(event._refs) || !requiredString(event._refs[provider], 160)
     || !Array.isArray(event._sources) || event._sources.length !== 1 || event._sources[0] !== provider) {
     invalid(`Event ${String(event?.id || '').slice(0, 40)} tidak memiliki struktur normalisasi yang valid.`);

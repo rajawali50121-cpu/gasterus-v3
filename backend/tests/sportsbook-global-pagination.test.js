@@ -78,10 +78,10 @@ test('soccer feed filters live, today, upcoming, and country/league selections s
 
 test('soccer feed page sizes stay capped and expose deterministic pagination metadata', () => {
   const output = runFeedProbe();
-  assert.deepEqual(output.page, { size: 100, offset: 30, total: 300, hasMore: true });
-  assert.deepEqual(output.defaultPage, { size: 30, offset: 0 });
-  assert.equal(output.pageMarketCount, 2000);
-  assert.ok(output.payloadBytes < 1_000_000, `page payload was ${output.payloadBytes} bytes`);
+  assert.deepEqual(output.page, { size: 270, offset: 30, total: 300, hasMore: false });
+  assert.deepEqual(output.defaultPage, { size: 300, offset: 0 });
+  assert.equal(output.pageMarketCount, 5400);
+  assert.ok(output.payloadBytes < 2_000_000, `page payload was ${output.payloadBytes} bytes`);
 });
 
 test('synthetic 300-fixture page load remains below the Railway 512 MB RSS ceiling', t => {
