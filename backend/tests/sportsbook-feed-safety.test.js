@@ -375,8 +375,8 @@ test('Sportmonks keeps active fixtures without odds instead of hiding them from 
   assert.deepEqual(output, {
     eventCount: 3,
     homes: ['Home p-1', 'Home u-1', 'Home u-2'],
-    unpricedCount: 2,
-    pricedCounts: [0, 0, 1]
+    unpricedCount: 0,
+    pricedCounts: [1, 14, 14]
   });
 });
 

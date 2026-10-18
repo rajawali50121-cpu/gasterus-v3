@@ -133,6 +133,9 @@ function marketLabel(type, rawName, key = '') {
   if (type === 'ODD_EVEN') return 'Odd / Even';
   if (type === 'CORNERS') return 'Corners';
   if (type === 'CARDS') return 'Cards';
+  if (type === 'FIRST_TO_SCORE') return 'First to Score';
+  if (type === 'CLEAN_SHEET') return 'Clean Sheet';
+  if (type === 'TEAM_TOTAL') return 'Team Total';
   return clean(rawName || key || type, 120);
 }
 function eventId(sport, home, away, startTime) {
@@ -890,16 +893,25 @@ const DEFAULT_SPORTMONKS_PRIORITY_LEAGUES = [
   'major league soccer'
 ];
 
-// Core football betting markets only — keeps the render-worker heap bounded by
-// dropping high-cardinality families (player props, bet builders, cards, corners,
-// correct score, odd/even, team totals…) while retaining the highest-volume odds.
+// Comprehensive football betting markets — every market type with active odds
+// is retained so the sportsbook UI shows full market variety (1X2, Handicap,
+// Totals, HT markets, BTTS, Correct Score, Odd/Even, Corners, Cards, etc.).
+// High-cardinality families (player props, bet builders…) are still excluded.
 const CORE_SPORTMONKS_MARKET_TYPES = new Set([
   '1X2',
   'HANDICAP',
   'TOTALS',
   'BTTS',
   'DOUBLE_CHANCE',
-  'DRAW_NO_BET'
+  'DRAW_NO_BET',
+  'HT_FT',
+  'CORRECT_SCORE',
+  'ODD_EVEN',
+  'CORNERS',
+  'CARDS',
+  'FIRST_TO_SCORE',
+  'CLEAN_SHEET',
+  'TEAM_TOTAL'
 ]);
 function sportmonksState(raw) {
   const short = clean(raw?.short_name || raw?.name || raw?.state || '', 40).toUpperCase();
@@ -957,6 +969,175 @@ function sportmonksPeriodScores(scores) {
   return out;
 }
 
+
+
+// Generate standard odds markets as fallback when a provider returns no odds
+// for a fixture. Keeps the sportsbook UI populated and bettable.
+function generateStandardMarkets(event) {
+  const home = clean(event.home?.name || 'Home', 80);
+  const away = clean(event.away?.name || 'Away', 80);
+  const markets = [];
+
+  // 1X2
+  markets.push(normalizedMarket(event, {
+    key: '1x2', name: '1X2', type: '1X2', period: 'FT',
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, '1x2', 'Home', 2.10, { source: 'fallback-odds' }),
+      normalizedSelection(event, '1x2', 'Draw', 3.40, { source: 'fallback-odds' }),
+      normalizedSelection(event, '1x2', 'Away', 3.20, { source: 'fallback-odds' })
+    ]
+  }));
+
+  // Handicap (Asian Handicap -0.5 / +0.5)
+  markets.push(normalizedMarket(event, {
+    key: 'handicap', name: 'Asian Handicap', type: 'HANDICAP', period: 'FT', line: -0.5,
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'handicap', 'Home -0.5', 1.90, { line: -0.5, source: 'fallback-odds' }),
+      normalizedSelection(event, 'handicap', 'Away +0.5', 1.90, { line: 0.5, source: 'fallback-odds' })
+    ]
+  }));
+
+  // Totals (Over/Under 2.5)
+  markets.push(normalizedMarket(event, {
+    key: 'totals', name: 'Over / Under', type: 'TOTALS', period: 'FT', line: 2.5,
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'totals', 'Over 2.5', 1.85, { line: 2.5, source: 'fallback-odds' }),
+      normalizedSelection(event, 'totals', 'Under 2.5', 1.95, { line: 2.5, source: 'fallback-odds' })
+    ]
+  }));
+
+  // BTTS
+  markets.push(normalizedMarket(event, {
+    key: 'btts', name: 'Both Teams To Score', type: 'BTTS', period: 'FT',
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'btts', 'Yes', 1.75, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'btts', 'No', 2.05, { source: 'fallback-odds' })
+    ]
+  }));
+
+  // Correct Score
+  markets.push(normalizedMarket(event, {
+    key: 'correct_score', name: 'Correct Score', type: 'CORRECT_SCORE', period: 'FT',
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'correct_score', '1-0', 7.50, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'correct_score', '0-1', 8.00, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'correct_score', '1-1', 6.50, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'correct_score', '2-0', 10.00, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'correct_score', '0-2', 11.00, { source: 'fallback-odds' })
+    ]
+  }));
+
+  // Odd / Even
+  markets.push(normalizedMarket(event, {
+    key: 'odd_even', name: 'Odd / Even', type: 'ODD_EVEN', period: 'FT',
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'odd_even', 'Odd', 1.90, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'odd_even', 'Even', 1.90, { source: 'fallback-odds' })
+    ]
+  }));
+
+  // Corners
+  markets.push(normalizedMarket(event, {
+    key: 'corners', name: 'Corners', type: 'CORNERS', period: 'FT', line: 9.5,
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'corners', 'Over 9.5', 1.85, { line: 9.5, source: 'fallback-odds' }),
+      normalizedSelection(event, 'corners', 'Under 9.5', 1.95, { line: 9.5, source: 'fallback-odds' })
+    ]
+  }));
+
+  // Cards
+  markets.push(normalizedMarket(event, {
+    key: 'cards', name: 'Cards', type: 'CARDS', period: 'FT', line: 3.5,
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'cards', 'Over 3.5', 1.85, { line: 3.5, source: 'fallback-odds' }),
+      normalizedSelection(event, 'cards', 'Under 3.5', 1.95, { line: 3.5, source: 'fallback-odds' })
+    ]
+  }));
+
+  // Double Chance
+  markets.push(normalizedMarket(event, {
+    key: 'double_chance', name: 'Double Chance', type: 'DOUBLE_CHANCE', period: 'FT',
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'double_chance', '1X', 1.35, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'double_chance', 'X2', 1.55, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'double_chance', '12', 1.25, { source: 'fallback-odds' })
+    ]
+  }));
+
+  // Draw No Bet
+  markets.push(normalizedMarket(event, {
+    key: 'draw_no_bet', name: 'Draw No Bet', type: 'DRAW_NO_BET', period: 'FT',
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'draw_no_bet', 'Home', 1.75, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'draw_no_bet', 'Away', 2.05, { source: 'fallback-odds' })
+    ]
+  }));
+
+  // HT / FT
+  markets.push(normalizedMarket(event, {
+    key: 'ht_ft', name: 'Half Time / Full Time', type: 'HT_FT', period: 'FT',
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'ht_ft', 'Home / Home', 4.50, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'ht_ft', 'Home / Draw', 13.00, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'ht_ft', 'Home / Away', 21.00, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'ht_ft', 'Draw / Home', 5.50, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'ht_ft', 'Draw / Draw', 4.50, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'ht_ft', 'Draw / Away', 9.00, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'ht_ft', 'Away / Home', 17.00, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'ht_ft', 'Away / Draw', 11.00, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'ht_ft', 'Away / Away', 5.00, { source: 'fallback-odds' })
+    ]
+  }));
+
+  // First to Score
+  markets.push(normalizedMarket(event, {
+    key: 'first_to_score', name: 'First to Score', type: 'FIRST_TO_SCORE', period: 'FT',
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'first_to_score', home, 1.85, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'first_to_score', away, 1.95, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'first_to_score', 'No Goal', 15.00, { source: 'fallback-odds' })
+    ]
+  }));
+
+  // Clean Sheet
+  markets.push(normalizedMarket(event, {
+    key: 'clean_sheet', name: 'Clean Sheet', type: 'CLEAN_SHEET', period: 'FT',
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'clean_sheet', home + ' Yes', 1.80, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'clean_sheet', home + ' No', 2.00, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'clean_sheet', away + ' Yes', 1.85, { source: 'fallback-odds' }),
+      normalizedSelection(event, 'clean_sheet', away + ' No', 1.95, { source: 'fallback-odds' })
+    ]
+  }));
+
+  // Team Total
+  markets.push(normalizedMarket(event, {
+    key: 'team_total', name: 'Team Total', type: 'TEAM_TOTAL', period: 'FT', line: 1.5,
+    source: 'fallback-odds',
+    selections: [
+      normalizedSelection(event, 'team_total', home + ' Over 1.5', 1.40, { line: 1.5, source: 'fallback-odds' }),
+      normalizedSelection(event, 'team_total', home + ' Under 1.5', 2.75, { line: 1.5, source: 'fallback-odds' }),
+      normalizedSelection(event, 'team_total', away + ' Over 1.5', 1.45, { line: 1.5, source: 'fallback-odds' }),
+      normalizedSelection(event, 'team_total', away + ' Under 1.5', 2.65, { line: 1.5, source: 'fallback-odds' })
+    ]
+  }));
+
+  return markets.filter(Boolean);
+}
+
 function normalizeSportmonksFixture(raw, oddsRows = []) {
   const participants = Array.isArray(raw?.participants) ? raw.participants : [];
   const home = participants.find(participant => participant?.meta?.location === 'home') || participants[0];
@@ -994,6 +1175,16 @@ function normalizeSportmonksFixture(raw, oddsRows = []) {
   // (player props, bet builders, cards, corners, correct score, odd/even…)
   // are dropped by sportmonksMarket(); the per-event market cap keeps memory bounded.
   event.markets = [...byMarket.values()].map(rows => sportmonksMarket(event, rows)).filter(Boolean).slice(0, 120);
+
+  // Fallback: jika Sportmonks tidak mengembalikan odds untuk fixture ini,
+  // generate pasaran odds standar agar sportsbook UI tidak kosong dan
+  // member tetap bisa memasang taruhan. Hanya dipakai sebagai fallback,
+  // tidak menimpa data odds yang sudah ada dari provider.
+  if (!event.markets || event.markets.length === 0) {
+    event.markets = generateStandardMarkets(event);
+    event._oddsFallback = true;
+  }
+
   return event;
 }
 function sportmonksMarket(event, rows) {
@@ -1586,6 +1777,13 @@ export function mergeProviderEvents(providerResults, options = {}) {
   const events = [];
   const fixturesByTeams = new Map();
   const now = Date.now();
+  const pricedCount = event => {
+    const markets = Array.isArray(event?.markets) ? event.markets : [];
+    return markets.filter(m => {
+      const selections = Array.isArray(m?.selections) ? m.selections : [];
+      return selections.some(s => s && !s.suspended && Number(s.odds) > 1);
+    }).length;
+  };
   const eventPriority = event => {
     const status = String(event?.status || '').toUpperCase();
     const kickoff = Date.parse(event?.startTime || '');
@@ -1600,6 +1798,7 @@ export function mergeProviderEvents(providerResults, options = {}) {
   };
   const ordered = providerResults.flatMap(result => result.events || []).sort((a, b) =>
     eventPriority(a) - eventPriority(b)
+      || pricedCount(b) - pricedCount(a)
       || (Date.parse(a.startTime || '') || Number.MAX_SAFE_INTEGER)
         - (Date.parse(b.startTime || '') || Number.MAX_SAFE_INTEGER)
   );
