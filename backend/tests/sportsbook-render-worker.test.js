@@ -243,7 +243,30 @@ test('Worker keeps active unpriced fixtures in the snapshot as display-only even
     snapshot.providerResults[0].events.map(item => item.id).sort(),
     ['priced-1', 'unpriced-1', 'unpriced-2']
   );
-  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks']);
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
+  const oddsApiStatus = snapshot.providerResults.find(result => result.provider === 'the-odds-api');
+  assert.equal(oddsApiStatus.transportOk, false);
+  assert.match(oddsApiStatus.errors[0], /quota exhausted/);
+});
+
+test('Worker includes explicit Odds API key/configuration failures beside other provider data', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => ({
+      provider: 'sportmonks',
+      enabled: true,
+      events: [event('sportmonks', { id: 'sportmonks-event' })]
+    }),
+    fetchOddsApi: async () => { throw new Error('THE_ODDS_API_KEY is required'); },
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  const oddsApi = snapshot.providerResults.find(result => result.provider === 'the-odds-api');
+  assert.equal(snapshot.eventCount, 1);
+  assert.equal(oddsApi.enabled, true);
+  assert.equal(oddsApi.transportOk, false);
+  assert.deepEqual(oddsApi.errors, ['THE_ODDS_API_KEY is required']);
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
 });
 
 test('Worker prefers the priced copy when the same fixture arrives from two providers', async () => {
@@ -330,7 +353,7 @@ test('Payload fitting is a no-op when the snapshot already fits the budget', asy
   assert.equal(fitSnapshotToPayloadBudget(snapshot, null), snapshot);
 });
 
-test('Worker keeps publishing when Sportmonks fails (The Odds API fallback survives)', async () => {
+test('Worker keeps publishing and records Sportmonks failure when The Odds API succeeds', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => { throw new Error('Sportmonks down'); },
     fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'fallback-1' })] }),
@@ -339,10 +362,11 @@ test('Worker keeps publishing when Sportmonks fails (The Odds API fallback survi
     now: NOW
   });
   assert.equal(snapshot.eventCount, 1);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['the-odds-api']);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'the-odds-api']);
+  assert.equal(snapshot.providerResults.find(result => result.provider === 'sportmonks').transportOk, false);
 });
 
-test('Worker still publishes when The Odds API fails (Sportmonks primary survives)', async () => {
+test('Worker still publishes and records Odds API failure when Sportmonks succeeds', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'primary-1' })] }),
     fetchOddsApi: async () => { throw new Error('quota exhausted'); },
@@ -351,7 +375,8 @@ test('Worker still publishes when The Odds API fails (Sportmonks primary survive
     now: NOW
   });
   assert.equal(snapshot.eventCount, 1);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks']);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'the-odds-api']);
+  assert.equal(snapshot.providerResults.find(result => result.provider === 'the-odds-api').transportOk, false);
 });
 
 test('Worker dedupes overlapping fixtures preferring Sportmonks as primary', async () => {
@@ -374,7 +399,7 @@ test('Worker fails closed when every provider fetch throws', async () => {
       fetchOddsApi: async () => { throw new Error('quota'); },
       teamKey
     }),
-    /No sportsbook provider could be fetched/
+    /No enabled sportsbook provider returned normalized fixtures/
   );
 });
 

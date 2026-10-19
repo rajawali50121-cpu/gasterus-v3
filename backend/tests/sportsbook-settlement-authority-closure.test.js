@@ -57,10 +57,10 @@ test('R6.9.0.11 fresh FT market starts ACTIVE instead of inheriting an obsolete 
 test('sportsbook feed cache is generation-isolated from the previous production lifecycle', () => {
   const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 
-  assert.match(feed, /LIFECYCLE_GENERATION\s*=\s*'render-ingest-multisource-v2'/);
-  assert.match(feed, /sportsbook:aggregated-feed:v17/);
-  assert.match(feed, /sportsbook:provider-lifecycle:v6/);
-  assert.match(feed, /sportsbook:market-lifecycle:v6/);
+  assert.match(feed, /LIFECYCLE_GENERATION\s*=\s*'render-ingest-provider-backed-v3'/);
+  assert.match(feed, /sportsbook:aggregated-feed'/);
+  assert.match(feed, /sportsbook:provider-lifecycle'/);
+  assert.match(feed, /sportsbook:market-lifecycle'/);
   assert.match(feed, /parsed\.lifecycleGeneration !== LIFECYCLE_GENERATION/);
   assert.match(feed, /memory\.lifecycleGeneration === LIFECYCLE_GENERATION/);
 });

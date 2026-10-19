@@ -15,7 +15,7 @@ import { listMarkets, memberLotteryResultDetails } from './markets.js';
 import { verifyLedger } from './ledger.js';
 import { logger } from './logger.js';
 import { appendMarketHistory } from './member.js';
-import { sportsbookSnapshot, sportsbookEventSnapshot, sportsbookOperationalStatus, sportsbookSourceStatus } from './sportsbook-feed.js';
+import { sportsbookSnapshot, sportsbookEventSnapshot, sportsbookOperationalStatus, sportsbookSourceStatus, purgeLegacySportsbookCacheKeys } from './sportsbook-feed.js';
 import { runTotoCollector, totoCollectorStatus } from './toto-collector.js';
 import { memberMarketVisible, MEMBER_HIDDEN_TOTO_MARKETS } from './toto-member-catalog.js';
 import { cancelSportsbookSettlement, createSportsbookBet, createSportsbookQuote, getMemberSportsbookBet, listAllSportsbookBets, listManualSportsbookSettlementQueue, listMemberSportsbookBets, rollbackSportsbookSettlement, settleSportsbookBet } from './sportsbook-betting.js';
@@ -278,7 +278,7 @@ function corsHeaders(req){
   };
 }
 export function createApp(){return createServer(async(req,res)=>{securityHeaders(res);const cors=corsHeaders(req);if(req.method==='OPTIONS'&&cors){res.writeHead(204,{...cors,'content-length':'0'});res.end();return;}if(cors){for(const[key,value]of Object.entries(cors))res.setHeader(key,value);}wrapGzip(req,res);const began=performance.now();metrics.requests++;const url=new URL(req.url||'/','http://internal');const match=matchRoute(req.method||'GET',url.pathname);if(!match){return fail(res,new AppError(404,'Not found','NOT_FOUND'));}try{await match.route.handler({req,res,url,params:match.params,ip:clientIp(req)})}catch(error){metrics.errors++;logger.error('Request failed',{method:req.method,path:url.pathname,status:error.status||500,code:error.code,error:error.message});fail(res,error);}finally{metrics.latencyTotal+=performance.now()-began;}});}
-export async function initialize(){await connectRedis();await checkDatabase();}
+export async function initialize(){await connectRedis();await purgeLegacySportsbookCacheKeys();await checkDatabase();}
 
 // Cron-like scheduler: checks every 30 seconds for markets whose closeAt has passed
 // and automatically sets bettingStatus to CLOSED without waiting for iframe

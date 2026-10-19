@@ -1,20 +1,17 @@
 import { defineRailway, github, postgres, preserve, project, redis, service, volume } from "railway/iac";
 
 export default defineRailway(() => {
-  const Postgres = postgres("Postgres", { region: "sfo" });
+  const Postgres = postgres("Postgres", { region: "iad" });
   Postgres.networking = { privateNetworkEndpoint: "postgres" };
-  const Redis = redis("Redis", { region: "sfo" });
-  Redis.deploy = { startCommand: "/bin/sh -c \"rm -rf $RAILWAY_VOLUME_MOUNT_PATH/lost+found/ && exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD --save 60 1 --maxmemory 128mb --maxmemory-policy volatile-lru --maxmemory-samples 5 --dir $RAILWAY_VOLUME_MOUNT_PATH\"" };
+  const Redis = redis("Redis", { region: "iad" });
+  Redis.deploy = { startCommand: "/bin/sh -c \"rm -rf $RAILWAY_VOLUME_MOUNT_PATH/lost+found/ && exec docker-entrypoint.sh redis-server --requirepass $REDIS_PASSWORD --save 60 1 --dir $RAILWAY_VOLUME_MOUNT_PATH\"" };
   Redis.networking = { privateNetworkEndpoint: "redis" };
-  const postgresVolume = volume("postgres-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "sfo", sizeMB: 500 });
-  const redisVolume = volume("redis-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "sfo", sizeMB: 500 });
-  const web = service("web", {
-    source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
+  const postgresVolume = volume("postgres-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "iad", sizeMB: 500 });
+  const redisVolume = volume("redis-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "iad", sizeMB: 500 });
+  const backend = service("gasterus-v3", {
+    source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: false }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile" },
-    preDeploy: "node deploy/predeploy.js",
-    healthcheck: "/healthz",
-    healthcheckTimeout: 300,
-    replicas: { "sfo": 1 },
+    replicas: { "iad": 1 },
     env: {
       ADMIN_PASSWORD: preserve(),
       ADMIN_PROXY_SECRET: preserve(),
@@ -60,6 +57,8 @@ export default defineRailway(() => {
       RESEND_FROM_EMAIL: preserve(),
       RUN_STARTUP_MIGRATIONS: preserve(),
       SESSION_HMAC_KEY: preserve(),
+      SPORTS_FEED_MAX_CACHE_BYTES: "8388608",
+      SPORTS_FEED_MAX_EVENTS: "500",
       SHARP_API_BASE_URL: preserve(),
       SHARP_API_ENABLED: preserve(),
       SHARP_API_KEY: preserve(),
@@ -70,7 +69,7 @@ export default defineRailway(() => {
       SHARP_API_SPORT: preserve(),
       SPORTS_SOURCE_BACKGROUND_POLL_ENABLED: preserve(),
       SPORTSBOOK_INGEST_HMAC_SECRET: preserve(),
-      SPORTSBOOK_INGEST_URL: preserve(),
+      SPORTSBOOK_INGEST_URL: "https://gasterus-v3-production.up.railway.app/api/internal/sportsbook/ingest",
       SPORTSBOOK_RENDER_MAX_EVENTS: preserve(),
       SPORTMONKS_API_KEY: preserve(),
       SPORTMONKS_DAYS_AHEAD: preserve(),
@@ -98,51 +97,41 @@ export default defineRailway(() => {
   // Scraper odds berjalan sebagai service TERPISAH agar beban scrape tidak
   // pernah menyentuh memori service web (anti-OOM). Pengaman:
   //   - heap V8 dikunci 224MB lewat NODE_OPTIONS (container ~512MB)
-  //   - Sportmonks SUMBER UTAMA cakupan luas: anggaran halaman round-robin
-  //     per tanggal (maks 120 x 20 = 2.400 kandidat, berhenti awal begitu
-  //     1.2 x maxEvents kandidat terkumpul) -> snapshot maks 500 event; key
-  //     diwariskan dari web sehingga tidak perlu service/platform baru
-  //   - The Odds API CADANGAN 5 liga andalan; h2h x eu = 1 kredit/request;
-  //     refresh 720 dtk (di bawah jendela harga prematch 900 dtk)
+  //   - The Odds API: EPL + La Liga, h2h/spreads/totals x eu; refresh 840 dtk
+  //     memakai maksimal 618 kredit/hari (batas 667), di bawah jendela harga
+  //     prematch 900 dtk.
   //   - provider dijalankan sekuensial (satu payload pada satu waktu), market
   //     per-event dimatikan (tanpa fetch tambahan), cache provider berbatas
   //     byte, snapshot berbatas 500 event / 6MB
   const sportsbookRenderWorker = service("sportsbook-render-worker", {
-    source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
+    source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: false }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile.sportsbook-render-worker" },
     deploy: {
       restartPolicyType: "ON_FAILURE",
       restartPolicyMaxRetries: 10
     },
-    replicas: { "sfo": 1 },
+    replicas: { "iad": 1 },
     env: {
       NODE_ENV: "production",
       NODE_OPTIONS: "--max-old-space-size=224",
-      SPORTSBOOK_INGEST_URL: "${{web.SPORTSBOOK_INGEST_URL}}",
-      SPORTSBOOK_INGEST_HMAC_SECRET: "${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}",
+      SPORTSBOOK_INGEST_URL: "${{gasterus-v3.SPORTSBOOK_INGEST_URL}}",
+      SPORTSBOOK_INGEST_HMAC_SECRET: "${{gasterus-v3.SPORTSBOOK_INGEST_HMAC_SECRET}}",
       SPORTSBOOK_RENDER_MAX_EVENTS: "500",
       SPORTSBOOK_RENDER_MAX_PAGES: "120",
       THE_ODDS_API_ENABLED: "true",
-      THE_ODDS_API_KEY: "${{web.THE_ODDS_API_KEY}}",
+      THE_ODDS_API_KEY: "${{gasterus-v3.THE_ODDS_API_KEY}}",
       THE_ODDS_API_REGIONS: "eu",
-      THE_ODDS_API_MARKETS: "h2h",
-      THE_ODDS_API_REFRESH_SECONDS: "720",
+      THE_ODDS_API_MARKETS: "h2h,spreads,totals",
+      THE_ODDS_API_REFRESH_SECONDS: "840",
       THE_ODDS_API_MAX_TOTAL_EVENTS: "500",
       THE_ODDS_API_EVENT_MARKETS_ENABLED: "false",
       THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT: "0",
       THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS: "0",
-      THE_ODDS_API_SPORT_KEYS: "soccer_epl,soccer_spain_la_liga,soccer_italy_serie_a,soccer_germany_bundesliga,soccer_uefa_champs_league",
-      // Sportmonks primer (cakupan luas). Key & batas diwariskan/diset di
-      // worker yang sama — service web tetap bebas beban scrape Sportmonks.
-      SPORTMONKS_ENABLED: "true",
-      SPORTMONKS_API_KEY: "${{web.SPORTMONKS_API_KEY}}",
-      SPORTMONKS_MAX_TOTAL_EVENTS: "500",
-      SPORTMONKS_REFRESH_SECONDS: "300",
-      SPORTMONKS_REQUEST_DELAY_MS: "0"
+      THE_ODDS_API_SPORT_KEYS: "soccer_epl,soccer_spain_la_liga",
     }
   });
 
   return project("gasterus-v3", {
-    resources: [Postgres, web, sportsbookRenderWorker, Redis, postgresVolume, redisVolume],
+    resources: [Postgres, backend, sportsbookRenderWorker, Redis, postgresVolume, redisVolume],
   });
 });

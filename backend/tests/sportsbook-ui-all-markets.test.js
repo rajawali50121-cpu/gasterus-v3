@@ -16,6 +16,13 @@ test('member sportsbook lazy-loads complete event market details and retains all
   assert.match(feed, /function memberPublicEventDetail\(event\)[\s\S]*memberEventShape\(item, item\.markets \|\| \[\]\)/);
 });
 
+test('event detail cache is revision-scoped and bounded in the browser', () => {
+  assert.match(frontend, /const MAX_EVENT_DETAIL_CACHE_ENTRIES = 60/);
+  assert.match(frontend, /function rememberEventDetail\(eventId, detail\)[\s\S]*eventDetails\.size > MAX_EVENT_DETAIL_CACHE_ENTRIES/);
+  assert.match(frontend, /detail\.revision !== String\(revision \|\| ''\)/);
+  assert.match(frontend, /eventDetailRequests\.get\(eventId\)\?\.token !== requestToken/);
+});
+
 test('detailed markets are refreshed by feed revision and stale odds cannot place a bet during refresh', () => {
   assert.match(feed, /feedRevision: feed\.revision \|\| null/);
   assert.match(frontend, /detailRefreshIds\.add\(eventId\)/);

@@ -9,9 +9,13 @@ const ui = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.u
 const worker = readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8');
 const config = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
 
-test('sportsbook feed defaults stay inside Railway free-tier event and cache budgets', () => {
-  assert.match(config, /sportsFeedMaxEvents: int\('SPORTS_FEED_MAX_EVENTS', 120, 20, 500\)/);
-  assert.match(config, /sportsFeedMaxCacheBytes: int\('SPORTS_FEED_MAX_CACHE_BYTES', 2_000_000, 262_144, 15_000_000\)/);
+test('sportsbook feed defaults support the full bounded catalog and stay within cache budgets', () => {
+  assert.match(feed, /LIFECYCLE_GENERATION = 'render-ingest-provider-backed-v3'/);
+  assert.match(feed, /sportsbook:aggregated-feed'/);
+  assert.doesNotMatch(feed, /sportsbook:aggregated-feed:v\d+/);
+  assert.match(feed, /sportsbook:aggregated-feed:v\*/);
+  assert.match(config, /sportsFeedMaxEvents: int\('SPORTS_FEED_MAX_EVENTS', 500, 20, 500\)/);
+  assert.match(config, /sportsFeedMaxCacheBytes: int\('SPORTS_FEED_MAX_CACHE_BYTES', 8_388_608, 262_144, 15_000_000\)/);
   assert.match(config, /sportsProviderCacheMaxTotalBytes: int\('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000/);
   assert.match(config, /sportsbookMemberMaxEvents: int\('SPORTSBOOK_MEMBER_MAX_EVENTS', 500, 20, 500\)/);
   assert.match(config, /theOddsApiMaxTotalEvents: int\('THE_ODDS_API_MAX_TOTAL_EVENTS', 500, 0, 500\)/);
@@ -375,8 +379,8 @@ test('Sportmonks keeps active fixtures without odds instead of hiding them from 
   assert.deepEqual(output, {
     eventCount: 3,
     homes: ['Home p-1', 'Home u-1', 'Home u-2'],
-    unpricedCount: 0,
-    pricedCounts: [1, 14, 14]
+    unpricedCount: 2,
+    pricedCounts: [0, 0, 1]
   });
 });
 
@@ -466,7 +470,8 @@ test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
 });
 
 test('stale Sportsbook feed cache is read-only and cannot be settled', () => {
-  assert.match(feed, /sportsbook:aggregated-feed:v17/);
+  assert.match(feed, /sportsbook:aggregated-feed'/);
+  assert.doesNotMatch(feed, /sportsbook:aggregated-feed:v\d+/);
   assert.match(feed, /READ_ONLY_STALE_SOURCE/);
   assert.match(feed, /feed\.readOnlySource \|\| feed\.snapshotFallback/);
   assert.match(feed, /SPORTS_SETTLEMENT_SOURCE_STALE/);
@@ -538,7 +543,7 @@ test('Sportsbook Redis cache respects its configured byte budget while preferrin
       events,
       providers: [],
       fetchedAt: now,
-      lifecycleGeneration: 'render-ingest-multisource-v2'
+      lifecycleGeneration: 'render-ingest-provider-backed-v3'
     });
     console.log(JSON.stringify({
       retained: bounded.events.length,

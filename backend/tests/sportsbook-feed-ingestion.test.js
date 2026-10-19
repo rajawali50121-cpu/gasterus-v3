@@ -95,6 +95,20 @@ test('aggregator loads only a fresh staging snapshot with a valid HMAC and revis
   assert.equal(result.receivedAt, new Date(now).toISOString());
 });
 
+test('aggregator derives revision from the signed body instead of trusting stored revision metadata', async () => {
+  const now = Date.now();
+  const record = JSON.parse(signedStagingRecord(snapshot(now), now));
+  const expectedRevision = record.revision;
+  record.revision = '0'.repeat(64);
+  const result = await loadRenderProviderSnapshot(
+    { isOpen: true, async get() { return JSON.stringify(record); } },
+    { secret: SECRET, now }
+  );
+
+  assert.ok(result);
+  assert.equal(result.revision, expectedRevision);
+});
+
 test('aggregator rejects stale or altered staging data so caller can fall back to local providers', async () => {
   const now = Date.now();
   const oldSnapshot = snapshot(now - 181000);
@@ -163,7 +177,7 @@ test('Railway provider merge deduplicates the same cross-provider fixture before
   assert.equal('priceVersion' in safeEvent.markets[0].selections[0], false, 'Railway derives feed price versions');
 
   const feedValue = {
-    lifecycleGeneration: 'render-ingest-multisource-v2',
+    lifecycleGeneration: 'render-ingest-provider-backed-v3',
     events: Array.from({ length: 60 }, (_, index) => ({
       ...normalizedEvent('sportmonks', {
         id: `large-event-${index}`,

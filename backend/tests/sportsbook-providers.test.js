@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 
 Object.assign(process.env, {
   NODE_ENV: 'test',
@@ -34,15 +35,56 @@ test('The Odds API normalizer creates stable 1X2 and totals markets', () => {
       key: 'book-a',
       markets: [
         { key: 'h2h', outcomes: [{ name: 'Arsenal', price: 1.8 }, { name: 'Draw', price: 3.4 }, { name: 'Chelsea', price: 4.2 }] },
+        { key: 'spreads', outcomes: [{ name: 'Arsenal', point: -0.5, price: 1.91 }, { name: 'Chelsea', point: 0.5, price: 1.95 }] },
         { key: 'totals', outcomes: [{ name: 'Over', point: 2.5, price: 1.91 }, { name: 'Under', point: 2.5, price: 1.95 }] }
       ]
     }]
   });
+
+  test('enabled The Odds API fails explicitly when its key is missing', () => {
+    const script = `
+      const { fetchTheOddsApi } = await import('./src/sportsbook-providers.js');
+      try {
+        await fetchTheOddsApi();
+        throw new Error('Expected missing API key to fail.');
+      } catch (error) {
+        if (error.message !== 'THE_ODDS_API_KEY is required when The Odds API is enabled.') throw error;
+        console.log(error.message);
+      }
+    `;
+    const env = { ...process.env, THE_ODDS_API_ENABLED: 'true', THE_ODDS_API_KEY: '' };
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: new URL('..', import.meta.url),
+      encoding: 'utf8',
+      env
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /THE_ODDS_API_KEY is required when The Odds API is enabled/);
+  });
   assert.equal(event.sport, 'Football');
   assert.ok(event.markets.some(market => market.type === '1X2' && market.selections.length === 3));
+  assert.ok(event.markets.some(market => market.type === 'HANDICAP' && market.selections.length === 2));
   assert.ok(event.markets.some(market => market.type === 'TOTALS' && market.selections.length === 2));
   assert.equal(event.markets[0].selections[0].source, 'the-odds-api');
   assert.equal(event.markets[0].bookmaker, 'book-a');
+});
+
+test('provider events without quoted prices remain unpriced instead of receiving fabricated odds', () => {
+  const event = __sportsbookProviders.normalizeOddsApiEvent({
+    id: 'odds-unpriced',
+    sport_key: 'soccer_epl',
+    sport_title: 'Premier League',
+    commence_time: '2026-08-06T12:00:00Z',
+    home_team: 'Arsenal',
+    away_team: 'Chelsea',
+    bookmakers: []
+  });
+  assert.deepEqual(event.markets, []);
+  assert.equal(__sportsbookProviders.mergeProviderEvents([{
+    provider: 'the-odds-api',
+    enabled: true,
+    events: [event]
+  }])[0].markets.length, 0);
 });
 
 test('The Odds API selects one coherent bookmaker per market and retains market-only coverage', () => {
@@ -107,6 +149,8 @@ test('The Odds API fetches extra markets by event ID and reuses the existing det
     assert.ok(markets.some(market => market.type === 'BTTS' && market.bookmaker === 'Detail Book'));
     assert.ok(markets.some(market => market.type === 'TOTALS' && market.line === 2.5));
     assert.ok(calls.some(url => url.pathname.includes(`/events/${eventId}/odds`)));
+    assert.equal(calls[0].searchParams.get('apiKey'), 'test-existing-odds-key');
+    assert.equal(calls[0].searchParams.get('markets'), 'h2h,spreads,totals');
     const callCount = calls.length;
     await fetchTheOddsApi();
     assert.equal(calls.length, callCount, 'list and event-detail responses must be served from cache');
@@ -147,10 +191,10 @@ test('The Odds API detail cache removes expired and completed event payloads', (
   const now = Date.now();
   const cache = __sportsbookProviders.oddsApiEventDetailCache;
   cache.clear();
-  cache.set('fresh', { fetchedAt: now - 1000, commenceTime: new Date(now + 3600000).toISOString(), completed: false, payload: {} });
-  cache.set('expired-ttl', { fetchedAt: now - 120000, commenceTime: new Date(now + 3600000).toISOString(), completed: false, payload: {} });
-  cache.set('finished', { fetchedAt: now - 1000, commenceTime: new Date(now + 3600000).toISOString(), completed: true, payload: {} });
-  cache.set('old-event', { fetchedAt: now - 1000, commenceTime: new Date(now - 9 * 3600000).toISOString(), completed: false, payload: {} });
+  cache.set('fresh', { fetchedAt: now - 1000, commenceTime: new Date(now + 3600000).toISOString(), completed: false, sizeBytes: 100, payload: {} });
+  cache.set('expired-ttl', { fetchedAt: now - 120000, commenceTime: new Date(now + 3600000).toISOString(), completed: false, sizeBytes: 100, payload: {} });
+  cache.set('finished', { fetchedAt: now - 1000, commenceTime: new Date(now + 3600000).toISOString(), completed: true, sizeBytes: 100, payload: {} });
+  cache.set('old-event', { fetchedAt: now - 1000, commenceTime: new Date(now - 9 * 3600000).toISOString(), completed: false, sizeBytes: 100, payload: {} });
   __sportsbookProviders.pruneOddsApiEventDetailCache(now, 60000);
   assert.deepEqual([...cache.keys()], ['fresh']);
   cache.clear();

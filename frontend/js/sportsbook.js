@@ -23,6 +23,7 @@ const FEED_DETAIL_URL = (id) => `/api/member/sportsbook/events/${encodeURICompon
 const EVENTS_PAGE_SIZE = 30;
 const pageSize = EVENTS_PAGE_SIZE;
 const BETSLIP_MOBILE_BREAKPOINT = 860;
+const MAX_EVENT_DETAIL_CACHE_ENTRIES = 60;
 
 // ---------------------------------------------------------------------------
 // State
@@ -92,6 +93,14 @@ const previousOddsMap = new Map(); // selKey -> number (decimal odds)
 const oddsMovementMap = new Map(); // selKey -> { direction: 'up' | 'down', timestamp: number }
 const oddsCleanupTimers = new Map(); // selKey -> timeoutId
 let isInitialSnapshot = true;
+
+function rememberEventDetail(eventId, detail) {
+  eventDetails.delete(eventId);
+  eventDetails.set(eventId, detail);
+  while (eventDetails.size > MAX_EVENT_DETAIL_CACHE_ENTRIES) {
+    eventDetails.delete(eventDetails.keys().next().value);
+  }
+}
 
 function updateOddsInDOM(key, direction, curOdds, sk) {
   const elements = document.querySelectorAll(`[data-sel="${key}"]`);
@@ -550,9 +559,17 @@ function onSnapshot(snapshot, { append = false } = {}) {
       hasMore: Boolean(snapshot.pagination?.hasMore) && snapshot.events.length >= pageSize
     }
   };
+  const currentEventIds = new Set(feed.events.map(event => event.id));
+  for (const [eventId, detail] of eventDetails) {
+    if (!currentEventIds.has(eventId) || detail.revision !== String(revision || '')) {
+      eventDetails.delete(eventId);
+    }
+  }
+  for (const eventId of selectedEventPeriods.keys()) {
+    if (!currentEventIds.has(eventId)) selectedEventPeriods.delete(eventId);
+  }
   const detailRefreshIds = new Set();
   if (revision && revision !== previousFeedRevision) {
-    const currentEventIds = new Set(feed.events.map(event => event.id));
     for (const eventId of expandedEventMarkets) {
       if (currentEventIds.has(eventId)) detailRefreshIds.add(eventId);
       else {
@@ -1772,11 +1789,16 @@ async function loadEventMarkets(eventId, { force = false, notify = true } = {}) 
   if (!eventId) return null;
   const revision = String(feed.source?.feedRevision || '');
   const cached = eventDetails.get(eventId);
-  if (!force && cached?.revision === revision) return cached.event;
+  if (!force && cached?.revision === revision) {
+    eventDetails.delete(eventId);
+    eventDetails.set(eventId, cached);
+    return cached.event;
+  }
   const existingRequest = eventDetailRequests.get(eventId);
-  if (existingRequest) return existingRequest;
+  if (existingRequest?.revision === revision) return existingRequest.promise;
 
   pendingEventDetails.add(eventId);
+  const requestToken = {};
   const panel = el(`event-markets-${eventId}`);
   if (panel && expandedEventMarkets.has(eventId)) {
     panel.hidden = false;
@@ -1792,10 +1814,13 @@ async function loadEventMarkets(eventId, { force = false, notify = true } = {}) 
         throw new Error('Respons detail odds pertandingan tidak lengkap.');
       }
       const responseRevision = String(payload.source?.feedRevision || '');
-      if (!responseRevision || responseRevision !== String(feed.source?.feedRevision || '')) {
+      if (!responseRevision || responseRevision !== revision
+        || responseRevision !== String(feed.source?.feedRevision || '')
+        || !feed.events.some(item => item.id === eventId)) {
         throw new Error('Versi feed berubah saat memuat odds. Coba lagi.');
       }
-      eventDetails.set(eventId, { event, revision: responseRevision });
+      if (eventDetailRequests.get(eventId)?.token !== requestToken) return null;
+      rememberEventDetail(eventId, { event, revision: responseRevision });
       pendingEventDetails.delete(eventId);
 
       const allEvents = eventsWithFreshDetails();
@@ -1812,6 +1837,7 @@ async function loadEventMarkets(eventId, { force = false, notify = true } = {}) 
       }
       return event;
     } catch (error) {
+      if (eventDetailRequests.get(eventId)?.token !== requestToken) return null;
       pendingEventDetails.delete(eventId);
       eventDetails.delete(eventId);
       const summary = feed.events.find(item => item.id === eventId);
@@ -1839,10 +1865,12 @@ async function loadEventMarkets(eventId, { force = false, notify = true } = {}) 
       if (notify || removed) showToast(error?.message || 'Gagal memuat odds pertandingan.', 'danger');
       return null;
     } finally {
-      eventDetailRequests.delete(eventId);
+      if (eventDetailRequests.get(eventId)?.token === requestToken) {
+        eventDetailRequests.delete(eventId);
+      }
     }
   })();
-  eventDetailRequests.set(eventId, request);
+  eventDetailRequests.set(eventId, { revision, token: requestToken, promise: request });
   return request;
 }
 

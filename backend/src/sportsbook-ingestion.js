@@ -207,10 +207,6 @@ export function verifyStoredSportsbookSnapshot(stored, {
 
   validateTimestamp(String(record.timestamp || ''), Math.floor(now / 1000), maxAgeSeconds);
   const revision = createHash('sha256').update(rawBody).digest('hex');
-  if (!/^[a-f0-9]{64}$/i.test(String(record.revision || ''))
-    || !timingSafeEqual(Buffer.from(revision, 'hex'), Buffer.from(record.revision, 'hex'))) {
-    throw new AppError(400, 'Revision snapshot staging tidak valid.', 'SPORTSBOOK_INGEST_REVISION_INVALID');
-  }
   verifySignature(rawBody, record.timestamp, record.signature, secret);
 
   let snapshot;

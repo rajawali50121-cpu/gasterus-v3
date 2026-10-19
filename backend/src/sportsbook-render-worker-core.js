@@ -194,7 +194,21 @@ export async function buildSportsbookRenderSnapshot({
       const result = await fetch({ maxEvents, maxPages });
       if (result) providerResults.push(result);
     } catch (error) {
-      failures.push(`${provider}: ${error?.message || String(error)}`);
+      const message = error?.message || String(error);
+      failures.push(`${provider}: ${message}`);
+      providerResults.push({
+        provider,
+        enabled: true,
+        events: [],
+        errors: [message],
+        transportOk: false
+      });
+      console.warn(JSON.stringify({
+        service: 'sportsbook-render-worker',
+        event: 'provider-fetch-failed',
+        provider,
+        message
+      }));
     }
   }
   if (!providerResults.length) {
@@ -206,7 +220,7 @@ export async function buildSportsbookRenderSnapshot({
     teamKey
   });
   if (!combined.eventCount) {
-    throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
+    throw new Error(`No enabled sportsbook provider returned normalized fixtures; snapshot was not sent. ${failures.join('; ')}`);
   }
 
   const snapshot = {
