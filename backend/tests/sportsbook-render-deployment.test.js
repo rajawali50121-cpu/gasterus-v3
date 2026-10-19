@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const renderDockerfile = readFileSync(new URL('../../deploy/Dockerfile.sportsbook-render-worker', import.meta.url), 'utf8');
 const railway = readFileSync(new URL('../../.railway/railway.ts', import.meta.url), 'utf8');
 const legacyRailway = JSON.parse(readFileSync(new URL('../../railway.json', import.meta.url), 'utf8'));
+const workerRailway = JSON.parse(readFileSync(new URL('../../railway.worker.json', import.meta.url), 'utf8'));
 const envExample = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
 const proxy = readFileSync(new URL('../../deploy/member-server.js', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
@@ -44,6 +45,14 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
     restartPolicyMaxRetries: 10,
     drainingSeconds: 15,
     preDeployCommand: 'node deploy/predeploy.js'
+  });
+  assert.deepEqual(workerRailway.build, {
+    builder: 'DOCKERFILE',
+    dockerfilePath: 'deploy/Dockerfile.sportsbook-render-worker'
+  });
+  assert.deepEqual(workerRailway.deploy, {
+    restartPolicyType: 'ON_FAILURE',
+    restartPolicyMaxRetries: 10
   });
 
   // Image hanya membawa backend/src — tanpa frontend/node_modules berat.
