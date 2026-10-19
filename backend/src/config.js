@@ -114,11 +114,11 @@ export const config = Object.freeze({
   // Background feed/collector process is separate from settlement (feed-worker.js).
   sportsSourceBackgroundPollEnabled: bool('SPORTS_SOURCE_BACKGROUND_POLL_ENABLED', true),
   feedWorkerEnabled: bool('FEED_WORKER_ENABLED', true),
-  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 500, 20, 500),
-  // Feed snapshot byte-cap dipertahankan 12MB agar 500 event muat penuh tanpa
-  // dipotong binary-search di cacheWithinLimit. Penghematan RAM dilakukan di
-  // provider cache (entries/total-bytes) + interval polling, bukan di feed.
-  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 12_000_000, 262_144, 15_000_000),
+  // Batasi snapshot sportsbook agar feed-worker (heap terbatas) dan payload
+  // SSE/Redis tidak meledak saat provider menghasilkan banyak fixture/pasaran.
+  // 120 event × pasaran inti tetap aman untuk heap 256MB dan broadcast SSE.
+  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 120, 20, 500),
+  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 2_000_000, 262_144, 15_000_000),
   // Eviction agresif provider cache: entri lama langsung dibuang sebelum menumpuk di RAM.
   sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 40, 1, 10000),
   sportsProviderCacheMaxEntryBytes: int('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 1_048_576, 1024, 100_000_000),
@@ -204,7 +204,7 @@ export const config = Object.freeze({
   publicMarketRefreshSeconds: int('PUBLIC_MARKET_REFRESH_SECONDS', 900, 300, 21600),
   publicMarketMaxStaleSeconds: int('PUBLIC_MARKET_MAX_STALE_SECONDS', 172800, 1800, 604800),
   publicMarketRequestTimeoutMs: int('PUBLIC_MARKET_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
-  publicMarketMaxEvents: int('PUBLIC_MARKET_MAX_EVENTS', 500, 10, 500),
+  publicMarketMaxEvents: int('PUBLIC_MARKET_MAX_EVENTS', 100, 10, 500),
   publicMarketDerivedMarketsEnabled: bool('PUBLIC_MARKET_DERIVED_MARKETS_ENABLED', !isProduction),
   publicMarketDerivedMarginBps: int('PUBLIC_MARKET_DERIVED_MARGIN_BPS', 450, 100, 1200),
   publicMarketPriceMaxAgeSeconds: int('PUBLIC_MARKET_PRICE_MAX_AGE_SECONDS', 604800, 900, 604800),

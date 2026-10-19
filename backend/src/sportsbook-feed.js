@@ -159,6 +159,11 @@ const TOP_LEAGUE_PATTERNS = [
 ];
 const MAX_FEED_EVENTS = config.sportsFeedMaxEvents;
 const MAX_CACHE_BYTES = config.sportsFeedMaxCacheBytes;
+// Batasi pasaran per event agar satu event tidak bisa menumpuk ratusan pasaran
+// (mencegah snapshot raksasa yang menyebabkan feed-worker OOM dan status macet
+// "Menghubungkan feed"). Hanya pasaran inti FT yang dipertahankan.
+const MAX_MARKETS_PER_EVENT = 6;
+const CORE_MARKET_TYPES = new Set(['1X2', 'HANDICAP', 'TOTALS', 'BTTS']);
 let lastCacheLimitWarningAt = 0;
 const WIB_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Jakarta',
@@ -220,6 +225,29 @@ function boundedEvents(events = []) {
     })
     .slice(0, MAX_FEED_EVENTS)
     .map(({ event }) => event);
+}
+
+// Batasi jumlah pasaran per event agar payload tetap ringan meski provider
+// menghasilkan banyak pasaran per fixture. Hanya pasaran inti FT (1X2,
+// HANDICAP mainLine, TOTALS mainLine, BTTS) yang dipertahankan, maksimal
+// MAX_MARKETS_PER_EVENT per event.
+function capMarketsPerEvent(events = []) {
+  return events.map(event => {
+    const core = [];
+    const seen = new Set();
+    for (const market of (event.markets || [])) {
+      if (core.length >= MAX_MARKETS_PER_EVENT) break;
+      if (!market || !CORE_MARKET_TYPES.has(market.type)) continue;
+      const key = `${market.type}:${market.period}:${market.mainLine ?? market.line ?? 'null'}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      core.push({
+        ...market,
+        selections: (market.selections || []).slice(0, 3)
+      });
+    }
+    return { ...event, markets: core.length ? core : (event.markets || []).slice(0, MAX_MARKETS_PER_EVENT) };
+  });
 }
 
 function cacheWithinLimit(value) {
@@ -615,6 +643,8 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
   // Batasi jumlah event sebelum disimpan ke lifecycle/cache. Ini mencegah lonjakan
   // dari satu sumber provider mengembang tanpa batas di heap proses feed atau payload Redis.
   events = boundedEvents(events);
+  // Batasi pasaran per event agar payload tetap ringan meski provider menghasilkan banyak pasaran.
+  events = capMarketsPerEvent(events);
   // Artwork enrichment dimatikan default (SPORTSBOOK_ARTWORK_ENABLED=false): logo tim
   // adalah metadata-only, tetapi enrichTeamArtwork() melakukan structuredClone SELURUH
   // events + 16 fetch logo per siklus refresh. Odds/settlement tidak membutuhkannya.
