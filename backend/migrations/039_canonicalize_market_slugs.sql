@@ -95,6 +95,7 @@ WHERE c.market_id = m.id
 DO $$
 DECLARE
   sisa_lama INTEGER;
+  jumlah_kanonik INTEGER;
   hilang TEXT;
 BEGIN
   SELECT COUNT(*) INTO sisa_lama FROM markets
@@ -114,11 +115,18 @@ BEGIN
   LEFT JOIN markets m ON m.slug = t.target
   WHERE m.id IS NULL;
 
-  IF hilang IS NOT NULL THEN
+  SELECT COUNT(*) INTO jumlah_kanonik FROM markets
+  WHERE slug IN ('newjersey-mid-pool','tennessee-mid-pool','tennessee-eve-pool','washington-md-pool','washington-ev-pool');
+
+  IF jumlah_kanonik > 0 AND hilang IS NOT NULL THEN
     RAISE EXCEPTION 'Migrasi 039 gagal: slug kanonik berikut tidak ditemukan setelah rename: %', hilang;
   END IF;
 
-  RAISE NOTICE 'Migration 039: lima slug kanonik terpasang; tidak ada duplikat dan tidak ada data hasil yang ditimpa';
+  IF jumlah_kanonik = 0 THEN
+    RAISE NOTICE 'Migration 039: belum ada pasar yang di-seed; slug kanonik akan dibuat oleh seed setelah migrasi';
+  ELSE
+    RAISE NOTICE 'Migration 039: lima slug kanonik terpasang; tidak ada duplikat dan tidak ada data hasil yang ditimpa';
+  END IF;
 END $$;
 
 COMMIT;
