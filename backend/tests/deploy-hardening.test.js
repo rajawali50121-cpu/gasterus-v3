@@ -11,17 +11,16 @@ const root=resolve(here,'../..');
 const read=p=>readFileSync(resolve(root,p),'utf8');
 
 test('Railway uses Dockerfile lifecycle, predeploy, and health gate',()=>{
-  const cfg=JSON.parse(read('railway.json'));
-  assert.equal(cfg.build.builder,'DOCKERFILE');
-  assert.equal(cfg.build.dockerfilePath,'deploy/Dockerfile');
-  assert.equal(cfg.deploy.preDeployCommand,'node deploy/predeploy.js');
-  assert.equal(cfg.deploy.healthcheckPath,'/healthz');
-  assert.equal(cfg.deploy.startCommand,undefined);
-  assert.equal(typeof cfg.deploy.healthcheckTimeout,'number');
-  assert.equal(typeof cfg.deploy.restartPolicyMaxRetries,'number');
-  assert.equal(typeof cfg.deploy.drainingSeconds,'number');
-  assert.equal(cfg.deploy.drainingSeconds,15);
-  assert.deepEqual(JSON.parse(read('railway.json')),cfg);
+  const railway=read('.railway/railway.ts');
+  const core=railway.slice(railway.indexOf('const backend = service("gasterus-v3"'),railway.indexOf('// Scraper odds'));
+  assert.match(core,/build:\s*\{\s*builder:\s*"DOCKERFILE",\s*dockerfilePath:\s*"deploy\/Dockerfile"\s*\}/);
+  assert.match(core,/preDeployCommand:\s*\[\s*"node deploy\/predeploy\.js"\s*\]/);
+  assert.match(core,/healthcheckPath:\s*"\/healthz"/);
+  assert.match(core,/healthcheckTimeout:\s*300/);
+  assert.match(core,/restartPolicyType:\s*"ON_FAILURE"/);
+  assert.match(core,/restartPolicyMaxRetries:\s*10/);
+  assert.match(core,/drainingSeconds:\s*15/);
+  assert.doesNotMatch(core,/startCommand\s*:/);
 });
 
 

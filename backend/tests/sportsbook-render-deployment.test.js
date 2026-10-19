@@ -4,8 +4,6 @@ import { readFileSync } from 'node:fs';
 
 const renderDockerfile = readFileSync(new URL('../../deploy/Dockerfile.sportsbook-render-worker', import.meta.url), 'utf8');
 const railway = readFileSync(new URL('../../.railway/railway.ts', import.meta.url), 'utf8');
-const legacyRailway = JSON.parse(readFileSync(new URL('../../railway.json', import.meta.url), 'utf8'));
-const workerRailway = JSON.parse(readFileSync(new URL('../../railway.worker.json', import.meta.url), 'utf8'));
 const envExample = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
 const proxy = readFileSync(new URL('../../deploy/member-server.js', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
@@ -18,6 +16,7 @@ const INGEST_PATH = '/api/internal/sportsbook/ingest';
 const workerConfig = railway.slice(railway.indexOf('const sportsbookRenderWorker = service('));
 const railwayWorkerEnv = key => workerConfig.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
 const backendConfig = railway.slice(railway.indexOf('const backend = service('), railway.indexOf('// Scraper odds'));
+const workerServiceConfig = railway.slice(railway.indexOf('const sportsbookRenderWorker = service('), railway.indexOf('return project('));
 
 test('Railway scraper runs in its own slim service image with a hard heap ceiling', () => {
   assert.match(railway, /service\("sportsbook-render-worker"/);
@@ -25,6 +24,16 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(railway, /NODE_OPTIONS: "--max-old-space-size=224"/);
   assert.match(railway, /service\("gasterus-v3"/);
   assert.match(railway, /resources: \[Postgres, backend, sportsbookRenderWorker, Redis, postgresVolume, redisVolume\]/);
+  assert.match(backendConfig,/build:\s*\{\s*builder:\s*"DOCKERFILE",\s*dockerfilePath:\s*"deploy\/Dockerfile"\s*\}/);
+  assert.match(backendConfig,/preDeployCommand:\s*\[\s*"node deploy\/predeploy\.js"\s*\]/);
+  assert.match(backendConfig,/healthcheckPath:\s*"\/healthz"/);
+  assert.match(backendConfig,/healthcheckTimeout:\s*300/);
+  assert.match(backendConfig,/restartPolicyType:\s*"ON_FAILURE"/);
+  assert.match(backendConfig,/restartPolicyMaxRetries:\s*10/);
+  assert.match(backendConfig,/drainingSeconds:\s*15/);
+  assert.match(workerServiceConfig,/build:\s*\{\s*builder:\s*"DOCKERFILE",\s*dockerfilePath:\s*"deploy\/Dockerfile\.sportsbook-render-worker"\s*\}/);
+  assert.match(workerServiceConfig,/restartPolicyType:\s*"ON_FAILURE"/);
+  assert.match(workerServiceConfig,/restartPolicyMaxRetries:\s*10/);
 
   // Secret diwariskan dari service backend — tidak diduplikasi manual.
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_HMAC_SECRET'), '${{gasterus-v3.SPORTSBOOK_INGEST_HMAC_SECRET}}');
@@ -34,26 +43,6 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(config, /optionalSecret\('THE_ODDS_API_KEY'\)/);
   assert.match(config, /theOddsApiKey,/);
   assert.match(envExample, /^THE_ODDS_API_KEY=replace-with-your-the-odds-api-key$/m);
-  assert.deepEqual(legacyRailway.build, {
-    builder: 'DOCKERFILE',
-    dockerfilePath: 'deploy/Dockerfile'
-  });
-  assert.deepEqual(legacyRailway.deploy, {
-    healthcheckPath: '/healthz',
-    healthcheckTimeout: 300,
-    restartPolicyType: 'ON_FAILURE',
-    restartPolicyMaxRetries: 10,
-    drainingSeconds: 15,
-    preDeployCommand: 'node deploy/predeploy.js'
-  });
-  assert.deepEqual(workerRailway.build, {
-    builder: 'DOCKERFILE',
-    dockerfilePath: 'deploy/Dockerfile.sportsbook-render-worker'
-  });
-  assert.deepEqual(workerRailway.deploy, {
-    restartPolicyType: 'ON_FAILURE',
-    restartPolicyMaxRetries: 10
-  });
 
   // Image hanya membawa backend/src — tanpa frontend/node_modules berat.
   assert.match(renderDockerfile, /^FROM node:22\./m);

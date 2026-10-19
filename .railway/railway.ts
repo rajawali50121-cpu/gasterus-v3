@@ -11,6 +11,14 @@ export default defineRailway(() => {
   const backend = service("gasterus-v3", {
     source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: false }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile" },
+    deploy: {
+      preDeployCommand: ["node deploy/predeploy.js"],
+      healthcheckPath: "/healthz",
+      healthcheckTimeout: 300,
+      restartPolicyType: "ON_FAILURE",
+      restartPolicyMaxRetries: 10,
+      drainingSeconds: 15
+    },
     replicas: { "iad": 1 },
     env: {
       ADMIN_PASSWORD: preserve(),
