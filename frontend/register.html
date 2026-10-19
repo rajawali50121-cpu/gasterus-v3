@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/mobile-blue.css?v=20261014-svg-ui-r1">
+  <link rel="stylesheet" href="css/mobile-blue.css?v=20261019-r2">
   <link rel="stylesheet" href="/css/animations.css?v=20261012-animations-r1">
   <link rel="stylesheet" href="css/loader-3d.css?v=20260925-1">
   <meta property="og:title" content="GASTERUS - Bandar Togel & Slot Terpercaya">
@@ -147,11 +147,11 @@ select.reg-input {
 
 /* Nomor HP: prefix +62 abu terang — lebar konsisten dengan input lainnya */
 .reg-phone-wrap {
-  display: flex;
-  align-items: stretch;
-  width: 100%;
-  max-width: none;
-  box-sizing: border-box;
+  display: flex !important;
+  align-items: stretch !important;
+  width: 100% !important;
+  max-width: none !important;
+  box-sizing: border-box !important;
   background: #ffffff;
   border: 1px solid #d9dee7;
   border-radius: 6px;
@@ -172,10 +172,9 @@ select.reg-input {
   flex-shrink: 0;
 }
 .reg-phone-wrap input {
-  flex: 1;
-  min-width: 0;
-  width: 100%;
-  box-sizing: border-box;
+  flex: 1 1 0% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -184,6 +183,7 @@ select.reg-input {
   color: #1e293b;
   outline: none;
   height: 100%;
+  width: auto !important;
 }
 .reg-phone-wrap input::placeholder { color: #9aa4b2; font-weight: 400; }
 .reg-phone-wrap:focus-within {
