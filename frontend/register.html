@@ -145,11 +145,13 @@ select.reg-input {
   cursor: pointer;
 }
 
-/* Nomor HP: prefix +62 abu terang */
+/* Nomor HP: prefix +62 abu terang — lebar konsisten dengan input lainnya */
 .reg-phone-wrap {
   display: flex;
   align-items: stretch;
+  width: 100%;
   max-width: none;
+  box-sizing: border-box;
   background: #ffffff;
   border: 1px solid #d9dee7;
   border-radius: 6px;
@@ -172,6 +174,8 @@ select.reg-input {
 .reg-phone-wrap input {
   flex: 1;
   min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -179,7 +183,7 @@ select.reg-input {
   font-size: 13px;
   color: #1e293b;
   outline: none;
-  height: auto;
+  height: 100%;
 }
 .reg-phone-wrap input::placeholder { color: #9aa4b2; font-weight: 400; }
 .reg-phone-wrap:focus-within {
