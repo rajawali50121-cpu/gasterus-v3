@@ -66,7 +66,12 @@ test('Sportmonks is the only sportsbook refresh descriptor', () => {
 test('member requests do not wait on a competing feed refresh beyond the proxy budget', () => {
   assert.match(feed,/const REFRESH_LOCK_WAIT_MS = 5000/);
   assert.match(feed,/SPORTS_REFRESH_IN_PROGRESS/);
-  assert.equal(feed.match(/if \(error\?\.code === 'SPORTS_REFRESH_IN_PROGRESS'\) throw error/g)?.length, 2);
+  // Kedua jalur catch (refreshSportsbookFeed & currentFeed) kini menjawab
+  // seketika: cache segar dipakai bila ada, kalau tidak langsung hard fallback.
+  // Tidak ada lagi `throw` yang menahan request melewati budget proxy atau
+  // mengembalikan feed kosong 5xx ke frontend (anti "0 Pertandingan").
+  assert.doesNotMatch(feed,/if \(error\?\.code === 'SPORTS_REFRESH_IN_PROGRESS'\) throw error/);
+  assert.equal(feed.match(/return activateHardFallback\(error, 'refresh-in-progress-no-cache'\)/g)?.length, 2);
 });
 
 test('E2E enforces expanded event volume and core market coverage without requiring derived markets per event', () => {
