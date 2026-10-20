@@ -248,6 +248,7 @@ export const config = Object.freeze({
   sportsbookMaxEventLiability: int('SPORTSBOOK_MAX_EVENT_LIABILITY', 2000000000, 100000, 2000000000),
   sportsbookMaxMarketLiability: int('SPORTSBOOK_MAX_MARKET_LIABILITY', 1000000000, 100000, 2000000000),
   sportsbookMaxSelectionLiability: int('SPORTSBOOK_MAX_SELECTION_LIABILITY', 500000000, 100000, 2000000000),
+  sportsbookMaxMemberLiability: int('SPORTSBOOK_MAX_MEMBER_LIABILITY', 0, 0, 2000000000),
   // R6.9.0.12: when autonomous FT result authority is unavailable, healthy prematch
   // SharpAPI prices may be accepted with an explicit operator-settlement guarantee.
   // This never applies to LIVE or 1H markets and never fabricates result scores.
