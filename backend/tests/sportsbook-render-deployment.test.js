@@ -17,6 +17,7 @@ const workerConfig = railway.slice(railway.indexOf('const sportsbookRenderWorker
 const railwayWorkerEnv = key => workerConfig.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
 const backendConfig = railway.slice(railway.indexOf('const backend = service('), railway.indexOf('// Scraper odds'));
 const workerServiceConfig = railway.slice(railway.indexOf('const sportsbookRenderWorker = service('), railway.indexOf('return project('));
+const railwayWorkerPreserves = key => new RegExp(`${key}: preserve\\(\\)`).test(workerServiceConfig);
 
 test('Railway scraper runs in its own slim service image with a hard heap ceiling', () => {
   assert.match(railway, /service\("sportsbook-render-worker"/);
@@ -35,13 +36,16 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(workerServiceConfig,/restartPolicyType:\s*"ON_FAILURE"/);
   assert.match(workerServiceConfig,/restartPolicyMaxRetries:\s*10/);
 
-  // Secret diwariskan dari service backend — tidak diduplikasi manual.
+  // Secret ingest diwariskan; Odds API credentials tetap dikelola langsung pada worker.
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_HMAC_SECRET'), '${{gasterus-v3.SPORTSBOOK_INGEST_HMAC_SECRET}}');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{gasterus-v3.SPORTSBOOK_INGEST_URL}}');
-  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), '${{gasterus-v3.THE_ODDS_API_KEY}}');
+  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY'), true);
+  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY_2'), true);
+  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEYS'), true);
+  assert.equal(railwayWorkerPreserves('THE_ODDS_API_FAILOVER_REMAINING_THRESHOLD'), true);
   assert.match(backendConfig, /THE_ODDS_API_KEY: preserve\(\)/);
   assert.match(config, /optionalSecret\('THE_ODDS_API_KEY'\)/);
-  assert.match(config, /theOddsApiKey,/);
+  assert.match(config, /theOddsApiKeys/);
   assert.match(envExample, /^THE_ODDS_API_KEY=replace-with-your-the-odds-api-key$/m);
 
   // Image hanya membawa backend/src — tanpa frontend/node_modules berat.

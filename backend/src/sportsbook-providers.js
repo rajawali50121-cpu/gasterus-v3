@@ -693,7 +693,7 @@ function mergeOddsApiBookmakers(base = [], extra = []) {
   return [...byBook.values()];
 }
 
-async function fetchOddsApiEventMarkets(sportKey, rawEvents, maxEvents = config.theOddsApiEventMaxEventsPerSport, errors = []) {
+async function fetchOddsApiEventMarkets(sportKey, rawEvents, maxEvents = config.theOddsApiEventMaxEventsPerSport, errors = [], cycle) {
   const markets = commaList(config.theOddsApiEventMarkets);
   if (!config.theOddsApiEventMarketsEnabled || !markets.length || !rawEvents.length || !maxEvents) return rawEvents;
   const eventLimit = Math.max(0, Math.min(Number(maxEvents) || 0, config.theOddsApiEventMaxEventsPerSport));
@@ -714,13 +714,13 @@ async function fetchOddsApiEventMarkets(sportKey, rawEvents, maxEvents = config.
       }
       try {
         const url = new URL(`${config.theOddsApiBaseUrl.replace(/\/$/, '')}/sports/${encodeURIComponent(sportKey)}/events/${encodeURIComponent(event.id)}/odds`);
-        url.searchParams.set('apiKey', config.theOddsApiKey);
         url.searchParams.set('regions', config.theOddsApiRegions);
         url.searchParams.set('markets', markets.join(','));
         url.searchParams.set('oddsFormat', 'decimal');
         url.searchParams.set('dateFormat', 'iso');
         if (config.theOddsApiBookmakers) url.searchParams.set('bookmakers', config.theOddsApiBookmakers);
-        const payload = await requestJson(url, {
+        const payload = await requestOddsApiJsonWithFailover(url, {
+          cycle,
           label: 'The Odds API event markets',
           maxBytes: MAX_ODDS_API_DETAIL_RESPONSE_BYTES
         });
@@ -790,16 +790,22 @@ function normalizeOddsApiEvent(raw) {
   event.markets = [...sourceMarkets.values()].map(item => item.market);
   return event;
 }
-// --- The Odds API daily quota guard ---
-// Kuota harian dihitung per kredit (sports x siklus x markets x regions).
-// Saat provider membalas 429 feed TIDAK boleh mati: payload terakhir per
-// sport disajikan kembali, guard floor menahan retry supaya tidak membanjiri
-// provider, dan normalisasi tetap berjalan sehingga snapshot ke Railway tetap
-// hidup. Harga yang menua tetap ditutup fail-closed oleh jendela
-// SPORTSBOOK_MAX_PREMATCH_PRICE_AGE_SECONDS / LIVE di feed — ini murni
-// ketersediaan feed, bukan perpanjangan usia harga.
+// Quota exhaustion retires a key until process restart. Generic HTTP 429
+// responses retain the existing backoff and stale-payload behavior.
 const ODDS_API_QUOTA_BACKOFF_SECONDS = 1800;
 const oddsApiStalePayloads = new Map();
+const oddsApiKeyPool = config.theOddsApiKeys.map((value, index) => ({
+  value,
+  label: `key#${index + 1}`,
+  exhausted: false
+}));
+let activeOddsApiKeyIndex = 0;
+
+function resetOddsApiKeyPool() {
+  oddsApiKeyPool.forEach(entry => { entry.exhausted = false; });
+  activeOddsApiKeyIndex = 0;
+}
+
 const theOddsApiQuotaGuard = {
   floorUntil: 0,
   backoffSeconds: ODDS_API_QUOTA_BACKOFF_SECONDS,
@@ -807,6 +813,7 @@ const theOddsApiQuotaGuard = {
   reset() {
     theOddsApiQuotaGuard.floorUntil = 0;
     oddsApiStalePayloads.clear();
+    resetOddsApiKeyPool();
   }
 };
 
@@ -830,17 +837,167 @@ function oddsApiStalePayload(sportKey) {
   return Array.isArray(entry?.value) ? entry.value : [];
 }
 
-async function cachedOddsApiRequest(sportKey, cacheKey, url) {
+function findNextOddsApiKey(index) {
+  for (let next = index + 1; next < oddsApiKeyPool.length; next += 1) {
+    if (!oddsApiKeyPool[next].exhausted) return next;
+  }
+  return -1;
+}
+
+function selectOddsApiKey(cycle) {
+  const active = oddsApiKeyPool[activeOddsApiKeyIndex];
+  if (active && !active.exhausted) return activeOddsApiKeyIndex;
+  if (cycle.switched) return -1;
+  const nextIndex = findNextOddsApiKey(activeOddsApiKeyIndex);
+  if (nextIndex < 0) return -1;
+  const previous = active;
+  activeOddsApiKeyIndex = nextIndex;
+  cycle.switched = true;
+  logger.warn('The Odds API key failover', {
+    fromKeyLabel: previous?.label || 'none',
+    toKeyLabel: oddsApiKeyPool[nextIndex].label,
+    reason: 'previous-key-exhausted'
+  });
+  return nextIndex;
+}
+
+function retireOddsApiKey(index, cycle, reason, requestsRemaining) {
+  const current = oddsApiKeyPool[index];
+  current.exhausted = true;
+  const nextIndex = findNextOddsApiKey(index);
+  if (cycle.switched) {
+    const active = oddsApiKeyPool[activeOddsApiKeyIndex];
+    return active && !active.exhausted && activeOddsApiKeyIndex > index ? activeOddsApiKeyIndex : -1;
+  }
+  if (nextIndex < 0) return -1;
+  cycle.switched = true;
+  activeOddsApiKeyIndex = nextIndex;
+  logger.warn('The Odds API key failover', {
+    fromKeyLabel: current.label,
+    toKeyLabel: oddsApiKeyPool[nextIndex].label,
+    reason,
+    ...(Number.isInteger(requestsRemaining) ? { requestsRemaining } : {})
+  });
+  return nextIndex;
+}
+
+function quotaExhaustedError() {
+  const error = new Error('The Odds API usage quota exhausted');
+  error.quotaExhausted = true;
+  return error;
+}
+
+function hasOddsApiQuotaSignal(error) {
+  return error?.errorCode === 'OUT_OF_USAGE_CREDITS'
+    || (Number.isInteger(error?.requestsRemaining)
+      && error.requestsRemaining < config.theOddsApiFailoverRemainingThreshold);
+}
+
+async function requestOddsApiJsonOnce(url, keyIndex, label, maxBytes) {
+  const key = oddsApiKeyPool[keyIndex];
+  url.searchParams.set('apiKey', key.value);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.sportsFeedRequestTimeoutMs);
+  try {
+    const response = await fetch(url, {
+      headers: { accept: 'application/json', 'user-agent': 'ASEAN777-Sports-Aggregator/2.0' },
+      signal: controller.signal,
+      redirect: 'error'
+    });
+    const rawRemaining = response.headers?.get?.('x-requests-remaining');
+    const parsedRemaining = rawRemaining === null || rawRemaining === undefined || !/^\d+$/.test(String(rawRemaining).trim())
+      ? null
+      : Number(rawRemaining);
+    if (parsedRemaining !== null) {
+      logger.info('The Odds API quota status', {
+        keyLabel: key.label,
+        requestsRemaining: parsedRemaining
+      });
+    }
+    let text;
+    try {
+      text = await readBoundedResponseText(response, label, maxBytes);
+    } catch {
+      if (response.ok) throw new Error(`${label} response could not be read`);
+      const error = new Error(`${label} returned HTTP ${response.status}`);
+      error.status = response.status;
+      error.requestsRemaining = parsedRemaining;
+      error.oddsApiResponseError = true;
+      throw error;
+    }
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      if (!response.ok) payload = null;
+      else throw new Error(`${label} returned invalid JSON`);
+    }
+    if (!response.ok) {
+      const error = new Error(`${label} returned HTTP ${response.status}`);
+      error.status = response.status;
+      error.requestsRemaining = parsedRemaining;
+      error.errorCode = payload?.error_code === 'OUT_OF_USAGE_CREDITS' ? payload.error_code : null;
+      error.oddsApiResponseError = true;
+      throw error;
+    }
+    return { payload, requestsRemaining: parsedRemaining };
+  } catch (error) {
+    if (error?.oddsApiResponseError) throw error;
+    throw new Error(`${label} request failed`);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function requestOddsApiJsonWithFailover(url, { cycle, label = 'The Odds API', maxBytes = config.sportsProviderCacheMaxEntryBytes }) {
+  let keyIndex = selectOddsApiKey(cycle);
+  if (keyIndex < 0) throw quotaExhaustedError();
+  try {
+    const result = await requestOddsApiJsonOnce(url, keyIndex, label, maxBytes);
+    if (Number.isInteger(result.requestsRemaining)
+      && result.requestsRemaining < config.theOddsApiFailoverRemainingThreshold) {
+      retireOddsApiKey(keyIndex, cycle, 'low-remaining', result.requestsRemaining);
+    }
+    return result.payload;
+  } catch (error) {
+    if (!hasOddsApiQuotaSignal(error)) throw error;
+    const nextIndex = retireOddsApiKey(keyIndex, cycle, 'quota-exhausted', error.requestsRemaining);
+    if (nextIndex < 0) throw quotaExhaustedError();
+    try {
+      const retry = await requestOddsApiJsonOnce(url, nextIndex, label, maxBytes);
+      if (Number.isInteger(retry.requestsRemaining)
+        && retry.requestsRemaining < config.theOddsApiFailoverRemainingThreshold) {
+        retireOddsApiKey(nextIndex, cycle, 'low-remaining', retry.requestsRemaining);
+      }
+      return retry.payload;
+    } catch (retryError) {
+      if (!hasOddsApiQuotaSignal(retryError)) throw retryError;
+      retireOddsApiKey(nextIndex, cycle, 'quota-exhausted', retryError.requestsRemaining);
+      throw quotaExhaustedError();
+    }
+  }
+}
+
+async function cachedOddsApiRequest(sportKey, cacheKey, url, cycle) {
   if (Date.now() < theOddsApiQuotaGuard.floorUntil) {
     // Kuota harian habis: sajikan payload terakhir tanpa menyentuh provider.
     return oddsApiStalePayload(sportKey);
   }
   try {
-    const payload = await cachedRequest(cacheKey, config.theOddsApiRefreshSeconds * 1000, () => requestJson(url, { label: 'The Odds API' }));
+    const payload = await cachedRequest(cacheKey, config.theOddsApiRefreshSeconds * 1000, () => (
+      requestOddsApiJsonWithFailover(url, { cycle, label: 'The Odds API' })
+    ));
     rememberOddsApiStalePayload(sportKey, payload);
     return payload;
   } catch (error) {
-    if (!String(error?.message || '').includes('HTTP 429')) throw error;
+    if (error?.quotaExhausted) {
+      logger.warn('The Odds API keys exhausted; serving cached payload', {
+        sportKey,
+        stale: oddsApiStalePayloads.has(sportKey)
+      });
+      return oddsApiStalePayload(sportKey);
+    }
+    if (error?.status !== 429) throw error;
     theOddsApiQuotaGuard.floorUntil = Date.now() + ODDS_API_QUOTA_BACKOFF_SECONDS * 1000;
     logger.warn('The Odds API daily quota reached; serving cached payload', {
       sportKey,
@@ -853,7 +1010,7 @@ async function cachedOddsApiRequest(sportKey, cacheKey, url) {
 
 export async function fetchTheOddsApi({ maxEvents = config.theOddsApiMaxTotalEvents } = {}) {
   if (!config.theOddsApiEnabled) return { provider: 'the-odds-api', enabled: false, events: [] };
-  if (!config.theOddsApiKey) throw new Error('THE_ODDS_API_KEY is required when The Odds API is enabled.');
+  if (!config.theOddsApiKeys.length) throw new Error('THE_ODDS_API_KEY is required when The Odds API is enabled.');
   if (!Number.isInteger(maxEvents) || maxEvents < 0 || maxEvents > MAX_PROVIDER_EVENTS) {
     throw new Error(`The Odds API maxEvents must be an integer between 0 and ${MAX_PROVIDER_EVENTS}.`);
   }
@@ -862,18 +1019,24 @@ export async function fetchTheOddsApi({ maxEvents = config.theOddsApiMaxTotalEve
   if (!sports.length) throw new Error('THE_ODDS_API_SPORT_KEYS must contain at least one sport key.');
   const eventMarketAllocations = allocateOddsApiEventMarkets(sports);
   const eventMarketErrors = [];
+  const cycle = { switched: false };
   const settled = await allSettledWithConcurrency(sports, ODDS_API_SPORT_FETCH_CONCURRENCY, async sportKey => {
     const url = new URL(`${config.theOddsApiBaseUrl.replace(/\/$/, '')}/sports/${encodeURIComponent(sportKey)}/odds`);
-    url.searchParams.set('apiKey', config.theOddsApiKey);
     url.searchParams.set('regions', config.theOddsApiRegions);
     url.searchParams.set('markets', config.theOddsApiMarkets);
     url.searchParams.set('oddsFormat', 'decimal');
     url.searchParams.set('dateFormat', 'iso');
     if (config.theOddsApiBookmakers) url.searchParams.set('bookmakers', config.theOddsApiBookmakers);
     const cacheKey = `the-odds-api:${sportKey}:${config.theOddsApiRegions}:${config.theOddsApiMarkets}:${config.theOddsApiBookmakers || ''}`;
-    const payload = await cachedOddsApiRequest(sportKey, cacheKey, url);
+    const payload = await cachedOddsApiRequest(sportKey, cacheKey, url, cycle);
     const rawEvents = Array.isArray(payload) ? payload : [];
-    const enriched = await fetchOddsApiEventMarkets(sportKey, rawEvents, eventMarketAllocations.get(sportKey) || 0, eventMarketErrors);
+    const enriched = await fetchOddsApiEventMarkets(
+      sportKey,
+      rawEvents,
+      eventMarketAllocations.get(sportKey) || 0,
+      eventMarketErrors,
+      cycle
+    );
     return enriched.map(normalizeOddsApiEvent);
   });
   const events = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []).slice(0, Math.min(MAX_PROVIDER_EVENTS, maxEvents));

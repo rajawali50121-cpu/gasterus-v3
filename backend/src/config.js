@@ -14,6 +14,12 @@ if (existsSync(localEnvFile)) {
 const isProduction = process.env.NODE_ENV === 'production';
 const apiSportsKey = optionalSecret('API_SPORTS_KEY');
 const theOddsApiKey = optionalSecret('THE_ODDS_API_KEY');
+const theOddsApiKey2 = optionalSecret('THE_ODDS_API_KEY_2');
+const theOddsApiKeys = [...new Set([
+  theOddsApiKey,
+  theOddsApiKey2,
+  ...optionalSecret('THE_ODDS_API_KEYS').split(',')
+].map(key => key.trim()).filter(Boolean))];
 const sharpApiKey = optionalSecret('SHARP_API_KEY');
 const theSportsDbKey = optionalSecret('THESPORTSDB_API_KEY');
 const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
@@ -151,12 +157,14 @@ export const config = Object.freeze({
   sharpApiMaxPages: int('SHARP_API_MAX_PAGES', isProduction ? 5 : 3, 1, 10),
   sharpApiPageSize: int('SHARP_API_PAGE_SIZE', 200, 25, 200),
   sharpApiMainLinesOnly: bool('SHARP_API_MAIN_LINES_ONLY', false),
-  theOddsApiKey,
+  theOddsApiKey: theOddsApiKeys[0] || '',
+  theOddsApiKeys,
+  theOddsApiFailoverRemainingThreshold: boundedInt('THE_ODDS_API_FAILOVER_REMAINING_THRESHOLD', 10, 0, 500),
   theOddsApiBaseUrl: text('THE_ODDS_API_BASE_URL', 'https://api.the-odds-api.com/v4'),
-  theOddsApiEnabled: pricedProviderEnabled('THE_ODDS_API_ENABLED', theOddsApiKey),
+  theOddsApiEnabled: pricedProviderEnabled('THE_ODDS_API_ENABLED', theOddsApiKeys[0] || ''),
   theOddsApiRegions: text('THE_ODDS_API_REGIONS', 'eu,uk'),
   theOddsApiMarkets: text('THE_ODDS_API_MARKETS', 'h2h,spreads,totals'),
-  theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', isProduction && Boolean(theOddsApiKey)),
+  theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', isProduction && theOddsApiKeys.length > 0),
   theOddsApiEventMarkets: text('THE_ODDS_API_EVENT_MARKETS', 'h2h_3_way_h1,spreads_h1,totals_h1,btts,btts_h1,double_chance,double_chance_h1,halftime_fulltime'),
   theOddsApiEventMaxEventsPerSport: int('THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT', 25, 0, 50),
   theOddsApiEventMaxTotalEvents: int('THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS', 120, 0, 120),
