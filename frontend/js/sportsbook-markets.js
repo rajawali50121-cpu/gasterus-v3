@@ -1,14 +1,18 @@
 const MARKET_PRIORITY = { HANDICAP: 0, TOTALS: 1, '1X2': 2 };
 const MARKET_NAMES = { HANDICAP: 'Asian Handicap', TOTALS: 'Over / Under', '1X2': '1X2' };
 
-export function primaryMarketColumns(event, period) {
+export function primaryMarketColumns(event, period, { includeSuspended = false, pricedOnly = false } = {}) {
   const requestedPeriod = String(period || 'FT').toUpperCase();
   const seenCoreTypes = new Set();
   const markets = Array.isArray(event?.markets) ? event.markets : [];
   return markets
-    .filter((market) => !market.suspended &&
+    .filter((market) => (includeSuspended || !market.suspended) &&
       String(market.period || 'FT').toUpperCase() === requestedPeriod &&
-      Array.isArray(market.selections) && market.selections.length)
+      Array.isArray(market.selections) && market.selections.length &&
+      (!pricedOnly || (
+        Object.hasOwn(MARKET_PRIORITY, String(market.type || '').toUpperCase()) &&
+        market.selections.some(selection => Number.isFinite(Number(selection?.odds)) && Number(selection.odds) > 1)
+      )))
     .sort((a, b) => (MARKET_PRIORITY[String(a.type || '').toUpperCase()] ?? 99) -
       (MARKET_PRIORITY[String(b.type || '').toUpperCase()] ?? 99))
     .filter((market) => {

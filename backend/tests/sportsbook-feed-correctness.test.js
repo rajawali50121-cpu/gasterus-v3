@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url),'utf8');
 const betting = readFileSync(new URL('../src/sportsbook-betting.js', import.meta.url),'utf8');
+const app = readFileSync(new URL('../src/app.js', import.meta.url),'utf8');
 const e2e = readFileSync(new URL('../../scripts/verify-sportsbook-e2e.mjs', import.meta.url),'utf8');
 
 test('R6.9.0.22 feed closes finished and kickoff-pending markets before bettable counting', () => {
@@ -30,6 +31,16 @@ test('member source status reflects the overall feed even when the current page 
   assert.match(feed, /const visibleBettableMarkets = bettableMarketCount\(events\)/);
   assert.match(feed, /const memberHealthy = !stale && !feed\.readOnlySource && Number\(feed\.bettableMarkets \|\| 0\) > 0/);
   assert.match(feed, /status: feed\.readOnlySource \? .* : memberHealthy \? 'ONLINE' : 'DEGRADED'/);
+});
+
+test('sportsbook bet route rejects suspended or read-only feed selections server-side', () => {
+  assert.ok(app.includes('createSportsbookBet(s,await body(req),{ip})'));
+  assert.match(betting, /async function resolveLeg\(input\)[\s\S]*sportsbookSelectionSnapshot/);
+  assert.match(betting, /async function createSportsbookBet\([\s\S]*resolveLeg\(selection\)/);
+  assert.match(feed, /if \(!market \|\| market\.suspended\) throw new AppError\(409, 'Pasaran sedang ditutup atau tidak tersedia\.', 'SPORTS_MARKET_SUSPENDED'\)/);
+  assert.match(feed, /if \(!selection \|\| selection\.suspended\) throw new AppError\(409, 'Pilihan odds sedang ditutup atau tidak tersedia\.', 'SPORTS_SELECTION_SUSPENDED'\)/);
+  assert.match(feed, /const readOnlySource = Boolean\(snapshotFallback \|\| mergedBettableMarkets < 1\)/);
+  assert.match(feed, /function bettableMarketCount[\s\S]*!market\.suspended[\s\S]*!selection\.suspended/);
 });
 
 test('Sportsbook feed is sourced exclusively from Sportmonks and member errors stay provider-neutral', () => {

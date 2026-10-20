@@ -968,6 +968,14 @@ body.sb-page {
   font-size: 12px;
   text-align: center;
 }
+.sb-reference-price-note {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--sb-border-light);
+  background: #f3f6f3;
+  color: #5e6b61;
+  font-size: 11px;
+  font-weight: 700;
+}
 
 /* Headers */
 .sb-mth-row {
@@ -2915,6 +2923,11 @@ body.sb-page {
   border-color: #268052;
   background: #dff1e3;
   box-shadow: inset 0 0 0 1px #268052;
+}
+.sb-odd-cell.sb-reference-price {
+  pointer-events: none;
+  cursor: default;
+  opacity: 0.58;
 }
 
 .sb-cell-line {

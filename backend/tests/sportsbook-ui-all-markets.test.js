@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { ticketCalculation } from '../src/sportsbook-calculation.js';
 import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
 import { deriveSportsbookFeedPresentation } from '../../frontend/js/sportsbook-feed-status.js';
+import { primaryMarketColumns } from '../../frontend/js/sportsbook-markets.js';
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
@@ -95,10 +96,43 @@ test('event cards render only provider-backed primary markets and do not adverti
   assert.match(frontend, /import \{ primaryMarketColumns \} from '\.\/sportsbook-markets\.js'/);
   assert.match(frontend, /function eventMarketPeriods\(event\)/);
   assert.match(frontend, /data-match-period=/);
-  assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);
+  assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod, \{/);
   assert.match(frontend, /\$\{marketsCount \? `<div class="sb-detail-markets-wrapper">/);
   assert.match(frontend, /Odds utama belum tersedia dari provider/);
   assert.doesNotMatch(frontend, /<button[^>]*>Bet Builder<\/button>/);
+});
+
+test('read-only priced markets render odds as disabled reference prices only in that mode', () => {
+  const event = {
+    markets: [
+      { id: '1x2', type: '1X2', period: 'FT', suspended: true, selections: [{ key: 'home', label: 'Home', odds: 2.1, suspended: true }] },
+      { id: 'handicap', type: 'HANDICAP', period: 'FT', suspended: true, selections: [{ key: 'home-hdp', label: 'Home -0.5', odds: 1.9, suspended: true }] },
+      { id: 'totals', type: 'TOTALS', period: 'FT', suspended: true, selections: [{ key: 'over', label: 'Over 2.5', odds: 1.95, suspended: true }] }
+    ]
+  };
+  assert.deepEqual(primaryMarketColumns(event, 'FT'), []);
+  const referenceMarkets = primaryMarketColumns(event, 'FT', { includeSuspended: true, pricedOnly: true });
+  assert.deepEqual(referenceMarkets.map(item => item.market.type), ['HANDICAP', 'TOTALS', '1X2']);
+  assert.equal(referenceMarkets[0].outcomes[0][1].odds, 1.9);
+
+  assert.match(frontend, /feed\.source\?\.mode === 'READ_ONLY_PRICED_NO_SETTLEMENT_AUTHORITY'/);
+  assert.match(frontend, /Harga referensi - taruhan belum dibuka/);
+  const referenceRenderer = frontend.slice(frontend.indexOf('if (referenceOnly) {'), frontend.indexOf('if (m.suspended || s.suspended)'));
+  assert.match(referenceRenderer, /class="sb-odd-cell disabled sb-reference-price"/);
+  assert.match(referenceRenderer, /formatOdds\(decOdds, oddsFormat\)/);
+  assert.doesNotMatch(referenceRenderer, /<button|data-sel=/);
+});
+
+test('suspended odds stay hidden outside read-only mode and reference cells cannot invoke bet actions', () => {
+  const suspendedEvent = { markets: [{ type: '1X2', period: 'FT', suspended: true, selections: [{ key: 'home', odds: 2, suspended: true }] }] };
+  assert.deepEqual(primaryMarketColumns(suspendedEvent, 'FT'), []);
+
+  const clickStart = frontend.indexOf("const odd = e.target.closest('.sb-odd-cell')");
+  const delegatedClick = frontend.slice(clickStart, frontend.indexOf('const refreshBtn = e.target.closest', clickStart));
+  assert.match(delegatedClick, /odd && !odd\.classList\.contains\('disabled'\)/);
+  const referenceRenderer = frontend.slice(frontend.indexOf('if (referenceOnly) {'), frontend.indexOf('if (m.suspended || s.suspended)'));
+  assert.match(referenceRenderer, /class="sb-odd-cell disabled sb-reference-price"/);
+  assert.doesNotMatch(referenceRenderer, /data-sel=|api\.post\(/);
 });
 
 test('sports selector options are derived from sports that exist in the live feed', () => {

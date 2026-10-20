@@ -1459,9 +1459,28 @@ function findMarketSelection(market, aliases, fallbackIndex, allowPrefix = false
   return selections[fallbackIndex] || null;
 }
 
-function renderOddCell(e, m, s, lineOverride) {
+function renderOddCell(e, m, s, lineOverride, referenceOnly = false) {
   if (!m || !s) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
+  }
+  if (referenceOnly) {
+    const decOdds = Number(s.odds);
+    if (!Number.isFinite(decOdds) || decOdds <= 1) {
+      return `<div class="sb-odd-cell disabled sb-reference-price" aria-disabled="true"><span class="sb-cell-odds">Belum tersedia</span></div>`;
+    }
+    const lineVal = lineOverride != null ? lineOverride : (s.line ?? m.line);
+    const lineFormatted = lineVal != null
+      ? (String(m.type || '').toUpperCase() === 'HANDICAP'
+          ? (Number(lineVal) > 0 ? `+${Number(lineVal).toFixed(2)}` : Number(lineVal).toFixed(2))
+          : Number(lineVal).toFixed(2))
+      : '';
+    const lineClass = Number(lineVal) < 0 ? 'kei-negative' : 'kei-positive';
+    return `
+      <div class="sb-odd-cell disabled sb-reference-price" aria-disabled="true" title="Harga referensi: ${escapeHtml(s.label || s.key)} @ ${decOdds.toFixed(2)}">
+        ${lineFormatted ? `<span class="sb-cell-line ${lineClass}">${escapeHtml(lineFormatted)}</span>` : ''}
+        <span class="sb-cell-odds">${formatOdds(decOdds, oddsFormat)}</span>
+      </div>
+    `;
   }
   if (m.suspended || s.suspended) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Ditangguhkan</span></div>`;
@@ -1514,7 +1533,7 @@ function renderOddCell(e, m, s, lineOverride) {
   `;
 }
 
-function renderMarketColumns(e, markets) {
+function renderMarketColumns(e, markets, referenceOnly = false) {
   if (!markets.length) return '';
   return `
     <div class="sb-market-grid">
@@ -1525,7 +1544,7 @@ function renderMarketColumns(e, markets) {
             ${item.outcomes.map(([label, selection]) => `
               <div class="sb-market-outcome">
                 <span class="sb-market-outcome-label">${escapeHtml(label)}</span>
-              ${renderOddCell(e, item.market, selection)}
+              ${renderOddCell(e, item.market, selection, undefined, referenceOnly)}
               </div>
             `).join('')}
           </div>
@@ -1565,7 +1584,11 @@ function renderMatch(e) {
   const activePeriod = availablePeriods.includes(requestedPeriod)
     ? requestedPeriod
     : availablePeriods.includes('FT') ? 'FT' : availablePeriods[0] || 'FT';
-  const activeMarkets = primaryMarketColumns(e, activePeriod);
+  const isReferenceOnly = feed.source?.mode === 'READ_ONLY_PRICED_NO_SETTLEMENT_AUTHORITY';
+  const activeMarkets = primaryMarketColumns(e, activePeriod, {
+    includeSuspended: isReferenceOnly,
+    pricedOnly: isReferenceOnly
+  });
   const eventDetail = eventDetails.get(e.id);
   const detailIsCurrent = eventDetail?.revision === String(feed.source?.feedRevision || '');
   const marketsPanelOpen = expandedEventMarkets.has(e.id);
@@ -1622,7 +1645,7 @@ function renderMatch(e) {
 
       <div class="sb-matrix-table">
         ${activeMarkets.length
-          ? `<div class="sb-market-period"><span>${escapeHtml(MARKET_PERIOD_LABELS[activePeriod] || activePeriod)}</span></div>${renderMarketColumns(e, activeMarkets)}`
+          ? `<div class="sb-market-period"><span>${escapeHtml(MARKET_PERIOD_LABELS[activePeriod] || activePeriod)}</span></div>${isReferenceOnly ? '<div class="sb-reference-price-note" role="note">Harga referensi - taruhan belum dibuka</div>' : ''}${renderMarketColumns(e, activeMarkets, isReferenceOnly)}`
           : ''}
         ${!activeMarkets.length
           ? '<div class="sb-no-primary-odds">Odds utama belum tersedia dari provider untuk pertandingan ini.</div>'
