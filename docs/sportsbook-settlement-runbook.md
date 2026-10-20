@@ -61,10 +61,12 @@ Sebelum settlement:
 
 ## Kill switch taruhan baru
 
-Owner/Result Operator dengan izin `markets:write` dapat membaca
+Migrasi menyemai status `closed: true`; penerimaan taruhan tetap tertutup sampai owner/
+Result Operator dengan izin `markets:write` secara eksplisit membukanya. Mereka dapat membaca
 `GET /api/owner/sportsbook/betting-switch` dan mengubah penerimaan dengan
 `POST /api/owner/sportsbook/betting-switch` berisi `{"closed":true}` atau `false`.
-Perubahan disimpan dan diaudit di `system_settings`; transaksi taruhan memakai lock
+POST dibatasi 10 permintaan per IP per 60 detik menggunakan helper Redis `rateLimit`,
+seperti endpoint terbatas lain di `app.js`. Perubahan disimpan dan diaudit di `system_settings`; transaksi taruhan memakai lock
 PostgreSQL yang sama sehingga setelah permintaan penutupan berhasil tidak ada transaksi
 taruhan baru yang dapat melewati switch. Settlement dan cashout tiket lama tetap berjalan.
 `SPORTSBOOK_BETTING_KILL_SWITCH_ENABLED=true` adalah override tertutup yang dibaca saat
@@ -87,3 +89,12 @@ pengganti syarat bettable: feed/quote server harus segar, odds dan versi harga h
 validasi, pilihan harus tidak suspended, lifecycle/provider harus mengizinkan betting,
 authority settlement yang sesuai untuk FT/HT harus tersedia, saldo cukup, serta batas
 stake/payout dan risiko pasar harus lolos.
+
+## Catatan migrasi dan predeploy
+
+Migrasi indeks quote memakai `SET LOCAL lock_timeout='5s'`; bila lock tidak didapat dalam
+5 detik, atau quote ID lama duplikat, migrasi gagal dan deploy dibatalkan dengan pesan
+error yang eksplisit. `lock_timeout` membatasi waktu menunggu lock, bukan lama pembangunan
+indeks setelah lock didapat; pembangunan indeks biasa dapat menahan penulisan sampai selesai
+atau rollback. Proses layanan yang sedang berjalan tidak dihentikan; operator harus
+menyelidiki duplikasi/lock dan mempertimbangkan ukuran tabel sebelum mencoba lagi.

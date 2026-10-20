@@ -84,6 +84,10 @@ test('provider market safety and settlement authority share the same fail-closed
     manualFt: ['manual-ops'],
     ht: ['api-sports', 'public-market']
   });
+  const sportmonks = eventSettlementAuthority({ _settlementReadySources: ['sportmonks'] });
+  assert.equal(sportmonks.ft, true);
+  assert.equal(sportmonks.automaticFt, true);
+  assert.equal(sportmonks.ht, false);
   const sources = [...new Set([
     ...SPORTSBOOK_SETTLEMENT_SOURCES.automaticFt,
     ...SPORTSBOOK_SETTLEMENT_SOURCES.manualFt,

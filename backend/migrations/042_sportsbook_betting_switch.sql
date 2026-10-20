@@ -3,7 +3,7 @@ BEGIN;
 INSERT INTO system_settings(setting_key,setting_value,description,is_public)
 VALUES(
   'sportsbook.betting.acceptance',
-  '{"closed":false}'::jsonb,
+  '{"closed":true}'::jsonb,
   'Kill switch penerimaan tiket sportsbook',
   FALSE
 )

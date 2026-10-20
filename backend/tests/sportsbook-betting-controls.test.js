@@ -20,17 +20,18 @@ Object.assign(process.env, {
 });
 
 const { assertLimitedTestAccess, assertMemberLiability } = await import('../src/sportsbook-betting.js');
-const { assertSportsbookBettingOpen } = await import('../src/sportsbook-betting-controls.js');
+const { assertSportsbookBettingOpen, setSportsbookBettingSwitch } = await import('../src/sportsbook-betting-controls.js');
 const { config } = await import('../src/config.js');
 
-function database({ closed = false, liability = 0 } = {}) {
+function database({ result, liability = 0, error } = {}) {
   const statements = [];
   return {
     statements,
     async query(sql) {
       statements.push(sql);
+      if (error) throw error;
       if (sql.includes('system_settings')) {
-        return { rows: closed ? [{ setting_value: { closed: true } }] : [] };
+        return { rows: result === undefined ? [] : [{ setting_value: result }] };
       }
       if (sql.includes('SUM(potential_payout)')) {
         return { rows: [{ liability }] };
@@ -40,19 +41,36 @@ function database({ closed = false, liability = 0 } = {}) {
   };
 }
 
-test('runtime betting switch defaults open and blocks quotes/acceptance when closed', async () => {
-  const openDb = database();
-  await assertSportsbookBettingOpen(openDb);
-  assert.equal(openDb.statements.length, 1);
-  assert.match(openDb.statements[0], /system_settings/);
+test('runtime betting switch fails closed for missing, malformed and invalid settings', async () => {
+  for (const result of [undefined, null, 'not-json', 'false', {}, { closed: null }, { closed: 'false' }, { closed: 1 }, []]) {
+    const db = database({ result });
+    await assert.rejects(assertSportsbookBettingOpen(db), error => {
+      assert.equal(error.code, 'SPORTSBOOK_BETTING_CLOSED');
+      assert.equal(error.message, 'Penerimaan taruhan sportsbook sedang dihentikan oleh operator.');
+      return true;
+    });
+  }
+  const closed = database({ result: { closed: true } });
+  await assert.rejects(assertSportsbookBettingOpen(closed, { lock: true }), error => error.code === 'SPORTSBOOK_BETTING_CLOSED');
+  assert.match(closed.statements[0], /FOR SHARE/);
+});
 
-  const closedDb = database({ closed: true });
-  await assert.rejects(assertSportsbookBettingOpen(closedDb, { lock: true }), error => {
-    assert.equal(error.code, 'SPORTSBOOK_BETTING_CLOSED');
-    assert.equal(error.message, 'Penerimaan taruhan sportsbook sedang dihentikan oleh operator.');
-    return true;
-  });
-  assert.match(closedDb.statements[0], /FOR SHARE/);
+test('runtime betting switch opens only for the exact boolean false setting', async () => {
+  const db = database({ result: { closed: false } });
+  await assertSportsbookBettingOpen(db);
+  assert.match(db.statements[0], /system_settings/);
+});
+
+test('runtime switch database errors propagate and do not become an open fallback', async () => {
+  const dbError = new Error('test database unavailable');
+  await assert.rejects(assertSportsbookBettingOpen(database({ error: dbError })), error => error === dbError);
+});
+
+test('only a markets:write owner session can invoke the switch mutation', async () => {
+  await assert.rejects(
+    setSportsbookBettingSwitch({ userId: allowlistedMember, roles: ['SUPPORT'] }, { closed: false }),
+    error => error.code === 'FORBIDDEN'
+  );
 });
 
 test('member exposure cap accepts the exact boundary and rejects the next unit', async () => {

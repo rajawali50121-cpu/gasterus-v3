@@ -2,6 +2,7 @@ import { config } from './config.js';
 import { query, tx } from './db.js';
 import { assert } from './errors.js';
 import { audit } from './audit.js';
+import { requirePermission } from './auth.js';
 
 const SETTING_KEY = 'sportsbook.betting.acceptance';
 
@@ -10,7 +11,8 @@ async function storedSwitch(db, { lock = false } = {}) {
     `SELECT setting_value FROM system_settings WHERE setting_key=$1${lock ? ' FOR SHARE' : ''}`,
     [SETTING_KEY]
   );
-  return result.rows[0]?.setting_value?.closed === true;
+  const setting = result.rows[0]?.setting_value;
+  return !(setting && typeof setting === 'object' && !Array.isArray(setting) && setting.closed === false);
 }
 
 function assertOpen(closed) {
@@ -30,6 +32,7 @@ export async function sportsbookBettingSwitchStatus() {
 }
 
 export async function setSportsbookBettingSwitch(session, input, { ip = '' } = {}) {
+  requirePermission(session, 'markets:write');
   assert(typeof input?.closed === 'boolean', 400, 'Status kill switch harus berupa boolean.', 'SPORTSBOOK_BETTING_SWITCH_INVALID');
   return tx(async client => {
     await client.query('SELECT setting_key FROM system_settings WHERE setting_key=$1 FOR UPDATE', [SETTING_KEY]);

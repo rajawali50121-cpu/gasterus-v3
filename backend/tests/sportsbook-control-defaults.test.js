@@ -24,7 +24,7 @@ Object.assign(process.env, {
 
 const { config } = await import('../src/config.js');
 
-test('new sportsbook controls and existing member exposure cap are inactive by default', () => {
+test('new sportsbook controls default closed/off with an empty test allowlist', () => {
   assert.equal(config.sportsbookBettingKillSwitchEnabled, false);
   assert.equal(config.sportsbookLimitedTestModeEnabled, false);
   assert.deepEqual(config.sportsbookLimitedTestMemberIds, []);

@@ -179,6 +179,24 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     return result.rows[0].count;
   }
 
+  await t.test('migration-seeded switch starts closed and only an audited owner action opens it', async () => {
+    const actor = await member();
+    const statusBefore = (await query(
+      `SELECT setting_value FROM system_settings WHERE setting_key='sportsbook.betting.acceptance'`
+    )).rows[0]?.setting_value;
+    assert.deepEqual(statusBefore, { closed: true });
+    const operator = { ...actor, roles: ['OWNER'] };
+    await setSportsbookBettingSwitch(operator, { closed: false });
+    const auditEntry = await query(
+      `SELECT action,details FROM audit_logs
+       WHERE actor_id=$1 AND target_id='sportsbook.betting.acceptance'
+       ORDER BY created_at DESC LIMIT 1`,
+      [actor.userId]
+    );
+    assert.equal(auditEntry.rows[0]?.action, 'SPORTSBOOK_BET_ACCEPTANCE_OPENED');
+    assert.deepEqual(auditEntry.rows[0]?.details, { closed: false });
+  });
+
   await t.test('normal acceptance debits stake and atomically creates ticket and leg', async () => {
     const session = await member();
     const { ticket } = await place(session);
@@ -304,7 +322,9 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     assert.ok(fixture, 'local Sportmonks fixture was not parsed');
     const authority = eventSettlementAuthority(fixture);
     assert.equal(authority.automaticFt, true);
-    assert.equal(authority.ht, true);
+    // Sportmonks is an approved FT result source, but not an approved HT authority.
+    assert.equal(authority.ht, false);
+    assert.equal(authority.ft, true);
     assert.deepEqual(authority.sources, ['sportmonks']);
     const market = fixture.markets.find(item => item.type === '1X2' && item.period === 'FT');
     const selection = market?.selections.find(item => item.label === 'Home');
@@ -572,5 +592,83 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     } finally {
       await setSportsbookBettingSwitch(operator, { closed: false });
     }
+  });
+
+  await t.test('limited test mode rejects non-allowlisted and over-limit members using the isolated database', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const allowedMemberId = randomUUID();
+    const outsideMemberId = randomUUID();
+    for (const [id, suffix] of [[allowedMemberId, 'allowed'], [outsideMemberId, 'outside']]) {
+      await query('INSERT INTO users(id,username,password_hash) VALUES($1,$2,$3)', [
+        id, `sbmode-${suffix}-${id.replaceAll('-', '')}`, 'test-only-not-a-password-hash'
+      ]);
+    }
+    const script = `
+      const { closeDatabase } = await import('./src/db.js');
+      try {
+      const { createSportsbookQuote } = await import('./src/sportsbook-betting.js');
+      const allowed = process.env.LIMITED_ALLOWED_MEMBER_ID;
+      const outsider = process.env.LIMITED_OUTSIDE_MEMBER_ID;
+      const selectionSnapshot = async ({eventId, marketId, selectionId}) => ({
+        event: { id:eventId, sport:'Football', league:'Test', startTime:new Date(Date.now()+3600000).toISOString(), live:false, status:'SCHEDULED', home:{name:'Home'}, away:{name:'Away'}, _sources:['sportmonks'], _settlementReadySources:['sportmonks'] },
+        market: { id:marketId, type:'1X2', label:'1X2', period:'FT', source:'sportmonks', suspended:false },
+        selection: { key:selectionId, label:'Home', odds:2, priceVersion:'mode-test-price-v1', source:'sportmonks', updatedAt:new Date().toISOString(), suspended:false },
+        feedFetchedAt:Date.now(), feedRevision:'mode-test-feed', providerState:'HEALTHY', tradingPolicy:{suspended:false}
+      });
+      const picks = [{eventId:'mode-event-1',marketId:'mode-market-1',selectionId:'mode-selection-1',acceptedOdds:2,acceptedPriceVersion:'mode-test-price-v1',provider:'sportmonks'}];
+      const expectCode = async (memberId, stake, code) => {
+        try {
+          await createSportsbookQuote({userId:memberId},{selections:picks,betType:'SINGLE',stake},{selectionSnapshot});
+          throw new Error('expected limited-test rejection');
+        } catch(error) {
+          if(error.code !== code) throw error;
+        }
+      };
+      await expectCode(outsider,1000,'SPORTSBOOK_LIMITED_TEST_MEMBER_NOT_ALLOWED');
+      await expectCode(allowed,1001,'SPORTSBOOK_LIMITED_TEST_STAKE_LIMIT');
+      console.log('limited-test database cases passed');
+      } finally {
+        await closeDatabase();
+      }
+    `;
+    const env = {
+      ...process.env,
+      SPORTSBOOK_LIMITED_TEST_MODE_ENABLED: 'true',
+      SPORTSBOOK_LIMITED_TEST_MEMBER_IDS: allowedMemberId,
+      LIMITED_ALLOWED_MEMBER_ID: allowedMemberId,
+      LIMITED_OUTSIDE_MEMBER_ID: outsideMemberId,
+      SPORTSBOOK_LIMITED_TEST_MAX_STAKE: '1000'
+    };
+    const allowedRun = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env, encoding: 'utf8' });
+    assert.equal(allowedRun.status, 0, allowedRun.stderr);
+    assert.match(allowedRun.stdout, /limited-test database cases passed/);
+
+    const emptyAllowlist = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      const { closeDatabase } = await import('./src/db.js');
+      try {
+      const { createSportsbookQuote } = await import('./src/sportsbook-betting.js');
+      const allowed = process.env.LIMITED_ALLOWED_MEMBER_ID;
+      const selectionSnapshot = async ({eventId,marketId,selectionId}) => ({
+        event:{id:eventId,sport:'Football',league:'Test',startTime:new Date(Date.now()+3600000).toISOString(),live:false,status:'SCHEDULED',home:{name:'Home'},away:{name:'Away'},_sources:['sportmonks'],_settlementReadySources:['sportmonks']},
+        market:{id:marketId,type:'1X2',label:'1X2',period:'FT',source:'sportmonks',suspended:false},
+        selection:{key:selectionId,label:'Home',odds:2,priceVersion:'mode-test-price-v1',source:'sportmonks',updatedAt:new Date().toISOString(),suspended:false},
+        feedFetchedAt:Date.now(),feedRevision:'mode-test-feed',providerState:'HEALTHY',tradingPolicy:{suspended:false}
+      });
+      try {
+        await createSportsbookQuote({userId:allowed},{selections:[{eventId:'empty-event',marketId:'empty-market',selectionId:'empty-selection',acceptedOdds:2,acceptedPriceVersion:'mode-test-price-v1',provider:'sportmonks'}],betType:'SINGLE',stake:1000},{selectionSnapshot});
+        process.exitCode=1;
+      } catch(error) {
+        if(error.code !== 'SPORTSBOOK_LIMITED_TEST_MEMBER_NOT_ALLOWED') throw error;
+        console.log('empty allowlist rejected member');
+      }
+      } finally {
+        await closeDatabase();
+      }
+    `], {
+      env: { ...env, SPORTSBOOK_LIMITED_TEST_MEMBER_IDS: '' },
+      encoding: 'utf8'
+    });
+    assert.equal(emptyAllowlist.status, 0, emptyAllowlist.stderr);
+    assert.match(emptyAllowlist.stdout, /empty allowlist rejected member/);
   });
 });
