@@ -16,6 +16,7 @@ import { formatRupiah, showToast, escapeHtml } from './utils.js';
 import { primaryMarketColumns } from './sportsbook-markets.js';
 import { chooseCombinations, systemBetMetrics } from './sportsbook-slip-calculation.js';
 import { formatOdds, oddsColorClass } from './sportsbook-odds.js';
+import { deriveSportsbookFeedPresentation } from './sportsbook-feed-status.js';
 
 const STREAM_URL = '/api/member/sportsbook/stream';
 const SNAPSHOT_URL = '/api/member/sportsbook/events';
@@ -697,33 +698,26 @@ function renderStatusMeta() {
   const feedUpdated = el('sb-feed-updated');
   const eventCount = el('sb-feed-events-count');
   const marketCount = el('sb-feed-markets-count');
-  const status = String(feed.source?.status || '').toUpperCase();
+  const presentation = deriveSportsbookFeedPresentation(feed);
   if (feedStatus) {
-    feedStatus.textContent = feed.stale || /STALE|OFFLINE/.test(status)
-      ? 'Feed tertunda'
-      : feed.degraded || status === 'DEGRADED'
-        ? 'Feed terbatas'
-        : feed.events.length && Number(feed.source?.bettableMarkets || feed.source?.pricedMarkets) > 0
-          ? 'Feed aktif'
-          : 'Menunggu odds';
+    feedStatus.textContent = presentation.statusText;
+    feedStatus.classList.toggle('is-read-only', presentation.isReadOnly && !presentation.isAgeStale);
   }
   if (eventCount) eventCount.textContent = fmt(feed.pagination?.total ?? feed.events.length);
-  if (marketCount) marketCount.textContent = fmt(feed.source?.bettableMarkets ?? feed.source?.pricedMarkets ?? 0);
+  if (marketCount) marketCount.textContent = fmt(presentation.pricedMarkets);
   if (feedUpdated) {
     const stamp = feed.source?.fetchedAt || feed.source?.capturedAt;
     feedUpdated.textContent = stamp ? `Update ${formatWibDateTime(stamp)} WIB` : '';
   }
   if (banner) {
     const src = feed.source || {};
-    const mode = String(src.mode || '');
-    const isCached = /CACHED|SNAPSHOT|STALE/i.test(mode) || Boolean(src.cachedFallback);
     // P1: tampilkan umur feed + tanggal update agar jadwal cached tidak dikira acak.
     const stamp = src.fetchedAt || src.capturedAt || null;
     const stampText = stamp ? ` • update ${formatWibDateTime(stamp)}` : '';
-    if (feed.stale || isCached) {
+    if (presentation.banner === 'stale') {
       banner.hidden = false;
       banner.textContent = `Jadwal sementara (data cached${stampText}) — odds dapat berubah saat feed pulih. Feed akan memperbarui otomatis.`;
-    } else if (feed.degraded) {
+    } else if (presentation.banner === 'degraded') {
       banner.hidden = false;
       banner.textContent = `Feed terhubung tetapi belum bisa terima taruhan${stampText}. Menunggu otoritas settlement.`;
     } else banner.hidden = true;

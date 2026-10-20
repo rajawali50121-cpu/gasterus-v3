@@ -494,6 +494,10 @@ body.sb-page {
 }
 #sb-feed-status {
   color: #15803d;
+  overflow-wrap: anywhere;
+}
+#sb-feed-status.is-read-only {
+  color: #475569;
 }
 #sb-feed-updated {
   font-size: 9px;

@@ -3,10 +3,70 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { ticketCalculation } from '../src/sportsbook-calculation.js';
 import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
+import { deriveSportsbookFeedPresentation } from '../../frontend/js/sportsbook-feed-status.js';
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
+
+test('sportsbook status distinguishes fresh read-only odds, genuinely stale feeds, and active betting', () => {
+  const now = Date.parse('2026-10-20T10:00:00.000Z');
+  const styles = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
+  const makeFeed = ({ ageMs, mode, status, pricedMarkets, bettableMarkets, stale = false, degraded = false }) => ({
+    events: [{ id: 'event-1' }],
+    stale,
+    degraded,
+    source: {
+      fetchedAt: new Date(now - ageMs).toISOString(),
+      staleAfterSeconds: 180,
+      mode,
+      status,
+      pricedMarkets,
+      bettableMarkets
+    }
+  });
+
+  const readOnly = deriveSportsbookFeedPresentation(makeFeed({
+    ageMs: 60_000,
+    mode: 'READ_ONLY_PRICED_NO_SETTLEMENT_AUTHORITY',
+    status: 'PRICED_READ_ONLY',
+    pricedMarkets: 249,
+    bettableMarkets: 0,
+    stale: true,
+    degraded: true
+  }), now);
+  assert.equal(readOnly.statusText, 'Odds ditampilkan - taruhan belum dibuka');
+  assert.equal(readOnly.pricedMarkets, 249);
+  assert.equal(readOnly.isAgeStale, false);
+  assert.equal(readOnly.banner, null);
+
+  const delayed = deriveSportsbookFeedPresentation(makeFeed({
+    ageMs: 181_000,
+    mode: 'LIVE_SOURCE_AGGREGATOR',
+    status: 'ONLINE',
+    pricedMarkets: 249,
+    bettableMarkets: 200
+  }), now);
+  assert.equal(delayed.statusText, 'Feed tertunda');
+  assert.equal(delayed.banner, 'stale');
+
+  const active = deriveSportsbookFeedPresentation(makeFeed({
+    ageMs: 60_000,
+    mode: 'LIVE_SOURCE_AGGREGATOR',
+    status: 'ONLINE',
+    pricedMarkets: 249,
+    bettableMarkets: 200
+  }), now);
+  assert.equal(active.statusText, 'Feed aktif');
+  assert.equal(active.pricedMarkets, 249);
+  assert.equal(active.banner, null);
+
+  assert.match(frontend, /feedStatus\.textContent = presentation\.statusText/);
+  assert.match(frontend, /marketCount\.textContent = fmt\(presentation\.pricedMarkets\)/);
+  assert.match(frontend, /presentation\.banner === 'stale'/);
+  assert.match(feed, /staleAfterSeconds: config\.sportsFeedStaleSeconds/);
+  assert.match(styles, /#sb-feed-status\s*\{[^}]*overflow-wrap: anywhere/);
+});
 
 test('member sportsbook lazy-loads complete event market details and retains all list market variants', () => {
   assert.match(frontend, /const FEED_DETAIL_URL = \(id\) => `\/api\/member\/sportsbook\/events\/\$\{encodeURIComponent\(id\)\}`/);
