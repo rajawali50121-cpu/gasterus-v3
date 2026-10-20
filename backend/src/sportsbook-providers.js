@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { config } from './config.js';
+import { eventSettlementAuthority } from './sportsbook-settlement-authority.js';
 import { logger } from './logger.js';
 import { ensureBoundedCacheCapacity, pruneExpiredCacheEntries, setBoundedCacheEntry } from './bounded-cache.js';
 import { readBoundedResponseText } from './bounded-response.js';
@@ -1763,13 +1764,10 @@ function applyManualFtSettlementFallback(event, { enabled = config.sportsbookMan
   return event;
 }
 function applySettlementSafety(event) {
-  const readySources = Array.isArray(event._settlementReadySources) ? event._settlementReadySources : event._sources || [];
-  const sources = new Set(readySources);
-  const supportsFullTimeSettlement = sources.has('api-sports') || sources.has('public-market') || sources.has('footballdata-io') || sources.has('sportmonks') || sources.has('manual-ops');
-  const supportsHalfTimeSettlement = sources.has('api-sports') || sources.has('public-market');
+  const authority = eventSettlementAuthority(event);
   event.markets = (event.markets || []).map(market => {
     const period = market.period || 'FT';
-    const mustSuspend = !supportsFullTimeSettlement || (period === '1H' && !supportsHalfTimeSettlement);
+    const mustSuspend = !authority.ft || (period === '1H' && !authority.ht);
     return mustSuspend
       ? { ...market, suspended: true, selections: market.selections.map(selection => ({ ...selection, suspended: true })) }
       : market;
@@ -1874,6 +1872,7 @@ export function publicEvent(event) {
 }
 
 export const __sportsbookProviders = {
+  applySettlementSafety,
   normalizeSharpApiRows,
   sharpDerivedMarketType,
   sharpMarketGroupKey,

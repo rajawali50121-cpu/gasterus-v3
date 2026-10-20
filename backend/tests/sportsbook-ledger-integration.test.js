@@ -14,6 +14,8 @@ if (integrationEnabled) {
     NODE_ENV: 'test',
     SPORTSBOOK_QUOTE_REQUIRED: 'true',
     SPORTSBOOK_MAX_MEMBER_LIABILITY: '100000',
+    SPORTSBOOK_BETTING_KILL_SWITCH_ENABLED: 'false',
+    SPORTSBOOK_LIMITED_TEST_MODE_ENABLED: 'false',
     SPORTSBOOK_CASHOUT_ENABLED: 'true',
     SPORTSBOOK_CASHOUT_FACTOR_BPS: '9600',
     SPORTSBOOK_CASHOUT_MIN_OFFER: '1',
@@ -30,7 +32,7 @@ if (integrationEnabled) {
 const skipped = { skip: !integrationEnabled };
 
 test('isolated database: sportsbook bet, ledger, settlement, cashout and exposure', skipped, async t => {
-  const [{ query, tx, closeDatabase }, { createSportsbookBet, createSportsbookQuote, settleSportsbookTicketAutomatic, rollbackSportsbookSettlement }, { postTransfer, SYSTEM_ACCOUNTS, verifyLedger }, { signSportsbookQuote }, { evaluateSportsbookLeg }, { createSportsbookCashoutOffer, acceptSportsbookCashout }, { signCashoutOffer }, { fetchSportmonks }, { eventSettlementAuthority }] = await Promise.all([
+  const [{ query, tx, closeDatabase }, { createSportsbookBet, createSportsbookQuote, settleSportsbookBet, settleSportsbookTicketAutomatic, rollbackSportsbookSettlement }, { postTransfer, SYSTEM_ACCOUNTS, verifyLedger }, { signSportsbookQuote }, { evaluateSportsbookLeg }, { createSportsbookCashoutOffer, acceptSportsbookCashout }, { signCashoutOffer }, { fetchSportmonks }, { eventSettlementAuthority }, { setSportsbookBettingSwitch }] = await Promise.all([
     import('../src/db.js'),
     import('../src/sportsbook-betting.js'),
     import('../src/ledger.js'),
@@ -39,7 +41,8 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     import('../src/sportsbook-cashout.js'),
     import('../src/sportsbook-cashout-policy.js'),
     import('../src/sportsbook-providers.js'),
-    import('../src/sportsbook-settlement-authority.js')
+    import('../src/sportsbook-settlement-authority.js'),
+    import('../src/sportsbook-betting-controls.js')
   ]);
 
   const cleanups = [];
@@ -158,7 +161,7 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
   async function place(session, { picks = selections(), stake = 1000, idempotencyKey = `idem-${randomUUID()}`, betType = 'SINGLE', selectionSnapshot = resolver, oddsChangePolicy = 'REJECT' } = {}) {
     const q = await quote(session, picks, { stake, betType, oddsChangePolicy }, selectionSnapshot);
     const ticket = await createSportsbookBet(session, { idempotencyKey, quoteToken: q.quoteToken }, { selectionSnapshot });
-    return { ticket, quote: q, picks };
+    return { ticket, quote: q, picks, idempotencyKey };
   }
 
   async function assertLedgerBalanced() {
@@ -531,8 +534,43 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     assert.equal(accepted.length, 2);
     const denied = outcomes.filter(result => result.status === 'rejected');
     assert.ok(denied.length >= 4);
-    assert.ok(denied.some(result => result.reason.code === 'SPORTSBOOK_MEMBER_LIABILITY_LIMIT'));
+    assert.ok(denied.some(result => result.reason.code === 'SPORTSBOOK_MEMBER_LIABILITY_LIMIT'
+      && result.reason.message === 'Batas eksposur taruhan anggota 100000 telah tercapai.'));
     assert.equal(await memberBalance(session.userId), 50000);
     await assertLedgerBalanced();
+  });
+
+  await t.test('runtime kill switch blocks new acceptance but leaves retry and settlement of existing tickets available', async () => {
+    const session = await member(10000);
+    const operator = { ...session, roles: ['OWNER'] };
+    const existing = await place(session);
+    const freshQuote = await quote(session, selections());
+    try {
+      await setSportsbookBettingSwitch(operator, { closed: true });
+      await assert.rejects(createSportsbookQuote(session, {
+        selections: selections(),
+        betType: 'SINGLE',
+        stake: 1000
+      }, { selectionSnapshot: resolver }), error => error.code === 'SPORTSBOOK_BETTING_CLOSED');
+      await assert.rejects(createSportsbookBet(session, {
+        idempotencyKey: `closed-switch-${randomUUID()}`,
+        quoteToken: freshQuote.quoteToken
+      }, { selectionSnapshot: resolver }), error => error.code === 'SPORTSBOOK_BETTING_CLOSED');
+      const replay = await createSportsbookBet(session, {
+        idempotencyKey: existing.idempotencyKey,
+        quoteToken: existing.quote.quoteToken
+      }, { selectionSnapshot: resolver });
+      assert.equal(replay.id, existing.ticket.id);
+      const settled = await settleSportsbookBet(operator, existing.ticket.id, {
+        results: [{ legNo: 1, status: 'WON', resultValue: 'FT 1-0' }],
+        sourceName: 'integration-test',
+        reason: 'mock authorized result',
+        idempotencyKey: `switch-settlement-${randomUUID()}`
+      });
+      assert.equal(settled.status, 'WON');
+      await assertLedgerBalanced();
+    } finally {
+      await setSportsbookBettingSwitch(operator, { closed: false });
+    }
   });
 });

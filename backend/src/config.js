@@ -31,6 +31,13 @@ function pricedProviderEnabled(name, key) {
   if (!raw || raw === 'auto') return isProduction && Boolean(key);
   return ['1', 'true', 'yes', 'on'].includes(raw);
 }
+function uuidList(name) {
+  const values = text(name, '').split(',').map(value => value.trim()).filter(Boolean);
+  if (values.some(value => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))) {
+    throw new Error(`${name} must contain UUIDs.`);
+  }
+  return Object.freeze([...new Set(values.map(value => value.toLowerCase()))]);
+}
 
 export const config = Object.freeze({
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -242,6 +249,10 @@ export const config = Object.freeze({
   sportsbookLiveAcceptanceDelayMs: int('SPORTSBOOK_LIVE_ACCEPTANCE_DELAY_MS', 3000, 3000, 10000),
   sportsbookQuoteTtlSeconds: int('SPORTSBOOK_QUOTE_TTL_SECONDS', 15, 5, 60),
   sportsbookQuoteRequired: bool('SPORTSBOOK_QUOTE_REQUIRED', process.env.NODE_ENV === 'production'),
+  sportsbookBettingKillSwitchEnabled: bool('SPORTSBOOK_BETTING_KILL_SWITCH_ENABLED', false),
+  sportsbookLimitedTestModeEnabled: bool('SPORTSBOOK_LIMITED_TEST_MODE_ENABLED', false),
+  sportsbookLimitedTestMemberIds: uuidList('SPORTSBOOK_LIMITED_TEST_MEMBER_IDS'),
+  sportsbookLimitedTestMaxStake: int('SPORTSBOOK_LIMITED_TEST_MAX_STAKE', 1000, 100, 100000000),
   sportsbookPrematchCloseGraceSeconds: int('SPORTSBOOK_PREMATCH_CLOSE_GRACE_SECONDS', 30, 0, 300),
   sportsbookMaxLivePriceAgeSeconds: int('SPORTSBOOK_MAX_LIVE_PRICE_AGE_SECONDS', 90, 15, 600),
   sportsbookMaxPrematchPriceAgeSeconds: int('SPORTSBOOK_MAX_PREMATCH_PRICE_AGE_SECONDS', 900, 60, 7200),

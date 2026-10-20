@@ -2,8 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { advanceProviderLifecycle, PROVIDER_LIFECYCLE_STATES } from '../src/sportsbook-provider-lifecycle.js';
-import { reconcileSportsbookMarketLifecycle } from '../src/sportsbook-market-lifecycle.js';
+Object.assign(process.env, {
+  NODE_ENV: 'test',
+  DATABASE_URL: 'postgres://test:test@127.0.0.1:5432/sportsbook_test',
+  REDIS_URL: 'redis://127.0.0.1:6379',
+  MEMBER_PROXY_SECRET: 'm'.repeat(48),
+  ADMIN_PROXY_SECRET: 'a'.repeat(48),
+  OPS_INTERNAL_SECRET: 'o'.repeat(48),
+  SESSION_HMAC_KEY: 's'.repeat(48),
+  API_KEY_PEPPER: 'p'.repeat(48),
+  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
+});
+const { advanceProviderLifecycle, PROVIDER_LIFECYCLE_STATES } = await import('../src/sportsbook-provider-lifecycle.js');
+const { reconcileSportsbookMarketLifecycle } = await import('../src/sportsbook-market-lifecycle.js');
+const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
+const { eventSettlementAuthority, SPORTSBOOK_SETTLEMENT_SOURCES } = await import('../src/sportsbook-settlement-authority.js');
 
 const providerPolicy = { failureThreshold: 3, recoverySuccesses: 2, cooldownSeconds: 30 };
 const marketPolicy = { reopenSuccesses: 2, reopenObservationSeconds: 30, retentionSeconds: 3600 };
@@ -63,4 +76,37 @@ test('sportsbook feed cache is generation-isolated from the previous production 
   assert.match(feed, /sportsbook:market-lifecycle'/);
   assert.match(feed, /parsed\.lifecycleGeneration !== LIFECYCLE_GENERATION/);
   assert.match(feed, /memory\.lifecycleGeneration === LIFECYCLE_GENERATION/);
+});
+
+test('provider market safety and settlement authority share the same fail-closed source policy', () => {
+  assert.deepEqual(SPORTSBOOK_SETTLEMENT_SOURCES, {
+    automaticFt: ['api-sports', 'public-market', 'sportmonks'],
+    manualFt: ['manual-ops'],
+    ht: ['api-sports', 'public-market']
+  });
+  const sources = [...new Set([
+    ...SPORTSBOOK_SETTLEMENT_SOURCES.automaticFt,
+    ...SPORTSBOOK_SETTLEMENT_SOURCES.manualFt,
+    'footballdata-io',
+    'sharpapi',
+    'unknown'
+  ])];
+
+  for (const source of sources) {
+    const event = {
+      _settlementReadySources: [source],
+      markets: ['FT', '1H'].map(period => ({
+        period,
+        suspended: false,
+        selections: [{ suspended: false }]
+      }))
+    };
+    const authority = eventSettlementAuthority(event);
+    __sportsbookProviders.applySettlementSafety(event);
+    assert.equal(event.markets[0].suspended, !authority.ft, `${source} FT decision`);
+    assert.equal(event.markets[1].suspended, !authority.ht, `${source} HT decision`);
+    assert.equal(authority.ft, SPORTSBOOK_SETTLEMENT_SOURCES.automaticFt.includes(source)
+      || SPORTSBOOK_SETTLEMENT_SOURCES.manualFt.includes(source));
+    assert.equal(authority.ht, SPORTSBOOK_SETTLEMENT_SOURCES.ht.includes(source));
+  }
 });

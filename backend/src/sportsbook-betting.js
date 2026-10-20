@@ -10,6 +10,7 @@ import { combinations, ticketCalculation, validateBetType } from './sportsbook-c
 import { legReturnMultiplier, settleCalculation } from './sportsbook-settlement-calculation.js';
 import { createMemberNotification } from './notifications.js';
 import { signSportsbookQuote, verifySportsbookQuoteToken } from './sportsbook-quote.js';
+import { assertSportsbookBettingOpen } from './sportsbook-betting-controls.js';
 
 const FINAL_LEG_RESULTS = new Set(['WON', 'LOST', 'VOID', 'PUSH', 'HALF_WON', 'HALF_LOST']);
 const ODDS_CHANGE_POLICIES = new Set(['REJECT', 'ACCEPT_BETTER', 'ACCEPT_ANY']);
@@ -198,7 +199,7 @@ async function assertRiskExposure(client, legs, ticketPotentialPayout) {
     assert(selectionLiability + proposed <= selectionLimit, 409, 'Batas risiko pilihan telah tercapai. Coba nominal lebih kecil.', 'SPORTSBOOK_SELECTION_LIABILITY_LIMIT');
   }
 }
-async function assertMemberLiability(client, memberId, proposedLiability) {
+export async function assertMemberLiability(client, memberId, proposedLiability) {
   const limit = Number(config.sportsbookMaxMemberLiability);
   if (!Number.isSafeInteger(limit) || limit <= 0) return;
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`sportsbook-member-risk:${memberId}`]);
@@ -207,6 +208,13 @@ async function assertMemberLiability(client, memberId, proposedLiability) {
   const proposed = BigInt(Math.max(0, Math.trunc(Number(proposedLiability) || 0)));
   assert(current + proposed <= BigInt(limit), 409,
     `Batas eksposur taruhan anggota ${limit} telah tercapai.`, 'SPORTSBOOK_MEMBER_LIABILITY_LIMIT');
+}
+export function assertLimitedTestAccess(memberId, totalStake) {
+  if (!config.sportsbookLimitedTestModeEnabled) return;
+  assert(config.sportsbookLimitedTestMemberIds.includes(String(memberId).toLowerCase()), 403,
+    'Akun ini tidak termasuk daftar putih mode uji sportsbook.', 'SPORTSBOOK_LIMITED_TEST_MEMBER_NOT_ALLOWED');
+  assert(totalStake <= config.sportsbookLimitedTestMaxStake, 400,
+    `Total taruhan mode uji maksimum ${config.sportsbookLimitedTestMaxStake}.`, 'SPORTSBOOK_LIMITED_TEST_STAKE_LIMIT');
 }
 function validateLegs(legs) {
   const events = new Set();
@@ -333,6 +341,7 @@ async function ticketBy(client, clause, values) {
 }
 
 export async function createSportsbookQuote(session, input, { selectionSnapshot = sportsbookSelectionSnapshot } = {}) {
+  await assertSportsbookBettingOpen();
   const rawSelections = Array.isArray(input.selections) ? input.selections : [];
   assert(rawSelections.length >= 1 && rawSelections.length <= config.sportsbookMaxLegs, 400, `Jumlah pilihan harus 1–${config.sportsbookMaxLegs}.`, 'SPORTSBOOK_LEGS_INVALID');
   const { type, systemSize } = validateBetType(input.betType, rawSelections.length, input.systemSize);
@@ -342,6 +351,7 @@ export async function createSportsbookQuote(session, input, { selectionSnapshot 
   const calculation = ticketCalculation(type, stake, legs, systemSize, config.sportsbookMaxSystemCombinations);
   assert(calculation.totalStake <= config.sportsbookMaxStake, 400, `Total taruhan melewati batas ${config.sportsbookMaxStake}.`, 'SPORTSBOOK_STAKE_LIMIT');
   assert(calculation.potentialPayout <= config.sportsbookMaxPayout, 400, `Potensi kemenangan melewati batas ${config.sportsbookMaxPayout}.`, 'SPORTSBOOK_PAYOUT_LIMIT');
+  assertLimitedTestAccess(session.userId, calculation.totalStake);
   const tradingMaxStake = assertTradingStakeLimit(legs, calculation.totalStake);
   const changePolicy = oddsChangePolicy(input.oddsChangePolicy);
 
@@ -437,6 +447,7 @@ export async function createSportsbookBet(session, input, { ip = '', selectionSn
   const calculation = ticketCalculation(type, stake, legs, systemSize, config.sportsbookMaxSystemCombinations);
   assert(calculation.totalStake <= config.sportsbookMaxStake, 400, `Total taruhan melewati batas ${config.sportsbookMaxStake}.`, 'SPORTSBOOK_STAKE_LIMIT');
   assert(calculation.potentialPayout <= config.sportsbookMaxPayout, 400, `Potensi kemenangan melewati batas ${config.sportsbookMaxPayout}.`, 'SPORTSBOOK_PAYOUT_LIMIT');
+  assertLimitedTestAccess(session.userId, calculation.totalStake);
   assertTradingStakeLimit(legs, calculation.totalStake);
   if (verifiedQuote) {
     assert(Number(verifiedQuote.totalStake) === calculation.totalStake, 409, 'Quote taruhan tidak lagi sesuai dengan kalkulasi server.', 'SPORTSBOOK_QUOTE_MISMATCH');
@@ -457,6 +468,8 @@ export async function createSportsbookBet(session, input, { ip = '', selectionSn
       if (acceptedQuote) return memberTicket(acceptedQuote);
     }
 
+    assertLimitedTestAccess(session.userId, calculation.totalStake);
+    await assertSportsbookBettingOpen(client, { lock: true });
     const freshLegs = await revalidateResolvedLegs(legs, selectionSnapshot);
     assertTradingStakeLimit(freshLegs, calculation.totalStake);
     await assertRiskExposure(client, freshLegs, calculation.potentialPayout);
