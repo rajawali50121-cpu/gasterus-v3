@@ -787,12 +787,6 @@ function setupFilterTabs() {
     });
   }
 
-  const oddsFormatSelect = el('sb-odds-format');
-  if (oddsFormatSelect) {
-    oddsFormatSelect.value = oddsFormat;
-    oddsFormatSelect.addEventListener('change', () => setOddsFormat(oddsFormatSelect.value));
-  }
-
   setupMixParlay();
   setupSportDropdown();
   setupLeagueModal();
