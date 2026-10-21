@@ -47,8 +47,18 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
 
   const cleanups = [];
   t.after(async () => {
-    await Promise.all(cleanups);
-    await closeDatabase();
+    try {
+      await Promise.all(cleanups);
+    } finally {
+      try {
+        await query(
+          `UPDATE system_settings SET setting_value='{"closed":true}'::jsonb,updated_at=now()
+           WHERE setting_key='sportsbook.betting.acceptance'`
+        );
+      } finally {
+        await closeDatabase();
+      }
+    }
   });
 
   async function member(balance = 100000) {
