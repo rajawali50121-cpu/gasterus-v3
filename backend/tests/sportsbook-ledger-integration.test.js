@@ -227,6 +227,8 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
       createSportsbookBet(session, { idempotencyKey: 'same-idempotency-key-0001', quoteToken: q.quoteToken }, { selectionSnapshot: resolver })
     ]);
     assert.equal(results[0].id, results[1].id);
+    assert.equal(results[0].balanceAfter, 99000);
+    assert.equal(results[1].balanceAfter, 99000);
     assert.equal(await ticketCount(session.userId), 1);
     assert.equal(await memberBalance(session.userId), 99000);
 
@@ -245,6 +247,31 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     assert.notEqual(another.ticket.id, competingRequests[0].id);
     assert.equal(await ticketCount(session.userId), 3);
     assert.equal(await memberBalance(session.userId), 97000);
+    await assertLedgerBalanced();
+  });
+
+  await t.test('100 simultaneous same-member requests with one idempotency key debit the ledger exactly once', async () => {
+    const session = await member(1000);
+    const q = await quote(session, selections(), { stake: 1000 });
+    const idempotencyKey = `load-duplicate-${randomUUID()}`;
+    let release;
+    const start = new Promise(resolve => { release = resolve; });
+    const requests = Array.from({ length: 100 }, async () => {
+      await start;
+      return createSportsbookBet(session, {
+        idempotency_key: idempotencyKey,
+        quoteToken: q.quoteToken
+      }, { selectionSnapshot: resolver });
+    });
+    release();
+
+    const results = await Promise.all(requests);
+    const balance = await memberBalance(session.userId);
+    assert.equal(new Set(results.map(ticket => ticket.id)).size, 1);
+    assert.ok(results.every(ticket => ticket.balanceAfter === 0));
+    assert.equal(await ticketCount(session.userId), 1);
+    assert.equal(balance, 0);
+    assert.ok(balance >= 0);
     await assertLedgerBalanced();
   });
 
@@ -475,6 +502,31 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     assert.equal(rolledBack.status, 'OPEN');
     assert.equal(rolledBack.payout, 0);
     assert.equal(await memberBalance(session.userId), 99000);
+    await assertLedgerBalanced();
+  });
+
+  await t.test('settlement idempotency key cannot be reused across tickets', async () => {
+    const session = await member();
+    const operator = { ...session, roles: ['OWNER'] };
+    const first = await place(session);
+    const second = await place(session);
+    const idempotencyKey = `settlement-key-${randomUUID()}`;
+    const input = {
+      results: [{ legNo: 1, status: 'WON', resultValue: '2-0' }],
+      sourceName: 'integration-test',
+      idempotencyKey
+    };
+
+    await settleSportsbookBet(operator, first.ticket.id, input);
+    await assert.rejects(
+      settleSportsbookBet(operator, second.ticket.id, input),
+      error => error.code === 'SPORTSBOOK_SETTLEMENT_IDEMPOTENCY_CONFLICT'
+    );
+
+    const unchanged = await query('SELECT status,payout FROM sportsbook_tickets WHERE id=$1', [second.ticket.id]);
+    assert.equal(unchanged.rows[0].status, 'OPEN');
+    assert.equal(unchanged.rows[0].payout, 0);
+    assert.equal(await memberBalance(session.userId), 100000);
     await assertLedgerBalanced();
   });
 
