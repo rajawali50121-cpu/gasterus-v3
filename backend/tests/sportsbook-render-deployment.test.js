@@ -39,6 +39,15 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   // Secret ingest diwariskan; Odds API credentials tetap dikelola langsung pada worker.
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_HMAC_SECRET'), '${{gasterus-v3.SPORTSBOOK_INGEST_HMAC_SECRET}}');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{gasterus-v3.SPORTSBOOK_INGEST_URL}}');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{gasterus-v3.SPORTMONKS_API_KEY}}');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_BASE_URL'), 'https://api.sportmonks.com/v3');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '60');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ODDS_REFRESH_SECONDS'), '60');
+  assert.match(backendConfig, /SPORTSBOOK_INGEST_HMAC_SECRET: preserve\(\)/);
+  assert.match(backendConfig, /SPORTMONKS_API_KEY: preserve\(\)/);
+  assert.match(backendConfig, /SPORTMONKS_ENABLED: "true"/);
+  assert.match(backendConfig, /SPORTMONKS_BASE_URL: "https:\/\/api\.sportmonks\.com\/v3"/);
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY'), true);
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY_2'), true);
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEYS'), true);
@@ -47,6 +56,9 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(config, /optionalSecret\('THE_ODDS_API_KEY'\)/);
   assert.match(config, /theOddsApiKeys/);
   assert.match(envExample, /^THE_ODDS_API_KEY=replace-with-your-the-odds-api-key$/m);
+  assert.match(config, /sportsbookIngestHmacSecret: optionalSecret\('SPORTSBOOK_INGEST_HMAC_SECRET'\)/);
+  assert.match(config, /sportmonksBaseUrl: text\('SPORTMONKS_BASE_URL', 'https:\/\/api\.sportmonks\.com\/v3'\)/);
+  assert.match(config, /sportmonksEnabled: bool\('SPORTMONKS_ENABLED', isProduction && Boolean\(sportmonksKey\)\)/);
 
   // Image hanya membawa backend/src — tanpa frontend/node_modules berat.
   assert.match(renderDockerfile, /^FROM node:22\./m);

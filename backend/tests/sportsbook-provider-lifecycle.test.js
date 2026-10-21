@@ -49,6 +49,11 @@ test('provider circuit breaker fails closed and requires confirmed recovery stre
   assert.equal(state.bettingAllowed, true);
 });
 
+test('Sportmonks provider cache respects the configured live-price freshness ceiling', () => {
+  const maxLivePriceAgeMs = Number(process.env.SPORTSBOOK_MAX_LIVE_PRICE_AGE_SECONDS || 90) * 1000;
+  assert.ok(__sportsbookProviders.sportmonksCacheTtlMs() <= maxLivePriceAgeMs);
+});
+
 test('transport can recover without making a metadata-only provider a pricing authority', () => {
   const state = advanceProviderLifecycle(null, {
     code: 'api-sports', enabled: true, transportHealthy: true, pricingReady: false

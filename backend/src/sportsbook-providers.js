@@ -1235,11 +1235,13 @@ function sportmonksMarket(event, rows) {
 // Cache Sportmonks odds for the provider-configured refresh interval.
 const sportmonksCache = new Map();
 function sportmonksCacheTtlMs() {
-  return Math.max(
+  const configuredTtlSeconds = Math.max(
     60,
     Number(config.sportmonksRefreshSeconds || 300),
     Number(config.sportmonksOddsRefreshSeconds || 180)
-  ) * 1000;
+  );
+  const maxLivePriceAgeSeconds = Number(config.sportsbookMaxLivePriceAgeSeconds || 90);
+  return Math.min(configuredTtlSeconds, maxLivePriceAgeSeconds) * 1000;
 }
 async function waitForSportmonksRequestSlot() {
   const delayMs = Number(config.sportmonksRequestDelayMs || 0);
@@ -1889,6 +1891,7 @@ export const __sportsbookProviders = {
   periodFromName,
   extractApiSportsOdds,
   apiSportsQuotaFloorSeconds,
+  sportmonksCacheTtlMs,
   suspendStaleLiveMarkets,
   providerRequestCache,
   allocateOddsApiEventMarkets,
