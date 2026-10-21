@@ -69,19 +69,36 @@ export function combineSportsbookProviderResults(providerResults, {
   );
   candidates.sort((a, b) => compareCandidates(a, b, priorityLeagues));
 
-  const selected = [];
+  const fixtureGroups = [];
   for (const candidate of candidates) {
-    const duplicateIndex = selected.findIndex(existing => sameFixture(existing, candidate, teamKey));
-    if (duplicateIndex === -1) {
-      selected.push(candidate);
+    const group = fixtureGroups.find(items => sameFixture(items[0], candidate, teamKey));
+    if (!group) {
+      fixtureGroups.push([candidate]);
       continue;
     }
-    if (compareDuplicateCandidates(candidate, selected[duplicateIndex], priorityLeagues) < 0) {
-      selected[duplicateIndex] = candidate;
+    const providerIndex = group.findIndex(existing => existing.provider === candidate.provider);
+    if (providerIndex === -1) {
+      group.push(candidate);
+    } else if (compareDuplicateCandidates(candidate, group[providerIndex], priorityLeagues) < 0) {
+      group[providerIndex] = candidate;
     }
   }
-  selected.sort((a, b) => compareCandidates(a, b, priorityLeagues));
-  const boundedSelection = selected.slice(0, maxEvents);
+
+  // Keep one independently validated copy per provider so the core can merge
+  // fixture authority and odds without mixing provider-owned fields in ingest.
+  // The ingest cap counts provider event records, not unique fixtures.
+  const selectedGroups = [];
+  let selectedRecordCount = 0;
+  for (const group of fixtureGroups) {
+    group.sort((a, b) => compareCandidates(a, b, priorityLeagues));
+    const remainingRecords = maxEvents - selectedRecordCount;
+    if (remainingRecords <= 0) break;
+    const selected = group.slice(0, remainingRecords);
+    selectedGroups.push(selected);
+    selectedRecordCount += selected.length;
+    if (selected.length < group.length) break;
+  }
+  const boundedSelection = selectedGroups.flat();
 
   const selectedByProvider = new Map();
   for (const candidate of boundedSelection) {
@@ -96,7 +113,7 @@ export function combineSportsbookProviderResults(providerResults, {
   }));
   return {
     providerResults: combinedResults,
-    eventCount: boundedSelection.length
+    eventCount: selectedGroups.length
   };
 }
 
@@ -116,7 +133,7 @@ function rebuildSnapshot(snapshot, flatEvents) {
   return {
     ...snapshot,
     providerResults,
-    eventCount: flatEvents.length
+    eventCount: new Set(flatEvents.map(event => String(event?.id || ''))).size
   };
 }
 
@@ -167,6 +184,7 @@ export async function buildSportsbookRenderSnapshot({
   fetchSportmonks,
   maxEvents = 500,
   maxPages = MAX_PAGES,
+  maxSportmonksPages = maxPages,
   maxPayloadBytes = null,
   teamKey,
   now
@@ -183,15 +201,15 @@ export async function buildSportsbookRenderSnapshot({
     throw new Error(`Worker sportsbook maxPages must be an integer between 1 and ${MAX_PAGES}.`);
   }
   const fetchers = [
-    { provider: 'sportmonks', fetch: fetchSportmonks },
-    { provider: 'the-odds-api', fetch: fetchOddsApi }
+    { provider: 'sportmonks', fetch: fetchSportmonks, maxPages: maxSportmonksPages },
+    { provider: 'the-odds-api', fetch: fetchOddsApi, maxPages }
   ];
   const providerResults = [];
   const failures = [];
-  for (const { provider, fetch } of fetchers) {
+  for (const { provider, fetch, maxPages: providerMaxPages } of fetchers) {
     if (typeof fetch !== 'function') continue;
     try {
-      const result = await fetch({ maxEvents, maxPages });
+      const result = await fetch({ maxEvents, maxPages: providerMaxPages });
       if (result) providerResults.push(result);
     } catch (error) {
       const message = error?.message || String(error);

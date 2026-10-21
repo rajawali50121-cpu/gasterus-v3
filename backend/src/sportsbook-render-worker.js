@@ -53,6 +53,7 @@ while (!shutdown.signal.aborted) {
       fetchSportmonks,
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
+        maxSportmonksPages: config.sportmonksMaxPagesPerRefresh,
       maxPayloadBytes: config.sportsbookIngestMaxPayloadBytes,
       teamKey
     });

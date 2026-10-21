@@ -86,11 +86,12 @@ export default defineRailway(() => {
       SPORTMONKS_MARKET_IDS: preserve(),
       SPORTMONKS_MAX_RESPONSE_BYTES: preserve(),
       SPORTMONKS_MAX_RETRIES: preserve(),
+      SPORTMONKS_MAX_PAGES_PER_REFRESH: "30",
       SPORTMONKS_MAX_TOTAL_EVENTS: preserve(),
       SPORTMONKS_REFRESH_SECONDS: "60",
       SPORTMONKS_ODDS_REFRESH_SECONDS: "60",
       SPORTMONKS_PAGE_SIZE: preserve(),
-      SPORTMONKS_REQUEST_DELAY_MS: preserve(),
+      SPORTMONKS_REQUEST_DELAY_MS: "1000",
       THE_ODDS_API_BASE_URL: preserve(),
       THE_ODDS_API_ENABLED: preserve(),
       THE_ODDS_API_EVENT_MARKETS_ENABLED: preserve(),
@@ -110,6 +111,8 @@ export default defineRailway(() => {
   //   - The Odds API: EPL + La Liga, h2h/spreads/totals x eu; refresh 840 dtk
   //     memakai maksimal 618 kredit/hari (batas 667), di bawah jendela harga
   //     prematch 900 dtk.
+  //   - Sportmonks dibatasi 30 halaman per siklus dan jeda minimal 1 detik;
+  //     HTTP 429 menghentikan pagination lalu mengaktifkan cooldown fail-closed.
   //   - provider dijalankan sekuensial (satu payload pada satu waktu), market
   //     per-event dimatikan (tanpa fetch tambahan), cache provider berbatas
   //     byte, snapshot berbatas 500 event / 6MB
@@ -131,6 +134,8 @@ export default defineRailway(() => {
       SPORTMONKS_API_KEY: "${{gasterus-v3.SPORTMONKS_API_KEY}}",
       SPORTMONKS_ENABLED: "true",
       SPORTMONKS_BASE_URL: "https://api.sportmonks.com/v3",
+      SPORTMONKS_MAX_PAGES_PER_REFRESH: "30",
+      SPORTMONKS_REQUEST_DELAY_MS: "1000",
       SPORTMONKS_REFRESH_SECONDS: "60",
       SPORTMONKS_ODDS_REFRESH_SECONDS: "60",
       THE_ODDS_API_ENABLED: "true",

@@ -186,7 +186,7 @@ export const config = Object.freeze({
   theSportsDbBaseUrl: text('THESPORTSDB_BASE_URL', 'https://www.thesportsdb.com/api'),
   theSportsDbEnabled: bool('THESPORTSDB_ENABLED', false),
   theSportsDbLeagueIds: text('THESPORTSDB_LEAGUE_IDS', '4328,4335,4332,4331,4334,4387'),
-  // Sportmonks is the sole sportsbook fixture and odds provider.
+  // Sportmonks supplies fixture/settlement authority; The Odds API adds prices in the render worker.
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
   sportmonksKey,
   sportmonksEnabled: bool('SPORTMONKS_ENABLED', isProduction && Boolean(sportmonksKey)),
@@ -196,7 +196,8 @@ export const config = Object.freeze({
   sportmonksPriorityLeagues: text('SPORTMONKS_PRIORITY_LEAGUES', 'Premier League,La Liga,Serie A,Bundesliga,Ligue 1,UEFA Champions League,UEFA Europa League,UEFA Europa Conference League,Eredivisie,Primeira Liga,Major League Soccer'),
   // Cap per-provider normalized events independently from the larger aggregated feed.
   sportmonksMaxTotalEvents: boundedInt('SPORTMONKS_MAX_TOTAL_EVENTS', 500, 0, 500),
-  sportmonksRequestDelayMs: int('SPORTMONKS_REQUEST_DELAY_MS', 0, 0, 60000),
+  sportmonksMaxPagesPerRefresh: boundedInt('SPORTMONKS_MAX_PAGES_PER_REFRESH', 30, 1, 120),
+  sportmonksRequestDelayMs: int('SPORTMONKS_REQUEST_DELAY_MS', 1000, 0, 60000),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
   sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
   // TheSportsDB publishes 123 as its current free V1 API key. Artwork is metadata-only and

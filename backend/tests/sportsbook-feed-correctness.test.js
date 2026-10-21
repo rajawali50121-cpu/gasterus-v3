@@ -70,7 +70,7 @@ test('R6.9.0.22 member quote and ticket responses omit provider telemetry', () =
 });
 
 test('Sportmonks is the only sportsbook refresh descriptor', () => {
-  assert.match(feed,/code: 'sportmonks', enabled: true, fetcher: fetchSportmonks/);
+  assert.match(feed,/code: 'sportmonks', enabled: true, fetcher: \(\) => fetchSportmonks\(\{ maxPages: config\.sportmonksMaxPagesPerRefresh \}\)/);
   assert.doesNotMatch(feed,/code: '(?:public-market|sharpapi|api-sports|the-odds-api|footballdata-io)'/);
 });
 

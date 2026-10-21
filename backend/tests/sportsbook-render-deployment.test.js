@@ -42,12 +42,16 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{gasterus-v3.SPORTMONKS_API_KEY}}');
   assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
   assert.equal(railwayWorkerEnv('SPORTMONKS_BASE_URL'), 'https://api.sportmonks.com/v3');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES_PER_REFRESH'), '30');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '1000');
   assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '60');
   assert.equal(railwayWorkerEnv('SPORTMONKS_ODDS_REFRESH_SECONDS'), '60');
   assert.match(backendConfig, /SPORTSBOOK_INGEST_HMAC_SECRET: preserve\(\)/);
   assert.match(backendConfig, /SPORTMONKS_API_KEY: preserve\(\)/);
   assert.match(backendConfig, /SPORTMONKS_ENABLED: "true"/);
   assert.match(backendConfig, /SPORTMONKS_BASE_URL: "https:\/\/api\.sportmonks\.com\/v3"/);
+  assert.match(backendConfig, /SPORTMONKS_MAX_PAGES_PER_REFRESH: "30"/);
+  assert.match(backendConfig, /SPORTMONKS_REQUEST_DELAY_MS: "1000"/);
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY'), true);
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY_2'), true);
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEYS'), true);
@@ -76,6 +80,7 @@ test('worker polls The Odds API markets inside the quota/RAM budget', () => {
   // Batas render diteruskan ke worker agar ukuran snapshot tetap terjaga.
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
   assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
+  assert.match(worker, /maxSportmonksPages: config\.sportmonksMaxPagesPerRefresh/);
   // Snapshot besar wajib selaras dengan anggaran payload ingest SEBELUM berangkat
   // (trim deterministik, bukan gagal 413 diam-diam yang membekukan feed).
   assert.match(worker, /maxPayloadBytes: config\.sportsbookIngestMaxPayloadBytes/);

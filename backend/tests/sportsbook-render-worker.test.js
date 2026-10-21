@@ -10,13 +10,20 @@ Object.assign(process.env, {
   OPS_INTERNAL_SECRET: process.env.OPS_INTERNAL_SECRET || 'o'.repeat(48),
   SESSION_HMAC_KEY: process.env.SESSION_HMAC_KEY || 's'.repeat(48),
   API_KEY_PEPPER: process.env.API_KEY_PEPPER || 'p'.repeat(48),
-  MFA_ENCRYPTION_KEY_BASE64: process.env.MFA_ENCRYPTION_KEY_BASE64 || Buffer.alloc(32, 1).toString('base64')
+  MFA_ENCRYPTION_KEY_BASE64: process.env.MFA_ENCRYPTION_KEY_BASE64 || Buffer.alloc(32, 1).toString('base64'),
+  SPORTMONKS_ENABLED: 'true',
+  SPORTMONKS_API_KEY: 'worker-test-sportmonks-key',
+  SPORTMONKS_BASE_URL: 'https://sportmonks.test/v3',
+  SPORTMONKS_DAYS_AHEAD: '0',
+  SPORTMONKS_MAX_PAGES_PER_REFRESH: '30',
+  SPORTMONKS_REQUEST_DELAY_MS: '0'
 });
 
-const [{ buildSportsbookRenderSnapshot, fitSnapshotToPayloadBudget }, { teamKey }, { validateSportsbookSnapshot }] = await Promise.all([
+const [{ buildSportsbookRenderSnapshot, fitSnapshotToPayloadBudget }, { teamKey, fetchSportmonks, __sportsbookProviders }, { validateSportsbookSnapshot }, { eventSettlementAuthority }] = await Promise.all([
   import('../src/sportsbook-render-worker-core.js'),
   import('../src/sportsbook-providers.js'),
-  import('../src/sportsbook-ingestion.js')
+  import('../src/sportsbook-ingestion.js'),
+  import('../src/sportsbook-settlement-authority.js')
 ]);
 const { createSportsbookIngestRequest } = await import('../src/sportsbook-ingest-client.js');
 const SECRET = 'render-worker-test-secret-'.padEnd(48, 'x');
@@ -269,26 +276,43 @@ test('Worker includes explicit Odds API key/configuration failures beside other 
   assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
 });
 
-test('Worker prefers the priced copy when the same fixture arrives from two providers', async () => {
+test('Worker preserves both provider copies so core merge retains The Odds API prices and Sportmonks authority', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => ({
       provider: 'sportmonks',
       enabled: true,
-      events: [event('sportmonks', { id: 'dup-unpriced', home: 'Alpha', away: 'Beta', markets: [] })]
+      events: [event('sportmonks', { id: 'shared-fixture', home: 'Alpha', away: 'Beta', markets: [] })]
     }),
     fetchOddsApi: async () => ({
       provider: 'the-odds-api',
       enabled: true,
-      events: [event('the-odds-api', { id: 'dup-priced', home: 'Alpha', away: 'Beta' })]
+      events: [event('the-odds-api', { id: 'shared-fixture', home: 'Alpha', away: 'Beta', live: true })]
     }),
     maxEvents: 100,
     teamKey,
     now: NOW
   });
-  assert.equal(snapshot.eventCount, 1, 'fixture ganda tetap dide-dup');
-  const survivor = snapshot.providerResults.flatMap(result => result.events)[0];
-  assert.equal(survivor.id, 'dup-priced', 'salinan berharga menang atas salinan display-only');
-  assert.ok(survivor.markets.length > 0);
+  assert.equal(snapshot.eventCount, 1, 'fixture ganda tetap dihitung satu kali');
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
+  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 2, 'kedua record provider memenuhi kontrak ingest');
+  assert.equal(snapshot.providerResults.find(result => result.provider === 'sportmonks').events.length, 1);
+  assert.equal(snapshot.providerResults.find(result => result.provider === 'the-odds-api').events.length, 1);
+
+  const merged = __sportsbookProviders.mergeProviderEvents(snapshot.providerResults.map(result => ({
+    ...result,
+    events: result.events.map(item => ({
+      ...item,
+      _settlementReadySources: result.provider === 'sportmonks' ? ['sportmonks'] : []
+    }))
+  })));
+  assert.equal(merged.length, 1);
+  assert.deepEqual([...merged[0]._sources].sort(), ['sportmonks', 'the-odds-api']);
+  assert.deepEqual(merged[0]._settlementReadySources, ['sportmonks']);
+  assert.equal(eventSettlementAuthority(merged[0]).automaticFt, true);
+  assert.equal(merged[0].status, 'SCHEDULED', 'status fixture otoritatif dari Sportmonks menang');
+  assert.equal(merged[0].live, false);
+  assert.equal(merged[0].markets[0].source, 'the-odds-api');
+  assert.equal(merged[0].markets[0].suspended, false);
 });
 
 test('Worker trims oversized snapshots to the ingestion payload budget instead of failing every push', async () => {
@@ -379,17 +403,52 @@ test('Worker still publishes and records Odds API failure when Sportmonks succee
   assert.equal(snapshot.providerResults.find(result => result.provider === 'the-odds-api').transportOk, false);
 });
 
-test('Worker dedupes overlapping fixtures preferring Sportmonks as primary', async () => {
+test('Worker bounds total provider records when overlapping fixtures are retained', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'dup', home: 'Alpha', away: 'Beta' })] }),
-    fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'dup-odds', home: 'Alpha', away: 'Beta' })] }),
-    maxEvents: 100,
+    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [
+      event('sportmonks', { id: 'shared-1', home: 'Alpha', away: 'Beta' }),
+      event('sportmonks', { id: 'shared-2', home: 'Gamma', away: 'Delta' })
+    ] }),
+    fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [
+      event('the-odds-api', { id: 'shared-1', home: 'Alpha', away: 'Beta' }),
+      event('the-odds-api', { id: 'shared-2', home: 'Gamma', away: 'Delta' })
+    ] }),
+    maxEvents: 3,
     teamKey,
     now: NOW
   });
-  assert.equal(snapshot.eventCount, 1, 'fixture sama dari dua provider tidak boleh ganda');
-  const selected = snapshot.providerResults.find(result => result.events.length);
-  assert.equal(selected.provider, 'sportmonks', 'Sportmonks menang untuk fixture prematch yang sama');
+  const records = snapshot.providerResults.flatMap(result => result.events);
+  assert.equal(snapshot.eventCount, 2, 'eventCount hanya menghitung fixture unik yang terpilih');
+  assert.equal(records.length, 3, 'record provider tidak melewati budget ingest');
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
+});
+
+test('Sportmonks 429 stops pagination, honors Retry-After, and remains fail-closed during cooldown', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  __sportsbookProviders.resetSportmonksRateLimit();
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response('rate limited', { status: 429, headers: { 'retry-after': '120' } });
+  };
+
+  try {
+    const limited = await fetchSportmonks({ maxEvents: 50, maxPages: 30 });
+    assert.equal(calls, 1, '429 harus menghentikan seluruh page loop');
+    assert.equal(limited.transportOk, false);
+    assert.equal(limited.stale, true);
+    assert.equal(limited.skipped, true);
+    assert.ok(__sportsbookProviders.retryAfterDelayMs('120') >= 120000);
+
+    const cooldown = await fetchSportmonks({ maxEvents: 50, maxPages: 30 });
+    assert.equal(calls, 1, 'cooldown tidak boleh memukul provider lagi');
+    assert.equal(cooldown.transportOk, false);
+    assert.equal(cooldown.stale, true);
+    assert.equal(cooldown.skipped, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    __sportsbookProviders.resetSportmonksRateLimit();
+  }
 });
 
 test('Worker fails closed when every provider fetch throws', async () => {

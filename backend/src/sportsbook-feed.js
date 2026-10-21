@@ -648,7 +648,7 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
         throw new AppError(503, 'Tidak ada snapshot worker valid atau provider sportsbook lokal terkonfigurasi.', 'SPORTS_PROVIDERS_NOT_CONFIGURED');
       }
       const descriptors = [
-        { code: 'sportmonks', enabled: true, fetcher: fetchSportmonks }
+        { code: 'sportmonks', enabled: true, fetcher: () => fetchSportmonks({ maxPages: config.sportmonksMaxPagesPerRefresh }) }
       ].filter(d => d.enabled);
       return Promise.all(descriptors.map(descriptor => {
         const lifecycle = previousLifecycle[descriptor.code];
