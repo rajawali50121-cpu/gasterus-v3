@@ -415,7 +415,7 @@ export async function createSportsbookQuote(session, input, { selectionSnapshot 
 }
 
 export async function createSportsbookBet(session, input, { ip = '', selectionSnapshot = sportsbookSelectionSnapshot } = {}) {
-  const idempotencyKey = clean(input.idempotencyKey, 100);
+  const idempotencyKey = clean(input.idempotencyKey ?? input.idempotency_key, 100);
   assert(idempotencyKey.length >= 12, 400, 'Idempotency key tidak valid.', 'SPORTSBOOK_IDEMPOTENCY_INVALID');
   // Enterprise idempotency: a network retry must recover an already accepted ticket
   // even when the original short-lived quote has expired after acceptance.
@@ -461,6 +461,9 @@ export async function createSportsbookBet(session, input, { ip = '', selectionSn
   try {
     return await serializableRetry(async client => {
     if (quoteToken) verifySportsbookQuoteToken(quoteToken, { memberId: session.userId });
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
+      `SPORTSBOOK:${session.userId}:${idempotencyKey}`
+    ]);
     const existing = await ticketBy(client, 'member_id=$1 AND idempotency_key=$2', [session.userId, idempotencyKey]);
     if (existing) return memberTicket(existing);
     if (verifiedQuote?.quoteId) {
