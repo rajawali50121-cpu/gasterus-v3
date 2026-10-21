@@ -16,6 +16,7 @@ Object.assign(process.env, {
 const { advanceProviderLifecycle, PROVIDER_LIFECYCLE_STATES } = await import('../src/sportsbook-provider-lifecycle.js');
 const { reconcileSportsbookMarketLifecycle } = await import('../src/sportsbook-market-lifecycle.js');
 const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
+const { __sportsbookFeed } = await import('../src/sportsbook-feed.js');
 const { eventSettlementAuthority, SPORTSBOOK_SETTLEMENT_SOURCES } = await import('../src/sportsbook-settlement-authority.js');
 
 const providerPolicy = { failureThreshold: 3, recoverySuccesses: 2, cooldownSeconds: 30 };
@@ -113,4 +114,28 @@ test('provider market safety and settlement authority share the same fail-closed
       || SPORTSBOOK_SETTLEMENT_SOURCES.manualFt.includes(source));
     assert.equal(authority.ht, SPORTSBOOK_SETTLEMENT_SOURCES.ht.includes(source));
   }
+});
+
+test('bettable market counts require settlement authority and feed staleness uses age only', () => {
+  const now = Date.parse('2026-10-21T12:00:00.000Z');
+  const event = {
+    id: 'fresh-authorized-event',
+    status: 'SCHEDULED',
+    live: false,
+    startTime: new Date(Date.now() + 3600000).toISOString(),
+    _settlementReadySources: ['sportmonks'],
+    markets: ['FT', '1H'].map(period => ({
+      period,
+      suspended: false,
+      selections: [{ odds: 2, suspended: false }]
+    }))
+  };
+
+  assert.equal(__sportsbookFeed.bettableMarketCount([event]), 1);
+  assert.equal(__sportsbookFeed.bettableMarketCount([{ ...event, _settlementReadySources: [] }]), 0);
+  assert.equal(__sportsbookFeed.feedIsStale({ fetchedAt: now }, now), false);
+  assert.equal(__sportsbookFeed.feedIsStale({ fetchedAt: now - 180000 }, now), false);
+  assert.equal(__sportsbookFeed.feedIsStale({ fetchedAt: now - 180001 }, now), true);
+  assert.equal(__sportsbookFeed.feedIsStale({ fetchedAt: now - 181000 }, now), true);
+  assert.equal(__sportsbookFeed.feedIsStale({ fetchedAt: now, readOnlySource: true }, now), false);
 });

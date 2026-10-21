@@ -370,6 +370,20 @@ function eventBettingOpen(event, now = Date.now()) {
   }
   return true;
 }
+function feedAgeMilliseconds(feed, now = Date.now()) {
+  const raw = feed?.fetchedAt;
+  const fetchedAt = Number.isFinite(Number(raw)) ? Number(raw) : Date.parse(String(raw || ''));
+  if (!Number.isFinite(fetchedAt)) return null;
+  return now - fetchedAt;
+}
+function feedAgeSeconds(feed, now = Date.now()) {
+  const ageMs = feedAgeMilliseconds(feed, now);
+  return ageMs === null ? null : Math.floor(ageMs / 1000);
+}
+function feedIsStale(feed, now = Date.now()) {
+  const ageMs = feedAgeMilliseconds(feed, now);
+  return ageMs === null || ageMs < 0 || ageMs > STALE_MS;
+}
 function enforceEventBettingWindow(events = [], now = Date.now()) {
   return events.map(event => {
     if (eventBettingOpen(event, now)) return event;
@@ -482,8 +496,10 @@ function bettableMarketCount(events = []) {
   const now = Date.now();
   return events.reduce((total, event) => {
     if (!eventBettingOpen(event, now)) return total;
+    const authority = eventSettlementAuthority(event);
     return total + (event.markets || []).filter(market =>
-      !market.suspended && (market.selections || []).some(selection => !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1)
+      (market.period === '1H' ? authority.ht : authority.ft)
+        && !market.suspended && (market.selections || []).some(selection => !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1)
     ).length;
   }, 0);
 }
@@ -1189,7 +1205,7 @@ export async function sportsbookSnapshot(filters = {}, { memberView = true } = {
 async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, providedFeed = null) {
   let feed = providedFeed || await currentFeed();
   const now = Date.now();
-  const stale = Boolean(feed.readOnlySource || feed.snapshotFallback || !feed.fetchedAt || now - Number(feed.fetchedAt) > STALE_MS);
+  const stale = feedIsStale(feed, now);
   let controls = [];
   try {
     controls = await listActiveSportsbookTradingControls();
@@ -1220,7 +1236,9 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
   const events = applySportsbookTradingControls(projected, controls);
   const visiblePricedMarkets = pricedMarketCount(events);
   const visibleBettableMarkets = bettableMarketCount(events);
-  const memberHealthy = !stale && !feed.readOnlySource && Number(feed.bettableMarkets || 0) > 0;
+  const settlementAuthority = settlementAuthoritySummary(feed.events || []);
+  const hasSettlementAuthority = settlementAuthority.ftEvents > 0 || settlementAuthority.htEvents > 0;
+  const memberHealthy = !stale && !feed.readOnlySource && !feed.snapshotFallback && Number(feed.bettableMarkets || 0) > 0;
   return {
     events,
     leagues: facets,
@@ -1233,7 +1251,9 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
       mode: feed.snapshotFallback
           ? 'READ_ONLY_SNAPSHOT'
           : feed.readOnlySource && Number(feed.pricedMarkets || 0) > 0
-            ? 'READ_ONLY_PRICED_NO_SETTLEMENT_AUTHORITY'
+            ? hasSettlementAuthority
+              ? 'READ_ONLY_PRICED_NO_BETTABLE_MARKETS'
+              : 'READ_ONLY_PRICED_NO_SETTLEMENT_AUTHORITY'
             : feed.readOnlySource
               ? 'READ_ONLY_STALE_SOURCE'
               : 'LIVE_SOURCE_AGGREGATOR',
@@ -1318,7 +1338,7 @@ export function sportsbookSourceStatus() {
     cachedEvents: memory.events.length,
     fetchedAt: memory.fetchedAt ? new Date(memory.fetchedAt).toISOString() : null,
     feedRevision: memory.revision || null,
-    stale: Boolean(memory.readOnlySource || memory.snapshotFallback || (memory.expiresAt ? Date.now() > memory.expiresAt : true)),
+    stale: feedIsStale(memory),
     snapshotFallback: Boolean(memory.snapshotFallback),
     providers: Object.values(memory.providerLifecycle || {}).map(publicProviderLifecycle)
   };
@@ -1328,12 +1348,34 @@ export async function sportsbookOperationalStatus() {
   const feed = await currentFeed();
   const controls = await listActiveSportsbookTradingControls();
   const controlledEvents = applySportsbookTradingControls((feed.events || []).map(publicEvent), controls);
-  const activeMarkets = controlledEvents.flatMap(event => event.markets || []).filter(market =>
-    !market.suspended && (market.selections || []).some(selection => !selection.suspended && Number(selection.odds) > 1)
+  const sourceEvents = new Map((feed.events || []).map(event => [String(event.id), event]));
+  const activeMarkets = controlledEvents.flatMap(event => {
+    if (!eventBettingOpen(event)) return [];
+    const authority = eventSettlementAuthority(sourceEvents.get(String(event.id)));
+    return (event.markets || []).filter(market =>
+      (market.period === '1H' ? authority.ht : authority.ft)
+        && !market.suspended && (market.selections || []).some(selection => !selection.suspended && Number(selection.odds) > 1)
+    );
+  });
+  const ageSeconds = feedAgeSeconds(feed);
+  const fresh = !feedIsStale(feed);
+  const settlementAuthority = settlementAuthoritySummary(feed.events || []);
+  const providerReady = feed.providers.some(provider =>
+    provider.enabled && provider.transportHealthy && provider.pricingReady && provider.bettingAllowed
   );
+  const tradingReady = fresh && !feed.readOnlySource && !feed.snapshotFallback
+    && activeMarkets.length > 0 && providerReady
+    && (settlementAuthority.ftEvents > 0 || settlementAuthority.htEvents > 0);
   const operatorSuspendedMarkets = controlledEvents.flatMap(event => event.markets || []).filter(market => market.trading?.suspendedByOperator).length;
   const count = (type, period) => activeMarkets.filter(market => market.type === type && market.period === period).length;
   return {
+    ready: tradingReady,
+    tradingReady,
+    feedFresh: fresh,
+    feedAgeSeconds: ageSeconds,
+    staleAfterSeconds: config.sportsFeedStaleSeconds,
+    settlementAuthority,
+    providerReady,
     feedRevision: feed.revision || null,
     fetchedAt: feed.fetchedAt ? new Date(feed.fetchedAt).toISOString() : null,
     expiresAt: feed.expiresAt ? new Date(feed.expiresAt).toISOString() : null,
@@ -1443,4 +1485,4 @@ export async function sportsbookSelectionSnapshot({ eventId, marketId, selection
   };
 }
 
-export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, capMarketsPerEvent, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail, enabledProviders, purgeLegacySportsbookCacheKeys };
+export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, feedAgeSeconds, feedAgeMilliseconds, feedIsStale, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, capMarketsPerEvent, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail, enabledProviders, purgeLegacySportsbookCacheKeys };

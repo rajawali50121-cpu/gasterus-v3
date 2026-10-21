@@ -29,7 +29,7 @@ test('R6.9.0.22 member catalog removes closed results and has bounded horizon', 
 
 test('member source status reflects the overall feed even when the current page is empty', () => {
   assert.match(feed, /const visibleBettableMarkets = bettableMarketCount\(events\)/);
-  assert.match(feed, /const memberHealthy = !stale && !feed\.readOnlySource && Number\(feed\.bettableMarkets \|\| 0\) > 0/);
+  assert.match(feed, /const memberHealthy = !stale && !feed\.readOnlySource && !feed\.snapshotFallback && Number\(feed\.bettableMarkets \|\| 0\) > 0/);
   assert.match(feed, /status: feed\.readOnlySource \? .* : memberHealthy \? 'ONLINE' : 'DEGRADED'/);
 });
 
