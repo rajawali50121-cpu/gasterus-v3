@@ -685,6 +685,8 @@ async function applySportsbookSettlementRevision(id, resultInputs, {
     const revisionNo = Number(ticket.settlement_revision || 0) + 1;
     const revisionKey = clean(idempotencyKey, 180) || `sportsbook-settlement:${normalizedAction.toLowerCase()}:${ticket.id}:r${revisionNo}`;
     const existingRevision = (await client.query('SELECT * FROM sportsbook_settlement_revisions WHERE idempotency_key=$1 FOR UPDATE', [revisionKey])).rows[0];
+    assert(!existingRevision || existingRevision.ticket_id === ticket.id, 409, 'Kunci idempotensi settlement sudah digunakan oleh tiket lain.', 'SPORTSBOOK_SETTLEMENT_IDEMPOTENCY_CONFLICT');
+    assert(!existingRevision || existingRevision.action === normalizedAction, 409, 'Kunci idempotensi settlement sudah digunakan untuk aksi lain.', 'SPORTSBOOK_SETTLEMENT_IDEMPOTENCY_CONFLICT');
     if (existingRevision?.status === 'APPLIED') return ticketBy(client, 'id=$1', [ticket.id]);
 
     const previousSnapshot = legResultSnapshot(legs);
