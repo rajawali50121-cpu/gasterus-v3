@@ -1,0 +1,59 @@
+name: gasterus-sportsbook
+
+services:
+  - name: sportsbook-render-worker
+    type: worker
+    instance_type: micro
+    regions:
+      - fra
+    scaling:
+      min: 1
+      max: 1
+    git:
+      repository: github.com/rajawali50121-cpu/gasterus-v3
+      branch: master
+      builder: docker
+      dockerfile: deploy/Dockerfile.sportsbook-render-worker
+    env:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=224"
+      - key: SPORTSBOOK_INGEST_URL
+        value: "{{ secret.GASTERUS_SPORTSBOOK_INGEST_URL }}"
+      - key: SPORTSBOOK_INGEST_HMAC_SECRET
+        value: "{{ secret.GASTERUS_SPORTSBOOK_INGEST_HMAC_SECRET }}"
+      - key: SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES
+        value: "6291456"
+      - key: SPORTSBOOK_INGEST_MAX_AGE_SECONDS
+        value: "180"
+      - key: SPORTSBOOK_RENDER_MAX_EVENTS
+        value: "500"
+      - key: SPORTSBOOK_RENDER_MAX_PAGES
+        value: "120"
+      - key: SPORTMONKS_ENABLED
+        value: "true"
+      - key: SPORTMONKS_API_KEY
+        value: "{{ secret.GASTERUS_SPORTMONKS_API_KEY }}"
+      - key: SPORTMONKS_BASE_URL
+        value: "https://api.sportmonks.com/v3"
+      - key: SPORTMONKS_DAYS_AHEAD
+        value: "30"
+      - key: SPORTMONKS_MAX_PAGES_PER_REFRESH
+        value: "30"
+      - key: SPORTMONKS_REQUEST_DELAY_MS
+        value: "1000"
+      - key: THE_ODDS_API_ENABLED
+        value: "true"
+      - key: THE_ODDS_API_KEY
+        value: "{{ secret.GASTERUS_THE_ODDS_API_KEY }}"
+      - key: THE_ODDS_API_REGIONS
+        value: "eu"
+      - key: THE_ODDS_API_MARKETS
+        value: "h2h,spreads,totals"
+      - key: THE_ODDS_API_REFRESH_SECONDS
+        value: "840"
+      - key: THE_ODDS_API_MAX_TOTAL_EVENTS
+        value: "500"
+      - key: THE_ODDS_API_EVENT_MARKETS_ENABLED
+        value: "false"

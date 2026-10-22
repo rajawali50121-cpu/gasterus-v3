@@ -9,6 +9,7 @@
     "dev:backend": "node deploy/launcher.js",
     "dev:frontend": "npx serve frontend -p 3000",
     "verify:sportsbook:e2e": "node scripts/verify-sportsbook-e2e.mjs",
+    "test:sportsbook:ingest": "node scripts/test-sportsbook-ingest.mjs",
     "test": "node --test backend/tests/*.test.js",
     "check": "node scripts/check-syntax.js && node scripts/check-css-syntax.js && node scripts/check-asset-version.js",
     "migrate": "node backend/scripts/migrate.js",
