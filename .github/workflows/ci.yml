@@ -111,7 +111,7 @@ jobs:
       - name: Run database and provider integration checks
         env:
           SPORTMONKS_API_KEY: ci-mock-sportmonks
-          SPORTMONKS_BASE_URL: https://localhost:8443
+          SPORTMONKS_BASE_URL: https://localhost:8443/v3
           SPORTMONKS_DAYS_AHEAD: "0"
           SPORTMONKS_ENABLED: "true"
           SPORTMONKS_MAX_PAGES_PER_REFRESH: "1"
