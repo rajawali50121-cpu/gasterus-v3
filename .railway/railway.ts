@@ -9,7 +9,7 @@ export default defineRailway(() => {
   const postgresVolume = volume("postgres-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "iad", sizeMB: 500 });
   const redisVolume = volume("redis-volume", { alerts: { usage: { "100": {}, "80": {}, "95": {} } }, allowOnlineResize: true, region: "iad", sizeMB: 500 });
   const backend = service("gasterus-v3", {
-    source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: false }),
+    source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile" },
     deploy: {
       preDeployCommand: ["node deploy/predeploy.js"],
@@ -117,7 +117,7 @@ export default defineRailway(() => {
   //     per-event dimatikan (tanpa fetch tambahan), cache provider berbatas
   //     byte, snapshot berbatas 500 event / 6MB
   const sportsbookRenderWorker = service("sportsbook-render-worker", {
-    source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: false }),
+    source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile.sportsbook-render-worker" },
     deploy: {
       restartPolicyType: "ON_FAILURE",
