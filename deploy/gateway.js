@@ -120,8 +120,15 @@ async function localSportsbookReady(port) {
 const server = createServer(async (req,res) => {
   const url = new URL(req.url || '/', 'http://gateway.internal');
   if (url.pathname === '/healthz') {
-    const coreHealthy = await localReady(Number(process.env.CORE_INTERNAL_PORT || 8083), '/healthz');
-    return json(res, coreHealthy ? 200 : 503, {status: coreHealthy ? 'ok' : 'degraded'});
+    const corePort = Number(process.env.CORE_INTERNAL_PORT || 8083);
+    const [core, worker, member, admin] = await Promise.all([
+      localReady(corePort, '/ready'),
+      localReady(corePort, '/healthz'),
+      localReady(MEMBER_PORT),
+      localReady(ADMIN_PORT)
+    ]);
+    const healthy = core && worker && member && admin;
+    return json(res, healthy ? 200 : 503, {status: healthy ? 'ok' : 'degraded', core, worker, member, admin});
   }
   if (url.pathname === '/readyz') {
     const corePort = Number(process.env.CORE_INTERNAL_PORT || 8083);

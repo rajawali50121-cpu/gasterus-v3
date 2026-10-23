@@ -103,10 +103,9 @@ export const config = Object.freeze({
   totoBrowserFallbackCacheSeconds: int('TOTO_BROWSER_FALLBACK_CACHE_SECONDS', 900, 60, 3600),
   totoBrowserFallbackSettleMs: int('TOTO_BROWSER_FALLBACK_SETTLE_MS', 4500, 1000, 12000),
   totoMaxResultAgeDays: int('TOTO_MAX_RESULT_AGE_DAYS', 4, 1, 14),
-  // Operator decision (diminta owner): pasaran pool yang hanya punya 1 keluarga sumber
-  // tetap boleh jadi VERIFIED sehingga betting pools bisa dibuka. Angka tetap hasil scrape
-  // sumber asli (bukan generator). Revert: set env TOTO_SINGLE_SOURCE_CAN_PUBLISH_VERIFIED=false.
-  totoSingleSourceCanPublishVerified: bool('TOTO_SINGLE_SOURCE_CAN_PUBLISH_VERIFIED', true),
+  // A single source is not sufficient settlement authority unless an operator
+  // explicitly accepts that production risk.
+  totoSingleSourceCanPublishVerified: bool('TOTO_SINGLE_SOURCE_CAN_PUBLISH_VERIFIED', false),
   // Tampilkan hasil REAL single-source (1 keluarga sumber) ke member sebagai display-only.
   // Betting/settlement TETAP butuh VERIFIED (authorityReady). Matikan dengan TOTO_PUBLISH_SINGLE_SOURCE=false.
   totoPublishSingleSource: bool('TOTO_PUBLISH_SINGLE_SOURCE', true),
@@ -264,7 +263,7 @@ export const config = Object.freeze({
   // R6.9.0.12: when autonomous FT result authority is unavailable, healthy prematch
   // SharpAPI prices may be accepted with an explicit operator-settlement guarantee.
   // This never applies to LIVE or 1H markets and never fabricates result scores.
-  sportsbookManualFtSettlementFallbackEnabled: isProduction ? true : bool('SPORTSBOOK_MANUAL_FT_SETTLEMENT_FALLBACK_ENABLED', false),
+  sportsbookManualFtSettlementFallbackEnabled: bool('SPORTSBOOK_MANUAL_FT_SETTLEMENT_FALLBACK_ENABLED', false),
   sportsbookAutoSettlementEnabled: bool('SPORTSBOOK_AUTO_SETTLEMENT_ENABLED', true),
   sportsbookAutoSettlementSeconds: int('SPORTSBOOK_AUTO_SETTLEMENT_SECONDS', 30, 15, 600),
   // Settlement TOTO otomatis: begitu hasil OFFICIAL/CONSENSUS terbit dan betting

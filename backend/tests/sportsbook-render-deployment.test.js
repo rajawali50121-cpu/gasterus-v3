@@ -36,10 +36,14 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(workerServiceConfig,/restartPolicyType:\s*"ON_FAILURE"/);
   assert.match(workerServiceConfig,/restartPolicyMaxRetries:\s*10/);
 
-  // Secret ingest diwariskan; Odds API credentials tetap dikelola langsung pada worker.
+  // Provider credentials and ingest settings are managed on the backend service
+  // and inherited by the worker so both services cannot silently use different keys.
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_HMAC_SECRET'), '${{gasterus-v3.SPORTSBOOK_INGEST_HMAC_SECRET}}');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{gasterus-v3.SPORTSBOOK_INGEST_URL}}');
   assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{gasterus-v3.SPORTMONKS_API_KEY}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), '${{gasterus-v3.THE_ODDS_API_KEY}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY_2'), '${{gasterus-v3.THE_ODDS_API_KEY_2}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEYS'), '${{gasterus-v3.THE_ODDS_API_KEYS}}');
   assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
   assert.equal(railwayWorkerEnv('SPORTMONKS_BASE_URL'), 'https://api.sportmonks.com/v3');
   assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES_PER_REFRESH'), '30');
@@ -48,13 +52,16 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerEnv('SPORTMONKS_ODDS_REFRESH_SECONDS'), '60');
   assert.match(backendConfig, /SPORTSBOOK_INGEST_HMAC_SECRET: preserve\(\)/);
   assert.match(backendConfig, /SPORTMONKS_API_KEY: preserve\(\)/);
+  assert.match(backendConfig, /THE_ODDS_API_KEY: preserve\(\)/);
+  assert.match(backendConfig, /THE_ODDS_API_KEY_2: preserve\(\)/);
+  assert.match(backendConfig, /THE_ODDS_API_KEYS: preserve\(\)/);
   assert.match(backendConfig, /SPORTMONKS_ENABLED: "true"/);
   assert.match(backendConfig, /SPORTMONKS_BASE_URL: "https:\/\/api\.sportmonks\.com\/v3"/);
   assert.match(backendConfig, /SPORTMONKS_MAX_PAGES_PER_REFRESH: "30"/);
   assert.match(backendConfig, /SPORTMONKS_REQUEST_DELAY_MS: "1000"/);
-  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY'), true);
-  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY_2'), true);
-  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEYS'), true);
+  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY'), false);
+  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY_2'), false);
+  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEYS'), false);
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_FAILOVER_REMAINING_THRESHOLD'), true);
   assert.match(backendConfig, /THE_ODDS_API_KEY: preserve\(\)/);
   assert.match(config, /optionalSecret\('THE_ODDS_API_KEY'\)/);

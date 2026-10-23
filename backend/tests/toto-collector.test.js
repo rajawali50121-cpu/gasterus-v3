@@ -127,8 +127,8 @@ test('resolver uses SINGLE_SOURCE for a newer result when other source is stale 
   assert.equal(decision.status, 'SINGLE_SOURCE');
   assert.equal(decision.result, '7777');
   assert.equal(decision.drawDate, '2026-08-10');
-  // Dengan operator flag ON (default), single-source nyah menjadi VERIFIED display+betting-ready.
-  const decisionOn = __totoCollector.resolveDecision(mapping, sources);
+  // A single-source result becomes VERIFIED only after explicit operator approval.
+  const decisionOn = __totoCollector.resolveDecision(mapping, sources, { singleSourceCanPublishVerified: true });
   assert.equal(decisionOn.status, 'VERIFIED');
 });
 

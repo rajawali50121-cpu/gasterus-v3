@@ -126,5 +126,42 @@ jobs:
           node backend/migrations/integration-smoke.js
           node backend/migrations/provider-smoke.js
 
+      - name: Create isolated sportsbook ledger test database
+        env:
+          PGPASSWORD: ci-postgres
+        run: createdb --host 127.0.0.1 --username postgres sportsbook_test
+
+      - name: Migrate and seed sportsbook ledger test database
+        env:
+          DATABASE_URL: postgres://postgres:ci-postgres@127.0.0.1:5432/sportsbook_test
+        run: |
+          npm --prefix backend run db:migrate
+          npm --prefix backend run db:seed
+
+      - name: Run sportsbook ledger integration tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://postgres:ci-postgres@127.0.0.1:5432/sportsbook_test
+          SPORTSBOOK_INTEGRATION: "1"
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/sportmonks-integration-fixture.log"
+          node tests/fixtures/mock-sportsbook-provider.mjs > "$log" 2>&1 &
+          provider_pid=$!
+          trap 'kill "$provider_pid" 2>/dev/null || true; wait "$provider_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "http://127.0.0.1:18081/v3/football/fixtures/date/$(date -u +%F)" >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            cat "$log"
+            exit 1
+          fi
+          node --test tests/sportsbook-ledger-integration.test.js
+
       - name: Check syntax and production asset versions
         run: npm run check

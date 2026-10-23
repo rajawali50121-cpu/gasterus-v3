@@ -22,7 +22,7 @@ test('worker heartbeat freshness is fail-closed for missing, invalid, future, an
   assert.deepEqual(workerHealthStatus(stale, { now, staleAfterSeconds: 180 }), { status: 'degraded', healthy: false });
 });
 
-test('public healthz is heartbeat-gated while the core route stays status-only', () => {
+test('public healthz requires core, worker, member, and admin readiness', () => {
   const app = read('backend/src/app.js');
   const gateway = read('deploy/gateway.js');
   assert.match(app, /add\('GET',\/\^\\\/healthz\$\//);
@@ -30,8 +30,13 @@ test('public healthz is heartbeat-gated while the core route stays status-only',
   assert.match(app, /isWorkerHeartbeatFresh/);
   assert.match(app, /healthy\?200:503/);
   assert.doesNotMatch(app.match(/add\('GET',\/\^\\\/healthz\$\/[^;]+;/)[0], /heartbeatAt|heartbeatAgeSeconds|error/);
-  assert.match(gateway, /localReady\(Number\(process\.env\.CORE_INTERNAL_PORT \|\| 8083\), '\/healthz'\)/);
-  assert.match(gateway, /coreHealthy \? 200 : 503/);
+  const healthRoute = gateway.match(/if \(url\.pathname === '\/healthz'\) \{[\s\S]*?\n  \}/);
+  assert.ok(healthRoute, 'gateway /healthz route should exist');
+  assert.match(healthRoute[0], /localReady\(corePort, '\/ready'\)/);
+  assert.match(healthRoute[0], /localReady\(corePort, '\/healthz'\)/);
+  assert.match(healthRoute[0], /localReady\(MEMBER_PORT\)/);
+  assert.match(healthRoute[0], /localReady\(ADMIN_PORT\)/);
+  assert.match(healthRoute[0], /core && worker && member && admin/);
   assert.doesNotMatch(gateway, /url\.pathname === '\/healthz'[\s\S]{0,180}deploymentId/);
 });
 

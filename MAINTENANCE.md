@@ -288,7 +288,10 @@ menyentuh memori service backend `gasterus-v3`. Pengaman memori worker:
   halaman berubah. Browser mengambil REST satu kali sebagai bootstrap/fallback;
   pembaruan reguler menggunakan SSE, bukan polling REST berulang.
 - Secret & URL diwariskan dari service backend `gasterus-v3`
-  (`${{gasterus-v3.*}}`) — tidak diduplikasi.
+  (`${{gasterus-v3.*}}`) — tidak diduplikasi. Atur `SPORTMONKS_API_KEY`,
+  `THE_ODDS_API_KEY`, `THE_ODDS_API_KEY_2`, dan `THE_ODDS_API_KEYS` hanya pada
+  service backend; worker memakai nilai service tersebut agar tidak tertahan
+  pada secret worker lama.
 - **Railway** (`gasterus-v3`) hanya menerima snapshot di
   `/api/internal/sportsbook/ingest` (HMAC + jendela timestamp + cap payload),
   menyimpannya ke Redis. Bila sumber gagal, cache yang masih layak hanya
