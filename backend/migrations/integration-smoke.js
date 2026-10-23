@@ -62,7 +62,7 @@ try {
   const auditId = randomUUID();
   await query(
     `INSERT INTO audit_logs(id,actor_id,actor_role,action,target_type,target_id,details)
-     VALUES($1,$2,'OWNER','INTEGRATION_CHECK','SYSTEM',$1,'{}'::jsonb)`,
+     VALUES($1,$2,'OWNER','INTEGRATION_CHECK','SYSTEM',$1::text,'{}'::jsonb)`,
     [auditId, owner.id]
   );
   try {
