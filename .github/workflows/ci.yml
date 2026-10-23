@@ -18,18 +18,6 @@ jobs:
       DATABASE_URL: postgresql://postgres:ci-postgres@127.0.0.1:5432/gasterus_test
       REDIS_URL: redis://127.0.0.1:6379
       OWNER_USERNAME: ci-owner
-      SPORTMONKS_API_KEY: ci-mock-sportmonks
-      SPORTMONKS_BASE_URL: https://localhost:8443
-      SPORTMONKS_DAYS_AHEAD: "0"
-      SPORTMONKS_ENABLED: "true"
-      SPORTMONKS_MAX_PAGES_PER_REFRESH: "1"
-      SPORTMONKS_REQUEST_DELAY_MS: "0"
-      THE_ODDS_API_BASE_URL: https://localhost:8443/v4
-      THE_ODDS_API_ENABLED: "true"
-      THE_ODDS_API_KEY: ci-mock-odds
-      THE_ODDS_API_MAX_TOTAL_EVENTS: "500"
-      THE_ODDS_API_SPORT_KEYS: soccer_epl
-      THE_ODDS_API_EVENT_MARKETS_ENABLED: "false"
     services:
       postgres:
         image: postgres:16
@@ -117,6 +105,19 @@ jobs:
         run: npm test
 
       - name: Run database and provider integration checks
+        env:
+          SPORTMONKS_API_KEY: ci-mock-sportmonks
+          SPORTMONKS_BASE_URL: https://localhost:8443
+          SPORTMONKS_DAYS_AHEAD: "0"
+          SPORTMONKS_ENABLED: "true"
+          SPORTMONKS_MAX_PAGES_PER_REFRESH: "1"
+          SPORTMONKS_REQUEST_DELAY_MS: "0"
+          THE_ODDS_API_BASE_URL: https://localhost:8443/v4
+          THE_ODDS_API_ENABLED: "true"
+          THE_ODDS_API_KEY: ci-mock-odds
+          THE_ODDS_API_MAX_TOTAL_EVENTS: "500"
+          THE_ODDS_API_SPORT_KEYS: soccer_epl
+          THE_ODDS_API_EVENT_MARKETS_ENABLED: "false"
         run: |
           node backend/migrations/integration-smoke.js
           node backend/migrations/provider-smoke.js
