@@ -64,14 +64,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          add_secret() {
+            printf '::add-mask::%s\n' "$2"
+            printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"
+          }
           for name in MEMBER_PROXY_SECRET ADMIN_PROXY_SECRET OPS_INTERNAL_SECRET SESSION_HMAC_KEY API_KEY_PEPPER; do
-            printf '%s=%s\n' "$name" "$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+            add_secret "$name" "$(openssl rand -hex 32)"
           done
-          printf 'MFA_ENCRYPTION_KEY_BASE64=%s\n' "$(openssl rand -base64 32 | tr -d '\n')" >> "$GITHUB_ENV"
-          printf 'OWNER_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> "$GITHUB_ENV"
-          printf 'OWNER_TOTP_SECRET=%s\n' "$(openssl rand -hex 20 | tr '[:lower:]' '[:upper:]' | tr '0123456789' 'ABCDEFGHIJ')" >> "$GITHUB_ENV"
-          printf 'ADMIN_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> "$GITHUB_ENV"
-          printf 'ADMIN_TOTP_SECRET=%s\n' "$(openssl rand -hex 20 | tr '[:lower:]' '[:upper:]' | tr '0123456789' 'ABCDEFGHIJ')" >> "$GITHUB_ENV"
+          add_secret MFA_ENCRYPTION_KEY_BASE64 "$(openssl rand -base64 32 | tr -d '\n')"
+          add_secret OWNER_PASSWORD "$(openssl rand -hex 24)"
+          add_secret OWNER_TOTP_SECRET "$(openssl rand -base64 32 | tr -dc 'A-Z2-7' | cut -c1-32)"
+          add_secret ADMIN_PASSWORD "$(openssl rand -hex 24)"
+          add_secret ADMIN_TOTP_SECRET "$(openssl rand -base64 32 | tr -dc 'A-Z2-7' | cut -c1-32)"
 
       - name: Migrate, seed, and bootstrap test users
         run: |
