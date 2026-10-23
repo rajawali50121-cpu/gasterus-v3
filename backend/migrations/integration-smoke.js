@@ -72,7 +72,7 @@ try {
   }
 
   const required = {
-    markets: report.markets === 77,
+    markets: report.markets === 72,
     systemAccounts: report.systemAccounts >= 3,
     privilegedUsers: report.privilegedUsers >= 2,
     ledgerBalanced: report.ledgerBalanced,
