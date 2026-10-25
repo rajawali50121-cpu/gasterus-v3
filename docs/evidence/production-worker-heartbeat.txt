@@ -1,0 +1,19 @@
+FASE heartbeat worker production (pasca-deploy)
+Tanggal: 2026-10-25
+Service Railway: gasterus-v3 (backend + worker konsolidasi)
+URL production: https://gasterus-v3-production.up.railway.app
+
+1. Interval dari kode:
+   - WORKER_HEARTBEAT_MAX_AGE_SECONDS production = 90 (dibaca via SSH, tanpa mencetak secret)
+   - intervalMs = max(5000, min(30000, floor(90000/3))) = 30000 ms = 30 detik
+   - Sumber: backend/src/worker.js startHeartbeatLoop(); backend/src/config.js
+
+2. Sampel heartbeat (via SSH, node backend/migrations/worker-health.js):
+   Sample 1: {"status":"healthy","heartbeatAt":"2026-10-25T23:19:54.685Z","ageSeconds":1}
+   Sample 2 (setelah 30 detik): {"status":"healthy","heartbeatAt":"2026-10-25T23:20:24.818Z","ageSeconds":2}
+
+3. Diff:
+   heartbeatAt 23:19:54.685Z -> 23:20:24.818Z = +30.133 detik
+   Hasil: heartbeat bergerak (PASS)
+
+Catatan: /healthz backend hanya memeriksa heartbeat worker; /ready memeriksa DB+Redis tetapi bukan heartbeat. Keduanya tetap diverifikasi terpisah.

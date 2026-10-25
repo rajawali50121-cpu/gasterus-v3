@@ -1,0 +1,18 @@
+FASE log production 30 menit terakhir (pasca-deploy)
+Tanggal: 2026-10-25
+Rentang: --since 30m (Railway)
+
+Backend service (gasterus-v3):
+- Level WARN/ERROR: 4 baris, semuanya HTTP 400/401 yang diharapkan dari smoke test:
+  - POST /api/member/register 400 CAPTCHA_INVALID
+  - POST /api/member/login 401 LOGIN_FAILED
+  - GET /api/member/me 401 AUTH_REQUIRED (2x)
+- Tidak ada error runtime lain, crash, atau warning infrastruktur.
+
+Sportsbook render worker (sportsbook-render-worker):
+- Level WARN berulang (tiap siklus ~90 detik), tanpa ERROR:
+  - "Sportmonks disabled or missing API key"
+  - "The Odds API keys exhausted; serving cached payload" (soccer_epl, soccer_spain_la_liga, stale=true)
+- Tidak ada FATAL/PANIC. Snapshot tetap accepted (eventCount=33) berdasarkan log sebelumnya.
+
+Kesimpulan: tidak ada error baru di luar perilaku yang sudah diketahui (provider key missing/exhausted). Trading tetap memakai cache; perlu perhatian kapasitas key provider, tetapi bukan blocker deploy.

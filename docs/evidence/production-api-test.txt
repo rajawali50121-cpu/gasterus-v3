@@ -1,0 +1,36 @@
+FASE smoke test api-test.mjs ke production (pasca-deploy)
+Tanggal: 2026-10-25
+URL production: https://gasterus-v3-production.up.railway.app
+Metode: copy /tmp/api-test-prod.mjs (sed http->https, host/port production) menjalankan skrip asli tanpa mengubah repo. Skrip asli memakai res.status (undefined di Node; seharusnya res.statusCode), sehingga angka status tampil undefined; kode error tetap terlihat.
+
+Hasil mentah:
+=== START API VERIFICATION ===
+
+FAIL | HEALTH | undefined
+FAIL | READY | undefined
+FAIL | PUBLIC_MARKETS | undefined
+FAIL | REGISTER_CAPTCHA | undefined
+FAIL | REGISTER_NO_CAPTCHA (should 400) | undefined
+      CAPTCHA_INVALID
+FAIL | REGISTER_NO_CAPTCHA (should 400) | undefined
+      CAPTCHA_INVALID
+FAIL | LOGIN_WRONG_CRED (should 401) | undefined
+      LOGIN_FAILED
+FAIL | ME_NO_AUTH (should 401) | undefined
+      AUTH_REQUIRED
+FAIL | ME_INVALID_TOKEN (should 401) | undefined
+      AUTH_REQUIRED
+
+=== RESULTS: 0/8 passed ===
+
+Verifikasi manual status HTTP (curl):
+200 /health
+200 /ready
+200 /api/public/markets
+200 /api/member/register/captcha
+400 /api/member/register (tanpa captcha) -> CAPTCHA_INVALID
+401 /api/member/login (kredensial salah) -> LOGIN_FAILED
+401 /api/member/me (tanpa auth) -> AUTH_REQUIRED
+401 /api/member/me (token invalid) -> AUTH_REQUIRED
+
+Kesimpulan: backend production reachable; endpoint negatif mengembalikan kode error yang diharapkan. Skrip api-test.mjs tidak cukup untuk gate karena (a) memakai /health bukan /healthz, (b) tidak memeriksa status HTTP dengan benar (res.status vs res.statusCode), (c) tidak mencakup register/login sukses, CSRF, rate limiting, sportsbook settlement, admin RBAC.

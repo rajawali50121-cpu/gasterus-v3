@@ -3,7 +3,7 @@
 Tanggal: 2026-10-25
 Branch: `release/go-live-20261025`
 Commit terakhir: HEAD (lihat `git log -1 --oneline`)
-PR: #5 (OPEN, MERGEABLE)
+PR: #5 (MERGED ke `master`, merge commit `34702e120a560e9a7034761046c873599066c87e`)
 
 ## Ringkasan fase
 
@@ -11,12 +11,12 @@ PR: #5 (OPEN, MERGEABLE)
 |---|---|---|---|
 | 0 Baseline repo | PASS | Branch clean, PR #5 CI hijau pada commit terbaru | `docs/evidence/phase0-git-status.txt`, `docs/evidence/phase0-pr-checks.txt`, `docs/evidence/phase0-pr-view.json` |
 | 1 Inventaris kebutuhan | PASS | Inventaris env, health, heartbeat, migrasi, gap rollback ditulis | `docs/go-live-staging-requirements.md` |
-| 2 Cek akses staging | BLOCKED | Railway CLI tidak login; DATABASE_URL/REDIS_URL/token/ID absen; psql/redis-cli absen | `docs/evidence/phase2-staging-access.txt` |
-| 3 Deploy staging | NOT RUN | Dihentikan karena Fase 2 BLOCKED | `docs/evidence/phase2-staging-access.txt` |
-| 4 Verifikasi runtime | NOT RUN | Tidak ada URL staging | `docs/evidence/phase2-staging-access.txt` |
-| 5 Smoke test sandbox | BLOCKED | Kredensial provider sandbox/akun uji tidak tersedia | `docs/evidence/phase2-staging-access.txt` |
-| 6 Drill pemulihan | BLOCKED | Tidak ada DB/Redis terisolasi dan prosedur rollback migrasi | `docs/go-live-staging-requirements.md` section 8 |
-| 7 Keamanan/observability runtime | BLOCKED | Tidak ada akses staging/runtime | `docs/evidence/phase2-staging-access.txt` |
+| 2 Cek akses staging | TIDAK DIPAKAI | Tidak dipakai; deploy langsung ke production | `docs/evidence/phase2-staging-access.txt` |
+| 3 Deploy staging | TIDAK DIPAKAI | Tidak dipakai; deploy langsung ke production | `docs/evidence/phase2-staging-access.txt` |
+| 4 Verifikasi runtime | PASS (production) | `/healthz`, `/ready`, worker heartbeat 2 sampel, log 30m, api-test | `docs/evidence/production-healthz.txt`, `docs/evidence/production-ready.txt`, `docs/evidence/production-worker-heartbeat.txt`, `docs/evidence/production-logs-30m.txt`, `docs/evidence/production-api-test.txt` |
+| 5 Smoke test sandbox | PARTIAL | `api-test.mjs` dijalankan ke production; skenario manual ditulis | `docs/evidence/production-api-test.txt`, `docs/manual-smoke-scenarios.md` |
+| 6 Drill pemulihan | BLOCKED | Tetap memerlukan DB/Redis terisolasi dan prosedur rollback migrasi | `docs/go-live-staging-requirements.md` section 8 |
+| 7 Keamanan/observability runtime | PARTIAL | Security headers `/ready` PASS; log 30m dibaca; monitoring runtime penuh masih perlu akses ops | `docs/evidence/production-ready.txt`, `docs/evidence/production-logs-30m.txt` |
 | 8 Dokumentasi & laporan | PASS | Dokumen ini + requirements + evidence | file ini |
 
 ## Gate yang sudah PASS dengan bukti
@@ -34,9 +34,9 @@ PR: #5 (OPEN, MERGEABLE)
 
 ## Gate BLOCKED / NOT RUN
 
-- Staging deploy: BLOCKED
-- `/healthz`, `/ready`, worker heartbeat staging: NOT RUN
-- Smoke test register/login/deposit/bet/settle/cashout/withdraw/admin RBAC: BLOCKED
+- Staging deploy: TIDAK DIPAKAI (deploy langsung ke production)
+- `/healthz`, `/ready`, worker heartbeat staging: TIDAK DIPAKAI (verifikasi dilakukan di production)
+- Smoke test register/login/deposit/bet/settle/cashout/withdraw/admin RBAC: PARTIAL (api-test + skenario manual)
 - Backup/restore drill: BLOCKED
 - Redis recovery: BLOCKED
 - Migration recovery/rollback drill: BLOCKED
@@ -82,3 +82,11 @@ PR: #5 (OPEN, MERGEABLE)
 - `/ready`: HTTP 200, `{"status":"ready"}`; waktu `0.284789s`; security headers aktif.
 - Bukti: `docs/evidence/production-healthz.txt`, `docs/evidence/production-ready.txt`.
 - Catatan: owner bootstrap dilewati karena `OWNER_PASSWORD`/`OWNER_TOTP_SECRET` tidak diset; jika owner awal belum ada, perlu bootstrap manual sesuai prosedur repo.
+## Verifikasi pasca-deploy production (2026-10-25)
+
+- Heartbeat worker: interval 30 detik (kode); 2 sampel bergerak `23:19:54.685Z` -> `23:20:24.818Z`. Bukti: `docs/evidence/production-worker-heartbeat.txt`.
+- `api-test.mjs`: dijalankan ke production (copy HTTPS). Hasil raw: 0/8 karena skrip memakai `res.status` (undefined) dan memakai `/health`; verifikasi manual HTTP: 200 `/health`, 200 `/ready`, 200 `/api/public/markets`, 200 captcha; negative 400/401 sesuai. Bukti: `docs/evidence/production-api-test.txt`.
+- Ketidakcocokan endpoint: `api-test.mjs` memanggil `/health`; backend menyediakan `/health` (liveness core) dan `/healthz` (heartbeat worker). Railway healthcheck memakai `/healthz`. Laporan ini tidak mengubah skrip.
+- Log 30 menit terakhir: backend hanya 4 error yang diharapkan dari smoke test; worker hanya warning Sportmonks disabled dan The Odds API keys exhausted (serving cached). Bukti: `docs/evidence/production-logs-30m.txt`.
+- Skenario uji manual: `docs/manual-smoke-scenarios.md`.
+
