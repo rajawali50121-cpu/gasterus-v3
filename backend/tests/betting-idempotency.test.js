@@ -34,3 +34,9 @@ test('TOTO and Sportsbook accept snake_case idempotency keys and lock retries in
   assert.match(sportsbookBetting, /SPORTSBOOK:\$\{session\.userId\}:\$\{idempotencyKey\}/);
   assert.match(sportsbookBetting, /pg_advisory_xact_lock\(hashtextextended\(\$1,0\)\)/);
 });
+
+test('Sportsbook settlement idempotency keys are bound to their ticket and action', () => {
+  assert.match(sportsbookBetting, /existingRevision\.ticket_id === ticket\.id/);
+  assert.match(sportsbookBetting, /existingRevision\.action === normalizedAction/);
+  assert.match(sportsbookBetting, /SPORTSBOOK_SETTLEMENT_IDEMPOTENCY_CONFLICT/);
+});

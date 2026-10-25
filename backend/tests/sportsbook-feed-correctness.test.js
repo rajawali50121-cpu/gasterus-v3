@@ -35,8 +35,8 @@ test('member source status reflects the overall feed even when the current page 
 
 test('sportsbook bet route rejects suspended or read-only feed selections server-side', () => {
   assert.ok(app.includes('createSportsbookBet(s,await body(req),{ip})'));
-  assert.match(betting, /async function resolveLeg\(input, selectionSnapshot = sportsbookSelectionSnapshot\)[\s\S]*await selectionSnapshot/);
-  assert.match(betting, /async function createSportsbookBet\([\s\S]*selectionSnapshot = sportsbookSelectionSnapshot/);
+  assert.match(betting, /async function resolveLeg\(input[\s\S]*sportsbookSelectionSnapshot/);
+  assert.match(betting, /async function createSportsbookBet\([\s\S]*resolveLeg\(selection/);
   assert.match(feed, /if \(!market \|\| market\.suspended\) throw new AppError\(409, 'Pasaran sedang ditutup atau tidak tersedia\.', 'SPORTS_MARKET_SUSPENDED'\)/);
   assert.match(feed, /if \(!selection \|\| selection\.suspended\) throw new AppError\(409, 'Pilihan odds sedang ditutup atau tidak tersedia\.', 'SPORTS_SELECTION_SUSPENDED'\)/);
   assert.match(feed, /const readOnlySource = Boolean\(snapshotFallback \|\| mergedBettableMarkets < 1\)/);
