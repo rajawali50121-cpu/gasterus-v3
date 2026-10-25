@@ -3,9 +3,9 @@ import { AppError, assert } from './errors.js';
 import { config } from './config.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
-const ALLOWED_PROVIDERS = new Set(['sportmonks', 'api-sports', 'the-odds-api']);
+const ALLOWED_PROVIDERS = new Set(['sportmonks', 'api-sports', 'the-odds-api', 'sharpapi']);
 const ALLOWED_STATUSES = new Set(['SCHEDULED', 'LIVE', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
-const MAX_PROVIDER_RESULTS = 2;
+const MAX_PROVIDER_RESULTS = 3;
 const MAX_EVENTS = 500;
 const MAX_MARKETS_PER_EVENT = 120;
 const MAX_SELECTIONS_PER_MARKET = 250;

@@ -182,6 +182,7 @@ export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
 export async function buildSportsbookRenderSnapshot({
   fetchOddsApi,
   fetchSportmonks,
+  fetchSharpApi,
   maxEvents = 500,
   maxPages = MAX_PAGES,
   maxSportmonksPages = maxPages,
@@ -192,8 +193,8 @@ export async function buildSportsbookRenderSnapshot({
   // Sportmonks adalah sumber utama cakupan luas: anggaran halaman dihabiskan
   // round-robin per tanggal (maks 120 halaman x 20 = 2.400 kandidat), berhenti
   // lebih awal begitu candidateLimit tercapai, lalu dibatasi maxEvents. The
-  // Odds API dipertahankan sebagai CADANGAN sehingga feed tidak pernah kosong
-  // bila salah satu provider gagal (dan sebaliknya). Fetcher dijalankan
+  // SharpAPI dan The Odds API melengkapi cakupan/menjadi cadangan sehingga
+  // feed tidak kosong bila salah satu provider gagal. Fetcher dijalankan
   // SEKUENSIAL dan tiap kegagalan diisolasi: hanya satu payload provider yang
   // hidup pada satu waktu, sehingga heap worker 224MB tetap dapat diprediksi
   // (anti-OOM).
@@ -202,6 +203,7 @@ export async function buildSportsbookRenderSnapshot({
   }
   const fetchers = [
     { provider: 'sportmonks', fetch: fetchSportmonks, maxPages: maxSportmonksPages },
+    { provider: 'sharpapi', fetch: fetchSharpApi, maxPages },
     { provider: 'the-odds-api', fetch: fetchOddsApi, maxPages }
   ];
   const providerResults = [];
