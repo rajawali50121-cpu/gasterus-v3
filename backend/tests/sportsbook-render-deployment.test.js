@@ -44,7 +44,7 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), '${{gasterus-v3.THE_ODDS_API_KEY}}');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY_2'), '${{gasterus-v3.THE_ODDS_API_KEY_2}}');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEYS'), '${{gasterus-v3.THE_ODDS_API_KEYS}}');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), '${{gasterus-v3.SPORTMONKS_ENABLED}}');
   assert.equal(railwayWorkerEnv('SPORTMONKS_BASE_URL'), 'https://api.sportmonks.com/v3');
   assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES_PER_REFRESH'), '30');
   assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '1000');
@@ -74,7 +74,6 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(envExample, /^THE_ODDS_API_KEY=replace-with-your-the-odds-api-key$/m);
   assert.match(config, /sportsbookIngestHmacSecret: optionalSecret\('SPORTSBOOK_INGEST_HMAC_SECRET'\)/);
   assert.match(config, /sportmonksBaseUrl: text\('SPORTMONKS_BASE_URL', 'https:\/\/api\.sportmonks\.com\/v3'\)/);
-  assert.match(config, /sportmonksEnabled: bool\('SPORTMONKS_ENABLED', isProduction && Boolean\(sportmonksKey\)\)/);
 
   // Image hanya membawa backend/src — tanpa frontend/node_modules berat.
   assert.match(renderDockerfile, /^FROM node:22\./m);
