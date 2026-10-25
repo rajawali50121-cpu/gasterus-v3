@@ -72,3 +72,13 @@ PR: #5 (OPEN, MERGEABLE)
 4. Jalankan smoke test sandbox bila kredensial tersedia.
 5. Lakukan restore/recovery drill hanya di instance terisolasi.
 6. Lengkapi security/observability runtime dan persetujuan operasional sebelum merge.
+
+## Hasil deploy production (2026-10-25)
+
+- PR #5 MERGED ke `master` pada `2026-10-25T19:39:13Z`, merge commit `34702e120a560e9a7034761046c873599066c87e`.
+- Railway deploy otomatis: `gasterus-v3` deployment `49500a5a-2f8d-4948-b2b6-8e1e9a39c5ec` status `SUCCESS`, commit `34702e120a560e9a7034761046c873599066c87e`; worker deployment `2111bcdb-1d01-4dbd-9f28-87379a159aec` status `SUCCESS`.
+- Predeploy `node deploy/predeploy.js` status `ok`; migration applied `043_restore_approved_result_authority.sql`; `migrations=44`; schema ready.
+- `/healthz`: HTTP 200, `{"status":"ok","core":true,"worker":true,"member":true,"admin":true}`; waktu `0.291174s`.
+- `/ready`: HTTP 200, `{"status":"ready"}`; waktu `0.284789s`; security headers aktif.
+- Bukti: `docs/evidence/production-healthz.txt`, `docs/evidence/production-ready.txt`.
+- Catatan: owner bootstrap dilewati karena `OWNER_PASSWORD`/`OWNER_TOTP_SECRET` tidak diset; jika owner awal belum ada, perlu bootstrap manual sesuai prosedur repo.
