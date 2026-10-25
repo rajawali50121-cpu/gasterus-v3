@@ -2,7 +2,7 @@
 
 Tanggal: 2026-10-25
 Branch: `release/go-live-20261025`
-Commit terakhir: `0138f11` (docs: add go-live execution status checkpoint)
+Commit terakhir: HEAD (lihat `git log -1 --oneline`)
 PR: #5 (OPEN, MERGEABLE)
 
 ## Ringkasan fase
