@@ -116,9 +116,9 @@ export default defineRailway(() => {
   //     prematch 900 dtk.
   //   - Sportmonks dibatasi 30 halaman per siklus dan jeda minimal 1 detik;
   //     HTTP 429 menghentikan pagination lalu mengaktifkan cooldown fail-closed.
-  //   - provider dijalankan sekuensial (satu payload pada satu waktu), market
-  //     per-event dimatikan (tanpa fetch tambahan), cache provider berbatas
-  //     byte, snapshot berbatas 500 event / 6MB
+  //   - Sportmonks dan SharpAPI memakai kredensial/flag berlisensi dari service
+  //     backend; keduanya hanya aktif bila dikonfigurasi. Provider dijalankan
+  //     sekuensial, cache dibatasi byte, snapshot dibatasi 500 event / 6MB.
   const sportsbookRenderWorker = service("sportsbook-render-worker", {
     source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile.sportsbook-render-worker" },
@@ -135,7 +135,6 @@ export default defineRailway(() => {
       SPORTSBOOK_RENDER_MAX_EVENTS: "500",
       SPORTSBOOK_RENDER_MAX_PAGES: "120",
       SPORTMONKS_API_KEY: "${{gasterus-v3.SPORTMONKS_API_KEY}}",
-      SPORTMONKS_ENABLED: "true",
       SPORTMONKS_BASE_URL: "https://api.sportmonks.com/v3",
       SPORTMONKS_MAX_PAGES_PER_REFRESH: "30",
       SPORTMONKS_REQUEST_DELAY_MS: "1000",
@@ -154,6 +153,9 @@ export default defineRailway(() => {
       THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT: "0",
       THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS: "0",
       THE_ODDS_API_SPORT_KEYS: "soccer_epl,soccer_spain_la_liga",
+      SPORTMONKS_ENABLED: "${{gasterus-v3.SPORTMONKS_ENABLED}}",
+      SHARP_API_KEY: "${{gasterus-v3.SHARP_API_KEY}}",
+      SHARP_API_ENABLED: "${{gasterus-v3.SHARP_API_ENABLED}}",
     }
   });
 

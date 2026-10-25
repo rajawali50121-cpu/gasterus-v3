@@ -1,0 +1,2 @@
+Cloudflare Pages	pass	0	https://dash.cloudflare.com/?to=/f5d56679cb6b58515a0531142bd14418/pages/view/gasterus-v3/6ebd4a9e-0295-4a84-bc1a-de39de3f4d10	
+Unit and integration tests	pass	1m36s	https://github.com/rajawali50121-cpu/gasterus-v3/actions/runs/40220290044/job/121250200116	

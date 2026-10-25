@@ -186,6 +186,7 @@ test('Worker republishes cached snapshots before their ingestion freshness windo
   // Sportmonks primer + The Odds API cadangan keduanya disambungkan ke worker;
   // hanya adapter api-sports yang memang tidak dipakai.
   assert.match(workerSource, /fetchSportmonks/);
+  assert.match(workerSource, /fetchSharpApi/);
   assert.doesNotMatch(workerSource, /fetchApiSports/);
 });
 
@@ -211,6 +212,32 @@ test('Worker combines Sportmonks primary with The Odds API fallback in one snaps
   assert.equal(snapshot.eventCount, 2);
   assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'the-odds-api']);
   assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
+});
+
+test('Worker includes enabled SharpAPI fixtures and validates the three-provider snapshot', async () => {
+  const order = [];
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => {
+      order.push('sportmonks');
+      return { provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'sm-1' })] };
+    },
+    fetchSharpApi: async () => {
+      order.push('sharpapi');
+      return { provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'sharp-1', league: 'Bundesliga' })] };
+    },
+    fetchOddsApi: async () => {
+      order.push('the-odds-api');
+      return { provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'odds-1', league: 'Serie A' })] };
+    },
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+
+  assert.deepEqual(order, ['sportmonks', 'sharpapi', 'the-odds-api']);
+  assert.equal(snapshot.eventCount, 3);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'sharpapi', 'the-odds-api']);
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'sharpapi', 'the-odds-api']);
 });
 
 test('Worker bounds the Sportmonks page budget before any provider fetch runs', async () => {

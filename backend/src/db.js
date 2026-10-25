@@ -21,49 +21,44 @@ const DEADLOCK_ERROR_CODE = '40P01';
 const MAX_DEADLOCK_RETRIES = 3;
 const DEADLOCK_RETRY_BASE_MS = 50;
 
-async function sleep(ms) {
+function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function withDeadlockRetry(operation) {
-  for (let attempt = 0; attempt <= MAX_DEADLOCK_RETRIES; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      const isDeadlock = error.code === DEADLOCK_ERROR_CODE
-        || error.message?.includes('deadlock detected');
-
-      if (!isDeadlock || attempt === MAX_DEADLOCK_RETRIES) {
-        throw error;
-      }
-
-      const delay = DEADLOCK_RETRY_BASE_MS * Math.pow(2, attempt);
-      logger.warn('[DB] Deadlock detected, retrying transaction', {
-        attempt: attempt + 1,
-        delay,
-        error: error.message
-      });
-      await sleep(delay);
-    }
-  }
-}
+const ALLOWED_ISOLATION_LEVELS = new Set(['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE']);
 
 export async function tx(fn, { isolation = 'READ COMMITTED' } = {}) {
-  return withDeadlockRetry(async () => {
+  if (ALLOWED_ISOLATION_LEVELS.has(isolation) === false) {
+    throw new Error('Unsupported transaction isolation level: ' + isolation);
+  }
+  for (let attempt = 0; ; attempt += 1) {
     const client = await pool.connect();
+    let retryDelay = 0;
     try {
       await client.query('BEGIN');
       await client.query(`SET TRANSACTION ISOLATION LEVEL ${isolation}`);
+      // Deadlock retries rerun the entire callback, so it must keep side effects transactional.
       const result = await fn(client);
       await client.query('COMMIT');
       return result;
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
-      throw error;
+      const isDeadlock = error.code === DEADLOCK_ERROR_CODE
+        || error.message?.includes('deadlock detected');
+      if (!isDeadlock || attempt >= MAX_DEADLOCK_RETRIES) {
+        throw error;
+      }
+      retryDelay = DEADLOCK_RETRY_BASE_MS * (2 ** attempt);
+      logger.warn('Deadlock detected; retrying complete database transaction', {
+        attempt: attempt + 1,
+        maxRetries: MAX_DEADLOCK_RETRIES,
+        delay: retryDelay
+      });
     } finally {
       client.release();
     }
-  });
+    await sleep(retryDelay);
+  }
 }
 export async function checkDatabase() {
   const started = performance.now();

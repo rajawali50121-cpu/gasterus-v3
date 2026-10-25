@@ -9,6 +9,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const execFileAsync = promisify(execFile);
 const renderCache = new Map();
 let queue = Promise.resolve();
+let queuePendingCount = 0;
 const persistentProfileDir = path.join(os.tmpdir(), `gasterus-sportsbook-chromium-profile-${process.pid}`);
 let renderSequence = 0;
 
@@ -347,6 +348,67 @@ async function renderOnce(url, options = {}) {
 // pernah menyentuh entri yang sedang di-render (inFlight) maupun entri masih hidup.
 const RENDER_CACHE_SWEEP_THRESHOLD = 20;
 const RENDER_CACHE_SWEEP_GRACE_MS = 60_000;
+// Batas keras jumlah entri cache render. Nilai entri adalah HTML mentah (sampai
+// batas byte pemanggil), jadi tanpa cap jumlah entri cache bisa tumbuh tanpa
+// batas pada workload dengan banyak URL unik dan menyebabkan OOM.
+const RENDER_CACHE_MAX_ENTRIES = 100;
+// Batas agregat byte untuk HTML yang benar-benar tersimpan di cache render.
+// Nilai konservatif: worst-case 100 entri x ~1.5MB (batas pemanggil TOTO) dapat
+// mencapai ~150MB, sedangkan batas memori Railway aktual belum diketahui. Batas
+// ini bukan nilai optimal dan dapat disesuaikan setelah pengukuran RSS/heap.
+const RENDER_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+// Batas pekerjaan yang menunggu di antrean render, tidak termasuk pekerjaan yang
+// sedang berjalan. Nilai ini membatasi flood request tanpa memblokir render aktif.
+const RENDER_QUEUE_MAX_PENDING = 50;
+
+function renderCacheEntryBytes(entry) {
+  const sizeBytes = Number(entry?.sizeBytes);
+  if (Number.isFinite(sizeBytes) && sizeBytes >= 0) return sizeBytes;
+  if (entry?.value && typeof entry.value.html === 'string') {
+    return Buffer.byteLength(entry.value.html, 'utf8');
+  }
+  return 0;
+}
+
+function renderCacheTotalBytes() {
+  let total = 0;
+  for (const entry of renderCache.values()) total += renderCacheEntryBytes(entry);
+  return total;
+}
+
+function evictOldestRenderCacheEntry(cache, now = Date.now()) {
+  let oldestKey = null;
+  let oldestExpiresAt = Number.POSITIVE_INFINITY;
+  let hasNonInFlight = false;
+  for (const [key, entry] of cache) {
+    if (!entry) continue;
+    if (entry.inFlight) continue;
+    hasNonInFlight = true;
+    const expiresAt = Number(entry.expiresAt) || 0;
+    if (expiresAt < oldestExpiresAt) {
+      oldestKey = key;
+      oldestExpiresAt = expiresAt;
+    }
+  }
+  if (!hasNonInFlight) {
+    oldestKey = null;
+    oldestExpiresAt = Number.POSITIVE_INFINITY;
+    for (const [key, entry] of cache) {
+      if (!entry) continue;
+      const expiresAt = Number(entry.expiresAt) || 0;
+      if (expiresAt < oldestExpiresAt) {
+        oldestKey = key;
+        oldestExpiresAt = expiresAt;
+      }
+    }
+  }
+  if (oldestKey !== null) {
+    cache.delete(oldestKey);
+    return oldestKey;
+  }
+  return null;
+}
+
 function sweepExpiredRenderCache(now = Date.now(), graceMs = RENDER_CACHE_SWEEP_GRACE_MS) {
   if (renderCache.size <= RENDER_CACHE_SWEEP_THRESHOLD) return 0;
   let removed = 0;
@@ -363,6 +425,7 @@ function sweepExpiredRenderCache(now = Date.now(), graceMs = RENDER_CACHE_SWEEP_
 // membaik dengan menunggu, tapi akan dengan mencoba lagi. Hanya kegagalan
 // start-up yang diulang; kegagalan render/parsing dibiarkan apa adanya.
 const RETRYABLE_STARTUP_ERROR = /DevTools tidak aktif|DevToolsActivePort|Chromium/;
+let renderImplementation = renderOnceWithRetry;
 
 async function renderOnceWithRetry(url, options = {}, attempts = 2) {
   let lastError = null;
@@ -387,16 +450,95 @@ export async function renderSportsbookPage(url, options = {}) {
   if (cached?.value && now < cached.expiresAt) return { ...cached.value, cacheHit: true };
   if (cached?.inFlight) return cached.inFlight;
 
-  const work = queue.then(() => renderOnceWithRetry(url, options));
-  queue = work.catch(() => {});
+  // Backpressure: batasi pekerjaan yang menunggu, bukan pekerjaan yang sedang
+  // berjalan. Request yang sudah deduplikasi di atas tidak ikut ditolak.
+  if (queuePendingCount >= RENDER_QUEUE_MAX_PENDING) {
+    throw new Error(`Render queue is full (${queuePendingCount} pending)`);
+  }
+
+  const inFlightSize = renderCacheEntryBytes({ value: cached?.value || null, sizeBytes: cached?.sizeBytes });
+  const hasKey = renderCache.has(key);
+  const oldSize = renderCacheEntryBytes(cached);
+  if (!hasKey) {
+    while (
+      (renderCache.size >= RENDER_CACHE_MAX_ENTRIES ||
+        renderCacheTotalBytes() + inFlightSize > RENDER_CACHE_MAX_BYTES) &&
+      evictOldestRenderCacheEntry(renderCache, now) !== null
+    ) {}
+  } else {
+    while (
+      renderCacheTotalBytes() - oldSize + inFlightSize > RENDER_CACHE_MAX_BYTES &&
+      evictOldestRenderCacheEntry(renderCache, now) !== null
+    ) {}
+  }
+  const canInsertInFlight =
+    hasKey
+      ? renderCacheTotalBytes() - oldSize + inFlightSize <= RENDER_CACHE_MAX_BYTES
+      : renderCache.size < RENDER_CACHE_MAX_ENTRIES &&
+        renderCacheTotalBytes() + inFlightSize <= RENDER_CACHE_MAX_BYTES;
+
+  const previousQueue = queue;
+  let releaseQueue;
+  queue = new Promise(resolve => { releaseQueue = resolve; });
+  queuePendingCount += 1;
+  let pendingReleased = false;
+  const releasePending = () => {
+    if (pendingReleased) return;
+    pendingReleased = true;
+    queuePendingCount = Math.max(0, queuePendingCount - 1);
+  };
+
+const work = previousQueue.then(() => {
+    releasePending();
+    return renderImplementation(url, options);
+  });
+  work.then(() => releaseQueue(), () => releaseQueue());
+
   const inFlight = work.then(value => {
-    renderCache.set(key, { value, expiresAt: Date.now() + ttlMs, inFlight: null });
+    // Jangan menimpa entri yang sudah di-eviksi atau diganti oleh render lain.
+    const current = renderCache.get(key);
+    if (current?.inFlight === inFlight) {
+      const sizeBytes = Buffer.byteLength(String(value?.html || ''), 'utf8');
+      const currentSize = renderCacheEntryBytes(current);
+      if (sizeBytes <= RENDER_CACHE_MAX_BYTES) {
+        while (
+          renderCacheTotalBytes() - currentSize + sizeBytes > RENDER_CACHE_MAX_BYTES &&
+          evictOldestRenderCacheEntry(renderCache, Date.now()) !== null
+        ) {}
+        const latest = renderCache.get(key);
+        if (
+          latest?.inFlight === inFlight &&
+          renderCacheTotalBytes() - currentSize + sizeBytes <= RENDER_CACHE_MAX_BYTES
+        ) {
+          renderCache.set(key, {
+            value,
+            expiresAt: Date.now() + ttlMs,
+            inFlight: null,
+            sizeBytes
+          });
+        } else if (latest?.inFlight === inFlight) {
+          renderCache.delete(key);
+        }
+      } else {
+        const latest = renderCache.get(key);
+        if (latest?.inFlight === inFlight) renderCache.delete(key);
+      }
+    }
     return { ...value, cacheHit: false };
   }).catch(error => {
-    renderCache.delete(key);
+    const current = renderCache.get(key);
+    if (current?.inFlight === inFlight) renderCache.delete(key);
     throw error;
   });
-  renderCache.set(key, { value: cached?.value || null, expiresAt: cached?.expiresAt || 0, inFlight });
+
+  if (canInsertInFlight) {
+    renderCache.set(key, {
+      value: cached?.value || null,
+      expiresAt: cached?.expiresAt || 0,
+      inFlight,
+      sizeBytes: inFlightSize
+    });
+  }
   return inFlight;
 }
 
@@ -404,7 +546,17 @@ export const __browserRenderer = {
   renderCache,
   sweepExpiredRenderCache,
   RENDER_CACHE_SWEEP_THRESHOLD,
-  RENDER_CACHE_SWEEP_GRACE_MS
+  RENDER_CACHE_SWEEP_GRACE_MS,
+  RENDER_CACHE_MAX_ENTRIES,
+  RENDER_CACHE_MAX_BYTES,
+  RENDER_QUEUE_MAX_PENDING,
+  evictOldestRenderCacheEntry,
+  get renderCacheTotalBytes() { return renderCacheTotalBytes(); },
+  get queuePendingCount() { return queuePendingCount; },
+  get renderImplementation() { return renderImplementation; },
+  set renderImplementation(value) { renderImplementation = value; },
+  get renderOnceWithRetry() { return renderImplementation; },
+  set renderOnceWithRetry(value) { renderImplementation = value; }
 };
 
 export function browserRendererStatus() {

@@ -274,6 +274,9 @@ menyentuh memori service backend `gasterus-v3`. Pengaman memori worker:
 
 - **Heap V8 dikunci 224MB** (`NODE_OPTIONS=--max-old-space-size=224`) di bawah
   ukuran container (~512MB); V8 GC agresif jauh sebelum OOM.
+- **Cakupan odds berlisensi** diproses berurutan: Sportmonks, SharpAPI, lalu
+  The Odds API. Sportmonks dan SharpAPI hanya aktif bila key dan flag enable dari
+  service backend tersedia; keduanya dapat menambah fixture dan market asli.
 - **EPL dan La Liga** mengambil market `h2h,spreads,totals` (1X2,
   handicap, over/under) di region `eu` setiap 840 detik.
 - **Market per-event dimatikan** (`THE_ODDS_API_EVENT_MARKETS_ENABLED=false`,
@@ -299,9 +302,9 @@ menyentuh memori service backend `gasterus-v3`. Pengaman memori worker:
   membuat fixture atau harga odds sintetis. Feed cache namespace juga dinaikkan
   agar cache lawas yang mungkin berisi fixture buatan tidak dimuat ulang.
 
-- **Worker** (`backend/src/sportsbook-render-worker.js`) mengambil odds asli
-  dari **The Odds API** (bukan data dummy), membangun snapshot ≤500 event
-  lalu mengirim HMAC-signed ke `gasterus-v3` setiap 90 detik
+- **Worker** (`backend/src/sportsbook-render-worker.js`) mengambil fixture dan
+  odds asli dari provider yang aktif (bukan data dummy), membangun snapshot
+  ≤500 event lalu mengirim HMAC-signed ke `gasterus-v3` setiap 90 detik
   (`SPORTSBOOK_INGEST_MAX_AGE_SECONDS=180`).
 - **Anggaran kuota** (biaya = jumlah sport × ceil(86400/refresh) × markets ×
   regions kredit/hari): 2 liga × 840 detik × 3 market × `eu` = **618
@@ -309,6 +312,10 @@ menyentuh memori service backend `gasterus-v3`. Pengaman memori worker:
   sport/market atau menyalakan endpoint event-market dapat melebihi kuota —
   event-market tidak diaktifkan tanpa persetujuan batas kuota. Batas ini dijaga test
   `backend/tests/sportsbook-render-deployment.test.js`.
+- Sportmonks/SharpAPI memakai paket dan kuota masing-masing; penambahan source
+  tidak menambah permintaan/kredit The Odds API. Pastikan key dan flag provider
+  memang tersedia/diizinkan sebelum mengaktifkan, dan pantau kuota provider
+  masing-masing. Worker hanya menerima source yang dikenal oleh validator ingest.
 - **Kesegaran harga**: cadence refresh (840 s) harus di bawah
   `SPORTSBOOK_MAX_PREMATCH_PRICE_AGE_SECONDS` (900 s) supaya taruhan prematch
   tidak pernah ditolak `SPORTS_PRICE_STALE`. Market live yang harganya lebih

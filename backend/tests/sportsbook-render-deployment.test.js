@@ -44,7 +44,7 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), '${{gasterus-v3.THE_ODDS_API_KEY}}');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY_2'), '${{gasterus-v3.THE_ODDS_API_KEY_2}}');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEYS'), '${{gasterus-v3.THE_ODDS_API_KEYS}}');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), '${{gasterus-v3.SPORTMONKS_ENABLED}}');
   assert.equal(railwayWorkerEnv('SPORTMONKS_BASE_URL'), 'https://api.sportmonks.com/v3');
   assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES_PER_REFRESH'), '30');
   assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '1000');
@@ -63,13 +63,17 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY_2'), false);
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEYS'), false);
   assert.equal(railwayWorkerPreserves('THE_ODDS_API_FAILOVER_REMAINING_THRESHOLD'), true);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{gasterus-v3.SPORTMONKS_API_KEY}}');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), '${{gasterus-v3.SPORTMONKS_ENABLED}}');
+  assert.equal(railwayWorkerEnv('SHARP_API_KEY'), '${{gasterus-v3.SHARP_API_KEY}}');
+  assert.equal(railwayWorkerEnv('SHARP_API_ENABLED'), '${{gasterus-v3.SHARP_API_ENABLED}}');
   assert.match(backendConfig, /THE_ODDS_API_KEY: preserve\(\)/);
   assert.match(config, /optionalSecret\('THE_ODDS_API_KEY'\)/);
   assert.match(config, /theOddsApiKeys/);
+  assert.match(config, /sportmonksEnabled: pricedProviderEnabled\('SPORTMONKS_ENABLED', sportmonksKey\)/);
   assert.match(envExample, /^THE_ODDS_API_KEY=replace-with-your-the-odds-api-key$/m);
   assert.match(config, /sportsbookIngestHmacSecret: optionalSecret\('SPORTSBOOK_INGEST_HMAC_SECRET'\)/);
   assert.match(config, /sportmonksBaseUrl: text\('SPORTMONKS_BASE_URL', 'https:\/\/api\.sportmonks\.com\/v3'\)/);
-  assert.match(config, /sportmonksEnabled: bool\('SPORTMONKS_ENABLED', isProduction && Boolean\(sportmonksKey\)\)/);
 
   // Image hanya membawa backend/src — tanpa frontend/node_modules berat.
   assert.match(renderDockerfile, /^FROM node:22\./m);
@@ -92,6 +96,8 @@ test('worker polls The Odds API markets inside the quota/RAM budget', () => {
   // (trim deterministik, bukan gagal 413 diam-diam yang membekukan feed).
   assert.match(worker, /maxPayloadBytes: config\.sportsbookIngestMaxPayloadBytes/);
   assert.match(worker, /fetchOddsApi:\s*fetchTheOddsApi/);
+  assert.match(worker, /fetchSharpApi/);
+  assert.match(worker, /fetchSportmonks/);
 
   const sportKeys = (railwayWorkerEnv('THE_ODDS_API_SPORT_KEYS') || '').split(',').map(v => v.trim()).filter(Boolean);
   assert.ok(sportKeys.includes('soccer_epl'), 'Premier League wajib termasuk dalam cakupan scraper');

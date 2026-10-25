@@ -4,12 +4,50 @@ import { randomUUID } from 'node:crypto';
 
 const integrationEnabled = process.env.SPORTSBOOK_INTEGRATION === '1';
 
-if (integrationEnabled) {
-  const databaseUrl = new URL(process.env.DATABASE_URL || '');
-  if (!['127.0.0.1', 'localhost', '::1'].includes(databaseUrl.hostname)
-    || !/^\/sportsbook_test(?:$|\/)/.test(databaseUrl.pathname)) {
-    throw new Error('Sportsbook integration tests require a loopback-only database named sportsbook_test.');
+function safeIntegrationDatabaseUrl(rawUrl) {
+  let databaseUrl;
+  try {
+    databaseUrl = new URL(rawUrl);
+  } catch {
+    throw new Error('Sportsbook integration tests require an explicit local sportsbook_test database URL.');
   }
+
+  const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+  if (!['postgres:', 'postgresql:'].includes(databaseUrl.protocol)
+    || !loopbackHosts.has(databaseUrl.hostname.toLowerCase())
+    || databaseUrl.pathname !== '/sportsbook_test'
+    || databaseUrl.search
+    || databaseUrl.hash) {
+    throw new Error('Sportsbook integration tests require a loopback-only database named sportsbook_test with no URL overrides.');
+  }
+
+  return databaseUrl.toString();
+}
+
+test('integration database guard only accepts loopback sportsbook_test URLs', () => {
+  for (const url of [
+    'postgresql://localhost:5432/sportsbook_test',
+    'postgres://127.0.0.1:5432/sportsbook_test',
+    'postgresql://[::1]:5432/sportsbook_test'
+  ]) {
+    assert.doesNotThrow(() => safeIntegrationDatabaseUrl(url));
+  }
+
+  for (const url of [
+    '',
+    'not-a-database-url',
+    'postgresql://db.example.com:5432/sportsbook_test',
+    'postgresql://localhost:5432/production',
+    'postgresql://localhost:5432/sportsbook_test?host=db.example.com',
+    'postgresql://localhost:5432/sportsbook_test#production'
+  ]) {
+    assert.throws(() => safeIntegrationDatabaseUrl(url));
+  }
+});
+
+if (integrationEnabled) {
+  const databaseUrl = safeIntegrationDatabaseUrl(process.env.DATABASE_URL_OVERRIDE || process.env.DATABASE_URL || '');
+  process.env.DATABASE_URL_OVERRIDE = databaseUrl;
   Object.assign(process.env, {
     NODE_ENV: 'test',
     SPORTSBOOK_QUOTE_REQUIRED: 'true',
@@ -46,20 +84,26 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
   ]);
 
   const cleanups = [];
+  async function resetSportsbookBettingSwitch() {
+    await query(
+      `INSERT INTO system_settings(setting_key,setting_value,description,is_public)
+       VALUES('sportsbook.betting.acceptance','{"closed":true}'::jsonb,'Kill switch penerimaan tiket sportsbook',FALSE)
+       ON CONFLICT(setting_key) DO UPDATE SET setting_value=EXCLUDED.setting_value`
+    );
+  }
+
   t.after(async () => {
     try {
       await Promise.all(cleanups);
     } finally {
       try {
-        await query(
-          `UPDATE system_settings SET setting_value='{"closed":true}'::jsonb,updated_at=now()
-           WHERE setting_key='sportsbook.betting.acceptance'`
-        );
+        await resetSportsbookBettingSwitch();
       } finally {
         await closeDatabase();
       }
     }
   });
+  await resetSportsbookBettingSwitch();
 
   async function member(balance = 100000) {
     const id = randomUUID();
@@ -86,6 +130,31 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     });
     return { userId: id, createdAt: new Date(Date.now() - 1000).toISOString() };
   }
+
+  await t.test('transaction retries a deadlock from a fresh transaction', async () => {
+    const id = randomUUID();
+    const username = `sbdeadlock-${id.replaceAll('-', '')}`;
+    let attempts = 0;
+    try {
+      const result = await tx(async client => {
+        attempts += 1;
+        await client.query(
+          'INSERT INTO users(id,username,password_hash) VALUES($1,$2,$3)',
+          [id, username, 'test-only-not-a-password-hash']
+        );
+        if (attempts === 1) {
+          throw Object.assign(new Error('simulated deadlock'), { code: '40P01' });
+        }
+        return 'committed';
+      });
+      assert.equal(result, 'committed');
+      assert.equal(attempts, 2);
+      const inserted = await query('SELECT COUNT(*)::int AS count FROM users WHERE id=$1', [id]);
+      assert.equal(inserted.rows[0].count, 1);
+    } finally {
+      await query('DELETE FROM users WHERE id=$1', [id]);
+    }
+  });
 
   function snapshotFor({ eventId, marketId, selectionId }, {
     odds = 2,
@@ -227,6 +296,8 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
       createSportsbookBet(session, { idempotencyKey: 'same-idempotency-key-0001', quoteToken: q.quoteToken }, { selectionSnapshot: resolver })
     ]);
     assert.equal(results[0].id, results[1].id);
+    assert.equal(results[0].balanceAfter, 99000);
+    assert.equal(results[1].balanceAfter, 99000);
     assert.equal(await ticketCount(session.userId), 1);
     assert.equal(await memberBalance(session.userId), 99000);
 
@@ -245,6 +316,38 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     assert.notEqual(another.ticket.id, competingRequests[0].id);
     assert.equal(await ticketCount(session.userId), 3);
     assert.equal(await memberBalance(session.userId), 97000);
+    await assertLedgerBalanced();
+  });
+
+  await t.test('100 simultaneous same-member requests with one idempotency key debit the ledger exactly once', async () => {
+    const session = await member(1000);
+    const q = await quote(session, selections(), { stake: 1000 });
+    const idempotencyKey = `load-duplicate-${randomUUID()}`;
+    let release;
+    const start = new Promise(resolve => { release = resolve; });
+    const requests = Array.from({ length: 100 }, async () => {
+      await start;
+      return createSportsbookBet(session, {
+        idempotency_key: idempotencyKey,
+        quoteToken: q.quoteToken
+      }, { selectionSnapshot: resolver });
+    });
+    release();
+
+    const results = await Promise.all(requests);
+    const balance = await memberBalance(session.userId);
+    assert.equal(new Set(results.map(ticket => ticket.id)).size, 1);
+    assert.ok(results.every(ticket => ticket.balanceAfter === 0));
+    assert.equal(await ticketCount(session.userId), 1);
+    assert.equal(balance, 0);
+    assert.ok(balance >= 0);
+    const ledgerTransactions = await query(
+      `SELECT COUNT(*)::int AS count FROM ledger_transactions
+       WHERE transaction_type='SPORTSBOOK_BET_PLACED'
+         AND reference_type='SPORTSBOOK_TICKET' AND reference_id=$1`,
+      [results[0].id]
+    );
+    assert.equal(ledgerTransactions.rows[0].count, 1);
     await assertLedgerBalanced();
   });
 
@@ -475,6 +578,31 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     assert.equal(rolledBack.status, 'OPEN');
     assert.equal(rolledBack.payout, 0);
     assert.equal(await memberBalance(session.userId), 99000);
+    await assertLedgerBalanced();
+  });
+
+  await t.test('settlement idempotency key cannot be reused across tickets', async () => {
+    const session = await member();
+    const operator = { ...session, roles: ['OWNER'] };
+    const first = await place(session);
+    const second = await place(session);
+    const idempotencyKey = `settlement-key-${randomUUID()}`;
+    const input = {
+      results: [{ legNo: 1, status: 'WON', resultValue: '2-0' }],
+      sourceName: 'integration-test',
+      idempotencyKey
+    };
+
+    await settleSportsbookBet(operator, first.ticket.id, input);
+    await assert.rejects(
+      settleSportsbookBet(operator, second.ticket.id, input),
+      error => error.code === 'SPORTSBOOK_SETTLEMENT_IDEMPOTENCY_CONFLICT'
+    );
+
+    const unchanged = await query('SELECT status,payout FROM sportsbook_tickets WHERE id=$1', [second.ticket.id]);
+    assert.equal(unchanged.rows[0].status, 'OPEN');
+    assert.equal(unchanged.rows[0].payout, 0);
+    assert.equal(await memberBalance(session.userId), 100000);
     await assertLedgerBalanced();
   });
 
