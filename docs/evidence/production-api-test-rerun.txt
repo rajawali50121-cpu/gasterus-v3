@@ -1,0 +1,22 @@
+FASE api-test.mjs pasca-perbaikan (8/8)
+Tanggal: 2026-10-25
+URL production: https://gasterus-v3-production.up.railway.app
+Metode: copy /tmp/api-test-prod.mjs (sed http->https, host/port production) dari repo api-test.mjs setelah perbaikan `res.status` -> `res.statusCode`; test() mendukung expected status untuk kasus negatif. Tidak ada pembuatan data.
+
+Hasil:
+PASS | HEALTH | 200
+PASS | READY | 200
+PASS | PUBLIC_MARKETS | 200
+PASS | REGISTER_CAPTCHA | 200
+PASS | REGISTER_NO_CAPTCHA (should 400) | 400
+      CAPTCHA_INVALID
+PASS | LOGIN_WRONG_CRED (should 401) | 401
+      LOGIN_FAILED
+PASS | ME_NO_AUTH (should 401) | 401
+      AUTH_REQUIRED
+PASS | ME_INVALID_TOKEN (should 401) | 401
+      AUTH_REQUIRED
+
+=== RESULTS: 8/8 passed ===
+
+Catatan: perbaikan api-test.mjs hanya membaca status HTTP; tidak membuat akun, saldo, taruhan, atau data produksi.
