@@ -117,7 +117,7 @@ export const config = Object.freeze({
   // Batasi snapshot sportsbook agar feed-worker (heap terbatas) dan payload
   // SSE/Redis tidak meledak saat provider menghasilkan banyak fixture/pasaran.
   // 120 event × pasaran inti tetap aman untuk heap 256MB dan broadcast SSE.
-  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 120, 20, 500),
+  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 500, 20, 500),
   sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 2_000_000, 262_144, 15_000_000),
   // Eviction agresif provider cache: entri lama langsung dibuang sebelum menumpuk di RAM.
   sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 40, 1, 10000),
