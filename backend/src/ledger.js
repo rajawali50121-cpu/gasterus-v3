@@ -1,5 +1,45 @@
 import { randomUUID } from 'node:crypto';
 import { AppError, assert } from './errors.js';
+import { logger } from './logger.js';
+
+// ============================================================================
+// DEADLOCK RETRY CONFIGURATION
+// PostgreSQL error code 40P01 = deadlock_detected
+// ============================================================================
+const DEADLOCK_ERROR_CODE = '40P01';
+const MAX_DEADLOCK_RETRIES = 3;
+const DEADLOCK_RETRY_BASE_MS = 50;
+
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function withDeadlockRetry(operationName, operation) {
+  let lastError;
+  for (let attempt = 0; attempt <= MAX_DEADLOCK_RETRIES; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      const isDeadlock = error.code === DEADLOCK_ERROR_CODE 
+        || error.message?.includes('deadlock detected');
+      
+      if (!isDeadlock || attempt === MAX_DEADLOCK_RETRIES) {
+        throw error;
+      }
+      
+      lastError = error;
+      const delay = DEADLOCK_RETRY_BASE_MS * Math.pow(2, attempt);
+      logger.warn(`[LEDGER] Deadlock detected in ${operationName}, retrying (attempt ${attempt + 1}/${MAX_DEADLOCK_RETRIES})`, {
+        operation: operationName,
+        attempt: attempt + 1,
+        delay,
+        error: error.message
+      });
+      await sleep(delay);
+    }
+  }
+  throw lastError;
+}
 
 export const SYSTEM_ACCOUNTS={
   CLEARING:'SYSTEM:CLEARING',
@@ -21,6 +61,7 @@ export async function memberAccount(client,memberId,lock=false) {
 }
 async function accountByCode(client,code,lock=true){const {rows}=await client.query(`SELECT * FROM ledger_accounts WHERE account_code=$1 ${lock?'FOR UPDATE':''}`,[code]);if(!rows[0])throw new AppError(500,'Akun sistem tidak tersedia.','SYSTEM_ACCOUNT_MISSING');return rows[0];}
 export async function postTransfer(client,{memberId,systemCode,memberDelta,type,referenceType,referenceId,idempotencyKey=null,metadata={},actorId=null}) {
+  return withDeadlockRetry('postTransfer', async () => {
     assert(Number.isSafeInteger(memberDelta)&&memberDelta!==0,500,'Nilai ledger tidak valid.','LEDGER_AMOUNT_INVALID');
     await ensureSystemAccounts(client);
     // Member account is always locked before the system account to keep lock order deterministic.
@@ -36,6 +77,7 @@ export async function postTransfer(client,{memberId,systemCode,memberDelta,type,
     await client.query(`INSERT INTO ledger_entries(id,transaction_id,account_id,amount_signed,balance_before,balance_after) VALUES
       ($1,$2,$3,$4,$5,$6),($7,$2,$8,$9,$10,$11)`,[randomUUID(),transactionId,member.id,memberDelta,Number(member.current_balance),memberAfter,randomUUID(),system.id,systemDelta,Number(system.current_balance),systemAfter]);
     return {transactionId,before:Number(member.current_balance),after:memberAfter};
+  });
 }
 export async function verifyLedger(client) {
   const imbalance=await client.query(`SELECT t.id transaction_id,COUNT(e.id)::int entry_count,COALESCE(SUM(e.amount_signed),0)::bigint AS total FROM ledger_transactions t LEFT JOIN ledger_entries e ON e.transaction_id=t.id GROUP BY t.id HAVING COUNT(e.id)<2 OR COALESCE(SUM(e.amount_signed),0)<>0 LIMIT 20`);
@@ -45,6 +87,7 @@ export async function verifyLedger(client) {
   return {balanced:imbalance.rowCount===0&&arithmetic.rowCount===0&&drift.rowCount===0,imbalancedTransactions:imbalance.rows,arithmeticErrors:arithmetic.rows,accountDrift:drift.rows};
 }
 export async function postSystemTransfer(client,{fromCode,toCode,amount,type,referenceType,referenceId,idempotencyKey=null,metadata={},actorId=null}) {
+  return withDeadlockRetry('postSystemTransfer', async () => {
     assert(Number.isSafeInteger(amount)&&amount>0,500,'Nilai ledger tidak valid.','LEDGER_AMOUNT_INVALID');
     await ensureSystemAccounts(client);
     const codes=[fromCode,toCode].sort();const locked={};for(const code of codes)locked[code]=await accountByCode(client,code,true);
@@ -55,4 +98,5 @@ export async function postSystemTransfer(client,{fromCode,toCode,amount,type,ref
     if(!inserted.rows[0]){const existing=await client.query(`SELECT id FROM ledger_transactions WHERE ($1::text IS NOT NULL AND idempotency_key=$1) OR (transaction_type=$2 AND reference_type=$3 AND reference_id=$4) LIMIT 1`,[idempotencyKey,type,referenceType,String(referenceId)]);return{duplicate:true,transactionId:existing.rows[0]?.id};}
     await client.query('UPDATE ledger_accounts SET current_balance=$1,updated_at=now() WHERE id=$2',[fromAfter,from.id]);await client.query('UPDATE ledger_accounts SET current_balance=$1,updated_at=now() WHERE id=$2',[toAfter,to.id]);
     await client.query(`INSERT INTO ledger_entries(id,transaction_id,account_id,amount_signed,balance_before,balance_after) VALUES($1,$2,$3,$4,$5,$6),($7,$2,$8,$9,$10,$11)`,[randomUUID(),transactionId,from.id,-amount,Number(from.current_balance),fromAfter,randomUUID(),to.id,amount,Number(to.current_balance),toAfter]);return{transactionId};
+  });
 }

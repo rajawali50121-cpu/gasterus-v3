@@ -62,8 +62,8 @@ try {
   const auditId = randomUUID();
   await query(
     `INSERT INTO audit_logs(id,actor_id,actor_role,action,target_type,target_id,details)
-     VALUES($1,$2,'OWNER','INTEGRATION_CHECK','SYSTEM',$3,'{}'::jsonb)`,
-    [auditId, owner.id, auditId]
+     VALUES($1,$2,'OWNER','INTEGRATION_CHECK','SYSTEM',$1,'{}'::jsonb)`,
+    [auditId, owner.id]
   );
   try {
     await query(`UPDATE audit_logs SET action='MUTATED' WHERE id=$1`, [auditId]);
@@ -72,7 +72,7 @@ try {
   }
 
   const required = {
-    markets: report.markets === 72,
+    markets: report.markets === 85,
     systemAccounts: report.systemAccounts >= 3,
     privilegedUsers: report.privilegedUsers >= 2,
     ledgerBalanced: report.ledgerBalanced,

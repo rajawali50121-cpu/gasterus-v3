@@ -1,10 +1,9 @@
 import { readFile, readdir } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { pool, closeDatabase } from '../src/db.js';
 import { logger } from '../src/logger.js';
 
-const dir = dirname(fileURLToPath(import.meta.url));
+const dir = resolve(process.cwd(), 'migrations');
 const files = (await readdir(dir)).filter(name => /^\d+_.*\.sql$/.test(name)).sort();
 const lockName = 'gasterus-schema-migrations-v2';
 

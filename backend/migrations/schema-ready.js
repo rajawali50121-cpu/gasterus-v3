@@ -1,11 +1,10 @@
 import { readdir } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { pool, closeDatabase } from '../src/db.js';
 import { createClient } from 'redis';
 import { config } from '../src/config.js';
 
-const migrationDir = dirname(fileURLToPath(import.meta.url));
+const migrationDir = resolve(process.cwd(), 'migrations');
 const expected = (await readdir(migrationDir)).filter(name => /^\d+_.*\.sql$/.test(name)).sort();
 const redis = createClient({ url: config.redisUrl, socket: { connectTimeout: 5000, reconnectStrategy: false } });
 

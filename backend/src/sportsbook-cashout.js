@@ -33,8 +33,8 @@ function assertCashoutEligible(ticket, legs) {
   assert(!ticket.settlement_correction_pending, 409, 'Tiket sedang memiliki koreksi settlement dan tidak dapat di-Cash Out.', 'SPORTSBOOK_CASHOUT_SETTLEMENT_PENDING');
   assert(legs.length > 0 && legs.every(leg => leg.result_status === 'PENDING'), 409, 'Cash Out hanya tersedia sebelum hasil leg diproses.', 'SPORTSBOOK_CASHOUT_RESULTS_STARTED');
 }
-async function currentPricing(legs, selectionSnapshot = sportsbookSelectionSnapshot) {
-  const snapshots = await Promise.all(legs.map(leg => selectionSnapshot({
+async function currentPricing(legs) {
+  const snapshots = await Promise.all(legs.map(leg => sportsbookSelectionSnapshot({
     eventId: leg.event_id,
     marketId: leg.market_id,
     selectionId: leg.selection_id
@@ -55,12 +55,12 @@ async function currentPricing(legs, selectionSnapshot = sportsbookSelectionSnaps
     };
   });
 }
-export async function createSportsbookCashoutOffer(memberId, ticketId, { selectionSnapshot = sportsbookSelectionSnapshot } = {}) {
+export async function createSportsbookCashoutOffer(memberId, ticketId) {
   cashoutMetrics.offersRequested += 1;
   try {
     const { ticket, legs } = await rawTicket(memberId, ticketId);
     assertCashoutEligible(ticket, legs);
-    const pricing = await currentPricing(legs, selectionSnapshot);
+    const pricing = await currentPricing(legs);
     const fairValue = fairCashoutValue(ticket, pricing);
     const amount = offerAmount(ticket, fairValue);
     assert(fairValue > 0 && amount >= config.sportsbookCashoutMinOffer, 409, 'Belum ada nilai Cash Out yang dapat ditawarkan untuk tiket ini.', 'SPORTSBOOK_CASHOUT_OFFER_UNAVAILABLE');
@@ -115,9 +115,9 @@ export async function listMemberSportsbookCashoutOffers(memberId, { limit = 20 }
   return offers;
 }
 
-async function verifyOfferStillCurrent(payload, selectionSnapshot = sportsbookSelectionSnapshot) {
+async function verifyOfferStillCurrent(payload) {
   for (const item of payload.pricing) {
-    const latest = await selectionSnapshot({ eventId: item.eventId, marketId: item.marketId, selectionId: item.selectionId });
+    const latest = await sportsbookSelectionSnapshot({ eventId: item.eventId, marketId: item.marketId, selectionId: item.selectionId });
     const latestProvider = latest.selection.source || latest.market.source || latest.event?._sources?.[0] || null;
     const changed = latest.selection.priceVersion !== item.priceVersion || Math.abs(Number(latest.selection.odds) - Number(item.currentOdds)) > config.sportsbookOddsTolerance || (item.provider && latestProvider && item.provider !== latestProvider);
     if (changed) {
@@ -136,7 +136,7 @@ async function verifyOfferStillCurrent(payload, selectionSnapshot = sportsbookSe
   }
 }
 
-export async function acceptSportsbookCashout(session, ticketId, input, { ip = '', selectionSnapshot = sportsbookSelectionSnapshot } = {}) {
+export async function acceptSportsbookCashout(session, ticketId, input, { ip = '' } = {}) {
   cashoutMetrics.acceptAttempts += 1;
   const idempotencyKey = clean(input?.idempotencyKey, 120);
   assert(idempotencyKey.length >= 12, 400, 'Idempotency key Cash Out tidak valid.', 'SPORTSBOOK_CASHOUT_IDEMPOTENCY_INVALID');
@@ -147,7 +147,7 @@ export async function acceptSportsbookCashout(session, ticketId, input, { ip = '
   }
 
   const payload = verifyCashoutOfferToken(input?.offerToken, { memberId: session.userId, ticketId });
-  await verifyOfferStillCurrent(payload, selectionSnapshot);
+  await verifyOfferStillCurrent(payload);
 
   await tx(async client => {
     const ticket = (await client.query('SELECT * FROM sportsbook_tickets WHERE id=$1 AND member_id=$2 FOR UPDATE', [ticketId, session.userId])).rows[0];

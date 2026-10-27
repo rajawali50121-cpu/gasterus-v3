@@ -23,15 +23,6 @@ export const auth = {
     }
   },
 
-  updateBalance(balance) {
-    if (!Number.isSafeInteger(balance) || balance < 0) return false;
-    const user = this.getUser();
-    if (!user) return false;
-    this.setUser({ ...user, balance });
-    this.updateHeaderAuthUI();
-    return true;
-  },
-
   isLoggedIn() {
     return Boolean(localStorage.getItem('gasterus_token'));
   },

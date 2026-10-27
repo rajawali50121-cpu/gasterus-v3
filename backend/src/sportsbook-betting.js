@@ -10,7 +10,6 @@ import { combinations, ticketCalculation, validateBetType } from './sportsbook-c
 import { legReturnMultiplier, settleCalculation } from './sportsbook-settlement-calculation.js';
 import { createMemberNotification } from './notifications.js';
 import { signSportsbookQuote, verifySportsbookQuoteToken } from './sportsbook-quote.js';
-import { assertSportsbookBettingOpen } from './sportsbook-betting-controls.js';
 
 const FINAL_LEG_RESULTS = new Set(['WON', 'LOST', 'VOID', 'PUSH', 'HALF_WON', 'HALF_LOST']);
 const ODDS_CHANGE_POLICIES = new Set(['REJECT', 'ACCEPT_BETTER', 'ACCEPT_ANY']);
@@ -26,16 +25,6 @@ function integer(value, name, min, max) {
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-async function serializableRetry(operation, attempts = 4) {
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await tx(operation, { isolation: 'SERIALIZABLE' });
-    } catch (error) {
-      if (error?.code !== '40001' || attempt + 1 >= attempts) throw error;
-      await wait(10 * (attempt + 1));
-    }
-  }
-}
 function odds(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 1 && parsed <= 10000 ? Math.round(parsed * 10000) / 10000 : null;
@@ -50,7 +39,7 @@ function pricingProvider(snapshot) {
 function priceChanged(snapshot, acceptedPriceVersion, acceptedOdds) {
   return acceptedPriceVersion !== snapshot.selection.priceVersion || Math.abs(Number(acceptedOdds) - Number(snapshot.selection.odds)) > config.sportsbookOddsTolerance;
 }
-async function resolveLegForAcceptance(input, policy, selectionSnapshot = sportsbookSelectionSnapshot) {
+async function resolveLegForAcceptance(input, policy) {
   const eventId = clean(input.eventId, 80);
   const marketId = clean(input.marketId, 80);
   const selectionId = clean(input.selectionId, 80);
@@ -60,7 +49,7 @@ async function resolveLegForAcceptance(input, policy, selectionSnapshot = sports
   assert(eventId && marketId && selectionId, 400, 'Identitas pilihan tidak lengkap.', 'SPORTSBOOK_SELECTION_INVALID');
   assert(acceptedPriceVersion.length >= 12, 400, 'Versi harga odds tidak valid. Muat ulang Sportsbook.', 'SPORTSBOOK_PRICE_VERSION_REQUIRED');
   assert(acceptedOdds !== null, 400, 'Odds yang diterima tidak valid.', 'SPORTSBOOK_ACCEPTED_ODDS_INVALID');
-  const snapshot = await selectionSnapshot({ eventId, marketId, selectionId });
+  const snapshot = await sportsbookSelectionSnapshot({ eventId, marketId, selectionId });
   const latestProvider = pricingProvider(snapshot);
   const changed = priceChanged(snapshot, acceptedPriceVersion, acceptedOdds);
   if (!changed) return { snapshot, repriced: null };
@@ -100,14 +89,14 @@ function invoice() {
   const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
   return `SB-${date}-${randomBytes(5).toString('hex').toUpperCase()}`;
 }
-async function resolveLeg(input, selectionSnapshot = sportsbookSelectionSnapshot) {
+async function resolveLeg(input) {
   const eventId = clean(input.eventId, 80);
   const marketId = clean(input.marketId, 80);
   const selectionId = clean(input.selectionId, 80);
   const acceptedPriceVersion = clean(input.acceptedPriceVersion || input.priceVersion, 80);
   assert(eventId && marketId && selectionId, 400, 'Identitas pilihan tidak lengkap.', 'SPORTSBOOK_SELECTION_INVALID');
   assert(acceptedPriceVersion.length >= 12, 400, 'Versi harga odds tidak valid. Muat ulang Sportsbook.', 'SPORTSBOOK_PRICE_VERSION_REQUIRED');
-  const snapshot = await selectionSnapshot({ eventId, marketId, selectionId });
+  const snapshot = await sportsbookSelectionSnapshot({ eventId, marketId, selectionId });
   const acceptedOdds = odds(input.acceptedOdds);
   assert(acceptedOdds !== null, 400, 'Odds yang diterima tidak valid.', 'SPORTSBOOK_ACCEPTED_ODDS_INVALID');
   if (acceptedPriceVersion !== snapshot.selection.priceVersion) {
@@ -133,10 +122,10 @@ async function resolveLeg(input, selectionSnapshot = sportsbookSelectionSnapshot
   }
   return snapshot;
 }
-async function revalidateResolvedLegs(legs, selectionSnapshot = sportsbookSelectionSnapshot) {
+async function revalidateResolvedLegs(legs) {
   const fresh = [];
   for (const leg of legs) {
-    const latest = await selectionSnapshot({ eventId: leg.event.id, marketId: leg.market.id, selectionId: leg.selection.key });
+    const latest = await sportsbookSelectionSnapshot({ eventId: leg.event.id, marketId: leg.market.id, selectionId: leg.selection.key });
     if (latest.event.live && !leg.event.live) {
       throw new AppError(409, 'Pertandingan baru dimulai. Tinjau quote live sebelum memasang taruhan.', 'SPORTSBOOK_EVENT_BECAME_LIVE');
     }
@@ -198,23 +187,6 @@ async function assertRiskExposure(client, legs, ticketPotentialPayout) {
     const selectionLiability = await liabilityFor(client, `SELECT COALESCE(SUM(x.potential_payout),0)::bigint liability FROM (SELECT DISTINCT t.id,t.potential_payout FROM sportsbook_tickets t JOIN sportsbook_legs l ON l.ticket_id=t.id WHERE t.status='OPEN' AND l.event_id=$1 AND l.market_type=$2 AND l.market_period=$3 AND COALESCE(l.market_line,'')=$4 AND lower(l.selection_label)=lower($5)) x`, [leg.event.id, leg.market.type, leg.market.period || 'FT', line, leg.selection.label]);
     assert(selectionLiability + proposed <= selectionLimit, 409, 'Batas risiko pilihan telah tercapai. Coba nominal lebih kecil.', 'SPORTSBOOK_SELECTION_LIABILITY_LIMIT');
   }
-}
-export async function assertMemberLiability(client, memberId, proposedLiability) {
-  const limit = Number(config.sportsbookMaxMemberLiability);
-  if (!Number.isSafeInteger(limit) || limit <= 0) return;
-  await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`sportsbook-member-risk:${memberId}`]);
-  const current = await liabilityFor(client, `SELECT COALESCE(SUM(potential_payout),0)::bigint liability
-    FROM sportsbook_tickets WHERE member_id=$1 AND status='OPEN'`, [memberId]);
-  const proposed = BigInt(Math.max(0, Math.trunc(Number(proposedLiability) || 0)));
-  assert(current + proposed <= BigInt(limit), 409,
-    `Batas eksposur taruhan anggota ${limit} telah tercapai.`, 'SPORTSBOOK_MEMBER_LIABILITY_LIMIT');
-}
-export function assertLimitedTestAccess(memberId, totalStake) {
-  if (!config.sportsbookLimitedTestModeEnabled) return;
-  assert(config.sportsbookLimitedTestMemberIds.includes(String(memberId).toLowerCase()), 403,
-    'Akun ini tidak termasuk daftar putih mode uji sportsbook.', 'SPORTSBOOK_LIMITED_TEST_MEMBER_NOT_ALLOWED');
-  assert(totalStake <= config.sportsbookLimitedTestMaxStake, 400,
-    `Total taruhan mode uji maksimum ${config.sportsbookLimitedTestMaxStake}.`, 'SPORTSBOOK_LIMITED_TEST_STAKE_LIMIT');
 }
 function validateLegs(legs) {
   const events = new Set();
@@ -340,18 +312,16 @@ async function ticketBy(client, clause, values) {
   return mapTicket(ticket, legs.rows);
 }
 
-export async function createSportsbookQuote(session, input, { selectionSnapshot = sportsbookSelectionSnapshot } = {}) {
-  await assertSportsbookBettingOpen();
+export async function createSportsbookQuote(session, input) {
   const rawSelections = Array.isArray(input.selections) ? input.selections : [];
   assert(rawSelections.length >= 1 && rawSelections.length <= config.sportsbookMaxLegs, 400, `Jumlah pilihan harus 1–${config.sportsbookMaxLegs}.`, 'SPORTSBOOK_LEGS_INVALID');
   const { type, systemSize } = validateBetType(input.betType, rawSelections.length, input.systemSize);
   const stake = integer(input.stake, 'Nominal taruhan', config.sportsbookMinStake, config.sportsbookMaxStake);
-  const legs = await Promise.all(rawSelections.map(selection => resolveLeg(selection, selectionSnapshot)));
+  const legs = await Promise.all(rawSelections.map(resolveLeg));
   validateLegs(legs);
   const calculation = ticketCalculation(type, stake, legs, systemSize, config.sportsbookMaxSystemCombinations);
   assert(calculation.totalStake <= config.sportsbookMaxStake, 400, `Total taruhan melewati batas ${config.sportsbookMaxStake}.`, 'SPORTSBOOK_STAKE_LIMIT');
   assert(calculation.potentialPayout <= config.sportsbookMaxPayout, 400, `Potensi kemenangan melewati batas ${config.sportsbookMaxPayout}.`, 'SPORTSBOOK_PAYOUT_LIMIT');
-  assertLimitedTestAccess(session.userId, calculation.totalStake);
   const tradingMaxStake = assertTradingStakeLimit(legs, calculation.totalStake);
   const changePolicy = oddsChangePolicy(input.oddsChangePolicy);
 
@@ -414,8 +384,8 @@ export async function createSportsbookQuote(session, input, { selectionSnapshot 
   };
 }
 
-export async function createSportsbookBet(session, input, { ip = '', selectionSnapshot = sportsbookSelectionSnapshot } = {}) {
-  const idempotencyKey = clean(input.idempotencyKey ?? input.idempotency_key, 100);
+export async function createSportsbookBet(session, input, { ip = '' } = {}) {
+  const idempotencyKey = clean(input.idempotencyKey, 100);
   assert(idempotencyKey.length >= 12, 400, 'Idempotency key tidak valid.', 'SPORTSBOOK_IDEMPOTENCY_INVALID');
   // Enterprise idempotency: a network retry must recover an already accepted ticket
   // even when the original short-lived quote has expired after acceptance.
@@ -426,10 +396,6 @@ export async function createSportsbookBet(session, input, { ip = '', selectionSn
     assert(quoteToken, 400, 'Quote server wajib dibuat sebelum memasang taruhan.', 'SPORTSBOOK_QUOTE_REQUIRED');
   }
   const verifiedQuote = quoteToken ? verifySportsbookQuoteToken(quoteToken, { memberId: session.userId }) : null;
-  if (verifiedQuote?.quoteId) {
-    const acceptedQuote = await ticketBy({ query }, "member_id=$1 AND metadata->>'quoteId'=$2", [session.userId, verifiedQuote.quoteId]);
-    if (acceptedQuote) return memberTicket(acceptedQuote);
-  }
   const rawSelections = verifiedQuote?.selections || (Array.isArray(input.selections) ? input.selections : []);
   assert(rawSelections.length >= 1 && rawSelections.length <= config.sportsbookMaxLegs, 400, `Jumlah pilihan harus 1–${config.sportsbookMaxLegs}.`, 'SPORTSBOOK_LEGS_INVALID');
   const betTypeInput = verifiedQuote?.betType || input.betType;
@@ -439,15 +405,14 @@ export async function createSportsbookBet(session, input, { ip = '', selectionSn
 
   const changePolicy = oddsChangePolicy(verifiedQuote?.oddsChangePolicy || input.oddsChangePolicy);
   const resolved = verifiedQuote
-    ? await Promise.all(rawSelections.map(selection => resolveLegForAcceptance(selection, changePolicy, selectionSnapshot)))
-    : await Promise.all(rawSelections.map(async selection => ({ snapshot: await resolveLeg(selection, selectionSnapshot), repriced: null })));
+    ? await Promise.all(rawSelections.map(selection => resolveLegForAcceptance(selection, changePolicy)))
+    : await Promise.all(rawSelections.map(async selection => ({ snapshot: await resolveLeg(selection), repriced: null })));
   const legs = resolved.map(item => item.snapshot);
   const repricedLegs = resolved.map(item => item.repriced).filter(Boolean);
   validateLegs(legs);
   const calculation = ticketCalculation(type, stake, legs, systemSize, config.sportsbookMaxSystemCombinations);
   assert(calculation.totalStake <= config.sportsbookMaxStake, 400, `Total taruhan melewati batas ${config.sportsbookMaxStake}.`, 'SPORTSBOOK_STAKE_LIMIT');
   assert(calculation.potentialPayout <= config.sportsbookMaxPayout, 400, `Potensi kemenangan melewati batas ${config.sportsbookMaxPayout}.`, 'SPORTSBOOK_PAYOUT_LIMIT');
-  assertLimitedTestAccess(session.userId, calculation.totalStake);
   assertTradingStakeLimit(legs, calculation.totalStake);
   if (verifiedQuote) {
     assert(Number(verifiedQuote.totalStake) === calculation.totalStake, 409, 'Quote taruhan tidak lagi sesuai dengan kalkulasi server.', 'SPORTSBOOK_QUOTE_MISMATCH');
@@ -458,25 +423,14 @@ export async function createSportsbookBet(session, input, { ip = '', selectionSn
     await wait(config.sportsbookLiveAcceptanceDelayMs);
   }
 
-  try {
-    return await serializableRetry(async client => {
+  return tx(async client => {
     if (quoteToken) verifySportsbookQuoteToken(quoteToken, { memberId: session.userId });
-    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [
-      `SPORTSBOOK:${session.userId}:${idempotencyKey}`
-    ]);
     const existing = await ticketBy(client, 'member_id=$1 AND idempotency_key=$2', [session.userId, idempotencyKey]);
     if (existing) return memberTicket(existing);
-    if (verifiedQuote?.quoteId) {
-      const acceptedQuote = await ticketBy(client, "member_id=$1 AND metadata->>'quoteId'=$2", [session.userId, verifiedQuote.quoteId]);
-      if (acceptedQuote) return memberTicket(acceptedQuote);
-    }
 
-    assertLimitedTestAccess(session.userId, calculation.totalStake);
-    await assertSportsbookBettingOpen(client, { lock: true });
-    const freshLegs = await revalidateResolvedLegs(legs, selectionSnapshot);
+    const freshLegs = await revalidateResolvedLegs(legs);
     assertTradingStakeLimit(freshLegs, calculation.totalStake);
     await assertRiskExposure(client, freshLegs, calculation.potentialPayout);
-    await assertMemberLiability(client, session.userId, calculation.potentialPayout);
     const id = randomUUID();
     const ticketInvoice = invoice();
     await enforceResponsiblePlay(session.userId,{kind:'BET',amount:calculation.totalStake,client,sessionCreatedAt:session.createdAt});
@@ -542,14 +496,7 @@ export async function createSportsbookBet(session, input, { ip = '', selectionSn
       client
     });
     return memberTicket(await ticketBy(client, 'id=$1', [id]));
-    });
-  } catch (error) {
-    if (error?.code === '23505' && error?.constraint === 'sportsbook_tickets_quote_id_uq' && verifiedQuote?.quoteId) {
-      const acceptedQuote = await ticketBy({ query }, "member_id=$1 AND metadata->>'quoteId'=$2", [session.userId, verifiedQuote.quoteId]);
-      if (acceptedQuote) return memberTicket(acceptedQuote);
-    }
-    throw error;
-  }
+  }, { isolation: 'SERIALIZABLE' });
 }
 
 export async function listMemberSportsbookBets(memberId, { status, limit = 50, offset = 0 } = {}) {
@@ -685,8 +632,6 @@ async function applySportsbookSettlementRevision(id, resultInputs, {
     const revisionNo = Number(ticket.settlement_revision || 0) + 1;
     const revisionKey = clean(idempotencyKey, 180) || `sportsbook-settlement:${normalizedAction.toLowerCase()}:${ticket.id}:r${revisionNo}`;
     const existingRevision = (await client.query('SELECT * FROM sportsbook_settlement_revisions WHERE idempotency_key=$1 FOR UPDATE', [revisionKey])).rows[0];
-    assert(!existingRevision || existingRevision.ticket_id === ticket.id, 409, 'Kunci idempotensi settlement sudah digunakan oleh tiket lain.', 'SPORTSBOOK_SETTLEMENT_IDEMPOTENCY_CONFLICT');
-    assert(!existingRevision || existingRevision.action === normalizedAction, 409, 'Kunci idempotensi settlement sudah digunakan untuk aksi lain.', 'SPORTSBOOK_SETTLEMENT_IDEMPOTENCY_CONFLICT');
     if (existingRevision?.status === 'APPLIED') return ticketBy(client, 'id=$1', [ticket.id]);
 
     const previousSnapshot = legResultSnapshot(legs);

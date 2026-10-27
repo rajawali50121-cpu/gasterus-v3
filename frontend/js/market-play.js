@@ -15,7 +15,6 @@ let currentMarket = null;
 let currentMarketConfig = null;
 let betRows = [];
 let rowIdCounter = 1;
-let pendingBetRequest = null;
 
 // Pasar hanya boleh dianggap bisa dipertaruhkan bila backend memang mengirim
 // bettingStatus OPEN, periode terisi, dan waktu tutup masih di masa depan.
@@ -964,27 +963,19 @@ async function handleBetSubmit() {
   const payload = {
     marketId,
     period: currentMarketConfig?.period || currentMarket?.period,
-    rows
+    rows,
+    idempotencyKey: generateIdempotencyKey()
   };
-  const requestSignature = JSON.stringify(payload);
-  if (pendingBetRequest?.signature !== requestSignature) {
-    pendingBetRequest = { signature: requestSignature, idempotencyKey: generateIdempotencyKey() };
-  }
-  payload.idempotencyKey = pendingBetRequest.idempotencyKey;
 
   const submitBtn = document.getElementById('btn-submit-bet');
   try {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Memproses Taruhan...';
 
-    const response = await api.post('/member/bets', payload);
-    const order = response?.data || response;
-    auth.updateBalance(order?.balanceAfter);
-    pendingBetRequest = null;
+    await api.post('/member/bets', payload);
+    showToast('Taruhan berhasil dipasang!', 'success');
     await auth.fetchMe();
     auth.updateHeaderAuthUI();
-    initBetRows();
-    showToast('Taruhan berhasil dipasang!', 'success');
 
     setTimeout(() => {
       window.location.href = '/bet-history.html';

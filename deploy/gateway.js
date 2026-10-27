@@ -103,43 +103,16 @@ async function localReady(port, path='/ready') {
   try { const r = await fetch(`http://127.0.0.1:${port}${path}`, {signal:AbortSignal.timeout(2500)}); return r.ok; }
   catch { return false; }
 }
-async function localSportsbookReady(port) {
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/internal/sportsbook/readiness`, {
-      headers: { 'x-internal-proxy-secret': String(process.env.OPS_INTERNAL_SECRET || '') },
-      signal: AbortSignal.timeout(2500)
-    });
-    const payload = await response.json();
-    const ready = response.ok && payload.data?.ready === true;
-    return { ready, status: ready ? 'ready' : payload.data?.status || 'degraded' };
-  } catch {
-    return { ready: false, status: 'unavailable' };
-  }
-}
 
 const server = createServer(async (req,res) => {
   const url = new URL(req.url || '/', 'http://gateway.internal');
   if (url.pathname === '/healthz') {
-    const corePort = Number(process.env.CORE_INTERNAL_PORT || 8083);
-    const [core, worker, member, admin] = await Promise.all([
-      localReady(corePort, '/ready'),
-      localReady(corePort, '/healthz'),
-      localReady(MEMBER_PORT),
-      localReady(ADMIN_PORT)
-    ]);
-    const healthy = core && worker && member && admin;
-    return json(res, healthy ? 200 : 503, {status: healthy ? 'ok' : 'degraded', core, worker, member, admin});
+    const coreHealthy = await localReady(Number(process.env.CORE_INTERNAL_PORT || 8083), '/healthz');
+    return json(res, coreHealthy ? 200 : 503, {status: coreHealthy ? 'ok' : 'degraded'});
   }
   if (url.pathname === '/readyz') {
-    const corePort = Number(process.env.CORE_INTERNAL_PORT || 8083);
-    const [member,admin,core,sportsbook] = await Promise.all([
-      localReady(MEMBER_PORT),
-      localReady(ADMIN_PORT),
-      localReady(corePort),
-      localSportsbookReady(corePort)
-    ]);
-    const ready = member && admin && core && sportsbook.ready;
-    return json(res, ready ? 200 : 503, {status:ready?'ready':'degraded', member, admin, core, sportsbook, mode: PATH_MODE?'single-domain':'host-isolated', deploymentId:process.env.RAILWAY_DEPLOYMENT_ID||null});
+    const [member,admin,core] = await Promise.all([localReady(MEMBER_PORT),localReady(ADMIN_PORT),localReady(Number(process.env.CORE_INTERNAL_PORT || 8083))]);
+    return json(res, member && admin && core ? 200 : 503, {status:member&&admin&&core?'ready':'degraded', member, admin, core, mode: PATH_MODE?'single-domain':'host-isolated', deploymentId:process.env.RAILWAY_DEPLOYMENT_ID||null});
   }
 
   const host = requestHost(req);

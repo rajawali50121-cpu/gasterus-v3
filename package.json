@@ -11,8 +11,8 @@
     "verify:sportsbook:e2e": "node scripts/verify-sportsbook-e2e.mjs",
     "test": "node --test backend/tests/*.test.js",
     "check": "node scripts/check-syntax.js && node scripts/check-css-syntax.js && node scripts/check-asset-version.js",
-    "migrate": "node backend/migrations/migrate.js",
-    "schema:ready": "node backend/migrations/schema-ready.js"
+    "migrate": "node backend/scripts/migrate.js",
+    "schema:ready": "node backend/scripts/schema-ready.js"
   },
   "engines": {
     "node": ">=22.23.2 <23"

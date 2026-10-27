@@ -16,7 +16,6 @@ import { formatRupiah, showToast, escapeHtml } from './utils.js';
 import { primaryMarketColumns } from './sportsbook-markets.js';
 import { chooseCombinations, systemBetMetrics } from './sportsbook-slip-calculation.js';
 import { formatOdds, oddsColorClass } from './sportsbook-odds.js';
-import { deriveSportsbookFeedPresentation } from './sportsbook-feed-status.js';
 
 const STREAM_URL = '/api/member/sportsbook/stream';
 const SNAPSHOT_URL = '/api/member/sportsbook/events';
@@ -24,7 +23,6 @@ const FEED_DETAIL_URL = (id) => `/api/member/sportsbook/events/${encodeURICompon
 const EVENTS_PAGE_SIZE = 30;
 const pageSize = EVENTS_PAGE_SIZE;
 const BETSLIP_MOBILE_BREAKPOINT = 860;
-const MAX_EVENT_DETAIL_CACHE_ENTRIES = 60;
 
 // ---------------------------------------------------------------------------
 // State
@@ -94,14 +92,6 @@ const previousOddsMap = new Map(); // selKey -> number (decimal odds)
 const oddsMovementMap = new Map(); // selKey -> { direction: 'up' | 'down', timestamp: number }
 const oddsCleanupTimers = new Map(); // selKey -> timeoutId
 let isInitialSnapshot = true;
-
-function rememberEventDetail(eventId, detail) {
-  eventDetails.delete(eventId);
-  eventDetails.set(eventId, detail);
-  while (eventDetails.size > MAX_EVENT_DETAIL_CACHE_ENTRIES) {
-    eventDetails.delete(eventDetails.keys().next().value);
-  }
-}
 
 function updateOddsInDOM(key, direction, curOdds, sk) {
   const elements = document.querySelectorAll(`[data-sel="${key}"]`);
@@ -560,17 +550,9 @@ function onSnapshot(snapshot, { append = false } = {}) {
       hasMore: Boolean(snapshot.pagination?.hasMore) && snapshot.events.length >= pageSize
     }
   };
-  const currentEventIds = new Set(feed.events.map(event => event.id));
-  for (const [eventId, detail] of eventDetails) {
-    if (!currentEventIds.has(eventId) || detail.revision !== String(revision || '')) {
-      eventDetails.delete(eventId);
-    }
-  }
-  for (const eventId of selectedEventPeriods.keys()) {
-    if (!currentEventIds.has(eventId)) selectedEventPeriods.delete(eventId);
-  }
   const detailRefreshIds = new Set();
   if (revision && revision !== previousFeedRevision) {
+    const currentEventIds = new Set(feed.events.map(event => event.id));
     for (const eventId of expandedEventMarkets) {
       if (currentEventIds.has(eventId)) detailRefreshIds.add(eventId);
       else {
@@ -698,26 +680,33 @@ function renderStatusMeta() {
   const feedUpdated = el('sb-feed-updated');
   const eventCount = el('sb-feed-events-count');
   const marketCount = el('sb-feed-markets-count');
-  const presentation = deriveSportsbookFeedPresentation(feed);
+  const status = String(feed.source?.status || '').toUpperCase();
   if (feedStatus) {
-    feedStatus.textContent = presentation.statusText;
-    feedStatus.classList.toggle('is-read-only', presentation.isReadOnly && !presentation.isAgeStale);
+    feedStatus.textContent = feed.stale || /STALE|OFFLINE/.test(status)
+      ? 'Feed tertunda'
+      : feed.degraded || status === 'DEGRADED'
+        ? 'Feed terbatas'
+        : feed.events.length && Number(feed.source?.bettableMarkets || feed.source?.pricedMarkets) > 0
+          ? 'Feed aktif'
+          : 'Menunggu odds';
   }
   if (eventCount) eventCount.textContent = fmt(feed.pagination?.total ?? feed.events.length);
-  if (marketCount) marketCount.textContent = fmt(presentation.pricedMarkets);
+  if (marketCount) marketCount.textContent = fmt(feed.source?.bettableMarkets ?? feed.source?.pricedMarkets ?? 0);
   if (feedUpdated) {
     const stamp = feed.source?.fetchedAt || feed.source?.capturedAt;
     feedUpdated.textContent = stamp ? `Update ${formatWibDateTime(stamp)} WIB` : '';
   }
   if (banner) {
     const src = feed.source || {};
+    const mode = String(src.mode || '');
+    const isCached = /CACHED|SNAPSHOT|STALE/i.test(mode) || Boolean(src.cachedFallback);
     // P1: tampilkan umur feed + tanggal update agar jadwal cached tidak dikira acak.
     const stamp = src.fetchedAt || src.capturedAt || null;
     const stampText = stamp ? ` • update ${formatWibDateTime(stamp)}` : '';
-    if (presentation.banner === 'stale') {
+    if (feed.stale || isCached) {
       banner.hidden = false;
       banner.textContent = `Jadwal sementara (data cached${stampText}) — odds dapat berubah saat feed pulih. Feed akan memperbarui otomatis.`;
-    } else if (presentation.banner === 'degraded') {
+    } else if (feed.degraded) {
       banner.hidden = false;
       banner.textContent = `Feed terhubung tetapi belum bisa terima taruhan${stampText}. Menunggu otoritas settlement.`;
     } else banner.hidden = true;
@@ -785,6 +774,12 @@ function setupFilterTabs() {
       setMatchFilter(nextFilter);
       showToast(currentFilter === 'fav' ? 'Menampilkan liga favorit' : 'Menampilkan semua liga', 'info');
     });
+  }
+
+  const oddsFormatSelect = el('sb-odds-format');
+  if (oddsFormatSelect) {
+    oddsFormatSelect.value = oddsFormat;
+    oddsFormatSelect.addEventListener('change', () => setOddsFormat(oddsFormatSelect.value));
   }
 
   setupMixParlay();
@@ -1453,28 +1448,9 @@ function findMarketSelection(market, aliases, fallbackIndex, allowPrefix = false
   return selections[fallbackIndex] || null;
 }
 
-function renderOddCell(e, m, s, lineOverride, referenceOnly = false) {
+function renderOddCell(e, m, s, lineOverride) {
   if (!m || !s) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
-  }
-  if (referenceOnly) {
-    const decOdds = Number(s.odds);
-    if (!Number.isFinite(decOdds) || decOdds <= 1) {
-      return `<div class="sb-odd-cell disabled sb-reference-price" aria-disabled="true"><span class="sb-cell-odds">Belum tersedia</span></div>`;
-    }
-    const lineVal = lineOverride != null ? lineOverride : (s.line ?? m.line);
-    const lineFormatted = lineVal != null
-      ? (String(m.type || '').toUpperCase() === 'HANDICAP'
-          ? (Number(lineVal) > 0 ? `+${Number(lineVal).toFixed(2)}` : Number(lineVal).toFixed(2))
-          : Number(lineVal).toFixed(2))
-      : '';
-    const lineClass = Number(lineVal) < 0 ? 'kei-negative' : 'kei-positive';
-    return `
-      <div class="sb-odd-cell disabled sb-reference-price" aria-disabled="true" title="Harga referensi: ${escapeHtml(s.label || s.key)} @ ${decOdds.toFixed(2)}">
-        ${lineFormatted ? `<span class="sb-cell-line ${lineClass}">${escapeHtml(lineFormatted)}</span>` : ''}
-        <span class="sb-cell-odds">${formatOdds(decOdds, oddsFormat)}</span>
-      </div>
-    `;
   }
   if (m.suspended || s.suspended) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Ditangguhkan</span></div>`;
@@ -1527,7 +1503,7 @@ function renderOddCell(e, m, s, lineOverride, referenceOnly = false) {
   `;
 }
 
-function renderMarketColumns(e, markets, referenceOnly = false) {
+function renderMarketColumns(e, markets) {
   if (!markets.length) return '';
   return `
     <div class="sb-market-grid">
@@ -1538,7 +1514,7 @@ function renderMarketColumns(e, markets, referenceOnly = false) {
             ${item.outcomes.map(([label, selection]) => `
               <div class="sb-market-outcome">
                 <span class="sb-market-outcome-label">${escapeHtml(label)}</span>
-              ${renderOddCell(e, item.market, selection, undefined, referenceOnly)}
+              ${renderOddCell(e, item.market, selection)}
               </div>
             `).join('')}
           </div>
@@ -1578,11 +1554,7 @@ function renderMatch(e) {
   const activePeriod = availablePeriods.includes(requestedPeriod)
     ? requestedPeriod
     : availablePeriods.includes('FT') ? 'FT' : availablePeriods[0] || 'FT';
-  const isReferenceOnly = feed.source?.mode === 'READ_ONLY_PRICED_NO_SETTLEMENT_AUTHORITY';
-  const activeMarkets = primaryMarketColumns(e, activePeriod, {
-    includeSuspended: isReferenceOnly,
-    pricedOnly: isReferenceOnly
-  });
+  const activeMarkets = primaryMarketColumns(e, activePeriod);
   const eventDetail = eventDetails.get(e.id);
   const detailIsCurrent = eventDetail?.revision === String(feed.source?.feedRevision || '');
   const marketsPanelOpen = expandedEventMarkets.has(e.id);
@@ -1639,7 +1611,7 @@ function renderMatch(e) {
 
       <div class="sb-matrix-table">
         ${activeMarkets.length
-          ? `<div class="sb-market-period"><span>${escapeHtml(MARKET_PERIOD_LABELS[activePeriod] || activePeriod)}</span></div>${isReferenceOnly ? '<div class="sb-reference-price-note" role="note">Harga referensi - taruhan belum dibuka</div>' : ''}${renderMarketColumns(e, activeMarkets, isReferenceOnly)}`
+          ? `<div class="sb-market-period"><span>${escapeHtml(MARKET_PERIOD_LABELS[activePeriod] || activePeriod)}</span></div>${renderMarketColumns(e, activeMarkets)}`
           : ''}
         ${!activeMarkets.length
           ? '<div class="sb-no-primary-odds">Odds utama belum tersedia dari provider untuk pertandingan ini.</div>'
@@ -1800,16 +1772,11 @@ async function loadEventMarkets(eventId, { force = false, notify = true } = {}) 
   if (!eventId) return null;
   const revision = String(feed.source?.feedRevision || '');
   const cached = eventDetails.get(eventId);
-  if (!force && cached?.revision === revision) {
-    eventDetails.delete(eventId);
-    eventDetails.set(eventId, cached);
-    return cached.event;
-  }
+  if (!force && cached?.revision === revision) return cached.event;
   const existingRequest = eventDetailRequests.get(eventId);
-  if (existingRequest?.revision === revision) return existingRequest.promise;
+  if (existingRequest) return existingRequest;
 
   pendingEventDetails.add(eventId);
-  const requestToken = {};
   const panel = el(`event-markets-${eventId}`);
   if (panel && expandedEventMarkets.has(eventId)) {
     panel.hidden = false;
@@ -1825,13 +1792,10 @@ async function loadEventMarkets(eventId, { force = false, notify = true } = {}) 
         throw new Error('Respons detail odds pertandingan tidak lengkap.');
       }
       const responseRevision = String(payload.source?.feedRevision || '');
-      if (!responseRevision || responseRevision !== revision
-        || responseRevision !== String(feed.source?.feedRevision || '')
-        || !feed.events.some(item => item.id === eventId)) {
+      if (!responseRevision || responseRevision !== String(feed.source?.feedRevision || '')) {
         throw new Error('Versi feed berubah saat memuat odds. Coba lagi.');
       }
-      if (eventDetailRequests.get(eventId)?.token !== requestToken) return null;
-      rememberEventDetail(eventId, { event, revision: responseRevision });
+      eventDetails.set(eventId, { event, revision: responseRevision });
       pendingEventDetails.delete(eventId);
 
       const allEvents = eventsWithFreshDetails();
@@ -1848,7 +1812,6 @@ async function loadEventMarkets(eventId, { force = false, notify = true } = {}) 
       }
       return event;
     } catch (error) {
-      if (eventDetailRequests.get(eventId)?.token !== requestToken) return null;
       pendingEventDetails.delete(eventId);
       eventDetails.delete(eventId);
       const summary = feed.events.find(item => item.id === eventId);
@@ -1876,12 +1839,10 @@ async function loadEventMarkets(eventId, { force = false, notify = true } = {}) 
       if (notify || removed) showToast(error?.message || 'Gagal memuat odds pertandingan.', 'danger');
       return null;
     } finally {
-      if (eventDetailRequests.get(eventId)?.token === requestToken) {
-        eventDetailRequests.delete(eventId);
-      }
+      eventDetailRequests.delete(eventId);
     }
   })();
-  eventDetailRequests.set(eventId, { revision, token: requestToken, promise: request });
+  eventDetailRequests.set(eventId, request);
   return request;
 }
 

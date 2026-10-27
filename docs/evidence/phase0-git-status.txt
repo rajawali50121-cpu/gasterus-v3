@@ -1,8 +1,0 @@
-## release/go-live-20261025...origin/release/go-live-20261025
-?? docs/evidence/
-release/go-live-20261025
-0138f11 docs: add go-live execution status checkpoint
-ac6ced2 docs: record automated go-live verification evidence
-7181a47 chore: go-live readiness fixes (migration paths, railway env, register cache bust)
-a59400c docs: update maintenance notes for sportsbook provider gating
-0656235 chore(deploy): fix migration script paths and guard insecure production defaults

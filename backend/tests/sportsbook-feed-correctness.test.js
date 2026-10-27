@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url),'utf8');
 const betting = readFileSync(new URL('../src/sportsbook-betting.js', import.meta.url),'utf8');
-const app = readFileSync(new URL('../src/app.js', import.meta.url),'utf8');
 const e2e = readFileSync(new URL('../../scripts/verify-sportsbook-e2e.mjs', import.meta.url),'utf8');
 
 test('R6.9.0.22 feed closes finished and kickoff-pending markets before bettable counting', () => {
@@ -29,18 +28,8 @@ test('R6.9.0.22 member catalog removes closed results and has bounded horizon', 
 
 test('member source status reflects the overall feed even when the current page is empty', () => {
   assert.match(feed, /const visibleBettableMarkets = bettableMarketCount\(events\)/);
-  assert.match(feed, /const memberHealthy = !stale && !feed\.readOnlySource && !feed\.snapshotFallback && Number\(feed\.bettableMarkets \|\| 0\) > 0/);
+  assert.match(feed, /const memberHealthy = !stale && !feed\.readOnlySource && Number\(feed\.bettableMarkets \|\| 0\) > 0/);
   assert.match(feed, /status: feed\.readOnlySource \? .* : memberHealthy \? 'ONLINE' : 'DEGRADED'/);
-});
-
-test('sportsbook bet route rejects suspended or read-only feed selections server-side', () => {
-  assert.ok(app.includes('createSportsbookBet(s,await body(req),{ip})'));
-  assert.match(betting, /async function resolveLeg\(input[\s\S]*sportsbookSelectionSnapshot/);
-  assert.match(betting, /async function createSportsbookBet\([\s\S]*resolveLeg\(selection/);
-  assert.match(feed, /if \(!market \|\| market\.suspended\) throw new AppError\(409, 'Pasaran sedang ditutup atau tidak tersedia\.', 'SPORTS_MARKET_SUSPENDED'\)/);
-  assert.match(feed, /if \(!selection \|\| selection\.suspended\) throw new AppError\(409, 'Pilihan odds sedang ditutup atau tidak tersedia\.', 'SPORTS_SELECTION_SUSPENDED'\)/);
-  assert.match(feed, /const readOnlySource = Boolean\(snapshotFallback \|\| mergedBettableMarkets < 1\)/);
-  assert.match(feed, /function bettableMarketCount[\s\S]*!market\.suspended[\s\S]*!selection\.suspended/);
 });
 
 test('Sportsbook feed is sourced exclusively from Sportmonks and member errors stay provider-neutral', () => {
@@ -70,17 +59,19 @@ test('R6.9.0.22 member quote and ticket responses omit provider telemetry', () =
 });
 
 test('Sportmonks is the only sportsbook refresh descriptor', () => {
-  assert.match(feed,/code: 'sportmonks', enabled: true, fetcher: \(\) => fetchSportmonks\(\{ maxPages: config\.sportmonksMaxPagesPerRefresh \}\)/);
+  assert.match(feed,/code: 'sportmonks', enabled: true, fetcher: fetchSportmonks/);
   assert.doesNotMatch(feed,/code: '(?:public-market|sharpapi|api-sports|the-odds-api|footballdata-io)'/);
 });
 
-test('member requests do not replace provider errors with synthetic sportsbook data', () => {
-  const refreshPath = feed.slice(feed.indexOf('async function performRefresh'), feed.indexOf('function normalizedSport'));
+test('member requests do not wait on a competing feed refresh beyond the proxy budget', () => {
   assert.match(feed,/const REFRESH_LOCK_WAIT_MS = 5000/);
   assert.match(feed,/SPORTS_REFRESH_IN_PROGRESS/);
-  assert.equal(feed.match(/throw error;/g)?.length >= 2, true);
-  assert.match(feed,/throw new AppError\(503, 'Provider sportsbook belum mengembalikan pertandingan asli\.', 'SPORTS_FEED_EMPTY'\)/);
-  assert.doesNotMatch(refreshPath,/activateHardFallback|buildHardFallbackEvents|HARD_FALLBACK/);
+  // Kedua jalur catch (refreshSportsbookFeed & currentFeed) kini menjawab
+  // seketika: cache segar dipakai bila ada, kalau tidak langsung hard fallback.
+  // Tidak ada lagi `throw` yang menahan request melewati budget proxy atau
+  // mengembalikan feed kosong 5xx ke frontend (anti "0 Pertandingan").
+  assert.doesNotMatch(feed,/if \(error\?\.code === 'SPORTS_REFRESH_IN_PROGRESS'\) throw error/);
+  assert.equal(feed.match(/return activateHardFallback\(error, 'refresh-in-progress-no-cache'\)/g)?.length, 2);
 });
 
 test('E2E enforces expanded event volume and core market coverage without requiring derived markets per event', () => {

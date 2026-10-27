@@ -15,7 +15,7 @@ function request(options, body = null) {
         ...(options.headers || {}),
       },
     };
-
+    
     const req = http.request(reqOptions, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
@@ -65,7 +65,7 @@ results.push(await test('LOGIN_WRONG_CRED (should 401)', () =>
 ));
 results.push(await test('ME_NO_AUTH (should 401)', () => request({ path: '/api/member/me' })));
 results.push(await test('ME_INVALID_TOKEN (should 401)', () =>
-  request({ path: '/api/member/me', headers: { Authorization: 'invalid-test-token' } })
+  request({ path: '/api/member/me', headers: { Authorization: 'Bearer invalid123' } })
 ));
 
 const passed = results.filter(Boolean).length;

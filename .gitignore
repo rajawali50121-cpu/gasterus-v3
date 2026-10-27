@@ -11,8 +11,3 @@ coverage/
 .idea/
 .vscode/
 .github/
-!.github/
-.github/*
-!.github/workflows/
-.github/workflows/*
-!.github/workflows/ci.yml

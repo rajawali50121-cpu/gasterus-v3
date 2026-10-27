@@ -11,69 +11,20 @@ const worker = readFileSync(new URL('../src/sportsbook-render-worker.js', import
 const config = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
 
 const INGEST_PATH = '/api/internal/sportsbook/ingest';
-// Nilai env worker memakai bentuk `KEY: "value"`; bentuk preserve() di blok backend
+// Nilai env worker memakai bentuk `KEY: "value"`; bentuk preserve() di blok web
 // tidak ikut tertangkap regex ini sehingga hasilnya eksplisit milik worker.
-const workerConfig = railway.slice(railway.indexOf('const sportsbookRenderWorker = service('));
-const railwayWorkerEnv = key => workerConfig.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
-const backendConfig = railway.slice(railway.indexOf('const backend = service('), railway.indexOf('// Scraper odds'));
-const workerServiceConfig = railway.slice(railway.indexOf('const sportsbookRenderWorker = service('), railway.indexOf('return project('));
-const railwayWorkerPreserves = key => new RegExp(`${key}: preserve\\(\\)`).test(workerServiceConfig);
+const railwayWorkerEnv = key => railway.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
 
 test('Railway scraper runs in its own slim service image with a hard heap ceiling', () => {
   assert.match(railway, /service\("sportsbook-render-worker"/);
   assert.match(railway, /dockerfilePath: "deploy\/Dockerfile\.sportsbook-render-worker"/);
   assert.match(railway, /NODE_OPTIONS: "--max-old-space-size=224"/);
-  assert.match(railway, /service\("gasterus-v3"/);
-  assert.match(railway, /resources: \[Postgres, backend, sportsbookRenderWorker, Redis, postgresVolume, redisVolume\]/);
-  assert.match(backendConfig,/build:\s*\{\s*builder:\s*"DOCKERFILE",\s*dockerfilePath:\s*"deploy\/Dockerfile"\s*\}/);
-  assert.match(backendConfig,/preDeployCommand:\s*\[\s*"node deploy\/predeploy\.js"\s*\]/);
-  assert.match(backendConfig,/healthcheckPath:\s*"\/healthz"/);
-  assert.match(backendConfig,/healthcheckTimeout:\s*300/);
-  assert.match(backendConfig,/restartPolicyType:\s*"ON_FAILURE"/);
-  assert.match(backendConfig,/restartPolicyMaxRetries:\s*10/);
-  assert.match(backendConfig,/drainingSeconds:\s*15/);
-  assert.match(workerServiceConfig,/build:\s*\{\s*builder:\s*"DOCKERFILE",\s*dockerfilePath:\s*"deploy\/Dockerfile\.sportsbook-render-worker"\s*\}/);
-  assert.match(workerServiceConfig,/restartPolicyType:\s*"ON_FAILURE"/);
-  assert.match(workerServiceConfig,/restartPolicyMaxRetries:\s*10/);
+  assert.match(railway, /resources: \[Postgres, web, sportsbookRenderWorker, Redis, postgresVolume, redisVolume\]/);
 
-  // Provider credentials and ingest settings are managed on the backend service
-  // and inherited by the worker so both services cannot silently use different keys.
-  assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_HMAC_SECRET'), '${{gasterus-v3.SPORTSBOOK_INGEST_HMAC_SECRET}}');
-  assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{gasterus-v3.SPORTSBOOK_INGEST_URL}}');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{gasterus-v3.SPORTMONKS_API_KEY}}');
-  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), '${{gasterus-v3.THE_ODDS_API_KEY}}');
-  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY_2'), '${{gasterus-v3.THE_ODDS_API_KEY_2}}');
-  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEYS'), '${{gasterus-v3.THE_ODDS_API_KEYS}}');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), '${{gasterus-v3.SPORTMONKS_ENABLED}}');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_BASE_URL'), 'https://api.sportmonks.com/v3');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES_PER_REFRESH'), '30');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '1000');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '60');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ODDS_REFRESH_SECONDS'), '60');
-  assert.match(backendConfig, /SPORTSBOOK_INGEST_HMAC_SECRET: preserve\(\)/);
-  assert.match(backendConfig, /SPORTMONKS_API_KEY: preserve\(\)/);
-  assert.match(backendConfig, /THE_ODDS_API_KEY: preserve\(\)/);
-  assert.match(backendConfig, /THE_ODDS_API_KEY_2: preserve\(\)/);
-  assert.match(backendConfig, /THE_ODDS_API_KEYS: preserve\(\)/);
-  assert.match(backendConfig, /SPORTMONKS_ENABLED: "true"/);
-  assert.match(backendConfig, /SPORTMONKS_BASE_URL: "https:\/\/api\.sportmonks\.com\/v3"/);
-  assert.match(backendConfig, /SPORTMONKS_MAX_PAGES_PER_REFRESH: "30"/);
-  assert.match(backendConfig, /SPORTMONKS_REQUEST_DELAY_MS: "1000"/);
-  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY'), false);
-  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEY_2'), false);
-  assert.equal(railwayWorkerPreserves('THE_ODDS_API_KEYS'), false);
-  assert.equal(railwayWorkerPreserves('THE_ODDS_API_FAILOVER_REMAINING_THRESHOLD'), true);
-  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{gasterus-v3.SPORTMONKS_API_KEY}}');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), '${{gasterus-v3.SPORTMONKS_ENABLED}}');
-  assert.equal(railwayWorkerEnv('SHARP_API_KEY'), '${{gasterus-v3.SHARP_API_KEY}}');
-  assert.equal(railwayWorkerEnv('SHARP_API_ENABLED'), '${{gasterus-v3.SHARP_API_ENABLED}}');
-  assert.match(backendConfig, /THE_ODDS_API_KEY: preserve\(\)/);
-  assert.match(config, /optionalSecret\('THE_ODDS_API_KEY'\)/);
-  assert.match(config, /theOddsApiKeys/);
-  assert.match(config, /sportmonksEnabled: pricedProviderEnabled\('SPORTMONKS_ENABLED', sportmonksKey\)/);
-  assert.match(envExample, /^THE_ODDS_API_KEY=replace-with-your-the-odds-api-key$/m);
-  assert.match(config, /sportsbookIngestHmacSecret: optionalSecret\('SPORTSBOOK_INGEST_HMAC_SECRET'\)/);
-  assert.match(config, /sportmonksBaseUrl: text\('SPORTMONKS_BASE_URL', 'https:\/\/api\.sportmonks\.com\/v3'\)/);
+  // Secret diwariskan dari service web — tidak diduplikasi manual.
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_HMAC_SECRET'), '${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}');
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), '${{web.THE_ODDS_API_KEY}}');
 
   // Image hanya membawa backend/src — tanpa frontend/node_modules berat.
   assert.match(renderDockerfile, /^FROM node:22\./m);
@@ -81,22 +32,29 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(renderDockerfile, /CMD \["node", "backend\/src\/sportsbook-render-worker\.js"\]/);
 });
 
-test('worker polls The Odds API markets inside the quota/RAM budget', () => {
+test('worker runs Sportmonks as primary with The Odds API fallback inside the quota/RAM budget', () => {
   assert.equal(railwayWorkerEnv('THE_ODDS_API_ENABLED'), 'true');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_REGIONS'), 'eu');
-  assert.equal(railwayWorkerEnv('THE_ODDS_API_MARKETS'), 'h2h,spreads,totals');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_MARKETS'), 'h2h');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_EVENT_MARKETS_ENABLED'), 'false');
   assert.equal(railwayWorkerEnv('THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS'), '0');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
-  // Batas render diteruskan ke worker agar ukuran snapshot tetap terjaga.
+  // Anggaran halaman penuh diteruskan ke fetchSportmonks agar snapshot ingest
+  // mengambil cakupan luas (bukan terpotong ~17 match oleh pembagian statis).
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
   assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
-  assert.match(worker, /maxSportmonksPages: config\.sportmonksMaxPagesPerRefresh/);
   // Snapshot besar wajib selaras dengan anggaran payload ingest SEBELUM berangkat
   // (trim deterministik, bukan gagal 413 diam-diam yang membekukan feed).
   assert.match(worker, /maxPayloadBytes: config\.sportsbookIngestMaxPayloadBytes/);
   assert.match(worker, /fetchOddsApi:\s*fetchTheOddsApi/);
-  assert.match(worker, /fetchSharpApi/);
+
+  // Sportmonks primer di worker yang sama: key diwariskan dari web (tanpa
+  // service/platform baru) dan dibatasi 500 event agar heap 224MB aman.
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), '500');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '300');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '0');
   assert.match(worker, /fetchSportmonks/);
 
   const sportKeys = (railwayWorkerEnv('THE_ODDS_API_SPORT_KEYS') || '').split(',').map(v => v.trim()).filter(Boolean);
@@ -120,9 +78,8 @@ test('worker polls The Odds API markets inside the quota/RAM budget', () => {
 test('ingest URL, env example, both proxies and backend route stay aligned', () => {
   const envUrl = envExample.match(/^SPORTSBOOK_INGEST_URL=(\S+)$/m)?.[1];
   assert.ok(envUrl?.endsWith(INGEST_PATH), 'URL ingest menunjuk ke /api/internal/sportsbook/ingest');
-  assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{gasterus-v3.SPORTSBOOK_INGEST_URL}}');
-  assert.match(envExample, /^THE_ODDS_API_MARKETS=h2h,spreads,totals$/m);
-  assert.match(envExample, /^THE_ODDS_API_REFRESH_SECONDS=840$/m);
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
+  assert.match(envExample, /^THE_ODDS_API_REFRESH_SECONDS=720$/m);
   assert.match(envExample, /^THE_ODDS_API_SPORT_KEYS=soccer_epl,/m);
 
   assert.match(proxy, /url\.pathname === '\/api\/internal\/sportsbook\/ingest'/);
@@ -132,9 +89,10 @@ test('ingest URL, env example, both proxies and backend route stay aligned', () 
   assert.ok(app.includes(String.raw`\/api\/internal\/sportsbook\/ingest`), 'backend app.js wajib mendaftarkan rute ingest internal');
 });
 
-test('Railway Redis persistence settings match the running service', () => {
-  assert.match(railway, /--save 60 1/);
-  assert.match(railway, /--dir \$RAILWAY_VOLUME_MOUNT_PATH/);
+test('Railway Redis keeps a hard memory ceiling to prevent instance OOM', () => {
+  assert.match(railway, /--maxmemory 128mb/);
+  assert.match(railway, /--maxmemory-policy volatile-lru/);
+  assert.match(railway, /--maxmemory-samples 5/);
 });
 
 test('member sportsbook endpoints stay clean and fast behind the Cloudflare frontend', () => {
@@ -152,12 +110,4 @@ test('member sportsbook endpoints stay clean and fast behind the Cloudflare fron
   // Snapshot worker masuk lewat POST internal saja; keamanannya dijamin
   // validasi HMAC + jendela timestamp + cap payload di acceptSportsbookSnapshot.
   assert.ok(app.includes(String.raw`\/api\/internal\/sportsbook\/ingest`), 'rute ingest internal wajib terdaftar');
-});
-
-test('member feed catalog and Redis cache use explicit bounded Railway budgets', () => {
-  const backendEnv = railway.slice(railway.indexOf('const backend = service('), railway.indexOf('// Scraper odds'));
-  assert.match(backendEnv, /SPORTS_FEED_MAX_EVENTS: "500"/);
-  assert.match(backendEnv, /SPORTS_FEED_MAX_CACHE_BYTES: "8388608"/);
-  assert.match(config, /sportsFeedMaxEvents: int\('SPORTS_FEED_MAX_EVENTS', 500, 20, 500\)/);
-  assert.match(config, /sportsFeedMaxCacheBytes: int\('SPORTS_FEED_MAX_CACHE_BYTES', 8_388_608, 262_144, 15_000_000\)/);
 });

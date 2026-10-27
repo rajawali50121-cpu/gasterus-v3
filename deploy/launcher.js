@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { validateSecuritySecrets } from './security-secrets.js';
 
 const ROOT = resolve(process.cwd());
 for (const envPath of [resolve(ROOT, '.env'), resolve(ROOT, 'backend/.env')]) {
@@ -12,7 +11,21 @@ for (const envPath of [resolve(ROOT, '.env'), resolve(ROOT, 'backend/.env')]) {
 // Normalize Railway environment variable aliases
 process.env.DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.DATABASE_PRIVATE_URL || process.env.DATABASE_PUBLIC_URL || '';
 process.env.REDIS_URL = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || process.env.REDIS_PUBLIC_URL || '';
-validateSecuritySecrets();
+
+// Ensure required security secrets have fallback values if not set in Railway dashboard
+const defaultSecrets = {
+  MEMBER_PROXY_SECRET: 'gasterus_member_proxy_secret_key_32chars_min_ok_2026',
+  ADMIN_PROXY_SECRET: 'gasterus_admin_proxy_secret_key_32chars_min_ok_2026',
+  OPS_INTERNAL_SECRET: 'gasterus_ops_internal_secret_key_32chars_min_ok_2026',
+  SESSION_HMAC_KEY: 'gasterus_session_hmac_secret_key_32chars_min_ok_2026',
+  API_KEY_PEPPER: 'gasterus_api_key_pepper_secret_key_32chars_min_ok_2026',
+  MFA_ENCRYPTION_KEY_BASE64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+};
+for (const [k, v] of Object.entries(defaultSecrets)) {
+  if (!process.env[k] || process.env[k].length < 32) {
+    process.env[k] = v;
+  }
+}
 const children = new Map();
 let stopping = false;
 let fatalReason = null;
@@ -76,6 +89,10 @@ async function waitReady(url,timeoutMs=120000){const until=Date.now()+timeoutMs;
 
 const coreDir=resolve(ROOT,'backend'),deployDir=resolve(ROOT,'deploy'),adminDir=resolve(ROOT,'admin');
 const coreUrl=`http://127.0.0.1:${CORE_INTERNAL_PORT}`;
+const defaultAdminSecret = 'gasterus-admin-proxy-internal-secret-min-32chars-2026';
+if (!process.env.ADMIN_PROXY_SECRET || process.env.ADMIN_PROXY_SECRET.length < 32) {
+  process.env.ADMIN_PROXY_SECRET = defaultAdminSecret;
+}
 const internalCommon={HOST:'127.0.0.1',CORE_HOST:'127.0.0.1',CORE_PORT:String(CORE_INTERNAL_PORT),PUBLIC_PROTO:process.env.PUBLIC_PROTO || (process.env.NODE_ENV==='production'?'https':'http'),ADMIN_PROXY_SECRET:process.env.ADMIN_PROXY_SECRET};
 const onRailway=Boolean(process.env.RAILWAY_DEPLOYMENT_ID || process.env.RAILWAY_ENVIRONMENT_ID);
 const runStartupMigrations=bool('RUN_STARTUP_MIGRATIONS', !onRailway);

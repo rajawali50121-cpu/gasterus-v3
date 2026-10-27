@@ -270,53 +270,33 @@ tertentu, berguna saat menelusuri masalah memori.
 Scrape odds dijalankan sebagai **service Railway terpisah**
 (`.railway/railway.ts` → `sportsbook-render-worker`, image
 `deploy/Dockerfile.sportsbook-render-worker`) — beban scrape tidak pernah
-menyentuh memori service backend `gasterus-v3`. Pengaman memori worker:
+menyentuh memori service `web`. Redis tetap ber-`--maxmemory 128mb
+volatile-lru`. Pengaman memori worker:
 
 - **Heap V8 dikunci 224MB** (`NODE_OPTIONS=--max-old-space-size=224`) di bawah
   ukuran container (~512MB); V8 GC agresif jauh sebelum OOM.
-- **Cakupan odds berlisensi** diproses berurutan: Sportmonks, SharpAPI, lalu
-  The Odds API. Sportmonks dan SharpAPI hanya aktif bila key dan flag enable dari
-  service backend tersedia; keduanya dapat menambah fixture dan market asli.
-- **EPL dan La Liga** mengambil market `h2h,spreads,totals` (1X2,
-  handicap, over/under) di region `eu` setiap 840 detik.
+- Hanya **5 liga andalan** (`soccer_epl`, La Liga, Serie A, Bundesliga, UCL);
+  market `h2h` x region `eu` = 1 kredit/request; refresh 720 detik.
 - **Market per-event dimatikan** (`THE_ODDS_API_EVENT_MARKETS_ENABLED=false`,
   alokasi 0) — tanpa fetch tambahan.
-- Event detail tetap menampilkan semua market provider yang masuk snapshot,
-  maksimum 24 market dan 40 selection per market. Market utama FT diprioritaskan;
-  market terlalu besar dibuang utuh, tidak dipotong menjadi odds yang menyesatkan.
-- Cache detail odds per-event dibatasi 100 entri / 2MB total, tiap respons
-  maksimum 512KB; cache feed dibatasi 500 event / 8MB, TTL Redis minimal 180 dtk.
-  Snapshot ingestion worker tetap dibatasi 500 event / 6MB per push.
-- Cache detail UI dibatasi 60 event per tab dan dibuang saat feed revision atau
-  halaman berubah. Browser mengambil REST satu kali sebagai bootstrap/fallback;
-  pembaruan reguler menggunakan SSE, bukan polling REST berulang.
-- Secret & URL diwariskan dari service backend `gasterus-v3`
-  (`${{gasterus-v3.*}}`) — tidak diduplikasi. Atur `SPORTMONKS_API_KEY`,
-  `THE_ODDS_API_KEY`, `THE_ODDS_API_KEY_2`, dan `THE_ODDS_API_KEYS` hanya pada
-  service backend; worker memakai nilai service tersebut agar tidak tertahan
-  pada secret worker lama.
-- **Railway** (`gasterus-v3`) hanya menerima snapshot di
+- Cache provider berbatas byte (10MB total), payload stale guard 429 ikut
+  dalam batas yang sama; snapshot berbatas 500 event / 6MB per push.
+- Secret & URL diwariskan dari `web` (`${{web.*}}`) — tidak diduplikasi.
+- **Railway** (`web`) hanya menerima snapshot di
   `/api/internal/sportsbook/ingest` (HMAC + jendela timestamp + cap payload),
-  menyimpannya ke Redis. Bila sumber gagal, cache yang masih layak hanya
-  disajikan read-only; tanpa cache feed mengembalikan error eksplisit dan tidak
-  membuat fixture atau harga odds sintetis. Feed cache namespace juga dinaikkan
-  agar cache lawas yang mungkin berisi fixture buatan tidak dimuat ulang.
+  menyimpannya ke Redis; fallback lokal tetap Sportmonks terbatas
+  (12 halaman) bila snapshot absen. 
 
-- **Worker** (`backend/src/sportsbook-render-worker.js`) mengambil fixture dan
-  odds asli dari provider yang aktif (bukan data dummy), membangun snapshot
-  ≤500 event lalu mengirim HMAC-signed ke `gasterus-v3` setiap 90 detik
+- **Worker** (`backend/src/sportsbook-render-worker.js`) mengambil odds asli
+  dari **The Odds API** (bukan data dummy), membangun snapshot ≤500 event
+  lalu mengirim HMAC-signed ke `web` setiap 90 detik
   (`SPORTSBOOK_INGEST_MAX_AGE_SECONDS=180`).
-- **Anggaran kuota** (biaya = jumlah sport × ceil(86400/refresh) × markets ×
-  regions kredit/hari): 2 liga × 840 detik × 3 market × `eu` = **618
-  kredit/hari**, di bawah batas Professional (667/hari). Menambah
-  sport/market atau menyalakan endpoint event-market dapat melebihi kuota —
-  event-market tidak diaktifkan tanpa persetujuan batas kuota. Batas ini dijaga test
+- **Anggaran kuota** (biaya = jumlah sport × (86400/refresh) × markets ×
+  regions kredit/hari): konfigurasi bawaan 5 liga × 12 menit × `h2h` × `eu`
+  = **600 kredit/hari**, muat di paket Professional (667/hari). Menambah
+  sport/market menuntut paket Business (6.667/hari) — batas ini dijaga test
   `backend/tests/sportsbook-render-deployment.test.js`.
-- Sportmonks/SharpAPI memakai paket dan kuota masing-masing; penambahan source
-  tidak menambah permintaan/kredit The Odds API. Pastikan key dan flag provider
-  memang tersedia/diizinkan sebelum mengaktifkan, dan pantau kuota provider
-  masing-masing. Worker hanya menerima source yang dikenal oleh validator ingest.
-- **Kesegaran harga**: cadence refresh (840 s) harus di bawah
+- **Kesegaran harga**: cadence refresh (720 s) harus di bawah
   `SPORTSBOOK_MAX_PREMATCH_PRICE_AGE_SECONDS` (900 s) supaya taruhan prematch
   tidak pernah ditolak `SPORTS_PRICE_STALE`. Market live yang harganya lebih
   tua dari `SPORTSBOOK_MAX_LIVE_PRICE_AGE_SECONDS` (90 s) otomatis di-suspend
@@ -340,7 +320,6 @@ menyentuh memori service backend `gasterus-v3`. Pengaman memori worker:
 | 16 Okt 2026 | .railway/railway.ts + sportsbook-render-worker* + MAINTENANCE.md | Scraper odds The Odds API sebagai service Railway terpisah (heap 224MB, 5 liga); Redis `--maxmemory` 128MB dipulihkan; guard kuota 429 + test topologi deploy | Cline |
 | 18 Okt 2026 | sportsbook-providers.js + sportsbook-render-worker* + .railway/railway.ts | Pagination Sportmonks round-robin per tanggal (maks 120 halaman/refresh, berhenti awal saat 600 kandidat) — snapshot ingest tidak lagi terpotong ~17 match; `maxPages` kini diteruskan dari `SPORTSBOOK_RENDER_MAX_PAGES`; batas OOM 4MB/12MB tidak berubah | Cline |
 | 18 Okt 2026 | sportsbook-providers.js + sportsbook-render-worker-core.js + sportsbook-ingestion.js + sportsbook-feed.js + verify-sportsbook-e2e.mjs | Filter penyembunyian fixture aktif dibuang (`has_odds === false` / `markets kosong` tidak lagi membuang match) — semua pertandingan pre-match & live ikut snapshot (display-only bila tanpa odds); skema ingest menerima `markets: []`; prioritas dedupe memilih salinan berharga; worker memangkas payload deterministik ke anggaran ingest (6MB) alih-alih gagal 413 diam-diam; halaman default `/api/member/sportsbook/events` naik 30→500 agar curl server melihat katalog penuh; E2E guard 300+ match | Cline |
-| 19 Okt 2026 | sportsbook-feed.js + sportsbook-providers.js + sportsbook.js | Feed katalog diselaraskan ke 500 event / 8MB, detail event mempertahankan variasi market yang sudah diterima dengan batas 24×40, cache detail provider/UI dibatasi byte/jumlah/TTL, dan sizing cache feed dibuat linear agar pembatasan tidak membuat lonjakan serialisasi berulang | Copilot |
 
 ---
 Update dokumen ini setiap kali ada perubahan signifikan pada CSS/HTML structure.

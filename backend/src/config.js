@@ -14,12 +14,6 @@ if (existsSync(localEnvFile)) {
 const isProduction = process.env.NODE_ENV === 'production';
 const apiSportsKey = optionalSecret('API_SPORTS_KEY');
 const theOddsApiKey = optionalSecret('THE_ODDS_API_KEY');
-const theOddsApiKey2 = optionalSecret('THE_ODDS_API_KEY_2');
-const theOddsApiKeys = [...new Set([
-  theOddsApiKey,
-  theOddsApiKey2,
-  ...optionalSecret('THE_ODDS_API_KEYS').split(',')
-].map(key => key.trim()).filter(Boolean))];
 const sharpApiKey = optionalSecret('SHARP_API_KEY');
 const theSportsDbKey = optionalSecret('THESPORTSDB_API_KEY');
 const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
@@ -30,13 +24,6 @@ function pricedProviderEnabled(name, key) {
   const raw = String(process.env[name] ?? '').trim().toLowerCase();
   if (!raw || raw === 'auto') return isProduction && Boolean(key);
   return ['1', 'true', 'yes', 'on'].includes(raw);
-}
-function uuidList(name) {
-  const values = text(name, '').split(',').map(value => value.trim()).filter(Boolean);
-  if (values.some(value => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))) {
-    throw new Error(`${name} must contain UUIDs.`);
-  }
-  return Object.freeze([...new Set(values.map(value => value.toLowerCase()))]);
 }
 
 export const config = Object.freeze({
@@ -103,9 +90,10 @@ export const config = Object.freeze({
   totoBrowserFallbackCacheSeconds: int('TOTO_BROWSER_FALLBACK_CACHE_SECONDS', 900, 60, 3600),
   totoBrowserFallbackSettleMs: int('TOTO_BROWSER_FALLBACK_SETTLE_MS', 4500, 1000, 12000),
   totoMaxResultAgeDays: int('TOTO_MAX_RESULT_AGE_DAYS', 4, 1, 14),
-  // A single source is not sufficient settlement authority unless an operator
-  // explicitly accepts that production risk.
-  totoSingleSourceCanPublishVerified: bool('TOTO_SINGLE_SOURCE_CAN_PUBLISH_VERIFIED', false),
+  // Operator decision (diminta owner): pasaran pool yang hanya punya 1 keluarga sumber
+  // tetap boleh jadi VERIFIED sehingga betting pools bisa dibuka. Angka tetap hasil scrape
+  // sumber asli (bukan generator). Revert: set env TOTO_SINGLE_SOURCE_CAN_PUBLISH_VERIFIED=false.
+  totoSingleSourceCanPublishVerified: bool('TOTO_SINGLE_SOURCE_CAN_PUBLISH_VERIFIED', true),
   // Tampilkan hasil REAL single-source (1 keluarga sumber) ke member sebagai display-only.
   // Betting/settlement TETAP butuh VERIFIED (authorityReady). Matikan dengan TOTO_PUBLISH_SINGLE_SOURCE=false.
   totoPublishSingleSource: bool('TOTO_PUBLISH_SINGLE_SOURCE', true),
@@ -126,10 +114,11 @@ export const config = Object.freeze({
   // Background feed/collector process is separate from settlement (feed-worker.js).
   sportsSourceBackgroundPollEnabled: bool('SPORTS_SOURCE_BACKGROUND_POLL_ENABLED', true),
   feedWorkerEnabled: bool('FEED_WORKER_ENABLED', true),
-  // Katalog penuh tetap dibatasi 500 fixture; cache byte dan batas market
-  // per fixture menjadi pengaman memori untuk snapshot, Redis, dan SSE.
-  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 500, 20, 500),
-  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 8_388_608, 262_144, 15_000_000),
+  // Batasi snapshot sportsbook agar feed-worker (heap terbatas) dan payload
+  // SSE/Redis tidak meledak saat provider menghasilkan banyak fixture/pasaran.
+  // 120 event × pasaran inti tetap aman untuk heap 256MB dan broadcast SSE.
+  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 120, 20, 500),
+  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 2_000_000, 262_144, 15_000_000),
   // Eviction agresif provider cache: entri lama langsung dibuang sebelum menumpuk di RAM.
   sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 40, 1, 10000),
   sportsProviderCacheMaxEntryBytes: int('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 1_048_576, 1024, 100_000_000),
@@ -163,14 +152,12 @@ export const config = Object.freeze({
   sharpApiMaxPages: int('SHARP_API_MAX_PAGES', isProduction ? 5 : 3, 1, 10),
   sharpApiPageSize: int('SHARP_API_PAGE_SIZE', 200, 25, 200),
   sharpApiMainLinesOnly: bool('SHARP_API_MAIN_LINES_ONLY', false),
-  theOddsApiKey: theOddsApiKeys[0] || '',
-  theOddsApiKeys,
-  theOddsApiFailoverRemainingThreshold: boundedInt('THE_ODDS_API_FAILOVER_REMAINING_THRESHOLD', 10, 0, 500),
+  theOddsApiKey,
   theOddsApiBaseUrl: text('THE_ODDS_API_BASE_URL', 'https://api.the-odds-api.com/v4'),
-  theOddsApiEnabled: pricedProviderEnabled('THE_ODDS_API_ENABLED', theOddsApiKeys[0] || ''),
+  theOddsApiEnabled: pricedProviderEnabled('THE_ODDS_API_ENABLED', theOddsApiKey),
   theOddsApiRegions: text('THE_ODDS_API_REGIONS', 'eu,uk'),
   theOddsApiMarkets: text('THE_ODDS_API_MARKETS', 'h2h,spreads,totals'),
-  theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', isProduction && theOddsApiKeys.length > 0),
+  theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', isProduction && Boolean(theOddsApiKey)),
   theOddsApiEventMarkets: text('THE_ODDS_API_EVENT_MARKETS', 'h2h_3_way_h1,spreads_h1,totals_h1,btts,btts_h1,double_chance,double_chance_h1,halftime_fulltime'),
   theOddsApiEventMaxEventsPerSport: int('THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT', 25, 0, 50),
   theOddsApiEventMaxTotalEvents: int('THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS', 120, 0, 120),
@@ -185,18 +172,17 @@ export const config = Object.freeze({
   theSportsDbBaseUrl: text('THESPORTSDB_BASE_URL', 'https://www.thesportsdb.com/api'),
   theSportsDbEnabled: bool('THESPORTSDB_ENABLED', false),
   theSportsDbLeagueIds: text('THESPORTSDB_LEAGUE_IDS', '4328,4335,4332,4331,4334,4387'),
-  // Sportmonks supplies fixture/settlement authority; The Odds API adds prices in the render worker.
+  // Sportmonks is the sole sportsbook fixture and odds provider.
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
   sportmonksKey,
-  sportmonksEnabled: pricedProviderEnabled('SPORTMONKS_ENABLED', sportmonksKey),
+  sportmonksEnabled: bool('SPORTMONKS_ENABLED', isProduction && Boolean(sportmonksKey)),
   sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 30, 0, 30),
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
   sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 180, 30, 1800),
   sportmonksPriorityLeagues: text('SPORTMONKS_PRIORITY_LEAGUES', 'Premier League,La Liga,Serie A,Bundesliga,Ligue 1,UEFA Champions League,UEFA Europa League,UEFA Europa Conference League,Eredivisie,Primeira Liga,Major League Soccer'),
   // Cap per-provider normalized events independently from the larger aggregated feed.
   sportmonksMaxTotalEvents: boundedInt('SPORTMONKS_MAX_TOTAL_EVENTS', 500, 0, 500),
-  sportmonksMaxPagesPerRefresh: boundedInt('SPORTMONKS_MAX_PAGES_PER_REFRESH', 30, 1, 120),
-  sportmonksRequestDelayMs: int('SPORTMONKS_REQUEST_DELAY_MS', 1000, 0, 60000),
+  sportmonksRequestDelayMs: int('SPORTMONKS_REQUEST_DELAY_MS', 0, 0, 60000),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
   sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
   // TheSportsDB publishes 123 as its current free V1 API key. Artwork is metadata-only and
@@ -249,21 +235,16 @@ export const config = Object.freeze({
   sportsbookLiveAcceptanceDelayMs: int('SPORTSBOOK_LIVE_ACCEPTANCE_DELAY_MS', 3000, 3000, 10000),
   sportsbookQuoteTtlSeconds: int('SPORTSBOOK_QUOTE_TTL_SECONDS', 15, 5, 60),
   sportsbookQuoteRequired: bool('SPORTSBOOK_QUOTE_REQUIRED', process.env.NODE_ENV === 'production'),
-  sportsbookBettingKillSwitchEnabled: bool('SPORTSBOOK_BETTING_KILL_SWITCH_ENABLED', false),
-  sportsbookLimitedTestModeEnabled: bool('SPORTSBOOK_LIMITED_TEST_MODE_ENABLED', false),
-  sportsbookLimitedTestMemberIds: uuidList('SPORTSBOOK_LIMITED_TEST_MEMBER_IDS'),
-  sportsbookLimitedTestMaxStake: int('SPORTSBOOK_LIMITED_TEST_MAX_STAKE', 1000, 100, 100000000),
   sportsbookPrematchCloseGraceSeconds: int('SPORTSBOOK_PREMATCH_CLOSE_GRACE_SECONDS', 30, 0, 300),
   sportsbookMaxLivePriceAgeSeconds: int('SPORTSBOOK_MAX_LIVE_PRICE_AGE_SECONDS', 90, 15, 600),
   sportsbookMaxPrematchPriceAgeSeconds: int('SPORTSBOOK_MAX_PREMATCH_PRICE_AGE_SECONDS', 900, 60, 7200),
   sportsbookMaxEventLiability: int('SPORTSBOOK_MAX_EVENT_LIABILITY', 2000000000, 100000, 2000000000),
   sportsbookMaxMarketLiability: int('SPORTSBOOK_MAX_MARKET_LIABILITY', 1000000000, 100000, 2000000000),
   sportsbookMaxSelectionLiability: int('SPORTSBOOK_MAX_SELECTION_LIABILITY', 500000000, 100000, 2000000000),
-  sportsbookMaxMemberLiability: int('SPORTSBOOK_MAX_MEMBER_LIABILITY', 0, 0, 2000000000),
   // R6.9.0.12: when autonomous FT result authority is unavailable, healthy prematch
   // SharpAPI prices may be accepted with an explicit operator-settlement guarantee.
   // This never applies to LIVE or 1H markets and never fabricates result scores.
-  sportsbookManualFtSettlementFallbackEnabled: bool('SPORTSBOOK_MANUAL_FT_SETTLEMENT_FALLBACK_ENABLED', false),
+  sportsbookManualFtSettlementFallbackEnabled: isProduction ? true : bool('SPORTSBOOK_MANUAL_FT_SETTLEMENT_FALLBACK_ENABLED', false),
   sportsbookAutoSettlementEnabled: bool('SPORTSBOOK_AUTO_SETTLEMENT_ENABLED', true),
   sportsbookAutoSettlementSeconds: int('SPORTSBOOK_AUTO_SETTLEMENT_SECONDS', 30, 15, 600),
   // Settlement TOTO otomatis: begitu hasil OFFICIAL/CONSENSUS terbit dan betting

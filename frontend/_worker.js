@@ -1,6 +1,8 @@
 // Cloudflare Pages Advanced Mode (_worker.js) — reverse proxy API dan Admin ke backend Railway.
 // Semua request non-proxy dilayani dari static assets frontend (env.ASSETS).
 
+const DEFAULT_BACKEND = 'https://web-production-dc041.up.railway.app';
+
 // Edge cache (Cloudflare Cache API) HANYA untuk endpoint publik non-personal ber-GET.
 // Jalur lain (/api/member/*, /api/owner/*, /admin-api/*, /internal/*,
 // /api/member/sportsbook/stream, betting/quote/cashout/settlement) TIDAK pernah ada di
@@ -56,21 +58,7 @@ export default {
       return env.ASSETS.fetch(request);
     }
 
-    const backendOrigin = String(env?.BACKEND_URL || '').replace(/\/+$/, '');
-    if (!backendOrigin) {
-      return new Response(JSON.stringify({
-        ok: false,
-        error: 'BACKEND_NOT_CONFIGURED',
-        message: 'Backend URL belum dikonfigurasi pada Cloudflare Pages.',
-        time: new Date().toISOString()
-      }), {
-        status: 503,
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'cache-control': 'no-store'
-        }
-      });
-    }
+    const backendOrigin = (env?.BACKEND_URL || DEFAULT_BACKEND).replace(/\/+$/, '');
 
     const edgeTtlSeconds = request.method === 'GET' ? PUBLIC_EDGE_CACHE_TTL_SECONDS[url.pathname] || 0 : 0;
     if (edgeTtlSeconds) {

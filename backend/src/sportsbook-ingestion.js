@@ -3,9 +3,9 @@ import { AppError, assert } from './errors.js';
 import { config } from './config.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
-const ALLOWED_PROVIDERS = new Set(['sportmonks', 'api-sports', 'the-odds-api', 'sharpapi']);
+const ALLOWED_PROVIDERS = new Set(['sportmonks', 'api-sports', 'the-odds-api']);
 const ALLOWED_STATUSES = new Set(['SCHEDULED', 'LIVE', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
-const MAX_PROVIDER_RESULTS = 3;
+const MAX_PROVIDER_RESULTS = 2;
 const MAX_EVENTS = 500;
 const MAX_MARKETS_PER_EVENT = 120;
 const MAX_SELECTIONS_PER_MARKET = 250;
@@ -207,6 +207,10 @@ export function verifyStoredSportsbookSnapshot(stored, {
 
   validateTimestamp(String(record.timestamp || ''), Math.floor(now / 1000), maxAgeSeconds);
   const revision = createHash('sha256').update(rawBody).digest('hex');
+  if (!/^[a-f0-9]{64}$/i.test(String(record.revision || ''))
+    || !timingSafeEqual(Buffer.from(revision, 'hex'), Buffer.from(record.revision, 'hex'))) {
+    throw new AppError(400, 'Revision snapshot staging tidak valid.', 'SPORTSBOOK_INGEST_REVISION_INVALID');
+  }
   verifySignature(rawBody, record.timestamp, record.signature, secret);
 
   let snapshot;

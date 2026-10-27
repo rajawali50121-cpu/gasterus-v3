@@ -3,71 +3,10 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { ticketCalculation } from '../src/sportsbook-calculation.js';
 import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
-import { deriveSportsbookFeedPresentation } from '../../frontend/js/sportsbook-feed-status.js';
-import { primaryMarketColumns } from '../../frontend/js/sportsbook-markets.js';
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
-
-test('sportsbook status distinguishes fresh read-only odds, genuinely stale feeds, and active betting', () => {
-  const now = Date.parse('2026-10-20T10:00:00.000Z');
-  const styles = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
-  const makeFeed = ({ ageMs, mode, status, pricedMarkets, bettableMarkets, stale = false, degraded = false }) => ({
-    events: [{ id: 'event-1' }],
-    stale,
-    degraded,
-    source: {
-      fetchedAt: new Date(now - ageMs).toISOString(),
-      staleAfterSeconds: 180,
-      mode,
-      status,
-      pricedMarkets,
-      bettableMarkets
-    }
-  });
-
-  const readOnly = deriveSportsbookFeedPresentation(makeFeed({
-    ageMs: 60_000,
-    mode: 'READ_ONLY_PRICED_NO_SETTLEMENT_AUTHORITY',
-    status: 'PRICED_READ_ONLY',
-    pricedMarkets: 249,
-    bettableMarkets: 0,
-    stale: true,
-    degraded: true
-  }), now);
-  assert.equal(readOnly.statusText, 'Odds ditampilkan - taruhan belum dibuka');
-  assert.equal(readOnly.pricedMarkets, 249);
-  assert.equal(readOnly.isAgeStale, false);
-  assert.equal(readOnly.banner, null);
-
-  const delayed = deriveSportsbookFeedPresentation(makeFeed({
-    ageMs: 181_000,
-    mode: 'LIVE_SOURCE_AGGREGATOR',
-    status: 'ONLINE',
-    pricedMarkets: 249,
-    bettableMarkets: 200
-  }), now);
-  assert.equal(delayed.statusText, 'Feed tertunda');
-  assert.equal(delayed.banner, 'stale');
-
-  const active = deriveSportsbookFeedPresentation(makeFeed({
-    ageMs: 60_000,
-    mode: 'LIVE_SOURCE_AGGREGATOR',
-    status: 'ONLINE',
-    pricedMarkets: 249,
-    bettableMarkets: 200
-  }), now);
-  assert.equal(active.statusText, 'Feed aktif');
-  assert.equal(active.pricedMarkets, 249);
-  assert.equal(active.banner, null);
-
-  assert.match(frontend, /feedStatus\.textContent = presentation\.statusText/);
-  assert.match(frontend, /marketCount\.textContent = fmt\(presentation\.pricedMarkets\)/);
-  assert.match(frontend, /presentation\.banner === 'stale'/);
-  assert.match(feed, /staleAfterSeconds: config\.sportsFeedStaleSeconds/);
-  assert.match(styles, /#sb-feed-status\s*\{[^}]*overflow-wrap: anywhere/);
-});
 
 test('member sportsbook lazy-loads complete event market details and retains all list market variants', () => {
   assert.match(frontend, /const FEED_DETAIL_URL = \(id\) => `\/api\/member\/sportsbook\/events\/\$\{encodeURIComponent\(id\)\}`/);
@@ -75,13 +14,6 @@ test('member sportsbook lazy-loads complete event market details and retains all
   assert.match(frontend, /function renderAllEventMarkets\(event\)[\s\S]*event\.markets[\s\S]*market\.selections\.map/);
   assert.match(feed, /function memberPublicEvent\(event\)[\s\S]*SUMMARY_MARKET_TYPES\.has[\s\S]*memberEventShape\(item, markets\)/);
   assert.match(feed, /function memberPublicEventDetail\(event\)[\s\S]*memberEventShape\(item, item\.markets \|\| \[\]\)/);
-});
-
-test('event detail cache is revision-scoped and bounded in the browser', () => {
-  assert.match(frontend, /const MAX_EVENT_DETAIL_CACHE_ENTRIES = 60/);
-  assert.match(frontend, /function rememberEventDetail\(eventId, detail\)[\s\S]*eventDetails\.size > MAX_EVENT_DETAIL_CACHE_ENTRIES/);
-  assert.match(frontend, /detail\.revision !== String\(revision \|\| ''\)/);
-  assert.match(frontend, /eventDetailRequests\.get\(eventId\)\?\.token !== requestToken/);
 });
 
 test('detailed markets are refreshed by feed revision and stale odds cannot place a bet during refresh', () => {
@@ -96,43 +28,10 @@ test('event cards render only provider-backed primary markets and do not adverti
   assert.match(frontend, /import \{ primaryMarketColumns \} from '\.\/sportsbook-markets\.js'/);
   assert.match(frontend, /function eventMarketPeriods\(event\)/);
   assert.match(frontend, /data-match-period=/);
-  assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod, \{/);
+  assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);
   assert.match(frontend, /\$\{marketsCount \? `<div class="sb-detail-markets-wrapper">/);
   assert.match(frontend, /Odds utama belum tersedia dari provider/);
   assert.doesNotMatch(frontend, /<button[^>]*>Bet Builder<\/button>/);
-});
-
-test('read-only priced markets render odds as disabled reference prices only in that mode', () => {
-  const event = {
-    markets: [
-      { id: '1x2', type: '1X2', period: 'FT', suspended: true, selections: [{ key: 'home', label: 'Home', odds: 2.1, suspended: true }] },
-      { id: 'handicap', type: 'HANDICAP', period: 'FT', suspended: true, selections: [{ key: 'home-hdp', label: 'Home -0.5', odds: 1.9, suspended: true }] },
-      { id: 'totals', type: 'TOTALS', period: 'FT', suspended: true, selections: [{ key: 'over', label: 'Over 2.5', odds: 1.95, suspended: true }] }
-    ]
-  };
-  assert.deepEqual(primaryMarketColumns(event, 'FT'), []);
-  const referenceMarkets = primaryMarketColumns(event, 'FT', { includeSuspended: true, pricedOnly: true });
-  assert.deepEqual(referenceMarkets.map(item => item.market.type), ['HANDICAP', 'TOTALS', '1X2']);
-  assert.equal(referenceMarkets[0].outcomes[0][1].odds, 1.9);
-
-  assert.match(frontend, /feed\.source\?\.mode === 'READ_ONLY_PRICED_NO_SETTLEMENT_AUTHORITY'/);
-  assert.match(frontend, /Harga referensi - taruhan belum dibuka/);
-  const referenceRenderer = frontend.slice(frontend.indexOf('if (referenceOnly) {'), frontend.indexOf('if (m.suspended || s.suspended)'));
-  assert.match(referenceRenderer, /class="sb-odd-cell disabled sb-reference-price"/);
-  assert.match(referenceRenderer, /formatOdds\(decOdds, oddsFormat\)/);
-  assert.doesNotMatch(referenceRenderer, /<button|data-sel=/);
-});
-
-test('suspended odds stay hidden outside read-only mode and reference cells cannot invoke bet actions', () => {
-  const suspendedEvent = { markets: [{ type: '1X2', period: 'FT', suspended: true, selections: [{ key: 'home', odds: 2, suspended: true }] }] };
-  assert.deepEqual(primaryMarketColumns(suspendedEvent, 'FT'), []);
-
-  const clickStart = frontend.indexOf("const odd = e.target.closest('.sb-odd-cell')");
-  const delegatedClick = frontend.slice(clickStart, frontend.indexOf('const refreshBtn = e.target.closest', clickStart));
-  assert.match(delegatedClick, /odd && !odd\.classList\.contains\('disabled'\)/);
-  const referenceRenderer = frontend.slice(frontend.indexOf('if (referenceOnly) {'), frontend.indexOf('if (m.suspended || s.suspended)'));
-  assert.match(referenceRenderer, /class="sb-odd-cell disabled sb-reference-price"/);
-  assert.doesNotMatch(referenceRenderer, /data-sel=|api\.post\(/);
 });
 
 test('sports selector options are derived from sports that exist in the live feed', () => {

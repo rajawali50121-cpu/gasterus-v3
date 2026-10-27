@@ -17,47 +17,19 @@ export const pool = new Pool({
 });
 pool.on('error', error => logger.error('Unexpected PostgreSQL pool error', { error: error.message }));
 export const query = (text, values = []) => pool.query(text, values);
-const DEADLOCK_ERROR_CODE = '40P01';
-const MAX_DEADLOCK_RETRIES = 3;
-const DEADLOCK_RETRY_BASE_MS = 50;
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-const ALLOWED_ISOLATION_LEVELS = new Set(['READ COMMITTED', 'REPEATABLE READ', 'SERIALIZABLE']);
-
 export async function tx(fn, { isolation = 'READ COMMITTED' } = {}) {
-  if (ALLOWED_ISOLATION_LEVELS.has(isolation) === false) {
-    throw new Error('Unsupported transaction isolation level: ' + isolation);
-  }
-  for (let attempt = 0; ; attempt += 1) {
-    const client = await pool.connect();
-    let retryDelay = 0;
-    try {
-      await client.query('BEGIN');
-      await client.query(`SET TRANSACTION ISOLATION LEVEL ${isolation}`);
-      // Deadlock retries rerun the entire callback, so it must keep side effects transactional.
-      const result = await fn(client);
-      await client.query('COMMIT');
-      return result;
-    } catch (error) {
-      await client.query('ROLLBACK').catch(() => {});
-      const isDeadlock = error.code === DEADLOCK_ERROR_CODE
-        || error.message?.includes('deadlock detected');
-      if (!isDeadlock || attempt >= MAX_DEADLOCK_RETRIES) {
-        throw error;
-      }
-      retryDelay = DEADLOCK_RETRY_BASE_MS * (2 ** attempt);
-      logger.warn('Deadlock detected; retrying complete database transaction', {
-        attempt: attempt + 1,
-        maxRetries: MAX_DEADLOCK_RETRIES,
-        delay: retryDelay
-      });
-    } finally {
-      client.release();
-    }
-    await sleep(retryDelay);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`SET TRANSACTION ISOLATION LEVEL ${isolation}`);
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
   }
 }
 export async function checkDatabase() {

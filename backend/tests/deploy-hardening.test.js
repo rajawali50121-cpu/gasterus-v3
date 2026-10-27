@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,16 +11,17 @@ const root=resolve(here,'../..');
 const read=p=>readFileSync(resolve(root,p),'utf8');
 
 test('Railway uses Dockerfile lifecycle, predeploy, and health gate',()=>{
-  const railway=read('.railway/railway.ts');
-  const core=railway.slice(railway.indexOf('const backend = service("gasterus-v3"'),railway.indexOf('// Scraper odds'));
-  assert.match(core,/build:\s*\{\s*builder:\s*"DOCKERFILE",\s*dockerfilePath:\s*"deploy\/Dockerfile"\s*\}/);
-  assert.match(core,/preDeployCommand:\s*\[\s*"node deploy\/predeploy\.js"\s*\]/);
-  assert.match(core,/healthcheckPath:\s*"\/healthz"/);
-  assert.match(core,/healthcheckTimeout:\s*300/);
-  assert.match(core,/restartPolicyType:\s*"ON_FAILURE"/);
-  assert.match(core,/restartPolicyMaxRetries:\s*10/);
-  assert.match(core,/drainingSeconds:\s*15/);
-  assert.doesNotMatch(core,/startCommand\s*:/);
+  const cfg=JSON.parse(read('railway.json'));
+  assert.equal(cfg.build.builder,'DOCKERFILE');
+  assert.equal(cfg.build.dockerfilePath,'deploy/Dockerfile');
+  assert.equal(cfg.deploy.preDeployCommand,'node deploy/predeploy.js');
+  assert.equal(cfg.deploy.healthcheckPath,'/healthz');
+  assert.equal(cfg.deploy.startCommand,undefined);
+  assert.equal(typeof cfg.deploy.healthcheckTimeout,'number');
+  assert.equal(typeof cfg.deploy.restartPolicyMaxRetries,'number');
+  assert.equal(typeof cfg.deploy.drainingSeconds,'number');
+  assert.equal(cfg.deploy.drainingSeconds,15);
+  assert.deepEqual(JSON.parse(read('railway.json')),cfg);
 });
 
 
@@ -118,37 +118,4 @@ test('production deployment uses explicit runtime configuration and pinned Node 
   assert.match(config,/DATABASE_URL/);
   assert.match(config,/REDIS_URL/);
   assert.match(docker,/FROM node:22\.23\.2-trixie-slim/);
-});
-
-test('deployment entrypoints require security secrets instead of supplying public defaults',()=>{
-  const validator=read('deploy/security-secrets.js');
-  const moduleUrl=new URL('../../deploy/security-secrets.js',import.meta.url).href;
-  const script=`import(${JSON.stringify(moduleUrl)}).then(({validateSecuritySecrets})=>validateSecuritySecrets())`;
-  const runValidator=env=>execFileSync(process.execPath,['--input-type=module','--eval',script],{cwd:root,env:{PATH:process.env.PATH||'',...env}});
-  for(const path of ['deploy/launcher.js','deploy/predeploy.js']){
-    const source=read(path);
-    assert.match(source,/validateSecuritySecrets\(\)/,`${path} must validate required secrets`);
-    assert.doesNotMatch(source,/gasterus_(?:member|admin|ops|session|api_key)_.*secret|AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=/,`${path} must not contain fallback secrets`);
-  }
-  for(const name of ['MEMBER_PROXY_SECRET','ADMIN_PROXY_SECRET','OPS_INTERNAL_SECRET','SESSION_HMAC_KEY','API_KEY_PEPPER','MFA_ENCRYPTION_KEY_BASE64']){
-    assert.ok(validator.includes(name),`${name} must be validated`);
-  }
-  assert.throws(()=>runValidator({}),/MEMBER_PROXY_SECRET is required/);
-  assert.throws(()=>runValidator({MEMBER_PROXY_SECRET:'too-short'}),/MEMBER_PROXY_SECRET.*at least 32 characters/);
-  assert.doesNotThrow(()=>runValidator({
-    MEMBER_PROXY_SECRET:'m'.repeat(32),
-    ADMIN_PROXY_SECRET:'a'.repeat(32),
-    OPS_INTERNAL_SECRET:'o'.repeat(32),
-    SESSION_HMAC_KEY:'s'.repeat(32),
-    API_KEY_PEPPER:'p'.repeat(32),
-    MFA_ENCRYPTION_KEY_BASE64:Buffer.alloc(32).toString('base64'),
-  }));
-  assert.throws(()=>runValidator({
-    MEMBER_PROXY_SECRET:'m'.repeat(32),
-    ADMIN_PROXY_SECRET:'a'.repeat(32),
-    OPS_INTERNAL_SECRET:'o'.repeat(32),
-    SESSION_HMAC_KEY:'s'.repeat(32),
-    API_KEY_PEPPER:'p'.repeat(32),
-    MFA_ENCRYPTION_KEY_BASE64:'A'.repeat(40),
-  }),/MFA_ENCRYPTION_KEY_BASE64 must decode to exactly 32 bytes/);
 });

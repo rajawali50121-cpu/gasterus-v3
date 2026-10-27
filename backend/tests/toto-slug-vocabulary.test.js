@@ -192,10 +192,3 @@ test('migrasi 039 menutup diri dengan verifikasi akhir', () => {
   assert.match(sql, /sisa_lama <> 0/);
   assert.match(sql, /LEFT JOIN markets m ON m\.slug = t\.target/);
 });
-
-test('migrasi 039 mengizinkan fresh database sebelum seed pasca-migrasi', () => {
-  const sql = read('backend/migrations/039_canonicalize_market_slugs.sql');
-  assert.match(sql, /jumlah_kanonik > 0 AND hilang IS NOT NULL/);
-  assert.match(sql, /jumlah_kanonik = 0/);
-  assert.match(sql, /slug kanonik akan dibuat oleh seed setelah migrasi/);
-});

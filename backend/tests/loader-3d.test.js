@@ -32,9 +32,9 @@ const frontendPages = readdirSync(resolve(root, 'frontend'))
   .filter(name => name.endsWith('.html'))
   .filter(name => !name.startsWith('__') && name !== 'icon-preview.html');
 
-// market-play dan sportsbook memakai sistem CSS token sendiri. Register
-// dikecualikan karena cache token-nya dikelola terpisah.
-const mobileBluePages = frontendPages.filter(name => !['market-play.html', 'sportsbook.html', 'register.html'].includes(name));
+// market-play dan sportsbook memakai sistem CSS token sendiri, jadi dikecualikan
+// dari aturan token mobile-blue.
+const mobileBluePages = frontendPages.filter(name => !['market-play.html', 'sportsbook.html'].includes(name));
 
 test('semua halaman memakai satu token cache untuk mobile-blue.css', () => {
   const tokens = new Set();
