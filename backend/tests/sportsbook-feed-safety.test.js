@@ -214,14 +214,14 @@ test('Sportmonks event cap accepts 500 and falls back safely above its bound', (
 });
 
 test('Sportmonks responses, page sizes, and retained caches stay bounded', () => {
-  assert.match(providers, /maxBytes: config\.sportsFeedMaxCacheBytes/);
+  assert.match(providers, /maxBytes = config\.sportsProviderCacheMaxEntryBytes/);
   assert.match(providers, /url\.searchParams\.set\('per_page', String\(SPORTMONKS_PAGE_SIZE\)\)/);
   assert.match(providers, /SPORTMONKS_MAX_PAGES_PER_REFRESH = 120/);
   assert.match(providers, /if \(sportmonksCache\.size > 1\)/);
   // Filter yang menyembunyikan pertandingan aktif tanpa odds harus dibuang;
   // cakupan feed tidak lagi dipotong oleh ketersediaan harga provider.
   assert.doesNotMatch(providers, /has_odds === false/);
-  assert.match(providers, /if \(!event\) continue;/);
+  assert.match(providers, /if \(!event\) \{[\s\S]*?continue;/);
 });
 
 test('member snapshot default page returns the whole active catalog for direct server curls', () => {

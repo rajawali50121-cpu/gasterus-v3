@@ -711,6 +711,10 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
   });
 
   let events = mergeProviderEvents(results);
+  logger.info('Sportsbook provider merge completed', {
+    providers: results.map(result => result.provider),
+    mergedEvents: events.length
+  });
   try {
     const exposures = await sportsbookPricingExposureSnapshot({ limit: 5000 });
     events = applySportsbookRiskRepricing(events, exposures);

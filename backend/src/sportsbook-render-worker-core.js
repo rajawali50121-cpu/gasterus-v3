@@ -239,6 +239,12 @@ export async function buildSportsbookRenderSnapshot({
     maxEvents,
     teamKey
   });
+  console.info(JSON.stringify({
+    service: 'sportsbook-render-worker',
+    event: 'snapshot-combined',
+    eventCount: combined.eventCount,
+    providerResults: combined.providerResults.map(result => ({ provider: result.provider, enabled: result.enabled, events: result.events.length }))
+  }));
   if (!combined.eventCount) {
     throw new Error(`No enabled sportsbook provider returned normalized fixtures; snapshot was not sent. ${failures.join('; ')}`);
   }
