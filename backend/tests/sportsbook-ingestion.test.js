@@ -205,6 +205,84 @@ test('rejects malformed normalized events and snapshots above 500 events', async
   );
 });
 
+function threeProviderSnapshot() {
+  const base = snapshot();
+  const sharpEvent = JSON.parse(JSON.stringify(base.providerResults[0].events[0]));
+  sharpEvent._refs = { sharpapi: 'provider-event-sharp' };
+  sharpEvent._sources = ['sharpapi'];
+  for (const market of sharpEvent.markets) {
+    market.source = 'sharpapi';
+    for (const selection of market.selections) selection.source = 'sharpapi';
+  }
+
+  const oddsEvent = JSON.parse(JSON.stringify(base.providerResults[0].events[0]));
+  oddsEvent._refs = { 'the-odds-api': 'provider-event-odds' };
+  oddsEvent._sources = ['the-odds-api'];
+  for (const market of oddsEvent.markets) {
+    market.source = 'the-odds-api';
+    for (const selection of market.selections) selection.source = 'the-odds-api';
+  }
+
+  return {
+    schemaVersion: 1,
+    generatedAt: base.generatedAt,
+    providerResults: [
+      base.providerResults[0],
+      { provider: 'sharpapi', enabled: true, events: [sharpEvent] },
+      { provider: 'the-odds-api', enabled: true, events: [oddsEvent] }
+    ]
+  };
+}
+
+test('accepts a fresh snapshot containing all three allowed providers', async () => {
+  const payload = threeProviderSnapshot();
+  const signed = signedRequest(payload);
+  let stored = false;
+  const result = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => { stored = true; }
+    }
+  );
+
+  assert.deepEqual(result.providerResults, ['sportmonks', 'sharpapi', 'the-odds-api']);
+  assert.equal(result.eventCount, 3);
+  assert.equal(stored, true);
+});
+
+test('rejects a snapshot with an unallowed or fourth provider', async () => {
+  const tooMany = threeProviderSnapshot();
+  tooMany.providerResults.push({
+    provider: 'api-sports',
+    enabled: true,
+    events: [JSON.parse(JSON.stringify(tooMany.providerResults[0].events[0]))]
+  });
+  tooMany.providerResults[3]._refs = { 'api-sports': 'provider-event-api' };
+  tooMany.providerResults[3]._sources = ['api-sports'];
+  const tooManySigned = signedRequest(tooMany);
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(tooManySigned.body, tooManySigned.headers), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => assert.fail('over-cap snapshot must not be stored')
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_INVALID'
+  );
+
+  const unallowed = threeProviderSnapshot();
+  unallowed.providerResults[1].provider = 'unknown-provider';
+  const unallowedSigned = signedRequest(unallowed);
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(unallowedSigned.body, unallowedSigned.headers), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => assert.fail('unallowed provider must not be stored')
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_INVALID'
+  );
+});
 test('client signs the raw JSON bytes and refuses non-HTTPS endpoints', async () => {
   const signed = signedRequest(snapshot());
   assert.equal(signed.headers['content-length'], String(signed.body.length));
