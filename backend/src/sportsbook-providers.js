@@ -883,7 +883,8 @@ export async function fetchTheOddsApi({ maxEvents = config.theOddsApiMaxTotalEve
     normalizedEvents: normalizedCount,
     returnedEvents: events.length,
     maxEvents,
-    errors: errors.length
+    errors: errors.length,
+    errorSample: errors.slice(0, 3)
   });
   return { provider: 'the-odds-api', enabled: true, events, errors };
 }
@@ -893,7 +894,7 @@ export async function fetchTheOddsApi({ maxEvents = config.theOddsApiMaxTotalEve
 // them one at a time; only the best normalized events stay in memory.
 let sportmonksNextRequestAt = 0;
 const SPORTMONKS_PAGE_SIZE = 20;
-const SPORTMONKS_PAGE_MAX_BYTES = 4_000_000;
+const SPORTMONKS_PAGE_MAX_BYTES = 10_000_000;
 const SPORTMONKS_MAX_PAGES_PER_REFRESH = 120;
 const SPORTMONKS_MAX_PAGES_PER_WORKER_REFRESH = 120;
 const SPORTMONKS_CANDIDATE_MULTIPLIER = 1.2;

@@ -165,6 +165,7 @@ export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
 export async function buildSportsbookRenderSnapshot({
   fetchOddsApi,
   fetchSportmonks,
+  fetchSharpApi,
   maxEvents = 500,
   maxPages = MAX_PAGES,
   maxPayloadBytes = null,
@@ -184,6 +185,7 @@ export async function buildSportsbookRenderSnapshot({
   }
   const fetchers = [
     { provider: 'sportmonks', fetch: fetchSportmonks },
+    { provider: 'sharpapi', fetch: fetchSharpApi },
     { provider: 'the-odds-api', fetch: fetchOddsApi }
   ];
   const providerResults = [];
