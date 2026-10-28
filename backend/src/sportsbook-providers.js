@@ -423,22 +423,54 @@ function chooseSharpSportsbook(rows) {
     [0]?.[0] || null;
 }
 function normalizeSharpApiRows(rows = []) {
+  const diagnostics = {
+    inputRows: Array.isArray(rows) ? rows.length : 0,
+    droppedBySport: 0,
+    droppedByAlternateLine: 0,
+    droppedByRequiredFields: 0,
+    groupedEventKeys: 0,
+    eventsDroppedNoSportsbook: 0,
+    eventsDroppedNoSelectedRows: 0,
+    eventsDroppedNoValidMarkets: 0,
+    marketGroupsTotal: 0,
+    marketGroupsDroppedInsufficientSelections: 0,
+    marketGroupsDroppedIncomplete1x2: 0,
+    invalidSelections: 0,
+    marketGroupsAccepted: 0
+  };
   const byEvent = new Map();
   for (const row of rows) {
-    if (!row || clean(row.sport).toLowerCase() !== clean(config.sharpApiSport).toLowerCase()) continue;
-    if (config.sharpApiMainLinesOnly && row.is_main_line === false && row.is_alternate_line === true) continue;
+    if (!row || clean(row.sport).toLowerCase() !== clean(config.sharpApiSport).toLowerCase()) {
+      if (row) diagnostics.droppedBySport += 1;
+      else diagnostics.droppedByRequiredFields += 1;
+      continue;
+    }
+    if (config.sharpApiMainLinesOnly && row.is_main_line === false && row.is_alternate_line === true) {
+      diagnostics.droppedByAlternateLine += 1;
+      continue;
+    }
     const key = sharpEventKey(row);
-    if (!key || !row.home_team || !row.away_team || !row.event_start_time) continue;
+    if (!key || !row.home_team || !row.away_team || !row.event_start_time) {
+      diagnostics.droppedByRequiredFields += 1;
+      continue;
+    }
     const current = byEvent.get(key) || [];
     current.push(row);
     byEvent.set(key, current);
   }
+  diagnostics.groupedEventKeys = byEvent.size;
   const events = [];
   for (const [providerId, eventRows] of byEvent) {
     const chosenBook = chooseSharpSportsbook(eventRows);
-    if (!chosenBook) continue;
+    if (!chosenBook) {
+      diagnostics.eventsDroppedNoSportsbook += 1;
+      continue;
+    }
     const selectedRows = eventRows.filter(row => clean(row.sportsbook).toLowerCase() === chosenBook);
-    if (!selectedRows.length) continue;
+    if (!selectedRows.length) {
+      diagnostics.eventsDroppedNoSelectedRows += 1;
+      continue;
+    }
     const first = selectedRows[0];
     const event = normalizedEvent({
       provider: 'sharpapi',
@@ -462,13 +494,14 @@ function normalizeSharpApiRows(rows = []) {
       marketRows.set(key, current);
     }
     event.markets = [...marketRows.values()].map(group => {
+      diagnostics.marketGroupsTotal += 1;
       const sample = group[0];
       const rawName = clean(sample.market_ref?.label || sample.market_name || sample.market_type, 120);
       const type = sharpDerivedMarketType(sample);
       const period = periodFromName(sample.market_segment || sample.market_type, sample.market_type);
       const line = sharpCanonicalLine(sample, type);
       const marketKey = `${sample.market_type}:${type}:${period}:${line ?? ''}:${chosenBook}`;
-      const selections = group.map(row => normalizedSelection(
+      const rawSelections = group.map(row => normalizedSelection(
         event.id,
         marketKey,
         sharpSelectionLabel(row, type),
@@ -480,11 +513,21 @@ function normalizeSharpApiRows(rows = []) {
           suspended: row.is_active === false || row.is_stale_pregame_price === true,
           updatedAt: row.timestamp
         }
-      )).filter(Boolean);
+      ));
+      const invalidSelectionCount = rawSelections.filter(selection => !selection).length;
+      diagnostics.invalidSelections += invalidSelectionCount;
+      const selections = rawSelections.filter(Boolean);
       const sideSet = new Set(group.map(row => clean(row.selection_type || row.team_side, 40).toLowerCase()));
       const minimumSelections = ['1X2', 'DOUBLE_CHANCE'].includes(type) ? 3 : ['HANDICAP', 'TOTALS', 'TEAM_TOTAL', 'BTTS', 'DRAW_NO_BET', 'ODD_EVEN', 'PLAYER_PROP'].includes(type) ? 2 : 1;
-      if (selections.length < minimumSelections) return null;
-      if (type === '1X2' && !['home', 'draw', 'away'].every(side => sideSet.has(side))) return null;
+      if (selections.length < minimumSelections) {
+        diagnostics.marketGroupsDroppedInsufficientSelections += 1;
+        return null;
+      }
+      if (type === '1X2' && !['home', 'draw', 'away'].every(side => sideSet.has(side))) {
+        diagnostics.marketGroupsDroppedIncomplete1x2 += 1;
+        return null;
+      }
+      diagnostics.marketGroupsAccepted += 1;
       const latest = group.map(row => iso(row.timestamp)).filter(Boolean).sort().at(-1) || null;
       return normalizedMarket(event.id, {
         key: marketKey,
@@ -503,7 +546,27 @@ function normalizeSharpApiRows(rows = []) {
     }).filter(Boolean);
     event._refs.sharpapiSportsbook = chosenBook;
     if (event.markets.length) events.push(event);
+    else diagnostics.eventsDroppedNoValidMarkets += 1;
   }
+  const returnedEvents = events.slice(0, MAX_PROVIDER_EVENTS).length;
+  diagnostics.returnedEvents = returnedEvents;
+  logger.info('SharpAPI normalization completed', {
+    provider: 'sharpapi',
+    inputRows: diagnostics.inputRows,
+    droppedBySport: diagnostics.droppedBySport,
+    droppedByAlternateLine: diagnostics.droppedByAlternateLine,
+    droppedByRequiredFields: diagnostics.droppedByRequiredFields,
+    groupedEventKeys: diagnostics.groupedEventKeys,
+    eventsDroppedNoSportsbook: diagnostics.eventsDroppedNoSportsbook,
+    eventsDroppedNoSelectedRows: diagnostics.eventsDroppedNoSelectedRows,
+    eventsDroppedNoValidMarkets: diagnostics.eventsDroppedNoValidMarkets,
+    marketGroupsTotal: diagnostics.marketGroupsTotal,
+    marketGroupsDroppedInsufficientSelections: diagnostics.marketGroupsDroppedInsufficientSelections,
+    marketGroupsDroppedIncomplete1x2: diagnostics.marketGroupsDroppedIncomplete1x2,
+    invalidSelections: diagnostics.invalidSelections,
+    marketGroupsAccepted: diagnostics.marketGroupsAccepted,
+    returnedEvents: diagnostics.returnedEvents
+  });
   return events.slice(0, MAX_PROVIDER_EVENTS);
 }
 async function sharpApiOddsPage(cursor = null) {
@@ -521,8 +584,10 @@ export async function fetchSharpApi() {
   const payload = await cachedRequest(cacheKey, config.sharpApiRefreshSeconds * 1000, async () => {
     const rows = [];
     let cursor = null;
+    let pagesFetched = 0;
     for (let page = 0; page < config.sharpApiMaxPages; page += 1) {
       const current = await sharpApiOddsPage(cursor);
+      pagesFetched += 1;
       rows.push(...(Array.isArray(current?.data) ? current.data : []));
       const pagination = current?.pagination || {};
       if (!pagination.has_more || !pagination.next_cursor) break;
@@ -534,6 +599,7 @@ export async function fetchSharpApi() {
   logger.info('SharpAPI fetch completed', {
     provider: 'sharpapi',
     rawRows: Array.isArray(payload) ? payload.length : 0,
+    pagesFetched,
     returnedEvents: events.length
   });
   return { provider: 'sharpapi', enabled: true, events, errors: [] };
