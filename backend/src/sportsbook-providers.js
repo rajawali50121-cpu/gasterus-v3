@@ -368,8 +368,23 @@ function sharpSelectionLabel(row, type) {
   }
   return clean(row.selection || row.player_name || row.selection_type || 'Selection', 120);
 }
+// SharpAPI can reuse the same event_id/event_uuid for different fixtures in the
+// observed feed. A provider ID alone is therefore not a safe event identity.
+// Include normalized participants, kickoff, and league so distinct matches are
+// never merged just because their provider IDs collide.
 function sharpEventKey(row) {
-  return clean(row.event_uuid || row.event_id, 180);
+  const providerId = clean(row?.event_uuid || row?.event_id, 180);
+  if (!providerId) return '';
+  const home = teamKey(row?.home_team);
+  const away = teamKey(row?.away_team);
+  // Provider timestamps can differ by a few minutes for the same fixture, and
+  // sportsbooks may report slightly different kickoff times. Bucket by date so
+  // those rows still merge, while distinct fixtures on different days remain
+  // separate. Provider IDs are usually date-scoped; if an ID is reused across
+  // days, the date bucket prevents an incorrect cross-day merge.
+  const kickoffDate = iso(row?.event_start_time)?.slice(0, 10) || clean(row?.event_start_time, 80).slice(0, 10);
+  const league = leagueKey(row?.league_ref?.label || row?.league || '');
+  return `${providerId}|${home}|${away}|${kickoffDate}|${league}`;
 }
 function sharpDerivedMarketType(row) {
   const rawType = clean(row.market_type, 120).toLowerCase();

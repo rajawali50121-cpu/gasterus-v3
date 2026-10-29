@@ -403,3 +403,23 @@ test('Live markets fail closed when the provider price timestamp is stale, missi
   // Prematch tidak pernah disentuh oleh guard ini.
   assert.equal(guard([liveEvent(null, { live: false, status: 'SCHEDULED' })])[0].markets[0].suspended, false);
 });
+
+test("SharpAPI does not merge distinct fixtures that reuse the same provider event ID", () => {
+  const rows = [{ event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League A", home_team: "Home A", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Home A", selection_type: "home", odds_decimal: 1.9, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League A", home_team: "Home A", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Draw", selection_type: "draw", odds_decimal: 3.4, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League A", home_team: "Home A", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Away X", selection_type: "away", odds_decimal: 4.0, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League B", home_team: "Home B", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Home B", selection_type: "home", odds_decimal: 2.1, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League B", home_team: "Home B", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Draw", selection_type: "draw", odds_decimal: 3.1, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League B", home_team: "Home B", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Away X", selection_type: "away", odds_decimal: 3.6, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }];
+  const events = __sportsbookProviders.normalizeSharpApiRows(rows);
+  assert.equal(events.length, 2);
+});
+
+test("SharpAPI merges same fixture with kickoff times 5 minutes apart across sportsbooks", () => {
+  const base = { event_id: "same-fixture", event_uuid: "same-fixture", sport: "soccer", league: "EPL", home_team: "Arsenal", away_team: "Chelsea", is_live: false, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" };
+  const rows = [
+    { ...base, sportsbook: "book-a", event_start_time: "2026-08-14T19:00:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Arsenal", selection_type: "home", odds_decimal: 1.9 },
+    { ...base, sportsbook: "book-a", event_start_time: "2026-08-14T19:00:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Draw", selection_type: "draw", odds_decimal: 3.4 },
+    { ...base, sportsbook: "book-a", event_start_time: "2026-08-14T19:00:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Chelsea", selection_type: "away", odds_decimal: 4.0 },
+    { ...base, sportsbook: "book-b", event_start_time: "2026-08-14T19:05:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Arsenal", selection_type: "home", odds_decimal: 2.0 },
+    { ...base, sportsbook: "book-b", event_start_time: "2026-08-14T19:05:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Draw", selection_type: "draw", odds_decimal: 3.2 },
+    { ...base, sportsbook: "book-b", event_start_time: "2026-08-14T19:05:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Chelsea", selection_type: "away", odds_decimal: 3.8 }
+  ];
+  const events = __sportsbookProviders.normalizeSharpApiRows(rows);
+  assert.equal(events.length, 1);
+});
