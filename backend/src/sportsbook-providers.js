@@ -606,13 +606,13 @@ function normalizeSharpApiRows(rows = []) {
   });
   return events.slice(0, MAX_PROVIDER_EVENTS);
 }
-async function sharpApiOddsPage(cursor = null) {
+async function sharpApiOddsPage(offset = 0) {
   const url = new URL(`${config.sharpApiBaseUrl.replace(/\/$/, '')}/api/v1/odds`);
   url.searchParams.set('sport', config.sharpApiSport);
   if (config.sharpApiMarkets) url.searchParams.set('market', config.sharpApiMarkets);
   if (config.sharpApiSportsbook) url.searchParams.set('sportsbook', config.sharpApiSportsbook);
   url.searchParams.set('limit', String(config.sharpApiPageSize));
-  if (cursor) url.searchParams.set('cursor', cursor);
+  if (Number.isFinite(offset) && offset > 0) url.searchParams.set('offset', String(offset));
   return requestJson(url, { headers: { 'X-API-Key': config.sharpApiKey }, label: 'SharpAPI' });
 }
 export async function fetchSharpApi() {
@@ -620,15 +620,19 @@ export async function fetchSharpApi() {
   const cacheKey = `sharpapi:${config.sharpApiSport}:${config.sharpApiMarkets}:${config.sharpApiSportsbook || '*'}:${config.sharpApiMainLinesOnly}`;
   const payload = await cachedRequest(cacheKey, config.sharpApiRefreshSeconds * 1000, async () => {
     const rows = [];
-    let cursor = null;
+    let offset = 0;
     let pagesFetched = 0;
     for (let page = 0; page < config.sharpApiMaxPages; page += 1) {
-      const current = await sharpApiOddsPage(cursor);
+      const current = await sharpApiOddsPage(offset);
       pagesFetched += 1;
-      rows.push(...(Array.isArray(current?.data) ? current.data : []));
+      const pageRows = Array.isArray(current?.data) ? current.data : [];
+      rows.push(...pageRows);
       const pagination = current?.pagination || {};
-      if (!pagination.has_more || !pagination.next_cursor) break;
-      cursor = pagination.next_cursor;
+      const nextOffset = pagination?.next_offset;
+      if (!pagination?.has_more || nextOffset === null || nextOffset === undefined) break;
+      const parsedOffset = Number(nextOffset);
+      if (!Number.isFinite(parsedOffset) || parsedOffset <= offset) break;
+      offset = parsedOffset;
     }
     return rows;
   });
