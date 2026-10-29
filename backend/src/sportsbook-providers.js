@@ -459,6 +459,43 @@ function normalizeSharpApiRows(rows = []) {
     byEvent.set(key, current);
   }
   diagnostics.groupedEventKeys = byEvent.size;
+  const identitySampleLimit = 15;
+  const identityVariantLimit = 3;
+  const identityKeys = [...byEvent.keys()].sort();
+  const eventIdentitySample = [];
+  for (const key of identityKeys.slice(0, identitySampleLimit)) {
+    const rowsForKey = byEvent.get(key) || [];
+    const identityVariants = new Set();
+    for (const row of rowsForKey) {
+      identityVariants.add(JSON.stringify({
+        homeTeamHash: hash('sharp-home-team', clean(row?.home_team, 120)),
+        awayTeamHash: hash('sharp-away-team', clean(row?.away_team, 120)),
+        kickoff: clean(row?.event_start_time, 80),
+        leagueHash: hash('sharp-league', clean(row?.league_ref?.label || row?.league || '', 120))
+      }));
+    }
+    const variants = [...identityVariants]
+      .slice(0, identityVariantLimit)
+      .map(value => {
+        try { return JSON.parse(value); } catch { return { parseError: true }; }
+      });
+    eventIdentitySample.push({
+      keyHash: hash('sharp-event-key', key),
+      rowCount: rowsForKey.length,
+      sportsbookCount: new Set(rowsForKey.map(row => clean(row?.sportsbook, 120).toLowerCase()).filter(Boolean)).size,
+      identityVariantCount: identityVariants.size,
+      identityConflict: identityVariants.size > 1,
+      identityVariantsTruncated: identityVariants.size > identityVariantLimit,
+      identityVariants: variants
+    });
+  }
+  logger.info('SharpAPI event identity sample', {
+    provider: 'sharpapi',
+    distinctEventKeyCount: identityKeys.length,
+    sampleLimited: identityKeys.length > identitySampleLimit,
+    sampledKeys: eventIdentitySample.length,
+    eventIdentitySample
+  });
   const events = [];
   for (const [providerId, eventRows] of byEvent) {
     const chosenBook = chooseSharpSportsbook(eventRows);
