@@ -229,7 +229,7 @@ async function requestJson(url, { headers = {}, label = 'sports provider', maxBy
     if (!response.ok) {
       const error = new Error(`${label} returned HTTP ${response.status}`);
       error.status = response.status;
-      error.retryAfter = response.headers.get('retry-after');
+      error.retryAfter = response.headers?.get?.('retry-after') || null;
       throw error;
     }
     const text = await readBoundedResponseText(response, label, maxBytes);
@@ -958,7 +958,7 @@ async function cachedOddsApiRequest(sportKey, cacheKey, url) {
     rememberOddsApiStalePayload(sportKey, payload);
     return payload;
   } catch (error) {
-    if (!String(error?.message || '').includes('HTTP 429')) throw error;
+    if (!String(error?.message || '').includes('HTTP 429') && Number(error?.status) !== 429) throw error;
     theOddsApiQuotaGuard.floorUntil = Date.now() + ODDS_API_QUOTA_BACKOFF_SECONDS * 1000;
     logger.warn('The Odds API daily quota reached; serving cached payload', {
       sportKey,
