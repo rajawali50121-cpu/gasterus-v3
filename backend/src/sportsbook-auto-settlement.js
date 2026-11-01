@@ -25,6 +25,7 @@ async function loadFinishedFixtureEvent(eventId) {
 }
 
 export async function autoSettleSportsbookTickets({ limit = 200 } = {}) {
+  logger.info('Sportsbook auto-settlement function started', { limit });
   const cycleStartedAt = Date.now();
   const open = await query(`
     SELECT DISTINCT t.id

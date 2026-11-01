@@ -449,6 +449,10 @@ async function main() {
     queue: config.queueName,
     processingQueue
   });
+  logger.info('Sportsbook auto-settlement scheduler initialized', {
+    enabled: config.sportsbookAutoSettlementEnabled,
+    seconds: config.sportsbookAutoSettlementSeconds
+  });
 
   let lastSportsbookSettlement = 0;
   let lastTotoSettlement = 0;
@@ -471,6 +475,7 @@ async function main() {
     }
     if(Date.now()-lastMoneyCleanup>=60000){lastMoneyCleanup=Date.now();try{const expired=await expireStaleWalletApprovals();if(expired)logger.warn('Expired wallet approvals released safely',{expired});}catch(error){logger.warn('Money approval cleanup unavailable',{error:error.message});}}
     if (config.sportsbookAutoSettlementEnabled && Date.now() - lastSportsbookSettlement >= config.sportsbookAutoSettlementSeconds * 1000) {
+      logger.info('Sportsbook auto-settlement scheduler invoking', { enabled: config.sportsbookAutoSettlementEnabled, elapsedMs: Date.now() - lastSportsbookSettlement });
       lastSportsbookSettlement = Date.now();
       try {
         const summary = await autoSettleSportsbookTickets();
