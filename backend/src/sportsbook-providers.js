@@ -655,7 +655,6 @@ export async function fetchSharpApi() {
   logger.info('SharpAPI fetch completed', {
     provider: 'sharpapi',
     rawRows: Array.isArray(payload) ? payload.length : 0,
-    pagesFetched,
     returnedEvents: events.length
   });
   return { provider: 'sharpapi', enabled: true, events, errors: [] };
