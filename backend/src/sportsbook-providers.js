@@ -1998,6 +1998,7 @@ function applySettlementSafety(event) {
   return event;
 }
 export function mergeProviderEvents(providerResults, options = {}) {
+  logger.info('mergeProviderEvents input', { providers: (providerResults||[]).map(r=>r?.provider), counts: (providerResults||[]).map(r=>r?.events?.length||0) });
   const events = [];
   const fixturesByTeams = new Map();
   const now = Date.now();
