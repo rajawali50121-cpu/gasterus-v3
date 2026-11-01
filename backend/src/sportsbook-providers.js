@@ -1624,6 +1624,24 @@ export async function fetchSportmonks({
   return { provider: 'sportmonks', enabled: true, events: events.slice(0, Math.min(MAX_PROVIDER_EVENTS, maxEvents)), errors };
 }
 
+export async function fetchSportmonksFixtureById(fixtureId) {
+  const id = String(fixtureId ?? '').trim();
+  if (!id) throw new Error('Sportmonks fixture id is required.');
+  if (!config.sportmonksEnabled || !config.sportmonksKey) {
+    throw new Error('Sportmonks disabled or missing API key');
+  }
+  const base = config.sportmonksBaseUrl.replace(/\/$/, '');
+  const url = new URL(`${base}/football/fixtures/${encodeURIComponent(id)}`);
+  url.searchParams.set('api_token', config.sportmonksKey);
+  url.searchParams.set('include', 'state;participants;league.country;odds;scores;statistics.type;events.type');
+  const payload = await requestJson(url, { label: `Sportmonks fixture ${id}`, maxBytes: SPORTMONKS_PAGE_MAX_BYTES });
+  const raw = payload?.data || payload;
+  if (!raw || !raw.id) throw new Error(`Sportmonks fixture ${id} not found.`);
+  const event = normalizeSportmonksFixture(raw, raw.odds || []);
+  if (!event) throw new Error(`Sportmonks fixture ${id} could not be normalized.`);
+  return { provider: 'sportmonks', enabled: true, event, raw };
+}
+
 function apiSportsMarket(event, bet, source = 'api-sports') {
   const name = clean(bet.name || bet.label || bet.market || 'Market');
   const type = marketType(name, bet.id);
