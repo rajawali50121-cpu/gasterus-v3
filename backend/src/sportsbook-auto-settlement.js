@@ -35,7 +35,10 @@ export async function autoSettleSportsbookTickets({ limit = 200 } = {}) {
     ORDER BY t.id
     LIMIT $1
   `, [Math.min(Math.max(Number(limit) || 200, 1), 500)]);
-  if (!open.rowCount) return { checked: 0, settled: 0, skipped: 0 };
+  if (!open.rowCount) {
+    logger.info('Sportsbook auto-settlement cycle diagnostics', { checked: 0, eligibleEventIds: 0, settled: 0, skipped: 0, fixtureRetrievalInvocations, durationMs: Date.now() - cycleStartedAt, reason: 'no-open-tickets' });
+    return { checked: 0, settled: 0, skipped: 0 };
+  }
 
   let snapshot = null;
   try { snapshot = await sportsbookSettlementSnapshot(); } catch (error) { logger.warn('Settlement snapshot unavailable', { error: error.message }); }
