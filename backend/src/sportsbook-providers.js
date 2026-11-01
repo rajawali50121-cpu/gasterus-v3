@@ -990,6 +990,7 @@ export async function fetchTheOddsApi({ maxEvents = config.theOddsApiMaxTotalEve
     const payload = await cachedOddsApiRequest(sportKey, cacheKey, url);
     const rawEvents = Array.isArray(payload) ? payload : [];
     const enriched = await fetchOddsApiEventMarkets(sportKey, rawEvents, eventMarketAllocations.get(sportKey) || 0, eventMarketErrors);
+    logger.info('Odds API sport result', { sportKey, rawEvents: rawEvents.length, normalizedEvents: enriched.length });
     return enriched.map(normalizeOddsApiEvent);
   });
   const events = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []).slice(0, Math.min(MAX_PROVIDER_EVENTS, maxEvents));
@@ -1998,6 +1999,39 @@ function applySettlementSafety(event) {
 }
 export function mergeProviderEvents(providerResults, options = {}) {
   logger.info('mergeProviderEvents input', { providers: (providerResults||[]).map(r=>r?.provider), counts: (providerResults||[]).map(r=>r?.events?.length||0) });
+  for (const result of providerResults || []) {
+    const events = Array.isArray(result?.events) ? result.events : [];
+    let markets = 0;
+    let odds = 0;
+    let validOdds = 0;
+    let missingOddsMarkets = 0;
+    const bookmakers = new Set();
+    const marketTypes = {};
+    for (const event of events) {
+      for (const market of Array.isArray(event?.markets) ? event.markets : []) {
+        markets += 1;
+        const selections = Array.isArray(market?.selections) ? market.selections : [];
+        if (!selections.some(s => Number(s?.odds) > 1)) missingOddsMarkets += 1;
+        for (const selection of selections) {
+          odds += 1;
+          if (Number(selection?.odds) > 1) validOdds += 1;
+          if (selection?.source) bookmakers.add(String(selection.source));
+        }
+        const type = String(market?.type || market?.marketType || 'unknown').toLowerCase();
+        marketTypes[type] = (marketTypes[type] || 0) + 1;
+      }
+    }
+    logger.info('mergeProviderEvents provider aggregate', {
+      provider: result?.provider,
+      events: events.length,
+      markets,
+      bookmakers: bookmakers.size,
+      odds,
+      validOdds,
+      missingOddsMarkets,
+      marketTypes
+    });
+  }
   const events = [];
   const fixturesByTeams = new Map();
   const now = Date.now();
