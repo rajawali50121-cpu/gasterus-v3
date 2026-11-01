@@ -1,6 +1,43 @@
-<!DOCTYPE html>
-<html lang="id"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>SBOTOTO Enterprise Admin</title><link href="enterprise.css?v=20261012-admin-r1" rel="stylesheet"/><script src="api.js?v=20261012-admin-api"></script><style>.login-page{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.2fr) minmax(400px,.8fr)}.login-visual{position:relative;padding:8vw;display:flex;flex-direction:column;justify-content:center;background:radial-gradient(circle at 18% 22%,rgba(232,189,85,.16),transparent 26%),radial-gradient(circle at 85% 85%,rgba(91,143,240,.12),transparent 50%),linear-gradient(160deg,#0a111c 0%,#070b12 100%)}.login-visual h1{max-width:700px;margin:14px 0 0;color:var(--gold2);font-size:clamp(40px,6vw,80px);line-height:.95;letter-spacing:-1.5px}.login-visual p{max-width:590px;color:var(--muted);line-height:1.7}.feature-row{display:flex;gap:8px;flex-wrap:wrap}.login-panel{display:grid;place-items:center;padding:26px;background:#070b12;border-left:1px solid var(--line)}.login-card{width:min(440px,100%);padding:30px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(180deg,#101a29,#0c141f);box-shadow:0 30px 90px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.04)}.login-card h2{margin:0 0 5px;font-size:21px;letter-spacing:-.3px}.login-card .muted{font-size:12px}.login-card .field{margin-top:14px}.login-card .field label{display:block;font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}.login-card .field input{width:100%;min-height:44px;padding:0 13px;border:1px solid var(--line);border-radius:10px;background:#0b1320;color:var(--text);font-size:14px;transition:border-color .15s,box-shadow .15s}.login-card .field input:hover{border-color:#33455f}.login-card .field input:focus{outline:none;border-color:var(--gold2);box-shadow:0 0 0 3px rgba(232,189,83,.15)}.login-card .btn{width:100%;margin-top:20px;min-height:48px;border-radius:12px;font-size:12px;letter-spacing:.1em;font-weight:900}.login-card .btn.primary{background:linear-gradient(180deg,#f0ca62,#d9a432);border:1px solid #b8871f;color:#241a03;box-shadow:0 6px 22px rgba(232,189,83,.22)}.login-card .btn.primary:hover{filter:brightness(1.07)}.msg{margin-top:12px;color:#ffabb2;font-size:11px;min-height:16px}.login-foot{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);font-size:9.5px;letter-spacing:.08em;color:#5f6f83;line-height:1.8}.badge.ACTIVE{display:inline-flex;align-items:center;gap:6px}.badge.ACTIVE::before{content:'';width:5px;height:5px;border-radius:99px;background:#34c98a;box-shadow:0 0 8px #34c98a}@media(max-width:860px){.login-page{grid-template-columns:1fr}.login-visual{display:none}.login-panel{min-height:100vh;border-left:0}}</style>
-<link href="enterprise-ui-r6820.css?v=20261012-admin-ui-r6" rel="stylesheet"/><link href="enterprise-ui-r6940.css?v=r6940-enterprise-control" rel="stylesheet"/>
-<link href="enterprise-3d-r7000.css?v=7000-3d-glass" rel="stylesheet"/></head><body class="enterprise-r6820 enterprise-r6940 enterprise-3d-r7000"><main class="login-page"><section class="login-visual"><span class="badge">R6.94 ENTERPRISE BACK OFFICE</span><h1>SBOTOTO<br>CONTROL CENTER</h1><p>Portal operasional terpadu untuk member, finance, payment routing, content management, betting risk, approvals, audit, dan system security.</p><div class="feature-row"><span class="badge ACTIVE">MFA</span><span class="badge ACTIVE">RBAC</span><span class="badge ACTIVE">AUDIT</span><span class="badge ACTIVE">FOUR-EYES</span><span class="badge ACTIVE">LEDGER</span></div></section><section class="login-panel"><form class="login-card" id="form"><h2>Admin Sign In</h2><div class="muted">Akses pengelola dilindungi password dan TOTP MFA.</div><div class="field"><label>Username</label><input autocomplete="username" id="username" required=""/></div><div class="field"><label>Password</label><input autocomplete="current-password" id="password" required="" type="password"/></div><div class="field"><label>Kode MFA 6 Digit</label><input autocomplete="one-time-code" id="otp" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required=""/></div><button class="btn primary" type="submit">MASUK KE CONTROL CENTER</button><div class="msg" id="message"></div><div class="login-foot">AKSES TERMONITOR &bull; SEMUA AKTIVITAS TERCATAT DI AUDIT TRAIL<br>KEGAGALAN LOGIN BERULANG AKAN MEMICU PERINGATAN KEAMANAN</div></form></section></main><script>form.onsubmit=async e=>{e.preventDefault();message.textContent='';try{await ASEAN_API.request('/admin-api/owner/login',{method:'POST',body:JSON.stringify({username:username.value,password:password.value,otp:otp.value})});location.href='dashboard.html'}catch(err){message.textContent=err.message}};</script>
-<script src="enterprise-ui-r6820.js?v=6820-maxpremium"></script><script src="enterprise-3d-r7000.js?v=7000-3d-glass"></script>
-</body></html>
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090d13">
+  <title>Gasterus | Owner Console</title>
+  <link rel="stylesheet" href="gasterus-admin.css?v=owner-console-1">
+</head>
+<body class="login-view">
+  <main class="login-layout">
+    <section class="login-brand">
+      <a class="wordmark" href="./" aria-label="Gasterus">GASTERUS<span>.</span></a>
+      <div class="brand-copy">
+        <span class="eyebrow">OWNER OPERATIONS</span>
+        <h1>Clarity for<br>every decision.</h1>
+        <p>One secure workspace for member operations, payments and platform activity.</p>
+      </div>
+      <div class="login-footnote"><span class="live-dot"></span> Private owner access · Activity is recorded</div>
+    </section>
+    <section class="login-panel">
+      <form class="login-card" id="loginForm">
+        <div class="brand-mark">G<span>.</span></div>
+        <span class="eyebrow">GASTERUS BACK OFFICE</span>
+        <h2>Sign in</h2>
+        <p class="muted">Use your OWNER username and password.</p>
+        <label class="field">
+          <span>Username</span>
+          <input id="username" name="username" autocomplete="username" value="gasterus" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="button button-primary button-wide" id="loginButton" type="submit">Continue <span aria-hidden="true">→</span></button>
+        <p class="form-message" id="loginMessage" role="alert" aria-live="polite"></p>
+        <p class="login-security">OWNER access only. Your password is never stored in this browser.</p>
+      </form>
+    </section>
+  </main>
+  <script src="login.js?v=owner-console-1" defer></script>
+</body>
+</html>

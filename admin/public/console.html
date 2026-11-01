@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090d13">
+  <title>Gasterus | Owner Console</title>
+  <link rel="stylesheet" href="gasterus-admin.css?v=owner-console-1">
+</head>
+<body>
+  <div class="console">
+    <div class="menu-overlay" id="menuOverlay"></div>
+    <aside class="sidebar" id="sidebar" aria-label="Navigasi OWNER">
+      <a class="sidebar-brand" href="#/dashboard">
+        <span class="brand-mark">G<span>.</span></span>
+        <span><strong>GASTERUS</strong><small>OWNER CONSOLE</small></span>
+      </a>
+      <div class="nav-label">WORKSPACE</div>
+      <nav id="navigation">
+        <a class="nav-link" href="#/dashboard" data-view="dashboard"><span class="nav-icon">⌂</span>Dashboard</a>
+        <a class="nav-link" href="#/deposits" data-view="deposits"><span class="nav-icon">＋</span>Deposit management</a>
+        <a class="nav-link" href="#/withdrawals" data-view="withdrawals"><span class="nav-icon">↗</span>Withdrawal management</a>
+        <a class="nav-link" href="#/members" data-view="members"><span class="nav-icon">◎</span>Members</a>
+        <a class="nav-link" href="#/bets" data-view="bets"><span class="nav-icon">⌁</span>Bet history</a>
+        <a class="nav-link" href="#/activity" data-view="activity"><span class="nav-icon">◷</span>Activity log</a>
+      </nav>
+      <div class="nav-label">ACCOUNT</div>
+      <nav><a class="nav-link" href="#/account" data-view="account"><span class="nav-icon">◇</span>Owner account</a></nav>
+      <div class="sidebar-bottom">
+        <div class="owner-name" id="sidebarOwner">Owner</div>
+        <div>Owner-only access · Session protected</div>
+        <button class="button" id="sidebarLogout" type="button">Sign out</button>
+      </div>
+    </aside>
+    <main class="main-panel">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobileMenu" type="button" aria-label="Buka navigasi">☰</button>
+        <div class="topbar-title"><h1 id="pageTitle">Dashboard</h1><p>Gasterus owner operations</p></div>
+        <div class="top-meta"><time id="clock"></time><span class="owner-badge">OWNER</span></div>
+      </header>
+      <section class="content-area" id="content" aria-live="polite">
+        <div class="loading-state">Memverifikasi sesi OWNER…</div>
+      </section>
+    </main>
+  </div>
+  <section class="detail-modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div><h2 id="modalTitle">Detail</h2><p id="modalSubtitle"></p></div>
+        <button class="button" id="modalClose" type="button">Tutup</button>
+      </div>
+      <div id="modalContent"></div>
+      <div class="modal-actions" id="modalActions"></div>
+    </div>
+  </section>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <script src="console.js?v=owner-console-1" defer></script>
+</body>
+</html>

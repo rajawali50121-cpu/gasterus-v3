@@ -9,6 +9,7 @@ import { enforceResponsiblePlay } from './responsible-play.js';
 import { bettingWindowReady } from './toto-betting-window.js';
 
 const clean=(v,max=160)=>String(v??'').trim().slice(0,max);
+function filterDate(value){if(!value)return'';const date=String(value).trim();const parsed=new Date(`${date}T00:00:00Z`);assert(/^\d{4}-\d{2}-\d{2}$/.test(date)&&Number.isFinite(parsed.getTime())&&parsed.toISOString().slice(0,10)===date,400,'Format tanggal tidak valid.','DATE_FILTER_INVALID');return date;}
 function invoice(){return `A7B-${new Date().toISOString().replace(/[-:TZ.]/g,'').slice(0,14)}-${randomUUID().slice(0,8).toUpperCase()}`;}
 
 async function ensureLotteryGameConfigs(marketId,client){
@@ -129,7 +130,20 @@ export async function submitDraft(session,id,ip=''){return tx(async client=>{
 export async function cancelBet(session,id,ip=''){return tx(async client=>{const {rows}=await client.query('SELECT * FROM bet_orders WHERE id=$1 AND member_id=$2 FOR UPDATE',[id,session.userId]);const row=rows[0];assert(row,404,'Pesanan tidak ditemukan.','BET_NOT_FOUND');assert(row.status==='ACCEPTED',409,'Pesanan tidak dapat dibatalkan.','BET_NOT_CANCELLABLE');assert(row.cancellable_until&&new Date(row.cancellable_until)>new Date(),409,'Batas waktu pembatalan sudah berakhir.','BET_CANCEL_WINDOW_EXPIRED');const ledger=await postTransfer(client,{memberId:session.userId,systemCode:SYSTEM_ACCOUNTS.BET_HOLD,memberDelta:Number(row.total_stake),type:'BET_CANCELLED',referenceType:'BET_ORDER',referenceId:row.id,idempotencyKey:`cancel:${row.id}`,actorId:session.userId});await client.query(`UPDATE bet_orders SET status='CANCELLED',balance_after=$1,updated_at=now() WHERE id=$2`,[ledger.after,row.id]);await audit({actorId:session.userId,actorRole:'MEMBER',action:'BET_CANCELLED',targetType:'BET_ORDER',targetId:row.id,details:{refund:Number(row.total_stake)},ip,client});return orderBy(client,'o.id=$1',[row.id]);},{isolation:'SERIALIZABLE'});}
 
 export async function listMemberBets(memberId,{status,limit=100,offset=0}={}){const values=[memberId];let clause="o.member_id=$1 AND o.wallet_mode='CASH'";if(status){values.push(String(status).toUpperCase());clause+=` AND o.status=$${values.length}`}values.push(Math.min(Number(limit)||100,500));const lp=values.length;values.push(Math.max(Number(offset)||0,0));const op=values.length;const {rows}=await query(`SELECT o.*,u.username,m.slug,(SELECT COUNT(*) FROM bet_items i WHERE i.order_id=o.id)::int AS item_count FROM bet_orders o JOIN users u ON u.id=o.member_id JOIN markets m ON m.id=o.market_id WHERE ${clause} ORDER BY o.created_at DESC LIMIT $${lp} OFFSET $${op}`,values);return rows.map(x=>mapOrder(x));}
-export async function listAllBets({status,marketId,period,username,limit=200,offset=0}={}){const v=[];const w=[];if(status){v.push(String(status).toUpperCase());w.push(`o.status=$${v.length}`)}if(marketId){v.push(Number(marketId));w.push(`o.market_id=$${v.length}`)}if(period){v.push(clean(period,80));w.push(`o.period=$${v.length}`)}if(username){v.push(`%${clean(username,30)}%`);w.push(`u.username ILIKE $${v.length}`)}v.push(Math.min(Number(limit)||200,1000));const lp=v.length;v.push(Math.max(Number(offset)||0,0));const op=v.length;const {rows}=await query(`SELECT o.*,u.username,m.slug,(SELECT COUNT(*) FROM bet_items i WHERE i.order_id=o.id)::int AS item_count FROM bet_orders o JOIN users u ON u.id=o.member_id JOIN markets m ON m.id=o.market_id ${w.length?`WHERE ${w.join(' AND ')}`:''} ORDER BY o.created_at DESC LIMIT $${lp} OFFSET $${op}`,v);return rows.map(x=>mapOrder(x));}
+export async function listAllBets({status,marketId,period,username,search='',from='',to='',limit=200,offset=0}={}){
+  const v=[];const w=[];
+  if(status){v.push(String(status).toUpperCase());w.push(`o.status=$${v.length}`)}
+  if(marketId){v.push(Number(marketId));w.push(`o.market_id=$${v.length}`)}
+  if(period){v.push(clean(period,80));w.push(`o.period=$${v.length}`)}
+  if(username){v.push(`%${clean(username,30)}%`);w.push(`u.username ILIKE $${v.length}`)}
+  if(search){v.push(`%${clean(search,120)}%`);w.push(`(u.username ILIKE $${v.length} OR o.id::text ILIKE $${v.length} OR o.invoice ILIKE $${v.length})`)}
+  const start=filterDate(from);if(start){v.push(start);w.push(`o.created_at >= $${v.length}::date`)}
+  const end=filterDate(to);if(end){v.push(end);w.push(`o.created_at < $${v.length}::date + interval '1 day'`)}
+  v.push(Math.min(Number(limit)||200,1000));const lp=v.length;
+  v.push(Math.max(Number(offset)||0,0));
+  const {rows}=await query(`SELECT o.*,u.username,m.slug,(SELECT COUNT(*) FROM bet_items i WHERE i.order_id=o.id)::int AS item_count FROM bet_orders o JOIN users u ON u.id=o.member_id JOIN markets m ON m.id=o.market_id ${w.length?`WHERE ${w.join(' AND ')}`:''} ORDER BY o.created_at DESC LIMIT $${lp} OFFSET $${v.length}`,v);
+  return rows.map(x=>mapOrder(x));
+}
 export const getMemberBet=(memberId,id)=>orderBy({query},"o.id=$1 AND o.member_id=$2 AND o.wallet_mode='CASH'",[id,memberId]);
 
 // Bukti betting untuk member. Data diambil ulang dari server (bukan dari cache
