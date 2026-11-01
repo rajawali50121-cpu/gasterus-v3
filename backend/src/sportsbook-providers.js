@@ -1319,6 +1319,8 @@ function normalizeSportmonksFixture(raw, oddsRows = []) {
   // (player props, bet builders, cards, corners, correct score, odd/even…)
   // are dropped by sportmonksMarket(); the per-event market cap keeps memory bounded.
   event.markets = [...byMarket.values()].map(rows => sportmonksMarket(event, rows)).filter(Boolean).slice(0, 120);
+  event.statistics = Array.isArray(raw?.statistics) ? raw.statistics : [];
+  event.events = Array.isArray(raw?.events) ? raw.events : [];
 
   // Fallback: jika Sportmonks tidak mengembalikan odds untuk fixture ini,
   // generate pasaran odds standar agar sportsbook UI tidak kosong dan
@@ -1401,7 +1403,7 @@ async function fetchSportmonksPage(base, date, page) {
   url.searchParams.set('api_token', config.sportmonksKey);
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', String(SPORTMONKS_PAGE_SIZE));
-  url.searchParams.set('include', 'state;participants;league.country;odds;scores');
+  url.searchParams.set('include', 'state;participants;league.country;odds;scores;statistics.type;events.type');
 
   const maxAttempts = 4;
   let attempt = 0;
@@ -2047,6 +2049,8 @@ export function publicEvent(event) {
     leagueLogo: event.leagueLogo || null,
     venue: event.venue,
     periodScores: event.periodScores || {},
+    statistics: Array.isArray(event.statistics) ? event.statistics : [],
+    events: Array.isArray(event.events) ? event.events : [],
     availableMarketCount: Number(event.availableMarketCount || event.markets?.length || 0),
     detailLoaded: Boolean(event.detailFetchedAt),
     detailFetchedAt: event.detailFetchedAt || null,
