@@ -195,36 +195,46 @@ function eventBucket(event, now = Date.now()) {
 function boundedEvents(events = []) {
   if (!Array.isArray(events)) return [];
   const now = Date.now();
-  return events
-    .filter(isSoccerEvent)
-    .filter(event => {
-      const status = clean(event?.status).toUpperCase();
-      const kickoff = Date.parse(event?.startTime || '');
-      const live = Boolean(event?.live) || ['LIVE', 'IN_PLAY', 'IN-PLAY'].includes(status);
-      if (CLOSED_EVENT_STATUSES.has(status)) {
-        return Number.isFinite(kickoff)
-          && now - kickoff <= config.sportsbookFinishedEventRetentionSeconds * 1000;
-      }
-      if (!live && Number.isFinite(kickoff) && kickoff < now - config.sportsbookPrematchCloseGraceSeconds * 1000) return false;
-      return memberVisibleEvent(event, now);
-    })
-    .map((event, index) => ({ event, index }))
-    .sort((a, b) => {
-      const aLive = Boolean(a.event?.live);
-      const bLive = Boolean(b.event?.live);
-      if (aLive !== bLive) return Number(bLive) - Number(aLive);
-      const aStart = Date.parse(a.event?.startTime || '') || Number.MAX_SAFE_INTEGER;
-      const bStart = Date.parse(b.event?.startTime || '') || Number.MAX_SAFE_INTEGER;
-      const aToday = aStart >= now && aStart < now + 86400000;
-      const bToday = bStart >= now && bStart < now + 86400000;
-      if (aToday !== bToday) return Number(bToday) - Number(aToday);
-      const aTop = TOP_LEAGUE_PATTERNS.some(pattern => pattern.test(`${a.event?.country || ''} ${a.event?.league || ''}`));
-      const bTop = TOP_LEAGUE_PATTERNS.some(pattern => pattern.test(`${b.event?.country || ''} ${b.event?.league || ''}`));
-      if (aTop !== bTop) return Number(bTop) - Number(aTop);
-      return aStart - bStart || a.index - b.index;
-    })
-    .slice(0, MAX_FEED_EVENTS)
-    .map(({ event }) => event);
+  const diagnostics = { total: events.length, soccer: 0, statusRejected: 0, kickoffRejected: 0, visibilityRejected: 0, retained: 0, capped: 0 };
+  const soccerEvents = events.filter(isSoccerEvent);
+  diagnostics.soccer = soccerEvents.length;
+  const filtered = soccerEvents.filter(event => {
+    const status = clean(event?.status).toUpperCase();
+    const kickoff = Date.parse(event?.startTime || '');
+    const live = Boolean(event?.live) || ['LIVE', 'IN_PLAY', 'IN-PLAY'].includes(status);
+    if (CLOSED_EVENT_STATUSES.has(status)) {
+      const ok = Number.isFinite(kickoff) && now - kickoff <= config.sportsbookFinishedEventRetentionSeconds * 1000;
+      if (!ok) diagnostics.statusRejected += 1;
+      return ok;
+    }
+    if (!live && Number.isFinite(kickoff) && kickoff < now - config.sportsbookPrematchCloseGraceSeconds * 1000) {
+      diagnostics.kickoffRejected += 1;
+      return false;
+    }
+    const visible = memberVisibleEvent(event, now);
+    if (!visible) diagnostics.visibilityRejected += 1;
+    return visible;
+  });
+  diagnostics.retained = filtered.length;
+  const mapped = filtered.map((event, index) => ({ event, index }));
+  const sorted = mapped.sort((a, b) => {
+    const aLive = Boolean(a.event?.live);
+    const bLive = Boolean(b.event?.live);
+    if (aLive !== bLive) return Number(bLive) - Number(aLive);
+    const aStart = Date.parse(a.event?.startTime || '') || Number.MAX_SAFE_INTEGER;
+    const bStart = Date.parse(b.event?.startTime || '') || Number.MAX_SAFE_INTEGER;
+    const aToday = aStart >= now && aStart < now + 86400000;
+    const bToday = bStart >= now && bStart < now + 86400000;
+    if (aToday !== bToday) return Number(bToday) - Number(aToday);
+    const aTop = TOP_LEAGUE_PATTERNS.some(pattern => pattern.test(`${a.event?.country || ''} ${a.event?.league || ''}`));
+    const bTop = TOP_LEAGUE_PATTERNS.some(pattern => pattern.test(`${b.event?.country || ''} ${b.event?.league || ''}`));
+    if (aTop !== bTop) return Number(bTop) - Number(aTop);
+    return aStart - bStart || a.index - b.index;
+  });
+  const sliced = sorted.slice(0, MAX_FEED_EVENTS);
+  diagnostics.capped = sorted.length - sliced.length;
+  logger.info('boundedEvents diagnostics', diagnostics);
+  return sliced.map(({ event }) => event);
 }
 
 // Batasi jumlah pasaran per event agar payload tetap ringan meski provider
