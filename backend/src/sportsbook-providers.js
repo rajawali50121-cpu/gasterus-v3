@@ -1479,7 +1479,7 @@ export async function fetchSportmonks({
   // Cek cache terlebih dahulu
   const cached = sportmonksCache.get(cacheKey);
   if (cached && now - cached.fetchedAt < sportmonksCacheTtlMs()) {
-    logger.info('Sportmonks: returning cached data', { age: Math.round((now - cached.fetchedAt) / 1000) + 's' });
+    logger.info('Sportmonks: returning cached data', { age: Math.round((now - cached.fetchedAt) / 1000) + 's', events: cached.events.length });
     return { provider: 'sportmonks', enabled: true, events: cached.events, errors: [] };
   }
   
