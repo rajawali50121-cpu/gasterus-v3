@@ -6,11 +6,13 @@ import { evaluateSportsbookLeg } from './sportsbook-result-evaluator.js';
 import { fetchSportmonksFixtureById } from './sportsbook-providers.js';
 
 const finishedFixtureCache = new Map();
+let fixtureRetrievalInvocations = 0;
 const FINISHED_CACHE_TTL_MS = 5 * 60 * 1000;
 
 async function loadFinishedFixtureEvent(eventId) {
   const cached = finishedFixtureCache.get(eventId);
   if (cached && Date.now() - cached.fetchedAt < FINISHED_CACHE_TTL_MS) return cached.event;
+  fixtureRetrievalInvocations += 1;
   try {
     const result = await fetchSportmonksFixtureById(eventId);
     const event = result?.event || null;
@@ -23,6 +25,7 @@ async function loadFinishedFixtureEvent(eventId) {
 }
 
 export async function autoSettleSportsbookTickets({ limit = 200 } = {}) {
+  const cycleStartedAt = Date.now();
   const open = await query(`
     SELECT DISTINCT t.id
     FROM sportsbook_tickets t
@@ -71,5 +74,13 @@ export async function autoSettleSportsbookTickets({ limit = 200 } = {}) {
       logger.warn('Sportsbook auto-settlement skipped ticket', { ticketId: ticketRow.id, error: error.message });
     }
   }
+  logger.info('Sportsbook auto-settlement cycle diagnostics', {
+    checked: open.rowCount,
+    eligibleEventIds: events.size,
+    settled,
+    skipped,
+    fixtureRetrievalInvocations,
+    durationMs: Date.now() - cycleStartedAt
+  });
   return { checked: open.rowCount, settled, skipped, feedFetchedAt: snapshot?.fetchedAt, feedRevision: snapshot?.feedRevision || null, settlementSources: snapshot?.settlementSources || [] };
 }
