@@ -3,16 +3,99 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { ticketCalculation } from '../src/sportsbook-calculation.js';
 import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
+import { prioritizeMemberCoreMarkets, projectMemberMarkets, selectMemberSummaryMarkets } from '../src/sportsbook-member-projection.js';
+import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from '../../frontend/js/sportsbook-markets.js';
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
+const realtime = readFileSync(new URL('../src/sportsbook-realtime.js', import.meta.url), 'utf8');
+
+function market(id, period, odds = 2.1) {
+  return {
+    id,
+    type: '1X2',
+    period,
+    selections: [
+      { key: 'HOME', label: 'Home', odds, suspended: false },
+      { key: 'DRAW', label: 'Draw', odds: odds + 1, suspended: false },
+      { key: 'AWAY', label: 'Away', odds: odds + 2, suspended: false }
+    ]
+  };
+}
+
+test('member REST snapshot projection retains valid FT and HT markets without duplicates', () => {
+  const markets = [
+    { ...market('ft-main', 'FT'), selections: [...market('ft-main', 'FT').selections, market('ft-main', 'FT').selections[0]] },
+    market('ht-main', '1H', 1.8),
+    market('ht-main', '1H', 1.7),
+    market('ft-main', '1H', 1.9),
+    { ...market('malformed-ht', '1H'), selections: [null, { key: 'HOME', label: 'Home', odds: 2.2 }] },
+    market('second-half', '2H')
+  ];
+  const result = projectMemberMarkets(selectMemberSummaryMarkets(markets));
+  assert.deepEqual([...new Set(result.map(item => item.period))], ['FT', '1H']);
+  assert.equal(new Set(result.map(item => `${item.id}|${item.period}|${item.line ?? ''}`)).size, result.length);
+  const ftMarket = result.find(item => item.id === 'ft-main' && item.period === 'FT');
+  assert.equal(new Set(ftMarket.selections.map(item => `${item.key}|${item.line ?? ''}`)).size, ftMarket.selections.length);
+  assert.equal(result.some(item => item.id === 'ft-main' && item.period === '1H'), true);
+  assert.equal(result.find(item => item.id === 'ht-main').selections.some(item => item.key === 'HOME'), true);
+});
+
+test('feed market cap prioritizes FT and HT primary markets over BTTS and extra periods', () => {
+  const capped = prioritizeMemberCoreMarkets([
+    market('ft-1x2', 'FT'),
+    { ...market('ft-btts', 'FT'), type: 'BTTS' },
+    { ...market('ft-handicap', 'FT'), type: 'HANDICAP' },
+    { ...market('ft-totals', 'FT'), type: 'TOTALS' },
+    market('ht-1x2', '1H'),
+    { ...market('ht-handicap', '1H'), type: 'HANDICAP' },
+    { ...market('ht-totals', '1H'), type: 'TOTALS' },
+    market('second-half', '2H')
+  ], 6);
+  assert.deepEqual(capped.map(item => `${item.period}:${item.type}`), [
+    'FT:1X2', 'FT:HANDICAP', 'FT:TOTALS', '1H:1X2', '1H:HANDICAP', '1H:TOTALS'
+  ]);
+  assert.match(feed, /prioritizeMemberCoreMarkets\(sourceMarkets, MAX_MARKETS_PER_EVENT\)/);
+});
+
+test('the SSE broadcaster sends the same member snapshot projection, including FT and HT updates', () => {
+  assert.match(feed, /sourceEvents\.map\(memberPublicEvent\)/);
+  assert.match(realtime, /pending = sportsbookSnapshot\(client\.filters\)/);
+  assert.match(realtime, /broadcastSnapshot\(client, await pending\)/);
+  const result = projectMemberMarkets(selectMemberSummaryMarkets([market('ft-main', 'FT'), market('ht-main', '1H', 1.9)]));
+  assert.deepEqual(result.map(item => item.period), ['FT', '1H']);
+});
+
+test('valid FT and HT odds create selectable tabs and render the selected period markets', () => {
+  const event = { markets: [market('ft-main', 'FT'), market('ht-main', '1H', 1.9)] };
+  const periods = availableMarketPeriods(event);
+  assert.deepEqual(periods, ['FT', '1H']);
+  assert.equal(primaryMarketColumns(event, selectMarketPeriod(periods, 'FT'))[0].market.id, 'ft-main');
+  assert.equal(primaryMarketColumns(event, selectMarketPeriod(periods, '1H'))[0].market.id, 'ht-main');
+  assert.equal(selectMarketPeriod(periods, '1H'), '1H');
+  assert.match(frontend, /selectedEventPeriods\.set\(match\.dataset\.evid, periodButton\.dataset\.matchPeriod\);\s*renderAll\(\)/);
+});
+
+test('invalid or malformed HT markets do not create an empty HT tab or break the FT card', () => {
+  const event = {
+    markets: [
+      market('ft-main', 'FT'),
+      null,
+      { id: 'malformed-ft', type: '1X2', period: 'FT', selections: [null] },
+      { ...market('ht-invalid', '1H', Infinity), selections: [null, { key: 'HOME', odds: 'bad' }] },
+      { ...market('ht-suspended', '1H'), suspended: true }
+    ]
+  };
+  assert.deepEqual(availableMarketPeriods(event), ['FT']);
+  assert.equal(primaryMarketColumns(event, 'FT')[0].market.id, 'ft-main');
+});
 
 test('member sportsbook lazy-loads complete event market details and retains all list market variants', () => {
   assert.match(frontend, /const FEED_DETAIL_URL = \(id\) => `\/api\/member\/sportsbook\/events\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(frontend, /await api\.get\(FEED_DETAIL_URL\(eventId\)\)/);
   assert.match(frontend, /function renderAllEventMarkets\(event\)[\s\S]*event\.markets[\s\S]*market\.selections\.map/);
-  assert.match(feed, /function memberPublicEvent\(event\)[\s\S]*SUMMARY_MARKET_TYPES\.has[\s\S]*memberEventShape\(item, markets\)/);
+  assert.match(feed, /function memberPublicEvent\(event\)[\s\S]*selectMemberSummaryMarkets\(item\.markets\)[\s\S]*memberEventShape\(item, markets\)/);
   assert.match(feed, /function memberPublicEventDetail\(event\)[\s\S]*memberEventShape\(item, item\.markets \|\| \[\]\)/);
 });
 
@@ -25,7 +108,7 @@ test('detailed markets are refreshed by feed revision and stale odds cannot plac
 });
 
 test('event cards render only provider-backed primary markets and do not advertise inactive bet builder tabs', () => {
-  assert.match(frontend, /import \{ primaryMarketColumns \} from '\.\/sportsbook-markets\.js'/);
+  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js'/);
   assert.match(frontend, /function eventMarketPeriods\(event\)/);
   assert.match(frontend, /data-match-period=/);
   assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);

@@ -133,7 +133,8 @@ export function openSportsbookRealtimeStream(request, response, filters = {}) {
       leagues: filters.leagues ?? null,
       country: filters.country || '',
       offset: filters.offset || 0,
-      limit: filters.limit || 30
+      limit: filters.limit || 30,
+      revision: filters.revision || ''
     }
   };
   clients.add(client);

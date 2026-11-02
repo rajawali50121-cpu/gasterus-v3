@@ -5,6 +5,7 @@ import { redis } from './redis.js';
 import { logger } from './logger.js';
 import { fetchSportmonks, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
 import { resolveSportsbookProviderResults } from './sportsbook-feed-source.js';
+import { appendFeedRevision, readFeedRevision, paginateEvents, SPORTSBOOK_FEED_REVISIONS_KEY } from './sportsbook-feed-revisions.js';
 import { advanceProviderLifecycle, publicProviderLifecycle, shouldProbeProvider, transitionProviderLifecycle } from './sportsbook-provider-lifecycle.js';
 import { recordSportsbookMarketTransitions, recordSportsbookProviderTransitions, sportsbookPricingExposureSnapshot } from './sportsbook-operations.js';
 import { applySportsbookRiskRepricing } from './sportsbook-risk-pricing.js';
@@ -13,7 +14,7 @@ import { priceVersionChangeCount } from './sportsbook-live-observability.js';
 import { applySportsbookTradingControls, listActiveSportsbookTradingControls, resolveSportsbookTradingPolicy } from './sportsbook-trading-controls.js';
 import { eventSettlementAuthority, settlementAuthoritySummary } from './sportsbook-settlement-authority.js';
 import { enrichTeamArtwork } from './sportsbook-team-artwork.js';
-import { projectMemberMarkets } from './sportsbook-member-projection.js';
+import { prioritizeMemberCoreMarkets, projectMemberMarkets, selectMemberSummaryMarkets } from './sportsbook-member-projection.js';
 
 const MIN_1X2_OVERROUND = 1.00;
 const MAX_1X2_OVERROUND = 1.25;
@@ -159,11 +160,8 @@ const TOP_LEAGUE_PATTERNS = [
 ];
 const MAX_FEED_EVENTS = config.sportsFeedMaxEvents;
 const MAX_CACHE_BYTES = config.sportsFeedMaxCacheBytes;
-// Batasi pasaran per event agar satu event tidak bisa menumpuk ratusan pasaran
-// (mencegah snapshot raksasa yang menyebabkan feed-worker OOM dan status macet
-// "Menghubungkan feed"). Hanya pasaran inti FT yang dipertahankan.
+// Batasi pasaran per event agar satu event tidak bisa menumpuk ratusan pasaran.
 const MAX_MARKETS_PER_EVENT = 6;
-const CORE_MARKET_TYPES = new Set(['1X2', 'HANDICAP', 'TOTALS', 'BTTS']);
 let lastCacheLimitWarningAt = 0;
 const WIB_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Jakarta',
@@ -171,13 +169,6 @@ const WIB_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   month: '2-digit',
   day: '2-digit'
 });
-const SUMMARY_MARKET_TYPES = new Set(['1X2', 'HANDICAP', 'TOTALS']);
-// Halaman katalog member memakai DEFAULT/MAX yang sama (500 = sportsbookMemberMaxEvents)
-// sehingga curl langsung ke /api/member/sportsbook/events mengembalikan SELURUH
-// katalog aktif dalam satu respons, bukan terpotong default 30/maks 100.
-const DEFAULT_SNAPSHOT_PAGE_SIZE = 500;
-const MAX_SNAPSHOT_PAGE_SIZE = 500;
-
 function isSoccerEvent(event) {
   const sport = clean(event?.sport).toLowerCase();
   return sport === 'football' || sport === 'soccer' || sport === 'association football';
@@ -237,26 +228,23 @@ function boundedEvents(events = []) {
   return sliced.map(({ event }) => event);
 }
 
-// Batasi jumlah pasaran per event agar payload tetap ringan meski provider
-// menghasilkan banyak pasaran per fixture. Hanya pasaran inti FT (1X2,
-// HANDICAP mainLine, TOTALS mainLine, BTTS) yang dipertahankan, maksimal
-// MAX_MARKETS_PER_EVENT per event.
+// Batasi market inti per event sambil memprioritaskan coverage FT dan 1H.
 function capMarketsPerEvent(events = []) {
   return events.map(event => {
-    const core = [];
-    const seen = new Set();
-    for (const market of (event.markets || [])) {
-      if (core.length >= MAX_MARKETS_PER_EVENT) break;
-      if (!market || !CORE_MARKET_TYPES.has(market.type)) continue;
-      const key = `${market.type}:${market.period}:${market.mainLine ?? market.line ?? 'null'}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      core.push({
+    const sourceMarkets = Array.isArray(event.markets) ? event.markets : [];
+    const core = prioritizeMemberCoreMarkets(sourceMarkets, MAX_MARKETS_PER_EVENT);
+    const retained = core.length
+      ? core
+      : sourceMarkets.filter(market => market && typeof market === 'object' && !Array.isArray(market)).slice(0, MAX_MARKETS_PER_EVENT);
+    return {
+      ...event,
+      markets: retained.map(market => ({
         ...market,
-        selections: (market.selections || []).slice(0, 3)
-      });
-    }
-    return { ...event, markets: core.length ? core : (event.markets || []).slice(0, MAX_MARKETS_PER_EVENT) };
+        selections: (Array.isArray(market.selections) ? market.selections : [])
+          .filter(selection => selection && typeof selection === 'object' && !Array.isArray(selection))
+          .slice(0, 3)
+      }))
+    };
   });
 }
 
@@ -683,19 +671,51 @@ async function readRedisCache() {
 async function writeRedisCache(value, { alreadyBounded = false } = {}) {
   const bounded = alreadyBounded ? value : cacheWithinLimit(value);
   if (!redis.isOpen) return bounded;
+  const tightTtlSeconds = Math.max(
+    Number(config.sportsFeedStaleSeconds) || 180,
+    (Number(config.sportsFeedRefreshSeconds) || 90) * 2,
+    180
+  );
   try {
     // TTL agresif: snapshot lama di-evict secepatnya setelah stale, jangan
     // menumpuk di Redis. Volume event tetap penuh (500) — hanya TTL yang ketat.
-    const tightTtlSeconds = Math.max(
-      Number(config.sportsFeedStaleSeconds) || 180,
-      (Number(config.sportsFeedRefreshSeconds) || 90) * 2,
-      180
-    );
+    const now = Date.now();
+    const previousRevisions = await redis.get(SPORTSBOOK_FEED_REVISIONS_KEY);
+    const revisionCache = appendFeedRevision(previousRevisions, bounded, {
+      now,
+      maxAgeMs: tightTtlSeconds * 1000
+    });
+    await redis.set(SPORTSBOOK_FEED_REVISIONS_KEY, revisionCache, { EX: tightTtlSeconds });
+  } catch (error) {
+    logger.warn('Sportsbook revision cache write failed', { error: error.message });
+  }
+  try {
     await redis.set(CACHE_KEY, JSON.stringify(bounded), { EX: tightTtlSeconds });
   } catch (error) {
     logger.warn('Sportsbook Redis cache write failed', { error: error.message });
   }
   return bounded;
+}
+
+async function readRevisionFeed(revision) {
+  const now = Date.now();
+  const maxAgeMs = Math.max(Number(config.sportsFeedStaleSeconds) || 180, 180) * 1000;
+  const memoryAgeMs = now - Number(memory.fetchedAt || 0);
+  if (memory.revision === revision
+    && memory.lifecycleGeneration === LIFECYCLE_GENERATION
+    && Array.isArray(memory.events)
+    && memoryAgeMs >= 0
+    && memoryAgeMs <= maxAgeMs) return memory;
+  if (!redis.isOpen) return null;
+  try {
+    const raw = await redis.get(SPORTSBOOK_FEED_REVISIONS_KEY);
+    const snapshot = readFeedRevision(raw, revision, { now, maxAgeMs });
+    if (snapshot?.lifecycleGeneration !== LIFECYCLE_GENERATION || !Array.isArray(snapshot.providers)) return null;
+    return snapshot;
+  } catch (error) {
+    logger.warn('Sportsbook revision cache read failed', { error: error.message });
+    return null;
+  }
 }
 async function readProviderLifecycle() {
   if (memory.lifecycleGeneration === LIFECYCLE_GENERATION && memory.providerLifecycle && Object.keys(memory.providerLifecycle).length) return memory.providerLifecycle;
@@ -1352,35 +1372,41 @@ function memberEventShape(item, markets) {
     markets: projectMemberMarkets(projectedMarkets)
   };
 }
-function memberPublicEvent(event) {
-  const item = publicEvent(event);
-  const markets = (item.markets || []).filter(market =>
-    SUMMARY_MARKET_TYPES.has(String(market.type || '').toUpperCase())
-    && String(market.period || 'FT').toUpperCase() === 'FT'
-  );
-  return memberEventShape(item, markets);
-}
-function memberPublicEventDetail(event) {
-  const item = publicEvent(event);
-  return memberEventShape(item, item.markets || []);
-}
 
-function paginateEvents(events = [], { offset, limit } = {}) {
-  const pageSize = Math.min(MAX_SNAPSHOT_PAGE_SIZE, Math.max(1, Number(limit) || DEFAULT_SNAPSHOT_PAGE_SIZE));
-  const start = Math.max(0, Math.min(events.length, Math.floor(Number(offset) || 0)));
-  const page = events.slice(start, start + pageSize);
+function memberSourceEvent(event) {
+  const source = event && typeof event === 'object' && !Array.isArray(event) ? event : {};
+  const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
   return {
-    events: page,
-    pagination: {
-      offset: start,
-      limit: pageSize,
-      total: events.length,
-      hasMore: start + page.length < events.length
-    }
+    ...source,
+    home: isRecord(source.home) ? source.home : {},
+    away: isRecord(source.away) ? source.away : {},
+    markets: (Array.isArray(source.markets) ? source.markets : [])
+      .filter(isRecord)
+      .map(market => ({
+        ...market,
+        selections: (Array.isArray(market.selections) ? market.selections : []).filter(isRecord)
+      }))
   };
 }
 
+function memberPublicEvent(event) {
+  const item = publicEvent(memberSourceEvent(event));
+  const markets = selectMemberSummaryMarkets(item.markets);
+  return memberEventShape(item, markets);
+}
+function memberPublicEventDetail(event) {
+  const item = publicEvent(memberSourceEvent(event));
+  return memberEventShape(item, item.markets || []);
+}
+
 export async function sportsbookSnapshot(filters = {}, { memberView = true } = {}) {
+  if (filters.revision) {
+    const feed = await readRevisionFeed(String(filters.revision));
+    if (!feed) {
+      throw new AppError(409, 'Revision katalog sportsbook sudah kedaluwarsa. Muat ulang halaman pertama.', 'SPORTSBOOK_REVISION_EXPIRED');
+    }
+    return buildSportsbookSnapshotResponse(filters, memberView, feed);
+  }
   // Emergency guarantee: feed sportsbook tidak boleh melempar error 5xx atau
   // mengembalikan feed kosong ke frontend. Provider/Redis/DB gagal berapa pun
   // tetap dijawab HTTP 200 dengan snapshot hard fallback berisi pertandingan

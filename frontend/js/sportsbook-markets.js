@@ -1,11 +1,43 @@
 const MARKET_PRIORITY = { HANDICAP: 0, TOTALS: 1, '1X2': 2 };
 const MARKET_NAMES = { HANDICAP: 'Asian Handicap', TOTALS: 'Over / Under', '1X2': '1X2' };
+const MARKET_PERIOD_ORDER = ['FT', '1H', '2H', 'Q1', 'Q2', 'Q3', 'Q4'];
+
+export function availableMarketPeriods(event) {
+  const periods = new Set();
+  for (const market of Array.isArray(event?.markets) ? event.markets : []) {
+    if (!market || typeof market !== 'object' || market.suspended || !Array.isArray(market.selections)) continue;
+    if (!market.selections.some(selection => {
+      const odds = Number(selection?.odds);
+      return !selection?.suspended && Number.isFinite(odds) && odds > 1;
+    })) continue;
+    periods.add(String(market.period || 'FT').toUpperCase());
+  }
+  return [...periods].sort((left, right) => {
+    const leftOrder = MARKET_PERIOD_ORDER.indexOf(left);
+    const rightOrder = MARKET_PERIOD_ORDER.indexOf(right);
+    return (leftOrder < 0 ? Number.MAX_SAFE_INTEGER : leftOrder) -
+      (rightOrder < 0 ? Number.MAX_SAFE_INTEGER : rightOrder) || left.localeCompare(right);
+  });
+}
+
+export function selectMarketPeriod(availablePeriods, requestedPeriod) {
+  if (availablePeriods.includes(requestedPeriod)) return requestedPeriod;
+  if (availablePeriods.includes('FT')) return 'FT';
+  return availablePeriods[0] || 'FT';
+}
 
 export function primaryMarketColumns(event, period) {
   const requestedPeriod = String(period || 'FT').toUpperCase();
   const seenCoreTypes = new Set();
   const markets = Array.isArray(event?.markets) ? event.markets : [];
   return markets
+    .filter(market => market && typeof market === 'object' && !Array.isArray(market))
+    .map(market => ({
+      ...market,
+      selections: Array.isArray(market.selections)
+        ? market.selections.filter(selection => selection && typeof selection === 'object' && !Array.isArray(selection))
+        : []
+    }))
     .filter((market) => !market.suspended &&
       String(market.period || 'FT').toUpperCase() === requestedPeriod &&
       Array.isArray(market.selections) && market.selections.length)

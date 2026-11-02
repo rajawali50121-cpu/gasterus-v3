@@ -48,8 +48,15 @@ test('member event list and event detail both preserve all available markets',()
 test('FINAL mobile frontend bootstraps REST snapshot and reconnects SSE with bounded backoff',()=>{
   const js=readFileSync(new URL('../../frontend/js/sportsbook.js',import.meta.url),'utf8');
   assert.match(js,/async function loadRestSnapshot\(\{ append = false \} = \{\}\)/);
-  assert.match(js,/if \(payload && Array\.isArray\(payload\.events\)\) \{\s*lastPageEventCount = payload\.events\.length;\s*if \(append\) streamOffset = Math\.max\(0, feed\.events\.length\);\s*onSnapshot\(payload, \{ append \}\);/);
-  assert.doesNotMatch(js,/Array\.isArray\(payload\.events\) && payload\.events\.length/);
+  assert.match(js,/const payload = normalizeSnapshot\(json\?\.data \|\| json \|\| null\)/);
+  assert.match(js,/const accepted = onSnapshot\(payload, \{ generation \}\)/);
+  assert.match(js,/offset: String\(append \? nextPageOffset\(currentOffset, pageSize\) : 0\)/);
+  assert.match(js,/offset: String\(currentOffset\)/);
+  assert.doesNotMatch(js,/streamOffset/);
+  assert.match(js,/function onSnapshot\(rawSnapshot, \{ generation = feedViewGeneration \} = \{\}\)/);
+  assert.match(js,/shouldApplySnapshot\(feed, snapshot\)/);
+  assert.match(js,/let streamActive = false/);
+  assert.match(js,/event === 'ready'[\s\S]*streamActive = true;[\s\S]*setStatus\('online'\)/);
   // SSE adalah satu-satunya penulis realtime; REST hanya bootstrap 1x + darurat saat
   // SSE putus. TIDAK ada lagi polling berkala yang menimpa snapshot SSE (akar pola
   // 222↔5 di halaman member). Kontrak anti-hang yang berlaku: reconnect SSE dengan

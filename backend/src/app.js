@@ -33,7 +33,7 @@ import { totoMarketsHealth, totoMarketsDetail, simpleHealth } from './health-che
 import { requestMemberPasswordReset, resetMemberPasswordByToken } from './password-reset.js';
 import { casinoProviders, casinoGames, casinoPassthrough, casinoRapidApiStatus, diagnoseCasinoUpstream, launchCasinoGame } from './casino-rapidapi.js';
 import { processBetnexCallback } from './casino-wallet.js';
-import { acceptSportsbookSnapshot, createStoredSportsbookSnapshot, SPORTSBOOK_INGEST_REDIS_KEY } from './sportsbook-ingestion.js';
+import { acceptSportsbookSnapshot, storeMergedSportsbookSnapshot } from './sportsbook-ingestion.js';
 
 const startedAt=Date.now();const metrics={requests:0,errors:0,rateLimited:0,latencyTotal:0};
 const route=(method,pattern,handler,options={})=>({method,pattern,handler,...options});
@@ -56,16 +56,7 @@ add('GET',new RegExp('^/api/health/simple$'),simpleHealth);
 add('GET',/^\/healthz$/,async({res})=>{let healthy=false;try{const raw=await redis.get(config.workerHeartbeatKey);healthy=isWorkerHeartbeatFresh(raw,{staleAfterSeconds:Math.max(config.workerHeartbeatMaxAgeSeconds*2,120)});}catch{healthy=false;}ok(res,{status:healthy?'ok':'degraded'},healthy?200:503);});
 add('POST',/^\/api\/internal\/sportsbook\/ingest$/,async({req,res})=>{
   const result=await acceptSportsbookSnapshot(req,{
-    storeSnapshot:(_snapshot,serialized,signature)=>redis.set(
-      SPORTSBOOK_INGEST_REDIS_KEY,
-      createStoredSportsbookSnapshot({
-        serializedSnapshot:serialized,
-        timestamp:signature.timestamp,
-        signature:signature.signature,
-        receivedAt:signature.receivedAt
-      }),
-      {EX:1800}
-    )
+    storeSnapshot:snapshot=>storeMergedSportsbookSnapshot(redis,snapshot)
   });
   ok(res,result,202);
 });
@@ -124,13 +115,13 @@ add('GET',/^\/api\/member\/notifications$/,async({req,res,url})=>{const s=await 
 add('POST',/^\/api\/member\/notifications\/read-all$/,async({req,res})=>{const s=await memberSession(req);requireCsrf(req,s);ok(res,await markAllMemberNotificationsRead(s.userId));});
 add('POST',/^\/api\/member\/notifications\/(?<id>[0-9a-f-]+)\/read$/,async({req,res,params})=>{const s=await memberSession(req);requireCsrf(req,s);ok(res,await markMemberNotificationRead(s.userId,params.id));});
 add('GET',/^\/api\/member\/gaming-history$/,async({req,res,url})=>{const s=await memberSession(req);ok(res,await memberGamingHistory(s.userId,{limit:url.searchParams.get('limit')}));});
-add('GET',/^\/api\/member\/sportsbook\/events$/,async({req,res,url})=>{await optionalMemberSession(req);await rateLimit(req,'sportsbook-feed',180,60);ok(res,await sportsbookSnapshot({sport:url.searchParams.get('sport'),live:url.searchParams.get('live'),q:url.searchParams.get('q'),tab:url.searchParams.get('tab'),league:url.searchParams.get('league'),leagues:url.searchParams.has('leagues')?url.searchParams.get('leagues'):null,country:url.searchParams.get('country'),offset:url.searchParams.get('offset'),limit:url.searchParams.get('limit')}));});
+add('GET',/^\/api\/member\/sportsbook\/events$/,async({req,res,url})=>{await optionalMemberSession(req);await rateLimit(req,'sportsbook-feed',180,60);ok(res,await sportsbookSnapshot({sport:url.searchParams.get('sport'),live:url.searchParams.get('live'),q:url.searchParams.get('q'),tab:url.searchParams.get('tab'),league:url.searchParams.get('league'),leagues:url.searchParams.has('leagues')?url.searchParams.get('leagues'):null,country:url.searchParams.get('country'),offset:url.searchParams.get('offset'),limit:url.searchParams.get('limit'),revision:url.searchParams.get('revision')}));});
 add('GET',/^\/api\/member\/casino\/providers$/,async({req,res})=>{await optionalMemberSession(req);await rateLimit(req,'casino-providers',60,60);ok(res,await casinoProviders());});
 add('GET',/^\/api\/member\/casino\/games$/,async({req,res,url})=>{await optionalMemberSession(req);await rateLimit(req,'casino-games',60,60);ok(res,await casinoGames(url.searchParams.get('provider')||''));});
 add('POST',/^\/api\/member\/casino\/launch$/,async({req,res})=>{const s=await memberSession(req);requireCsrf(req,s);await rateLimit(req,'casino-launch',12,60);const member=await userById(s.userId);assert(member.status==='ACTIVE',403,'Akun tidak aktif.','ACCOUNT_INACTIVE');ok(res,await launchCasinoGame(member,await body(req)));});
 add('POST',/^\/api\/member\/casino\/callback$/,async({req,res})=>{internal(req,'member');let input;try{input=await body(req,65536);}catch{return json(res,200,{success:false,msg:'Callback payload tidak valid.',handle:false,money:0});}try{const result=await processBetnexCallback(input);return json(res,result.status,result.body);}catch(error){logger.error('Betnex callback route failed',{code:error?.code||'CALLBACK_FAILED',message:error?.message||'unknown'});return json(res,500,{success:false,msg:'Callback belum dapat diproses.',handle:false,money:0});}});
 add('GET',/^\/api\/member\/casino\/status$/,async({req,res})=>{await optionalMemberSession(req);ok(res,casinoRapidApiStatus());});
-add('GET',/^\/api\/member\/sportsbook\/stream$/,async({req,res,url})=>{await memberSession(req);await rateLimit(req,'sportsbook-stream',20,60);openSportsbookRealtimeStream(req,res,{sport:url.searchParams.get('sport'),live:url.searchParams.get('live'),q:url.searchParams.get('q'),tab:url.searchParams.get('tab'),league:url.searchParams.get('league'),leagues:url.searchParams.has('leagues')?url.searchParams.get('leagues'):null,country:url.searchParams.get('country'),offset:url.searchParams.get('offset'),limit:url.searchParams.get('limit')});});
+add('GET',/^\/api\/member\/sportsbook\/stream$/,async({req,res,url})=>{await memberSession(req);await rateLimit(req,'sportsbook-stream',20,60);openSportsbookRealtimeStream(req,res,{sport:url.searchParams.get('sport'),live:url.searchParams.get('live'),q:url.searchParams.get('q'),tab:url.searchParams.get('tab'),league:url.searchParams.get('league'),leagues:url.searchParams.has('leagues')?url.searchParams.get('leagues'):null,country:url.searchParams.get('country'),offset:url.searchParams.get('offset'),limit:url.searchParams.get('limit'),revision:url.searchParams.get('revision')});});
 add('GET',/^\/api\/member\/sportsbook\/events\/(?<id>[^/]+)$/,async({req,res,params})=>{await optionalMemberSession(req);await rateLimit(req,'sportsbook-event-detail',120,60);ok(res,await sportsbookEventSnapshot(params.id));});
 add('GET',/^\/api\/member\/sportsbook\/bets$/,async({req,res,url})=>{const s=await memberSession(req);ok(res,await listMemberSportsbookBets(s.userId,{status:url.searchParams.get('status'),limit:url.searchParams.get('limit'),offset:url.searchParams.get('offset')}));});
 add('POST',/^\/api\/member\/sportsbook\/quotes$/,async({req,res})=>{const s=await memberSession(req);requireCsrf(req,s);await rateLimit(req,'sportsbook-quote',60,60);ok(res,await createSportsbookQuote(s,await body(req)));});

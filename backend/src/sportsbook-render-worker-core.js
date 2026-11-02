@@ -23,20 +23,6 @@ function compareCandidates(a, b, priorities) {
   return sourceDifference || a.event.id.localeCompare(b.event.id);
 }
 
-function compareDuplicateCandidates(a, b, priorities) {
-  if (a.event.live !== b.event.live) return Number(b.event.live) - Number(a.event.live);
-  // Salinan fixture yang berharga (punya pasar) selalu menang atas salinan
-  // display-only yang sama, sekalipun berasal dari provider cadangan — odds
-  // nyata tidak boleh hilang hanya karena provider primer belum menghargai
-  // pertandingan itu.
-  const aPriced = a.event.markets?.length ? 1 : 0;
-  const bPriced = b.event.markets?.length ? 1 : 0;
-  if (aPriced !== bPriced) return bPriced - aPriced;
-  const sourceDifference = providerPriority(b.provider, b.event.live) - providerPriority(a.provider, a.event.live);
-  if (sourceDifference) return sourceDifference;
-  return compareCandidates(a, b, priorities);
-}
-
 function sameFixture(a, b, teamKey) {
   if (a.event.sport !== b.event.sport) return false;
   const direct = teamKey(a.event.home.name) === teamKey(b.event.home.name)
@@ -69,25 +55,23 @@ export function combineSportsbookProviderResults(providerResults, {
   );
   candidates.sort((a, b) => compareCandidates(a, b, priorityLeagues));
 
-  const selected = [];
+  const fixtureGroups = [];
   for (const candidate of candidates) {
-    const duplicateIndex = selected.findIndex(existing => sameFixture(existing, candidate, teamKey));
-    if (duplicateIndex === -1) {
-      selected.push(candidate);
-      continue;
-    }
-    if (compareDuplicateCandidates(candidate, selected[duplicateIndex], priorityLeagues) < 0) {
-      selected[duplicateIndex] = candidate;
-    }
+    let group = fixtureGroups.find(existing => sameFixture(existing[0], candidate, teamKey));
+    if (!group) fixtureGroups.push(group = []);
+    group.push(candidate);
   }
-  selected.sort((a, b) => compareCandidates(a, b, priorityLeagues));
-  const boundedSelection = selected.slice(0, maxEvents);
+  fixtureGroups.sort((a, b) => compareCandidates(a[0], b[0], priorityLeagues));
+  const boundedGroups = fixtureGroups.slice(0, maxEvents);
+  const truncatedEventCount = fixtureGroups.length - boundedGroups.length;
 
   const selectedByProvider = new Map();
-  for (const candidate of boundedSelection) {
-    const events = selectedByProvider.get(candidate.provider) || [];
-    events.push(candidate.event);
-    selectedByProvider.set(candidate.provider, events);
+  for (const group of boundedGroups) {
+    for (const candidate of group) {
+      const events = selectedByProvider.get(candidate.provider) || [];
+      events.push(candidate.event);
+      selectedByProvider.set(candidate.provider, events);
+    }
   }
 
   const combinedResults = enabledResults.map(result => ({
@@ -96,7 +80,8 @@ export function combineSportsbookProviderResults(providerResults, {
   }));
   return {
     providerResults: combinedResults,
-    eventCount: boundedSelection.length
+    eventCount: boundedGroups.length,
+    truncatedEventCount
   };
 }
 
@@ -106,18 +91,52 @@ function snapshotBytes(snapshot) {
   return Buffer.byteLength(JSON.stringify(snapshot), 'utf8');
 }
 
-function rebuildSnapshot(snapshot, flatEvents) {
-  let cursor = 0;
+function rebuildSnapshot(snapshot, entries) {
+  const eventsByProvider = new Map();
+  for (const { provider, event } of entries) {
+    const events = eventsByProvider.get(provider) || [];
+    events.push(event);
+    eventsByProvider.set(provider, events);
+  }
   const providerResults = snapshot.providerResults.map(result => {
-    const events = flatEvents.slice(cursor, cursor + (result.events?.length || 0));
-    cursor += events.length;
-    return { ...result, events };
+    return { ...result, events: eventsByProvider.get(result.provider) || [] };
   });
   return {
     ...snapshot,
     providerResults,
-    eventCount: flatEvents.length
+    eventCount: countSnapshotFixtures(entries.map(entry => entry.event))
   };
+}
+
+function normalizedTeamKey(value) {
+  return String(value || '').toLowerCase().normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(fc|cf|sc|afc|club|the)\b/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function sameSnapshotFixture(a, b) {
+  if (a.sport !== b.sport
+    || normalizedTeamKey(a.home?.name) !== normalizedTeamKey(b.home?.name)
+    || normalizedTeamKey(a.away?.name) !== normalizedTeamKey(b.away?.name)) return false;
+  const first = Date.parse(a.startTime || '');
+  const second = Date.parse(b.startTime || '');
+  return Number.isFinite(first) && Number.isFinite(second) && Math.abs(first - second) <= DUPLICATE_KICKOFF_WINDOW_MS;
+}
+
+function snapshotFixtureGroups(entries) {
+  const groups = [];
+  for (const entry of entries) {
+    let group = groups.find(items => sameSnapshotFixture(items[0].event, entry.event));
+    if (!group) groups.push(group = []);
+    group.push(entry);
+  }
+  return groups;
+}
+
+function countSnapshotFixtures(events) {
+  return snapshotFixtureGroups(events.map(event => ({ event }))).length;
 }
 
 function capEventMarkets(event, cap) {
@@ -132,23 +151,33 @@ function capEventMarkets(event, cap) {
 export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
   if (!Number.isFinite(maxBytes) || maxBytes <= 0) return snapshot;
   if (snapshotBytes(snapshot) <= maxBytes) return snapshot;
-  const flatEvents = snapshot.providerResults.flatMap(result => result.events || []);
-  if (!flatEvents.length) return snapshot;
+  const entries = snapshot.providerResults.flatMap(result =>
+    (result.events || []).map(event => ({ provider: result.provider, event }))
+  );
+  if (!entries.length) return snapshot;
 
   // Tahap 1: semua event bertahan; batasi jumlah pasar tiap event.
   for (const cap of PAYLOAD_MARKET_TRIM_CAPS) {
-    const capped = rebuildSnapshot(snapshot, flatEvents.map(event => capEventMarkets(event, cap)));
+    const capped = rebuildSnapshot(snapshot, entries.map(entry => ({
+      ...entry,
+      event: capEventMarkets(entry.event, cap)
+    })));
     if (snapshotBytes(capped) <= maxBytes) return capped;
   }
 
   // Tahap 2: bahkan satu event penuh tidak muat — buang event berperingkat
   // terendah (akhir daftar) dengan pencarian biner.
+  const fixtureGroups = snapshotFixtureGroups(entries);
   let low = 1;
-  let high = flatEvents.length;
+  let high = fixtureGroups.length;
   let best = null;
   while (low <= high) {
     const keep = Math.floor((low + high) / 2);
-    const candidate = rebuildSnapshot(snapshot, flatEvents.slice(0, keep).map(event => capEventMarkets(event, 1)));
+    const candidateEntries = fixtureGroups.slice(0, keep).flat().map(entry => ({
+      ...entry,
+      event: capEventMarkets(entry.event, 1)
+    }));
+    const candidate = rebuildSnapshot(snapshot, candidateEntries);
     if (snapshotBytes(candidate) <= maxBytes) {
       best = candidate;
       low = keep + 1;
@@ -159,7 +188,10 @@ export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
   // best === null hanya bila SATU event dengan SATU pasar pun melebihi budget;
   // kembalikan versi minimal agar kegagalan (bila tetap terjadi) tetap terlihat
   // jelas di log worker, bukan diam-diam.
-  return best || rebuildSnapshot(snapshot, [capEventMarkets(flatEvents[0], 1)]);
+  return best || rebuildSnapshot(snapshot, fixtureGroups[0].map(entry => ({
+    ...entry,
+    event: capEventMarkets(entry.event, 1)
+  })));
 }
 
 export async function buildSportsbookRenderSnapshot({
@@ -213,6 +245,15 @@ export async function buildSportsbookRenderSnapshot({
     eventCount: combined.eventCount,
     providerResults: combined.providerResults.map(result => ({ provider: result.provider, enabled: result.enabled, events: result.events.length }))
   }));
+  if (combined.truncatedEventCount > 0) {
+    console.warn(JSON.stringify({
+      service: 'sportsbook-render-worker',
+      event: 'snapshot-event-limit-trimmed',
+      eventCount: combined.eventCount,
+      omittedUniqueEvents: combined.truncatedEventCount,
+      maxEvents
+    }));
+  }
   if (!combined.eventCount) {
     throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
   }
