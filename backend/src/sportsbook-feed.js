@@ -497,7 +497,7 @@ function buildHardFallbackMarket(eventId, updatedAt, { key, label, type, line = 
 // Bangun event showcase deterministik: selalu ≤120 event, 4 pasaran inti per
 // event, odds valid (>=1.20 dengan overround 1X2 yang wajar), sebagian LIVE
 // agar tab "Live"/"Hari Ini" tetap terisi berapa pun jam server.
-export function buildHardFallbackEvents(now = Date.now()) {
+function buildHardFallbackEvents(now = Date.now()) {
   const events = [];
   let fixtureIndex = 0;
   for (const league of HARD_FALLBACK_LEAGUES) {
@@ -657,6 +657,11 @@ async function readRedisCache() {
     }
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed.events) || !Array.isArray(parsed.providers)) return null;
+    if (parsed.hardFallback) {
+      logger.warn('Discarding legacy synthetic sportsbook cache', { feedRevision: parsed.revision || null });
+      await redis.del(CACHE_KEY);
+      return null;
+    }
     if (parsed.events.length > MAX_FEED_EVENTS) {
       logger.warn('Sportsbook Redis cache exceeds event cap; ignoring cache', { events: parsed.events.length, maxEvents: MAX_FEED_EVENTS });
       return null;
@@ -701,7 +706,8 @@ async function readRevisionFeed(revision) {
   const now = Date.now();
   const maxAgeMs = Math.max(Number(config.sportsFeedStaleSeconds) || 180, 180) * 1000;
   const memoryAgeMs = now - Number(memory.fetchedAt || 0);
-  if (memory.revision === revision
+  if (!memory.hardFallback
+    && memory.revision === revision
     && memory.lifecycleGeneration === LIFECYCLE_GENERATION
     && Array.isArray(memory.events)
     && memoryAgeMs >= 0
@@ -711,6 +717,7 @@ async function readRevisionFeed(revision) {
     const raw = await redis.get(SPORTSBOOK_FEED_REVISIONS_KEY);
     const snapshot = readFeedRevision(raw, revision, { now, maxAgeMs });
     if (snapshot?.lifecycleGeneration !== LIFECYCLE_GENERATION || !Array.isArray(snapshot.providers)) return null;
+    if (snapshot.hardFallback) return null;
     return snapshot;
   } catch (error) {
     logger.warn('Sportsbook revision cache read failed', { error: error.message });
@@ -916,20 +923,17 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
   const snapshotFallback = false;
   const snapshotCapturedAt = renderSnapshot?.generatedAt || null;
   await writeProviderLifecycle(nextLifecycle);
-  let hardFallbackActive = false;
   if (!events.length) {
     await recordSportsbookProviderTransitions(transitions, { reason, pricedMarkets: 0, bettableMarkets: 0 });
     const warnings = providerStatus.flatMap(item => item.warnings || []);
-    // Emergency hard fallback: feed provider yang kosong TIDAK BOLEH diproduksi
-    // sebagai 0 pertandingan. Snapshot cadangan langsung mengisi papan dengan
-    // pertandingan showcase + 4 pasaran inti agar status tetap "Feed aktif".
-    hardFallbackActive = true;
-    events = buildHardFallbackEvents(Date.now());
-    logger.error('Sportsbook provider refresh returned zero events; serving hard fallback snapshot', {
-      reason,
-      code: 'SPORTS_HARD_FALLBACK',
-      warning: warnings[0] || null,
-      fallbackEvents: events.length
+    const error = new AppError(
+      503,
+      warnings[0] || 'Feed pertandingan live belum tersedia dari provider.',
+      'SPORTS_LIVE_FEED_UNAVAILABLE'
+    );
+    return activateUnavailableFeed(error, reason, {
+      providers: providerStatus,
+      providerLifecycle: nextLifecycle
     });
   }
   const fetchedAt = Date.now();
@@ -969,7 +973,7 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
           ? { code: 'SPORTS_SOURCE_STALE', message: 'Live priced source belum tersedia; sportsbook tetap read-only.' }
           : null,
     snapshotFallback,
-    hardFallback: hardFallbackActive,
+    hardFallback: false,
     snapshotCapturedAt,
     readOnlySource,
     pricedMarkets: mergedPricedMarkets,
@@ -1086,21 +1090,43 @@ async function markCachedFeedReadOnly(error, { reason = 'refresh-failed' } = {})
   });
   return memory;
 }
-// Emergency hard fallback: diaktifkan ketika provider/Redis total error atau
-// feed benar-benar kosong. Snapshot selalu layak tampil (60 pertandingan +
-// 4 pasaran inti) sehingga endpoint feed SELALU menjawab 200 dengan data,
-// bukan skeleton "Menghubungkan feed".
-async function activateHardFallback(error, reason = 'hard-fallback') {
-  const feed = buildHardFallbackFeed({ error, reason });
-  memory = await writeRedisCache(feed, { alreadyBounded: true });
-  logger.error('Sportsbook feed hard fallback activated', {
+async function activateUnavailableFeed(error, reason = 'live-feed-unavailable', {
+  providers = [],
+  providerLifecycle = {}
+} = {}) {
+  const now = Date.now();
+  const feed = {
+    lifecycleGeneration: LIFECYCLE_GENERATION,
+    events: [],
+    providers,
+    providerLifecycle,
+    marketLifecycleStats: { active: 0, suspended: 0, reopening: 0, closed: 0 },
+    revision: stableFeedRevision([], providerLifecycle),
+    renderSnapshotRevision: null,
+    fetchedAt: now,
+    expiresAt: now + REFRESH_MS,
+    error: {
+      code: error?.code || 'SPORTS_LIVE_FEED_UNAVAILABLE',
+      message: error?.message || 'Live sportsbook feed is unavailable.'
+    },
+    snapshotFallback: false,
+    hardFallback: false,
+    snapshotCapturedAt: null,
+    readOnlySource: true,
+    pricedMarkets: 0,
+    bettableMarkets: 0,
+    primaryPricingProvider: null,
+    lastPriceChanges: 0,
+    lastMarketLifecycleTransitionCount: 0,
+    reason: clean(reason)
+  };
+  memory = await writeRedisCache(feed);
+  logger.error('Sportsbook live feed unavailable; no synthetic fixtures served', {
     reason,
     code: error?.code || null,
     error: error?.message || null,
-    events: memory.events.length,
-    pricedMarkets: memory.pricedMarkets,
-    bettableMarkets: memory.bettableMarkets,
-    feedRevision: memory.revision || null
+    feedRevision: memory.revision || null,
+    providers: providers.map(provider => provider.code)
   });
   return memory;
 }
@@ -1156,7 +1182,7 @@ async function performWithRefreshLock(reason) {
     while (Date.now() < deadline && !held) {
       await sleep(REFRESH_LOCK_POLL_MS);
       const cached = await readRedisCache();
-      if (cached?.events?.length && Number(cached.fetchedAt || 0) > startedAt) {
+      if (cached?.fetchedAt && Number(cached.fetchedAt || 0) > startedAt) {
         memory = cached;
         return memory;
       }
@@ -1164,7 +1190,7 @@ async function performWithRefreshLock(reason) {
     }
     if (!held) {
       const cached = await readRedisCache();
-      if (cached?.events?.length && Number(cached.fetchedAt || 0) >= startedAt) {
+      if (cached?.fetchedAt && Number(cached.fetchedAt || 0) >= startedAt) {
         memory = cached;
         return memory;
       }
@@ -1236,13 +1262,11 @@ export async function refreshSportsbookFeed({ reason = 'scheduled' } = {}) {
   } catch (error) {
     if (error?.code === 'SPORTS_REFRESH_IN_PROGRESS') {
       if (memory.events.length && Date.now() - Number(memory.fetchedAt || 0) <= STALE_MS) return memory;
-      return activateHardFallback(error, 'refresh-in-progress-no-cache');
+      return activateUnavailableFeed(error, 'refresh-in-progress-no-cache');
     }
     const stale = await markCachedFeedReadOnly(error, { reason });
     if (stale) return stale;
-    // Feed kosong / error total tidak boleh melempar 5xx ke pemanggil:
-    // langsung sajikan snapshot hard fallback agar papan tidak pernah kosong.
-    return activateHardFallback(error, reason);
+    return activateUnavailableFeed(error, reason);
   }
 }
 // Dipakai worker/feed-worker untuk background poll. Kalau siklus sebelumnya masih
@@ -1279,20 +1303,18 @@ async function currentFeed({ force = false } = {}) {
   const now = Date.now();
   if (!force) {
     const cached = await readRedisCache();
-    if (cached?.events?.length && Number(cached.fetchedAt || 0) >= Number(memory.fetchedAt || 0)) memory = cached;
-    if (memory.events.length && memory.expiresAt > now) return memory;
+    if (cached?.fetchedAt && Number(cached.fetchedAt || 0) >= Number(memory.fetchedAt || 0)) memory = cached;
+    if (memory.fetchedAt && memory.expiresAt > now) return memory;
   }
   if (!inFlight) {
     inFlight = refreshSportsbookFeed({ reason: force ? 'forced-request' : 'request-expired-cache' }).catch(async error => {
       if (error?.code === 'SPORTS_REFRESH_IN_PROGRESS') {
         if (memory.events.length && now - Number(memory.fetchedAt || 0) <= STALE_MS) return memory;
-        return activateHardFallback(error, 'refresh-in-progress-no-cache');
+        return activateUnavailableFeed(error, 'refresh-in-progress-no-cache');
       }
       const stale = await markCachedFeedReadOnly(error, { reason: 'request-refresh-failed' });
       if (stale && now - stale.fetchedAt <= STALE_MS) return stale;
-      // Jaminan keras: request feed SELALU dijawab snapshot yang bisa ditampilkan
-      // (bukan error/kosong) — hard fallback mengisi papan dengan pertandingan aktif.
-      return activateHardFallback(error, 'request-refresh-failed');
+      return activateUnavailableFeed(error, 'request-refresh-failed');
     }).finally(() => { inFlight = null; });
   }
   return inFlight;
@@ -1407,40 +1429,31 @@ export async function sportsbookSnapshot(filters = {}, { memberView = true } = {
     }
     return buildSportsbookSnapshotResponse(filters, memberView, feed);
   }
-  // Emergency guarantee: feed sportsbook tidak boleh melempar error 5xx atau
-  // mengembalikan feed kosong ke frontend. Provider/Redis/DB gagal berapa pun
-  // tetap dijawab HTTP 200 dengan snapshot hard fallback berisi pertandingan
-  // aktif — halaman tidak pernah lagi menunjukkan "0 Pertandingan /
-  // Menghubungkan feed" karena respons gagal / payload kosong.
   try {
     return await buildSportsbookSnapshotResponse(filters, memberView);
   } catch (error) {
-    logger.error('Sportsbook snapshot failed; answering request with hard fallback snapshot', {
+    logger.error('Sportsbook snapshot unavailable', {
       code: error?.code || null,
       error: error?.message || null
     });
-    const feed = await activateHardFallback(error, 'snapshot-request-failed');
-    return buildSportsbookSnapshotResponse(filters, memberView, feed);
+    throw error;
   }
 }
 
 async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, providedFeed = null) {
-  let feed = providedFeed || await currentFeed();
+  const feed = providedFeed || await currentFeed();
   const now = Date.now();
-  const stale = Boolean(feed.readOnlySource || feed.snapshotFallback || !feed.fetchedAt || now - Number(feed.fetchedAt) > STALE_MS);
+  const unavailable = Boolean(feed.hardFallback || (feed.readOnlySource && !feed.events?.length));
+  const stale = Boolean(unavailable || feed.readOnlySource || feed.snapshotFallback || !feed.fetchedAt || now - Number(feed.fetchedAt) > STALE_MS);
   let controls = [];
   try {
     controls = await listActiveSportsbookTradingControls();
   } catch (error) {
     logger.warn('Sportsbook trading controls unavailable; operator defaults applied', { error: error.message });
   }
-  let soccerEvents = (feed.events || []).filter(isSoccerEvent).filter(event => memberVisibleEvent(event, now));
-  if (!soccerEvents.length && !feed.hardFallback) {
-    // Feed terisi tetapi tidak ada satu pun pertandingan sepak bola yang tampil:
-    // papan kosong dilarang di produksi — segera ganti dengan hard fallback.
-    feed = await activateHardFallback({ code: 'SPORTS_FEED_NO_VISIBLE_SOCCER', message: 'Feed tidak memiliki pertandingan sepak bola yang tampil.' }, 'snapshot-empty-view');
-    soccerEvents = (feed.events || []).filter(isSoccerEvent).filter(event => memberVisibleEvent(event, now));
-  }
+  const soccerEvents = unavailable
+    ? []
+    : (feed.events || []).filter(isSoccerEvent).filter(event => memberVisibleEvent(event, now));
   const facets = leagueFacets(soccerEvents);
   const counts = {
     all: soccerEvents.length,
@@ -1464,7 +1477,7 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
   const events = applySportsbookTradingControls(projected, controls);
   const visiblePricedMarkets = pricedMarketCount(events);
   const visibleBettableMarkets = bettableMarketCount(events);
-  const memberHealthy = !stale && !feed.readOnlySource && Number(feed.bettableMarkets || 0) > 0;
+  const memberHealthy = !unavailable && !stale && !feed.readOnlySource && Number(feed.bettableMarkets || 0) > 0;
   return {
     events,
     leagues: facets,
@@ -1474,8 +1487,8 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
     degraded: !memberHealthy,
     source: {
       name: 'Gasterus Sportsbook Feed',
-      mode: feed.hardFallback
-        ? 'HARD_FALLBACK'
+      mode: unavailable
+        ? 'UNAVAILABLE'
         : feed.snapshotFallback
           ? 'READ_ONLY_SNAPSHOT'
           : feed.readOnlySource && Number(feed.pricedMarkets || 0) > 0
@@ -1483,14 +1496,14 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
             : feed.readOnlySource
               ? 'READ_ONLY_STALE_SOURCE'
               : 'LIVE_SOURCE_AGGREGATOR',
-      status: feed.readOnlySource ? (visiblePricedMarkets > 0 ? 'PRICED_READ_ONLY' : 'STALE') : memberHealthy ? 'ONLINE' : 'DEGRADED',
-      fetchedAt: new Date(feed.fetchedAt).toISOString(),
+      status: unavailable ? 'OFFLINE' : feed.readOnlySource ? (visiblePricedMarkets > 0 ? 'PRICED_READ_ONLY' : 'STALE') : memberHealthy ? 'ONLINE' : 'DEGRADED',
+      fetchedAt: unavailable || !feed.fetchedAt ? null : new Date(feed.fetchedAt).toISOString(),
       capturedAt: feed.snapshotCapturedAt || null,
       refreshSeconds: config.sportsFeedRefreshSeconds,
       pricedMarkets: visiblePricedMarkets,
       bettableMarkets: visibleBettableMarkets,
-      feedRevision: feed.revision || null,
-      hardFallback: Boolean(feed.hardFallback)
+      feedRevision: unavailable ? null : feed.revision || null,
+      hardFallback: false
     },
     capabilities: {
       betBuilderPricedMarkets: events.some(event => event.markets?.some(market => market.type === 'BET_BUILDER' && !market.suspended)),
@@ -1520,6 +1533,9 @@ export async function sportsbookEventSnapshot(eventId) {
   const requested = clean(eventId);
   if (!requested) throw new AppError(400, 'ID pertandingan wajib diisi.', 'SPORTS_EVENT_ID_REQUIRED');
   const feed = await currentFeed();
+  if (feed.hardFallback) {
+    throw new AppError(503, 'Odds pertandingan belum tersedia dari sumber live.', 'SPORTS_LIVE_FEED_UNAVAILABLE');
+  }
   let current = feed.events.find(item => item.id === requested);
   if (!current) throw new AppError(404, 'Pertandingan tidak ditemukan.', 'SPORTS_EVENT_UNAVAILABLE');
   const controls = await listActiveSportsbookTradingControls({ eventId: current.id });
@@ -1642,6 +1658,9 @@ export async function sportsbookOperationalStatus() {
 
 export async function sportsbookSelectionSnapshot({ eventId, marketId, selectionId }) {
   let feed = await currentFeed();
+  if (feed.hardFallback) {
+    throw new AppError(503, 'Odds sportsbook belum tersedia dari sumber live.', 'SPORTS_LIVE_FEED_UNAVAILABLE');
+  }
   let event = feed.events.find(item => item.id === eventId);
   let market = event?.markets.find(item => item.id === marketId);
   let selection = market?.selections.find(item => item.key === selectionId);
@@ -1689,4 +1708,4 @@ export async function sportsbookSelectionSnapshot({ eventId, marketId, selection
   };
 }
 
-export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail, enabledProviders, buildHardFallbackEvents, buildHardFallbackFeed };
+export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail, enabledProviders };

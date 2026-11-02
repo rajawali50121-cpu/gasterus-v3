@@ -56,7 +56,7 @@ test('FINAL mobile frontend bootstraps REST snapshot and reconnects SSE with bou
   assert.match(js,/function onSnapshot\(rawSnapshot, \{ generation = feedViewGeneration \} = \{\}\)/);
   assert.match(js,/shouldApplySnapshot\(feed, snapshot\)/);
   assert.match(js,/let streamActive = false/);
-  assert.match(js,/event === 'ready'[\s\S]*streamActive = true;[\s\S]*setStatus\('online'\)/);
+  assert.match(js,/event === 'ready'[\s\S]*streamActive = true;[\s\S]*connectionState\(hasFeedSnapshot, streamActive, feed\.source\?\.status\)/);
   // SSE adalah satu-satunya penulis realtime; REST hanya bootstrap 1x + darurat saat
   // SSE putus. TIDAK ada lagi polling berkala yang menimpa snapshot SSE (akar pola
   // 222↔5 di halaman member). Kontrak anti-hang yang berlaku: reconnect SSE dengan

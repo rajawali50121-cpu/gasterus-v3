@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 const providers = readFileSync(new URL('../src/sportsbook-providers.js', import.meta.url), 'utf8');
+const revisions = readFileSync(new URL('../src/sportsbook-feed-revisions.js', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const worker = readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8');
 const config = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
@@ -216,8 +217,8 @@ test('Sportmonks responses, page sizes, and retained caches stay bounded', () =>
 });
 
 test('member snapshot default page returns the whole active catalog for direct server curls', () => {
-  assert.match(feed, /DEFAULT_SNAPSHOT_PAGE_SIZE = 500/);
-  assert.match(feed, /MAX_SNAPSHOT_PAGE_SIZE = 500/);
+  assert.match(revisions, /Math\.min\(500, Math\.max\(1, Number\(limit\) \|\| 500\)\)/);
+  assert.match(revisions, /limit: pageSize/);
 });
 
 test('Sportmonks prioritizes configured top leagues while normalizing paginated fixture odds', () => {

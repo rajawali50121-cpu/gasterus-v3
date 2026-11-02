@@ -423,7 +423,7 @@ function startStream() {
   const generation = ++streamGeneration;
   streamClosed = false;
   streamActive = false;
-  setStatus(connectionState(hasFeedSnapshot, streamActive));
+  setStatus(connectionState(hasFeedSnapshot, streamActive, feed.source?.status));
   void loadRestSnapshot(); // REST bootstrap 1x — render papan data seketika; SSE mengambil alih realtime.
   // Timer REST 45 detik DIHAPUS: SSE broadcast tiap revisi feed, jadi polling berkala
   // hanya mengulang snapshot yang sama (beban request + render sia-sia, dan sempat jadi
@@ -461,7 +461,7 @@ async function loadRestSnapshot({ append = false } = {}) {
     if (!payload) { console.warn('[GASTERUS] snapshot payload tidak valid'); return false; }
     const accepted = onSnapshot(payload, { generation });
     if (!accepted) return false;
-    if (!streamActive) setStatus(connectionState(hasFeedSnapshot, streamActive));
+    if (!streamActive) setStatus(connectionState(hasFeedSnapshot, streamActive, feed.source?.status));
     return true;
   } catch (e) { console.warn('[GASTERUS] snapshot bootstrap gagal', e); }
   return false;
@@ -524,7 +524,7 @@ async function connectStream(generation = streamGeneration) {
     if (streamClosed || generation !== streamGeneration || viewGeneration !== feedViewGeneration) return;
     streamActive = false;
     streamAbortController = null;
-    setStatus(connectionState(hasFeedSnapshot, streamActive));
+    setStatus(connectionState(hasFeedSnapshot, streamActive, feed.source?.status));
     await new Promise((resolve) => setTimeout(resolve, backoff));
     backoff = Math.min(backoff * 1.6, 15000);
   }
@@ -541,7 +541,7 @@ function handleFrame(frame, generation = streamGeneration, viewGeneration = feed
   }
   if (event === 'ready') {
     streamActive = true;
-    setStatus('online');
+    setStatus(connectionState(hasFeedSnapshot, streamActive, feed.source?.status));
     return;
   }
   if (event === 'degraded') {
@@ -552,7 +552,7 @@ function handleFrame(frame, generation = streamGeneration, viewGeneration = feed
         showToast(reloaded ? 'Katalog diperbarui. Daftar dimuat ulang.' : 'Katalog berubah, tetapi daftar belum dapat dimuat ulang.', reloaded ? 'success' : 'error');
       });
     }
-    setStatus(connectionState(hasFeedSnapshot, streamActive));
+    setStatus(connectionState(hasFeedSnapshot, streamActive, feed.source?.status));
     return;
   }
   if (event === 'snapshot' && data) {
@@ -594,7 +594,7 @@ function onSnapshot(rawSnapshot, { generation = feedViewGeneration } = {}) {
   };
   lastPageEventCount = snapshot.events.length;
   hasFeedSnapshot = true;
-  setStatus(connectionState(hasFeedSnapshot, streamActive));
+  setStatus(connectionState(hasFeedSnapshot, streamActive, feed.source?.status));
 
   try {
     const detailRefreshIds = new Set();
@@ -893,7 +893,7 @@ function restartStreamAtCurrentPage() {
   if (!auth.isLoggedIn()) return;
   streamAbortController?.abort();
   streamActive = false;
-  setStatus(connectionState(hasFeedSnapshot, streamActive));
+  setStatus(connectionState(hasFeedSnapshot, streamActive, feed.source?.status));
   const generation = ++streamGeneration;
   streamClosed = false;
   void connectStream(generation);

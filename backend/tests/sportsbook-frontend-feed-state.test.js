@@ -21,8 +21,10 @@ function snapshot(events, fetchedAt, feedRevision) {
 
 test('REST snapshot remains visibly available while SSE is failing or reconnecting', () => {
   assert.equal(connectionState(false, false), 'connecting');
+  assert.equal(connectionState(false, true), 'connecting');
   assert.equal(connectionState(true, false), 'snapshot');
   assert.equal(connectionState(true, true), 'online');
+  assert.equal(connectionState(true, true, 'OFFLINE'), 'offline');
 });
 
 test('a late REST revision cannot replace a newer SSE snapshot', () => {
@@ -90,8 +92,8 @@ test('one render exception produces a fallback without discarding other event ca
 
 test('frontend wires snapshot status, ready handshake, revision guard, and safe event rendering', () => {
   const source = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
-  assert.match(source, /if \(!streamActive\) setStatus\(connectionState\(hasFeedSnapshot, streamActive\)\)/);
-  assert.match(source, /event === 'ready'[\s\S]*streamActive = true;[\s\S]*setStatus\('online'\)/);
+  assert.match(source, /if \(!streamActive\) setStatus\(connectionState\(hasFeedSnapshot, streamActive, feed\.source\?\.status\)\)/);
+  assert.match(source, /event === 'ready'[\s\S]*streamActive = true;[\s\S]*connectionState\(hasFeedSnapshot, streamActive, feed\.source\?\.status\)/);
   assert.match(source, /if \(generation !== feedViewGeneration\) return false;[\s\S]*shouldApplySnapshot\(feed, snapshot\)/);
   assert.match(source, /currentOffset = nextPageOffset\(currentOffset, pageSize\);\s*restartStreamAtCurrentPage\(\)/);
   assert.match(source, /offset: String\(currentOffset\)/);

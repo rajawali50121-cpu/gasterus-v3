@@ -85,8 +85,9 @@ export function nextPageOffset(currentOffset, pageSize) {
   return offset + size;
 }
 
-export function connectionState(hasSnapshot, streamConnected) {
-  if (streamConnected) return 'online';
+export function connectionState(hasSnapshot, streamConnected, feedStatus = '') {
+  if (String(feedStatus).toUpperCase() === 'OFFLINE') return 'offline';
+  if (streamConnected) return hasSnapshot ? 'online' : 'connecting';
   return hasSnapshot ? 'snapshot' : 'connecting';
 }
 

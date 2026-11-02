@@ -28,8 +28,8 @@ test('R6.9.0.22 member catalog removes closed results and has bounded horizon', 
 
 test('member source status reflects the overall feed even when the current page is empty', () => {
   assert.match(feed, /const visibleBettableMarkets = bettableMarketCount\(events\)/);
-  assert.match(feed, /const memberHealthy = !stale && !feed\.readOnlySource && Number\(feed\.bettableMarkets \|\| 0\) > 0/);
-  assert.match(feed, /status: feed\.readOnlySource \? .* : memberHealthy \? 'ONLINE' : 'DEGRADED'/);
+  assert.match(feed, /const memberHealthy = !unavailable && !stale && !feed\.readOnlySource && Number\(feed\.bettableMarkets \|\| 0\) > 0/);
+  assert.match(feed, /status: unavailable \? 'OFFLINE' : feed\.readOnlySource \? .* : memberHealthy \? 'ONLINE' : 'DEGRADED'/);
 });
 
 test('Sportsbook feed is sourced exclusively from Sportmonks and member errors stay provider-neutral', () => {
@@ -66,12 +66,10 @@ test('Sportmonks is the only sportsbook refresh descriptor', () => {
 test('member requests do not wait on a competing feed refresh beyond the proxy budget', () => {
   assert.match(feed,/const REFRESH_LOCK_WAIT_MS = 5000/);
   assert.match(feed,/SPORTS_REFRESH_IN_PROGRESS/);
-  // Kedua jalur catch (refreshSportsbookFeed & currentFeed) kini menjawab
-  // seketika: cache segar dipakai bila ada, kalau tidak langsung hard fallback.
-  // Tidak ada lagi `throw` yang menahan request melewati budget proxy atau
-  // mengembalikan feed kosong 5xx ke frontend (anti "0 Pertandingan").
+  // Kedua jalur menjawab feed unavailable tanpa mengarang fixture ketika
+  // refresh lain memegang lock dan cache segar belum tersedia.
   assert.doesNotMatch(feed,/if \(error\?\.code === 'SPORTS_REFRESH_IN_PROGRESS'\) throw error/);
-  assert.equal(feed.match(/return activateHardFallback\(error, 'refresh-in-progress-no-cache'\)/g)?.length, 2);
+  assert.equal(feed.match(/return activateUnavailableFeed\(error, 'refresh-in-progress-no-cache'\)/g)?.length, 2);
 });
 
 test('E2E enforces expanded event volume and core market coverage without requiring derived markets per event', () => {
