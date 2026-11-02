@@ -8,6 +8,7 @@ import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
+const sportsbookCss = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 const realtime = readFileSync(new URL('../src/sportsbook-realtime.js', import.meta.url), 'utf8');
 
@@ -91,6 +92,21 @@ test('invalid or malformed HT markets do not create an empty HT tab or break the
   assert.equal(primaryMarketColumns(event, 'FT')[0].market.id, 'ft-main');
 });
 
+test('premium sportsbook skin separates LIVE and prematch with aligned responsive odds', () => {
+  assert.match(page, /<body class="sb-page sb-premium">/);
+  assert.match(frontend, /class="sb-match-card \$\{isLive \? 'is-live' : 'is-prematch'\}"/);
+  assert.match(frontend, /const isLive = Boolean\(e\.live\) \|\| String\(e\.status \|\| ''\)\.toUpperCase\(\) === 'LIVE'/);
+  assert.ok(sportsbookCss.includes('.sb-premium .sb-match-card.is-live {'));
+  assert.ok(sportsbookCss.includes('background: linear-gradient(145deg, #fff 0%, #fff4f6 100%)'));
+  assert.ok(sportsbookCss.includes('.sb-premium .sb-match-card.is-prematch {'));
+  assert.ok(sportsbookCss.includes('background: linear-gradient(145deg, #fff 0%, #f1f7ff 100%)'));
+  assert.ok(sportsbookCss.includes('min-height: 48px;'));
+  assert.ok(sportsbookCss.includes('grid-template-columns: repeat(3, minmax(0, 1fr));'));
+  assert.ok(sportsbookCss.includes('@media (max-width: 860px)'));
+  assert.ok(sportsbookCss.includes('@media (max-width: 480px)'));
+  assert.ok(sportsbookCss.includes('.sb-market-period-tab[data-match-period="1H"].active'));
+});
+
 test('member sportsbook lazy-loads complete event market details and retains all list market variants', () => {
   assert.match(frontend, /const FEED_DETAIL_URL = \(id\) => `\/api\/member\/sportsbook\/events\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(frontend, /await api\.get\(FEED_DETAIL_URL\(eventId\)\)/);
@@ -108,7 +124,7 @@ test('detailed markets are refreshed by feed revision and stale odds cannot plac
 });
 
 test('event cards render only provider-backed primary markets and do not advertise inactive bet builder tabs', () => {
-  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js'/);
+  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js\?v=\d+-ht-premium-r1'/);
   assert.match(frontend, /function eventMarketPeriods\(event\)/);
   assert.match(frontend, /data-match-period=/);
   assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);

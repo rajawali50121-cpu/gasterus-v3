@@ -13,7 +13,7 @@
 import api from './api.js';
 import auth from './auth.js';
 import { formatRupiah, showToast, escapeHtml } from './utils.js';
-import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from './sportsbook-markets.js';
+import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from './sportsbook-markets.js?v=20261102-ht-premium-r1';
 import { chooseCombinations, systemBetMetrics } from './sportsbook-slip-calculation.js';
 import { formatOdds, oddsColorClass } from './sportsbook-odds.js';
 import {
@@ -1637,7 +1637,7 @@ function renderMatch(e) {
   const favBtn = `<button type="button" class="sb-fav-match-btn${isMatchFav ? ' is-fav' : ''}" data-fav-match="${escapeHtml(e.id)}" aria-pressed="${isMatchFav ? 'true' : 'false'}" title="${isMatchFav ? 'Hapus dari favorit' : 'Tambahkan ke favorit'}">${isMatchFav ? '★' : '☆'}</button>`;
 
   return `
-    <article class="sb-match-card" data-evid="${escapeHtml(e.id)}">
+    <article class="sb-match-card ${isLive ? 'is-live' : 'is-prematch'}" data-evid="${escapeHtml(e.id)}">
       <div class="sb-match-info">
         <div class="sb-card-banner">
           ${isLive

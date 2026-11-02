@@ -21,6 +21,8 @@ Object.assign(process.env, {
 });
 
 const { __sportsbookProviders, fetchTheOddsApi, publicEvent } = await import('../src/sportsbook-providers.js');
+const { eventSettlementAuthority } = await import('../src/sportsbook-settlement-authority.js');
+const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
 test('The Odds API normalizer creates stable 1X2 and totals markets', () => {
   const event = __sportsbookProviders.normalizeOddsApiEvent({
@@ -267,6 +269,53 @@ test('API-Sports settlement authority unlocks merged FT prices', () => {
   const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }, { events: [apiEvent] }]);
   assert.ok(merged._sources.includes('api-sports'));
   assert.ok(merged.markets.some(market => market.period === 'FT' && !market.suspended));
+});
+
+test('Sportmonks halftime authority keeps valid FT and 1H odds active while non-authority HT remains suspended', () => {
+  const fixture = {
+    id: 'sportmonks-ht-authority',
+    state: { short_name: 'NS', name: 'Not Started' },
+    starting_at: '2026-08-07T12:00:00Z',
+    league: { name: 'Premier League', country: { name: 'England' } },
+    participants: [
+      { name: 'Liverpool', meta: { location: 'home' } },
+      { name: 'Everton', meta: { location: 'away' } }
+    ],
+    scores: [{ description: '1ST HALF', score: { home: 0, away: 0 } }]
+  };
+  const rows = [
+    { market_id: 1, market_description: '1X2', label: 'Home', value: 1.8, stopped: false },
+    { market_id: 1, market_description: '1X2', label: 'Draw', value: 3.4, stopped: false },
+    { market_id: 1, market_description: '1X2', label: 'Away', value: 4.2, stopped: false },
+    { market_id: 2, market_description: '1st Half 1X2', label: 'Home', value: 2.1, stopped: false },
+    { market_id: 2, market_description: '1st Half 1X2', label: 'Draw', value: 2.2, stopped: false },
+    { market_id: 2, market_description: '1st Half 1X2', label: 'Away', value: 3.9, stopped: false }
+  ];
+  const sportmonks = __sportsbookProviders.normalizeSportmonksFixture(fixture, rows);
+  const [trusted] = __sportsbookProviders.mergeProviderEvents([{ provider: 'sportmonks', events: [sportmonks] }]);
+  const ft = trusted.markets.find(market => market.period === 'FT');
+  const ht = trusted.markets.find(market => market.period === '1H');
+  assert.ok(ft && !ft.suspended && ft.selections.every(selection => !selection.suspended));
+  assert.ok(ht && !ht.suspended && ht.selections.every(selection => !selection.suspended));
+  assert.deepEqual(trusted.periodScores['1H'], { home: 0, away: 0 });
+  const authority = eventSettlementAuthority(trusted);
+  assert.equal(authority.ht, true);
+  const finished = { ...trusted, status: 'FINISHED', providerStatus: 'FT', settlementAuthority: authority };
+  assert.deepEqual(evaluateSportsbookLeg({
+    market_period: '1H', market_type: '1X2', selection_label: 'Home',
+    home_team: 'Liverpool', away_team: 'Everton', market_line: null
+  }, finished), { status: 'LOST', resultValue: 'HT 0-0' });
+
+  const untrusted = structuredClone(sportmonks);
+  untrusted._sources = ['the-odds-api'];
+  untrusted._settlementReadySources = ['the-odds-api'];
+  for (const market of untrusted.markets) {
+    market.source = 'the-odds-api';
+    for (const selection of market.selections) selection.source = 'the-odds-api';
+  }
+  const [nonAuthority] = __sportsbookProviders.mergeProviderEvents([{ provider: 'the-odds-api', events: [untrusted] }]);
+  assert.ok(nonAuthority.markets.every(market => market.suspended && market.selections.every(selection => selection.suspended)));
+  assert.equal(eventSettlementAuthority(nonAuthority).ht, false);
 });
 
 test('SharpAPI normalizer maps soccer FT/HT 1X2 handicap and totals from one sportsbook', () => {
