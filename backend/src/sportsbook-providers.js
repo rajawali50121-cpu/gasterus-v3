@@ -1196,12 +1196,16 @@ function sportmonksMarket(event, rows) {
 
 // Cache Sportmonks odds for the provider-configured refresh interval.
 const sportmonksCache = new Map();
+const sportmonksRetryState = new Map();
+const sportmonksLiveCache = new Map();
+const sportmonksLiveRetryState = new Map();
+let sportmonksLiveInFlight = null;
 function sportmonksCacheTtlMs() {
-  return Math.max(
-    60,
-    Number(config.sportmonksRefreshSeconds || 300),
-    Number(config.sportmonksOddsRefreshSeconds || 180)
-  ) * 1000;
+  const configuredRefreshSeconds = [
+    Number(config.sportmonksRefreshSeconds) || 300,
+    Number(config.sportmonksOddsRefreshSeconds) || 180
+  ];
+  return Math.max(60, Math.min(...configuredRefreshSeconds)) * 1000;
 }
 async function waitForSportmonksRequestSlot() {
   const configuredDelayMs = Number(config.sportmonksRequestDelayMs || 0);
@@ -1211,6 +1215,15 @@ async function waitForSportmonksRequestSlot() {
   const scheduledAt = Math.max(now, sportmonksNextRequestAt);
   sportmonksNextRequestAt = scheduledAt + delayMs;
   if (scheduledAt > now) await new Promise(resolve => setTimeout(resolve, scheduledAt - now));
+}
+
+function sportmonksRetryAfterMs(error) {
+  const retryAfter = error?.retryAfter;
+  if (!retryAfter) return 0;
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const dateMs = Date.parse(retryAfter);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : 0;
 }
 
 // Read one small page at a time so raw odds payloads are not retained across pages.
@@ -1258,6 +1271,155 @@ async function fetchSportmonksPage(base, date, page) {
   }
 }
 
+async function fetchSportmonksLiveWindow(base) {
+  const cacheKey = `sportmonks:live-window:${base}`;
+  const now = Date.now();
+  const ttlMs = Math.max(15, Number(config.sportmonksLiveRefreshSeconds) || 30) * 1000;
+  const cached = sportmonksLiveCache.get(cacheKey);
+  if (cached && now - cached.fetchedAt < ttlMs) return { ...cached, failed: false, errors: [] };
+  const retryState = sportmonksLiveRetryState.get(cacheKey);
+  if (retryState && now < retryState.retryAt) {
+    return { events: [], fetchedAt: cached?.fetchedAt || null, failed: true, errors: [retryState.message] };
+  }
+  if (sportmonksLiveInFlight) return sportmonksLiveInFlight;
+
+  sportmonksLiveInFlight = (async () => {
+    const url = new URL(`${base}/football/livescores`);
+    url.searchParams.set('api_token', config.sportmonksKey);
+    url.searchParams.set('include', 'state;participants;league.country;scores;inplayOdds');
+    let responseError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await waitForSportmonksRequestSlot();
+      try {
+        const payload = await requestJson(url, {
+          label: 'Sportmonks livescores',
+          maxBytes: SPORTMONKS_PAGE_MAX_BYTES
+        });
+        if (!Array.isArray(payload?.data)) {
+          throw new Error('Sportmonks livescores returned an invalid data array.');
+        }
+        const events = payload.data
+          .map(fixture => normalizeSportmonksFixture(fixture, fixture?.inplayOdds || []))
+          .filter(Boolean);
+        const fetchedAt = Date.now();
+        const result = { events, fetchedAt };
+        sportmonksLiveCache.set(cacheKey, result);
+        sportmonksLiveRetryState.delete(cacheKey);
+        logger.info('Sportmonks live window refreshed', {
+          provider: 'sportmonks',
+          fixtures: payload.data.length,
+          normalizedEvents: events.length,
+          inplayMarkets: events.reduce((total, event) => total + event.markets.length, 0),
+          durationMs: fetchedAt - now
+        });
+        return { ...result, failed: false, errors: [] };
+      } catch (error) {
+        responseError = error;
+        const status = Number(error?.status);
+        const retryable = status === 408 || status === 429 || status >= 500 || !Number.isFinite(status);
+        if (!retryable || attempt >= 3) break;
+        const retryDelayMs = Math.max(
+          sportmonksRetryAfterMs(error),
+          Math.min(8000, 1000 * (2 ** (attempt - 1)))
+        );
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      }
+    }
+
+    const failures = (retryState?.attempts || 0) + 1;
+    const status = Number(responseError?.status);
+    const permanentClientError = Number.isFinite(status) && status >= 400 && status < 500 && status !== 408 && status !== 429;
+    const backoffMs = permanentClientError
+      ? 15 * 60_000
+      : Math.min(15 * 60_000, 30_000 * (2 ** Math.min(failures - 1, 5)));
+    const retryAt = Date.now() + Math.max(backoffMs, sportmonksRetryAfterMs(responseError));
+    const message = responseError?.message || 'Sportmonks livescores request failed.';
+    sportmonksLiveRetryState.set(cacheKey, { attempts: failures, retryAt, message });
+    logger.warn('Sportmonks live window unavailable; live markets will fail closed', {
+      provider: 'sportmonks',
+      status: Number.isFinite(status) ? status : null,
+      retryInMs: retryAt - Date.now(),
+      cachedWindowAgeMs: cached ? Date.now() - cached.fetchedAt : null
+    });
+    return { events: [], fetchedAt: cached?.fetchedAt || null, failed: true, errors: [message] };
+  })();
+
+  try {
+    return await sportmonksLiveInFlight;
+  } finally {
+    sportmonksLiveInFlight = null;
+  }
+}
+
+function suspendSportmonksLiveMarkets(events) {
+  return events.map(event => {
+    if (!event.live || !event.markets?.length) return event;
+    return {
+      ...event,
+      markets: event.markets.map(market => ({
+        ...market,
+        suspended: true,
+        selections: market.selections.map(selection => ({ ...selection, suspended: true }))
+      }))
+    };
+  });
+}
+
+function stampSportmonksMarkets(events, fallbackTimestamp) {
+  const updatedAt = new Date(fallbackTimestamp).toISOString();
+  for (const event of events) {
+    for (const market of event.markets || []) {
+      market.updatedAt ||= updatedAt;
+      for (const selection of market.selections || []) selection.updatedAt ||= market.updatedAt;
+    }
+  }
+  return events;
+}
+
+function mergeSportmonksLiveWindow(events, liveEvents, maxEvents, priorityLeagues) {
+  const identity = event => String(event?._refs?.sportmonks || event?.id || '');
+  const updates = new Map(liveEvents.map(event => [identity(event), event]));
+  const merged = [];
+  for (const event of events) {
+    const key = identity(event);
+    const update = updates.get(key);
+    if (event.live && !update) continue;
+    if (!update) {
+      merged.push(event);
+      continue;
+    }
+    updates.delete(key);
+    const keepPrematchMarkets = update.status === 'SCHEDULED' && !update.markets.length;
+    merged.push({
+      ...event,
+      ...update,
+      id: event.id,
+      markets: keepPrematchMarkets ? event.markets : update.markets,
+      _refs: { ...event._refs, ...update._refs },
+      _sources: [...new Set([...(event._sources || []), ...(update._sources || [])])]
+    });
+  }
+  merged.push(...updates.values());
+  return merged
+    .map(event => ({
+      event,
+      leaguePriority: sportmonksLeaguePriority(event, priorityLeagues),
+      startTime: Date.parse(event.startTime) || Number.MAX_SAFE_INTEGER
+    }))
+    .sort(compareSportmonksEvents)
+    .slice(0, maxEvents)
+    .map(candidate => candidate.event);
+}
+
+async function applySportmonksLiveWindow(events, base, maxEvents, priorityLeagues, fallbackTimestamp) {
+  const liveWindow = await fetchSportmonksLiveWindow(base);
+  const updatedEvents = liveWindow.failed
+    ? suspendSportmonksLiveMarkets(events)
+    : mergeSportmonksLiveWindow(events, liveWindow.events, maxEvents, priorityLeagues);
+  stampSportmonksMarkets(updatedEvents, liveWindow.fetchedAt || fallbackTimestamp);
+  return { events: updatedEvents, liveWindow };
+}
+
 function sportmonksLeaguePriority(event, configuredLeagues) {
   const league = clean(event?.league, 120).toLowerCase();
   const index = configuredLeagues.findIndex(name => league === name || league.includes(name));
@@ -1295,12 +1457,46 @@ export async function fetchSportmonks({
   }
   if (maxEvents === 0) return { provider: 'sportmonks', enabled: true, events: [], errors: [] };
   const cacheKey = `sportmonks:all-events:${utcDate(0)}:${config.sportmonksDaysAhead}:${maxEvents}:${maxPages}`;
+  const priorityLeagues = String(config.sportmonksPriorityLeagues || '')
+    .split(',')
+    .map(name => clean(name, 120).toLowerCase())
+    .filter(Boolean);
+  const configuredPriorityLeagues = priorityLeagues.length ? priorityLeagues : DEFAULT_SPORTMONKS_PRIORITY_LEAGUES;
 
   // Cek cache terlebih dahulu
   const cached = sportmonksCache.get(cacheKey);
   if (cached && now - cached.fetchedAt < sportmonksCacheTtlMs()) {
-    logger.info('Sportmonks: returning cached data', { age: Math.round((now - cached.fetchedAt) / 1000) + 's', events: cached.events.length });
-    return { provider: 'sportmonks', enabled: true, events: cached.events, errors: [] };
+    const { events, liveWindow } = await applySportmonksLiveWindow(
+      cached.events,
+      base,
+      maxEvents,
+      configuredPriorityLeagues,
+      now
+    );
+    logger.info('Sportmonks: returning cached fixture catalog', {
+      age: Math.round((now - cached.fetchedAt) / 1000) + 's',
+      events: events.length,
+      liveWindowFailed: liveWindow.failed
+    });
+    return { provider: 'sportmonks', enabled: true, events, errors: liveWindow.errors };
+  }
+  const retryState = sportmonksRetryState.get(cacheKey);
+  if (retryState && now < retryState.retryAt) {
+    const { events, liveWindow } = await applySportmonksLiveWindow(
+      cached?.events || [],
+      base,
+      maxEvents,
+      configuredPriorityLeagues,
+      now
+    );
+    return {
+      provider: 'sportmonks',
+      enabled: true,
+      events,
+      stale: true,
+      transportOk: false,
+      errors: [retryState.message, ...liveWindow.errors]
+    };
   }
   
   const daysAhead = Math.max(0, Number(config.sportmonksDaysAhead) || 0);
@@ -1308,11 +1504,6 @@ export async function fetchSportmonks({
   for (let offset = 0; offset <= daysAhead; offset += 1) dates.push(utcDate(offset));
   
   const errors = [];
-  const priorityLeagues = String(config.sportmonksPriorityLeagues || '')
-    .split(',')
-    .map(name => clean(name, 120).toLowerCase())
-    .filter(Boolean);
-  const configuredPriorityLeagues = priorityLeagues.length ? priorityLeagues : DEFAULT_SPORTMONKS_PRIORITY_LEAGUES;
   const candidateLimit = Math.min(
     Math.ceil(maxEvents * SPORTMONKS_CANDIDATE_MULTIPLIER),
     maxPages * SPORTMONKS_PAGE_SIZE
@@ -1329,6 +1520,7 @@ export async function fetchSportmonks({
     candidateDiscarded: 0,
     pageFailures: 0
   };
+  let providerRetryAfterMs = 0;
   // Scanning round-robin per tanggal. Skema lama membagi statis totalPages
   // (ceil(1.2 x maxEvents / 20) = 30 halaman) ke seluruh tanggal; dengan
   // cakrawala SPORTMONKS_DAYS_AHEAD=30 itu berarti HANYA 1 halaman (20
@@ -1342,6 +1534,7 @@ export async function fetchSportmonks({
   // dan liga lainnya terbaca.
   const cursors = dates.map(date => ({ date, page: 1, exhausted: false }));
   let pagesFetched = 0;
+  let permanentPageFailure = false;
   while (
     pagesFetched < maxPages
     && cursors.some(cursor => !cursor.exhausted)
@@ -1407,21 +1600,52 @@ export async function fetchSportmonks({
         // Kegagalan satu tanggal diisolasi: tanggal lain tetap discan.
         cursor.exhausted = true;
         diagnostics.pageFailures += 1;
+        const status = Number(error?.status);
+        if (Number.isFinite(status) && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+          permanentPageFailure = true;
+        }
+        providerRetryAfterMs = Math.max(providerRetryAfterMs, sportmonksRetryAfterMs(error));
         errors.push(`Date ${cursor.date}: ${error.message}`);
       }
     }
   }
-  const events = rankedEvents.slice(0, Math.min(MAX_PROVIDER_EVENTS, maxEvents)).map(candidate => candidate.event);
-  const fetchedAtStamp = new Date(now).toISOString();
-  for (const event of events) {
-    for (const market of event.markets) {
-      market.updatedAt ||= fetchedAtStamp;
-      for (const selection of market.selections) selection.updatedAt ||= market.updatedAt;
-    }
-  }
+  const fixtureEvents = rankedEvents.slice(0, Math.min(MAX_PROVIDER_EVENTS, maxEvents)).map(candidate => candidate.event);
   
-  // Simpan ke cache
-  sportmonksCache.set(cacheKey, { fetchedAt: now, events });
+  if (diagnostics.pageFailures > 0) {
+    const attempts = (retryState?.attempts || 0) + 1;
+    const backoffMs = permanentPageFailure
+      ? 15 * 60_000
+      : Math.min(15 * 60_000, 30_000 * (2 ** Math.min(attempts - 1, 5)));
+    const retryAt = now + Math.max(backoffMs, providerRetryAfterMs);
+    const message = errors[0] || 'Sportmonks pagination was incomplete.';
+    sportmonksRetryState.set(cacheKey, { attempts, retryAt, message });
+    logger.warn('Sportmonks partial refresh rejected; preserving last complete provider cache', {
+      provider: 'sportmonks',
+      pageFailures: diagnostics.pageFailures,
+      retryInMs: retryAt - now,
+      retainedEvents: cached?.events.length || 0,
+      partialEvents: fixtureEvents.length
+    });
+    const { events: currentEvents, liveWindow } = await applySportmonksLiveWindow(
+      cached?.events || fixtureEvents,
+      base,
+      maxEvents,
+      configuredPriorityLeagues,
+      now
+    );
+    return {
+      provider: 'sportmonks',
+      enabled: true,
+      events: currentEvents,
+      stale: true,
+      transportOk: false,
+      errors: [...errors, ...liveWindow.errors]
+    };
+  }
+
+  // Only fully successful page requests replace the provider cache.
+  sportmonksCache.set(cacheKey, { fetchedAt: now, events: fixtureEvents });
+  sportmonksRetryState.delete(cacheKey);
   
   // Bounded cache: hapus entri lama jika terlalu banyak
   if (sportmonksCache.size > 1) {
@@ -1430,6 +1654,17 @@ export async function fetchSportmonks({
       sportmonksCache.delete(key);
     }
   }
+  for (const key of sportmonksRetryState.keys()) {
+    if (key !== cacheKey) sportmonksRetryState.delete(key);
+  }
+
+  const { events, liveWindow } = await applySportmonksLiveWindow(
+    fixtureEvents,
+    base,
+    maxEvents,
+    configuredPriorityLeagues,
+    now
+  );
   
   logger.info('Sportmonks fetch completed', {
     provider: 'sportmonks',
@@ -1442,12 +1677,15 @@ export async function fetchSportmonks({
     candidateDiscarded: diagnostics.candidateDiscarded,
     rankedCandidates: rankedEvents.length,
     returnedEvents: events.length,
+    liveWindowEvents: liveWindow.events.length,
+    liveWindowFailed: liveWindow.failed,
     pagesFetched,
     dates: dates.length,
     candidateLimit,
     paginationComplete: diagnostics.pageFailures === 0 && cursors.every(cursor => cursor.exhausted),
     pageBudgetExhausted: pagesFetched >= maxPages && cursors.some(cursor => !cursor.exhausted),
     pageFailures: diagnostics.pageFailures,
+    retryCooldownActive: false,
     maxEvents,
     errors: errors.length,
     errorSample: errors.slice(0, 3)
@@ -1981,7 +2219,12 @@ export const __sportsbookProviders = {
   selectOddsApiEnrichmentEvents,
   pruneOddsApiEventDetailCache,
   oddsApiEventDetailCache,
-  theOddsApiQuotaGuard
+  theOddsApiQuotaGuard,
+  sportmonksCache,
+  sportmonksCacheTtlMs,
+  sportmonksRetryState,
+  sportmonksLiveCache,
+  sportmonksLiveRetryState
 };
 
 // Builder helpers shared by provider adapters so every provider emits the exact

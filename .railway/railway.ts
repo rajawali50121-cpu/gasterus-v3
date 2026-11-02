@@ -79,6 +79,7 @@ export default defineRailway(() => {
       SPORTMONKS_MAX_RESPONSE_BYTES: preserve(),
       SPORTMONKS_MAX_RETRIES: preserve(),
       SPORTMONKS_MAX_TOTAL_EVENTS: preserve(),
+      SPORTMONKS_LIVE_REFRESH_SECONDS: preserve(),
       SPORTMONKS_ODDS_REFRESH_SECONDS: preserve(),
       SPORTMONKS_PAGE_SIZE: preserve(),
       SPORTMONKS_REQUEST_DELAY_MS: preserve(),
@@ -101,6 +102,8 @@ export default defineRailway(() => {
   //   - Sportmonks SUMBER UTAMA cakupan luas: seluruh halaman dalam anggaran
   //     120 x 20 discan round-robin per tanggal; snapshot tetap maks 500 event
   //     setelah ranking, dan key diwariskan dari web.
+  //   - Live window Sportmonks di-refresh terpisah tiap 30 detik (non-paginated)
+  //     supaya event dan in-play odds cepat diperbarui tanpa mengulang katalog.
   //   - The Odds API CADANGAN 5 liga andalan; h2h x eu = 1 kredit/request;
   //     refresh 720 dtk (di bawah jendela harga prematch 900 dtk)
   //   - provider dijalankan sekuensial (satu payload pada satu waktu); seluruh
@@ -137,6 +140,7 @@ export default defineRailway(() => {
       SPORTMONKS_API_KEY: "${{web.SPORTMONKS_API_KEY}}",
       SPORTMONKS_MAX_TOTAL_EVENTS: "500",
       SPORTMONKS_REFRESH_SECONDS: "300",
+      SPORTMONKS_LIVE_REFRESH_SECONDS: "30",
       SPORTMONKS_REQUEST_DELAY_MS: "0",
       SHARP_API_ENABLED: "${{web.SHARP_API_ENABLED}}",
       SHARP_API_KEY: "${{web.SHARP_API_KEY}}",

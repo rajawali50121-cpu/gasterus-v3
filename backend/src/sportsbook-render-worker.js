@@ -23,7 +23,7 @@ const [
   { config },
   { fetchTheOddsApi, fetchSportmonks, fetchSharpApi, teamKey },
   { postSportsbookSnapshot },
-  { buildSportsbookRenderSnapshot }
+  { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
   import('./sportsbook-providers.js'),
@@ -37,16 +37,16 @@ if (config.sportsbookIngestHmacSecret.length < 32) {
   throw new Error('SPORTSBOOK_INGEST_HMAC_SECRET must contain at least 32 characters.');
 }
 
-const snapshotIntervalSeconds = Math.max(
-  15,
-  Math.min(config.theOddsApiRefreshSeconds, Math.floor(config.sportsbookIngestMaxAgeSeconds / 2))
-);
+const snapshotIntervalSeconds = sportsbookRenderIntervalSeconds(config);
 const intervalMs = snapshotIntervalSeconds * 1000;
 const shutdown = new AbortController();
 process.once('SIGINT', () => shutdown.abort());
 process.once('SIGTERM', () => shutdown.abort());
+let consecutiveCycleFailures = 0;
 
 while (!shutdown.signal.aborted) {
+  const cycleStartedAt = Date.now();
+  let nextDelayMs = intervalMs;
   try {
     const snapshot = await buildSportsbookRenderSnapshot({
       fetchOddsApi: fetchTheOddsApi,
@@ -57,27 +57,53 @@ while (!shutdown.signal.aborted) {
       maxPayloadBytes: config.sportsbookIngestMaxPayloadBytes,
       teamKey
     });
+    const snapshotBuiltAt = Date.now();
     const accepted = await postSportsbookSnapshot(endpoint, snapshot, {
       secret: config.sportsbookIngestHmacSecret,
       maxPayloadBytes: config.sportsbookIngestMaxPayloadBytes
     });
+    const acceptedAt = Date.now();
+    const providers = snapshot.providerResults.map(result => ({
+      provider: result.provider,
+      enabled: result.enabled === true,
+      eventCount: Array.isArray(result.events) ? result.events.length : 0,
+      stale: result.stale === true,
+      errors: Array.isArray(result.errors) ? result.errors.length : 0
+    }));
     console.info(JSON.stringify({
       service: 'sportsbook-render-worker',
       event: 'snapshot-accepted',
       eventCount: accepted?.data?.eventCount ?? accepted?.eventCount ?? snapshot.eventCount,
-      providers: snapshot.providerResults.map(result => result.provider),
-      generatedAt: snapshot.generatedAt
+      providers,
+      generatedAt: snapshot.generatedAt,
+      buildDurationMs: snapshotBuiltAt - cycleStartedAt,
+      deliveryDurationMs: acceptedAt - snapshotBuiltAt,
+      cycleDurationMs: acceptedAt - cycleStartedAt,
+      nextRefreshInMs: intervalMs
     }));
+    consecutiveCycleFailures = 0;
   } catch (error) {
+    consecutiveCycleFailures += 1;
+    const retryCeilingMs = Math.max(
+      intervalMs,
+      Math.min(300_000, config.sportsbookIngestMaxAgeSeconds * 500)
+    );
+    nextDelayMs = Math.min(
+      retryCeilingMs,
+      intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6))
+    );
     console.error(JSON.stringify({
       service: 'sportsbook-render-worker',
       event: 'snapshot-failed',
-      message: error?.message || String(error)
+      message: error?.message || String(error),
+      consecutiveFailures: consecutiveCycleFailures,
+      cycleDurationMs: Date.now() - cycleStartedAt,
+      retryInMs: nextDelayMs
     }));
   }
   if (!shutdown.signal.aborted) {
     try {
-      await sleep(intervalMs, undefined, { signal: shutdown.signal });
+      await sleep(nextDelayMs, undefined, { signal: shutdown.signal });
     } catch (error) {
       if (error.name !== 'AbortError') throw error;
     }

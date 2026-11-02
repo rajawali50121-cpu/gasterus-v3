@@ -109,6 +109,14 @@ test('premium sportsbook skin separates LIVE and prematch with aligned responsiv
   assert.ok(sportsbookCss.includes('.sb-market-period-tab[data-match-period="1H"].active'));
 });
 
+test('MAX SPEED feed status is visible and reflects snapshot freshness without claiming betting availability', () => {
+  assert.match(page, /id="sb-max-speed-status"[^>]*data-state="connecting"/);
+  assert.match(frontend, /const snapshotAt = Date\.parse\(feed\.source\?\.capturedAt \|\| feed\.source\?\.fetchedAt \|\| ''\)/);
+  assert.match(frontend, /feed\.stale \|\| snapshotAgeMs === null \|\| snapshotAgeMs > staleAfterMs/);
+  assert.match(frontend, /MAX SPEED FEED · \$\{labels\[syncState\]\}/);
+  assert.match(sportsbookCss, /\.sb-max-speed-status\[data-state="delayed"\]/);
+});
+
 test('member sportsbook lazy-loads complete event market details and retains all list market variants', () => {
   assert.match(frontend, /const FEED_DETAIL_URL = \(id\) => `\/api\/member\/sportsbook\/events\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(frontend, /await api\.get\(FEED_DETAIL_URL\(eventId\)\)/);

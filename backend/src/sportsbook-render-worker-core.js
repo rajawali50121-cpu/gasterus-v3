@@ -2,6 +2,35 @@ const MAX_EVENTS = 500;
 const MAX_PAGES = 120;
 const DUPLICATE_KICKOFF_WINDOW_MS = 3 * 60 * 60 * 1000;
 
+export function sportsbookRenderIntervalSeconds(settings) {
+  const freshnessInterval = Math.floor(Number(settings?.sportsbookIngestMaxAgeSeconds) / 2);
+  const providerIntervals = [];
+  if (settings?.sportmonksEnabled) {
+    providerIntervals.push(
+      settings.sportmonksRefreshSeconds,
+      settings.sportmonksOddsRefreshSeconds,
+      settings.sportmonksLiveRefreshSeconds
+    );
+  }
+  if (settings?.sharpApiEnabled) providerIntervals.push(settings.sharpApiRefreshSeconds);
+  if (settings?.theOddsApiEnabled) {
+    providerIntervals.push(settings.theOddsApiRefreshSeconds);
+    if (settings.theOddsApiEventMarketsEnabled) providerIntervals.push(settings.theOddsApiEventRefreshSeconds);
+  }
+  const validIntervals = providerIntervals
+    .map(Number)
+    .filter(value => Number.isFinite(value) && value > 0);
+  const nextProviderRefresh = validIntervals.length
+    ? Math.min(...validIntervals)
+    : Number.isFinite(freshnessInterval) && freshnessInterval > 0
+      ? freshnessInterval
+      : 90;
+  const maxFreshnessInterval = Number.isFinite(freshnessInterval) && freshnessInterval > 0
+    ? freshnessInterval
+    : 90;
+  return Math.max(15, Math.min(nextProviderRefresh, maxFreshnessInterval));
+}
+
 function leaguePriority(event, priorities) {
   const league = String(event?.league || '').trim().toLowerCase();
   const index = priorities.findIndex(name => league === name || league.includes(name));

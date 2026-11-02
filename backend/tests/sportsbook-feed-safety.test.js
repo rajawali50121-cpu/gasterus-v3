@@ -245,6 +245,11 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
     });
     globalThis.fetch = async input => {
       const url = new URL(input);
+      if (url.pathname.endsWith('/livescores')) {
+        return new Response(JSON.stringify({ data: [] }), {
+          headers: { 'content-type': 'application/json' }
+        });
+      }
       const page = Number(url.searchParams.get('page'));
       const perPage = Number(url.searchParams.get('per_page')) || 20;
       calls.push({ page, perPage: url.searchParams.get('per_page') });
@@ -328,6 +333,11 @@ test('Sportmonks keeps active fixtures without odds instead of hiding them from 
     });
     globalThis.fetch = async input => {
       const url = new URL(input);
+      if (url.pathname.endsWith('/livescores')) {
+        return new Response(JSON.stringify({ data: [] }), {
+          headers: { 'content-type': 'application/json' }
+        });
+      }
       const page = Number(url.searchParams.get('page')) || 1;
       const perPage = Number(url.searchParams.get('per_page')) || 20;
       const pool = [fixture('p-1', true), fixture('u-1', false), fixture('u-2', false)];
@@ -405,6 +415,11 @@ test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
     });
     globalThis.fetch = async input => {
       const url = new URL(input);
+      if (url.pathname.endsWith('/livescores')) {
+        return new Response(JSON.stringify({ data: [] }), {
+          headers: { 'content-type': 'application/json' }
+        });
+      }
       const page = Number(url.searchParams.get('page'));
       const perPage = Number(url.searchParams.get('per_page')) || 20;
       calls.push(page);

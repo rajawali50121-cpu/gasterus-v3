@@ -495,6 +495,25 @@ body.sb-page {
 #sb-feed-status {
   color: #15803d;
 }
+.sb-max-speed-status {
+  align-self: flex-start;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #166534;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.sb-max-speed-status[data-state="limited"],
+.sb-max-speed-status[data-state="delayed"] {
+  background: #fff7ed;
+  color: #9a3412;
+}
+.sb-max-speed-status[data-state="connecting"] {
+  background: #f1f5f9;
+  color: #475569;
+}
 #sb-feed-updated {
   font-size: 9px;
   white-space: nowrap;

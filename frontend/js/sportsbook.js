@@ -741,10 +741,24 @@ function syncSelectedOdds(events) {
 function renderStatusMeta() {
   const banner = el('sb-stale-banner');
   const feedStatus = el('sb-feed-status');
+  const maxSpeedStatus = el('sb-max-speed-status');
   const feedUpdated = el('sb-feed-updated');
   const eventCount = el('sb-feed-events-count');
   const marketCount = el('sb-feed-markets-count');
   const status = String(feed.source?.status || '').toUpperCase();
+  const snapshotAt = Date.parse(feed.source?.capturedAt || feed.source?.fetchedAt || '');
+  const refreshSeconds = Number(feed.source?.refreshSeconds);
+  const staleAfterMs = Number.isFinite(refreshSeconds) && refreshSeconds > 0
+    ? Math.max(60_000, refreshSeconds * 2_000)
+    : 180_000;
+  const snapshotAgeMs = Number.isFinite(snapshotAt) ? Math.max(0, Date.now() - snapshotAt) : null;
+  const syncState = feed.stale || snapshotAgeMs === null || snapshotAgeMs > staleAfterMs
+    ? 'delayed'
+    : feed.degraded || status === 'DEGRADED'
+      ? 'limited'
+      : feed.events.length
+        ? 'connected'
+        : 'connecting';
   if (feedStatus) {
     feedStatus.textContent = feed.stale || /STALE|OFFLINE/.test(status)
       ? 'Feed tertunda'
@@ -753,6 +767,19 @@ function renderStatusMeta() {
         : feed.events.length && Number(feed.source?.bettableMarkets || feed.source?.pricedMarkets) > 0
           ? 'Feed aktif'
           : 'Menunggu odds';
+  }
+  if (maxSpeedStatus) {
+    const labels = {
+      connected: 'Terhubung',
+      limited: 'Terbatas',
+      delayed: 'Terlambat',
+      connecting: 'Menghubungkan'
+    };
+    maxSpeedStatus.dataset.state = syncState;
+    maxSpeedStatus.textContent = `MAX SPEED FEED · ${labels[syncState]}`;
+    maxSpeedStatus.title = snapshotAgeMs === null
+      ? 'Belum menerima snapshot feed.'
+      : `Snapshot feed diterima ${Math.floor(snapshotAgeMs / 1000)} detik yang lalu.`;
   }
   if (eventCount) eventCount.textContent = fmt(feed.pagination?.total ?? feed.events.length);
   if (marketCount) marketCount.textContent = fmt(feed.source?.bettableMarkets ?? feed.source?.pricedMarkets ?? 0);

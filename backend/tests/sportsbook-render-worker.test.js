@@ -13,7 +13,7 @@ Object.assign(process.env, {
   MFA_ENCRYPTION_KEY_BASE64: process.env.MFA_ENCRYPTION_KEY_BASE64 || Buffer.alloc(32, 1).toString('base64')
 });
 
-const [{ buildSportsbookRenderSnapshot, fitSnapshotToPayloadBudget }, { teamKey, mergeProviderEvents }, { validateSportsbookSnapshot }] = await Promise.all([
+const [{ buildSportsbookRenderSnapshot, fitSnapshotToPayloadBudget, sportsbookRenderIntervalSeconds }, { teamKey, mergeProviderEvents }, { validateSportsbookSnapshot }] = await Promise.all([
   import('../src/sportsbook-render-worker-core.js'),
   import('../src/sportsbook-providers.js'),
   import('../src/sportsbook-ingestion.js')
@@ -205,12 +205,47 @@ test('Worker republishes cached snapshots before their ingestion freshness windo
   const workerSource = await import('node:fs/promises').then(fs =>
     fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
   );
-  assert.match(workerSource, /Math\.min\(config\.theOddsApiRefreshSeconds,\s*Math\.floor\(config\.sportsbookIngestMaxAgeSeconds\s*\/\s*2\)\)/);
+  assert.match(workerSource, /sportsbookRenderIntervalSeconds\(config\)/);
   assert.match(workerSource, /fetchOddsApi:\s*fetchTheOddsApi/);
   // Sportmonks primer + The Odds API cadangan keduanya disambungkan ke worker;
   // hanya adapter api-sports yang memang tidak dipakai.
   assert.match(workerSource, /fetchSportmonks/);
   assert.doesNotMatch(workerSource, /fetchApiSports/);
+});
+
+test('Worker cadence follows the fastest enabled provider without exceeding ingest freshness', () => {
+  assert.equal(sportsbookRenderIntervalSeconds({
+    sportsbookIngestMaxAgeSeconds: 180,
+    sportmonksEnabled: true,
+    sportmonksRefreshSeconds: 300,
+    sportmonksOddsRefreshSeconds: 180,
+    sharpApiEnabled: true,
+    sharpApiRefreshSeconds: 45,
+    theOddsApiEnabled: true,
+    theOddsApiRefreshSeconds: 720
+  }), 45);
+  assert.equal(sportsbookRenderIntervalSeconds({
+    sportsbookIngestMaxAgeSeconds: 180,
+    sportmonksEnabled: true,
+    sportmonksRefreshSeconds: 300,
+    sportmonksOddsRefreshSeconds: 180,
+    theOddsApiEnabled: true,
+    theOddsApiRefreshSeconds: 720
+  }), 90);
+  assert.equal(sportsbookRenderIntervalSeconds({
+    sportsbookIngestMaxAgeSeconds: 120,
+    sharpApiEnabled: false,
+    sportmonksEnabled: false,
+    theOddsApiEnabled: false
+  }), 60);
+  assert.equal(sportsbookRenderIntervalSeconds({
+    sportsbookIngestMaxAgeSeconds: 180,
+    sportmonksEnabled: true,
+    sportmonksRefreshSeconds: 300,
+    sportmonksOddsRefreshSeconds: 180,
+    sportmonksLiveRefreshSeconds: 30,
+    theOddsApiEnabled: false
+  }), 30);
 });
 
 test('Worker combines Sportmonks primary with The Odds API fallback in one snapshot', async () => {
