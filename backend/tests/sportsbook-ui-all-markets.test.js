@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { ticketCalculation } from '../src/sportsbook-calculation.js';
 import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
-import { prioritizeMemberCoreMarkets, projectMemberMarkets, selectMemberSummaryMarkets } from '../src/sportsbook-member-projection.js';
+import { projectMemberMarkets, selectMemberSummaryMarkets } from '../src/sportsbook-member-projection.js';
 import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from '../../frontend/js/sportsbook-markets.js';
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
@@ -43,21 +43,23 @@ test('member REST snapshot projection retains valid FT and HT markets without du
   assert.equal(result.find(item => item.id === 'ht-main').selections.some(item => item.key === 'HOME'), true);
 });
 
-test('feed market cap prioritizes FT and HT primary markets over BTTS and extra periods', () => {
-  const capped = prioritizeMemberCoreMarkets([
-    market('ft-1x2', 'FT'),
-    { ...market('ft-btts', 'FT'), type: 'BTTS' },
-    { ...market('ft-handicap', 'FT'), type: 'HANDICAP' },
-    { ...market('ft-totals', 'FT'), type: 'TOTALS' },
-    market('ht-1x2', '1H'),
-    { ...market('ht-handicap', '1H'), type: 'HANDICAP' },
-    { ...market('ht-totals', '1H'), type: 'TOTALS' },
-    market('second-half', '2H')
-  ], 6);
-  assert.deepEqual(capped.map(item => `${item.period}:${item.type}`), [
-    'FT:1X2', 'FT:HANDICAP', 'FT:TOTALS', '1H:1X2', '1H:HANDICAP', '1H:TOTALS'
-  ]);
-  assert.match(feed, /prioritizeMemberCoreMarkets\(sourceMarkets, MAX_MARKETS_PER_EVENT\)/);
+test('detailed event projection preserves every supplied market and selection line', () => {
+  const markets = Array.from({ length: 14 }, (_, index) => ({
+    id: `market-${index}`,
+    type: index === 13 ? 'OTHER' : ['1X2', 'HANDICAP', 'TOTALS', 'BTTS'][index % 4],
+    period: index % 2 ? '1H' : 'FT',
+    selections: [{
+      key: `selection-${index}`,
+      label: `Selection ${index}`,
+      odds: 1.91,
+      line: index,
+      suspended: false
+    }]
+  }));
+  const projected = projectMemberMarkets(markets);
+  assert.equal(projected.length, markets.length);
+  assert.equal(projected[13].selections[0].line, 13);
+  assert.doesNotMatch(feed, /MAX_MARKETS_PER_EVENT/);
 });
 
 test('the SSE broadcaster sends the same member snapshot projection, including FT and HT updates', () => {

@@ -11,6 +11,10 @@ Object.assign(process.env, {
   SESSION_HMAC_KEY: 's'.repeat(48),
   API_KEY_PEPPER: 'p'.repeat(48),
   MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
+  SPORTMONKS_ENABLED: 'true',
+  SPORTMONKS_API_KEY: 'test-sportmonks-key',
+  SPORTMONKS_DAYS_AHEAD: '0',
+  SPORTMONKS_REQUEST_DELAY_MS: '1',
   THE_ODDS_API_ENABLED: 'true',
   THE_ODDS_API_KEY: 'test-existing-odds-key',
   THE_ODDS_API_EVENT_MARKETS_ENABLED: 'true',
@@ -20,7 +24,7 @@ Object.assign(process.env, {
   THE_ODDS_API_SPORT_KEYS: 'soccer_epl,basketball_nba,tennis_atp_us_open'
 });
 
-const { __sportsbookProviders, fetchTheOddsApi, publicEvent } = await import('../src/sportsbook-providers.js');
+const { __sportsbookProviders, fetchTheOddsApi, fetchSportmonks, publicEvent } = await import('../src/sportsbook-providers.js');
 const { eventSettlementAuthority } = await import('../src/sportsbook-settlement-authority.js');
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
@@ -45,6 +49,133 @@ test('The Odds API normalizer creates stable 1X2 and totals markets', () => {
   assert.ok(event.markets.some(market => market.type === 'TOTALS' && market.selections.length === 2));
   assert.equal(event.markets[0].selections[0].source, 'the-odds-api');
   assert.equal(event.markets[0].bookmaker, 'book-a');
+});
+
+test('Sportmonks fixtures without provider odds stay display-only and never receive synthetic markets', () => {
+    const fixture = {
+      id: 'sportmonks-no-prices',
+      state: { short_name: 'NS', name: 'Not Started' },
+      starting_at: '2026-08-06T12:00:00Z',
+      league: { name: 'Premier League', country: { name: 'England' } },
+      participants: [
+        { name: 'Arsenal', meta: { location: 'home' } },
+        { name: 'Chelsea', meta: { location: 'away' } }
+      ]
+    };
+    const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, []);
+    assert.deepEqual(event.markets, []);
+    const [merged] = __sportsbookProviders.mergeProviderEvents([{ provider: 'sportmonks', events: [event] }]);
+    assert.deepEqual(merged.markets, []);
+    assert.doesNotMatch(JSON.stringify(merged), /fallback-odds/);
+  });
+
+  test('Sportmonks preserves provider-supplied markets, periods, lines, and suspended odds', () => {
+    const fixture = {
+      id: 'sportmonks-full-market-coverage',
+      state: { short_name: 'NS', name: 'Not Started' },
+      starting_at: '2026-08-06T12:00:00Z',
+      league: { name: 'Premier League', country: { name: 'England' } },
+      participants: [
+        { name: 'Arsenal', meta: { location: 'home' } },
+        { name: 'Chelsea', meta: { location: 'away' } }
+      ]
+    };
+    const rows = [
+      { id: 1, market_id: 101, market_description: 'HT 1X2', label: 'Home', value: 1.91 },
+      { id: 2, market_id: 102, market_description: 'European Handicap', label: 'Home', handicap: -1, value: 2.15 },
+      { id: 3, market_id: 103, market_description: '2nd Half - Total Goals', label: 'Over', total: 2.5, value: 1.88 },
+      { id: 4, market_id: 104, market_description: 'Player Assists', label: 'Player A', value: 3.25, status: 'suspended' },
+      { id: 5, market_id: 105, market_description: 'Provider Special Market', label: 'Yes', value: 2.4 },
+      { id: 6, market_id: 106, market_description: 'Invalid Price Market', label: 'Yes', value: 1 },
+      { id: 7, market_description: 'Asian Handicap', label: 'Away', handicap: 1, value: 1.92 }
+    ];
+    const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, rows);
+    assert.equal(event.markets.length, 6, 'valid supplied markets remain and invalid odds are excluded');
+    const firstHalf = event.markets.find(market => market.sourceMarketId === 'm101');
+    const handicap = event.markets.find(market => market.sourceMarketId === 'm102');
+    const secondHalfTotals = event.markets.find(market => market.sourceMarketId === 'm103');
+    const playerProps = event.markets.find(market => market.sourceMarketId === 'm104');
+    const unknownMarket = event.markets.find(market => market.sourceMarketId === 'm105');
+    const marketWithoutId = event.markets.find(market => market.key.startsWith('name:'));
+    assert.equal(firstHalf.period, '1H');
+    assert.equal(handicap.type, 'HANDICAP');
+    assert.equal(handicap.selections[0].line, -1);
+    assert.equal(secondHalfTotals.period, '2H');
+    assert.equal(secondHalfTotals.selections[0].line, 2.5);
+    assert.equal(playerProps.type, 'PLAYER_PROP');
+    assert.equal(playerProps.selections[0].suspended, true);
+    assert.equal(unknownMarket.type, 'OTHER');
+    assert.equal(unknownMarket.label, 'Provider Special Market');
+    assert.equal(marketWithoutId.sourceMarketId, null);
+    assert.equal(marketWithoutId.selections[0].line, 1);
+  });
+
+  test('Sportmonks scans pages through the configured budget after its candidate buffer fills', async () => {
+    const originalFetch = globalThis.fetch;
+    const requestedPages = [];
+    globalThis.fetch = async input => {
+      const url = new URL(String(input));
+      const page = Number(url.searchParams.get('page'));
+      requestedPages.push(page);
+      const fixtures = Array.from({ length: 20 }, (_, index) => {
+        const fixtureId = `pagination-${page}-${index}`;
+        return {
+          id: fixtureId,
+          state: { short_name: 'NS', name: 'Not Started' },
+          starting_at_timestamp: Math.floor((Date.now() + (page * 20 + index + 1) * 60000) / 1000),
+          league: { name: 'Regional League', country: { name: 'England' } },
+          participants: [
+            { name: `Home ${fixtureId}`, meta: { location: 'home' } },
+            { name: `Away ${fixtureId}`, meta: { location: 'away' } }
+          ],
+          odds: []
+        };
+      });
+      const body = JSON.stringify({ data: fixtures, pagination: { has_more: page < 3 } });
+      return { ok: true, status: 200, async text() { return body; } };
+    };
+    try {
+      const result = await fetchSportmonks({ maxEvents: 1, maxPages: 5 });
+      assert.deepEqual(requestedPages, [1, 2, 3]);
+      assert.equal(result.events.length, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+});
+
+test('Sportmonks retries a timed-out page request and recovers without dropping the fixture', async () => {
+    const originalFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = async () => {
+      requests += 1;
+      if (requests === 1) {
+        const error = new Error('simulated provider timeout');
+        error.name = 'AbortError';
+        throw error;
+      }
+      return new Response(JSON.stringify({
+        data: [{
+          id: 'timeout-recovered',
+          state: { short_name: 'NS', name: 'Not Started' },
+          starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000),
+          league: { name: 'Regional League', country: { name: 'England' } },
+          participants: [
+            { name: 'Home', meta: { location: 'home' } },
+            { name: 'Away', meta: { location: 'away' } }
+          ],
+          odds: []
+        }],
+        pagination: { has_more: false }
+      }), { headers: { 'content-type': 'application/json' } });
+    };
+    try {
+      const result = await fetchSportmonks({ maxEvents: 1, maxPages: 2 });
+      assert.equal(requests, 2);
+      assert.equal(result.events.length, 1);
+      assert.equal(result.events[0].home.name, 'Home');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
 });
 
 test('The Odds API selects one coherent bookmaker per market and retains market-only coverage', () => {

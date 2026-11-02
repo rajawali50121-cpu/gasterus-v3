@@ -72,35 +72,3 @@ export function selectMemberSummaryMarkets(markets = []) {
     && SUMMARY_MARKET_TYPES.has(clean(market.type).toUpperCase())
     && SUMMARY_MARKET_PERIODS.has(clean(market.period || 'FT').toUpperCase()));
 }
-
-export function prioritizeMemberCoreMarkets(markets = [], limit = 6) {
-  if (!Array.isArray(markets)) return [];
-  const maxMarkets = Math.max(0, Math.floor(Number(limit) || 0));
-  const candidates = markets
-    .map((market, index) => ({ market, index }))
-    .filter(({ market }) => isRecord(market) && ['1X2', 'HANDICAP', 'TOTALS', 'BTTS'].includes(clean(market.type).toUpperCase()))
-    .sort((left, right) => Number(right.market.mainLine === true) - Number(left.market.mainLine === true) || left.index - right.index);
-  const selected = [];
-  const seen = new Set();
-  const keyOf = market => `${clean(market.type).toUpperCase()}:${clean(market.period || 'FT').toUpperCase()}:${market.line ?? 'null'}`;
-
-  const add = market => {
-    const key = keyOf(market);
-    if (seen.has(key) || selected.length >= maxMarkets) return;
-    seen.add(key);
-    selected.push(market);
-  };
-
-  for (const period of ['FT', '1H']) {
-    for (const type of ['1X2', 'HANDICAP', 'TOTALS']) {
-      const candidate = candidates.find(({ market }) =>
-        clean(market.type).toUpperCase() === type
-        && clean(market.period || 'FT').toUpperCase() === period
-        && !seen.has(keyOf(market))
-      );
-      if (candidate) add(candidate.market);
-    }
-  }
-  for (const { market } of candidates) add(market);
-  return selected;
-}

@@ -305,7 +305,7 @@ test('Worker prefers the priced copy when the same fixture arrives from two prov
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
 });
 
-test('Worker trims oversized snapshots to the ingestion payload budget instead of failing every push', async () => {
+test('Worker trims oversized snapshots by dropping whole fixtures, never partial markets', async () => {
   const fat = Array.from({ length: 80 }, (_, index) => event('sportmonks', {
     id: `fat-${index}`,
     startTime: new Date(NOW + (index + 1) * 60000).toISOString()
@@ -334,26 +334,21 @@ test('Worker trims oversized snapshots to the ingestion payload budget instead o
   });
   const bytes = Buffer.byteLength(JSON.stringify(snapshot), 'utf8');
   assert.ok(bytes <= maxPayloadBytes, `payload ${bytes} bytes wajib muat dalam ${maxPayloadBytes}`);
-  assert.equal(snapshot.eventCount, 80, 'tahap trim pasar mempertahankan seluruh event');
+  assert.ok(snapshot.eventCount > 0 && snapshot.eventCount < 80);
   assert.equal(snapshot.providerResults[0].events[0].id, 'fat-0', 'event berperingkat terbaik dipertahankan utuh');
-  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 80);
+  assert.ok(snapshot.providerResults[0].events.every(item => item.markets.length === 40),
+    'every retained event must keep its complete market list');
+  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, snapshot.eventCount);
 
-  // Anggaran ekstrem: even the market cap cannot hold every event -> event
-  // terendah dibuang secara biner dan payload tetap terkirim.
-  const tiny = buildSportsbookRenderSnapshot({
+  // Anggaran terlalu kecil untuk satu event utuh must fail explicitly.
+  await assert.rejects(buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: fat }),
     fetchOddsApi: async () => { throw new Error('quota exhausted'); },
     maxEvents: 100,
     maxPayloadBytes: 12_000,
     teamKey,
     now: NOW
-  }).then(trimmed => {
-    const trimmedBytes = Buffer.byteLength(JSON.stringify(trimmed), 'utf8');
-    assert.ok(trimmedBytes <= 12_000, `payload ${trimmedBytes} bytes wajib muat dalam 12_000`);
-    assert.ok(trimmed.eventCount >= 1 && trimmed.eventCount < 80, `eventCount ekstrem tidak wajar: ${trimmed.eventCount}`);
-    assert.equal(trimmed.providerResults[0].events[0].id, 'fat-0');
-  });
-  await tiny;
+  }), /single complete sportsbook event exceeds the ingest payload budget/i);
 });
 
 test('Payload trimming keeps provider ownership for every retained duplicate fixture', async () => {
@@ -387,7 +382,7 @@ test('Payload trimming keeps provider ownership for every retained duplicate fix
     fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: buildFatEvents('sportmonks') }),
     fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: buildFatEvents('the-odds-api') }),
     maxEvents: 100,
-    maxPayloadBytes: 12_000,
+    maxPayloadBytes: 100_000,
     teamKey,
     now: NOW
   });
@@ -397,6 +392,8 @@ test('Payload trimming keeps provider ownership for every retained duplicate fix
   assert.ok(snapshot.eventCount > 0 && snapshot.eventCount < 80);
   assert.equal(sportmonksEvents.length, snapshot.eventCount);
   assert.equal(oddsEvents.length, snapshot.eventCount);
+  assert.ok(sportmonksEvents.every(item => item.markets.length === 40));
+  assert.ok(oddsEvents.every(item => item.markets.length === 40));
   assert.ok(sportmonksEvents.every(item => item._sources[0] === 'sportmonks'));
   assert.ok(oddsEvents.every(item => item._sources[0] === 'the-odds-api'));
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, snapshot.eventCount);

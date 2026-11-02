@@ -10,9 +10,9 @@ const ui = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.u
 const worker = readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8');
 const config = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
 
-test('sportsbook feed defaults stay inside Railway free-tier event and cache budgets', () => {
+test('sportsbook feed cache budget accommodates a complete worker snapshot', () => {
   assert.match(config, /sportsFeedMaxEvents: int\('SPORTS_FEED_MAX_EVENTS', 500, 20, 500\)/);
-  assert.match(config, /sportsFeedMaxCacheBytes: int\('SPORTS_FEED_MAX_CACHE_BYTES', 2_000_000, 262_144, 15_000_000\)/);
+  assert.match(config, /sportsFeedMaxCacheBytes: int\('SPORTS_FEED_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000\)/);
   assert.match(config, /sportsProviderCacheMaxTotalBytes: int\('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000/);
   assert.match(config, /sportsbookMemberMaxEvents: int\('SPORTSBOOK_MEMBER_MAX_EVENTS', 500, 20, 500\)/);
   assert.match(config, /theOddsApiMaxTotalEvents: int\('THE_ODDS_API_MAX_TOTAL_EVENTS', 500, 0, 500\)/);
@@ -376,8 +376,8 @@ test('Sportmonks keeps active fixtures without odds instead of hiding them from 
   assert.deepEqual(output, {
     eventCount: 3,
     homes: ['Home p-1', 'Home u-1', 'Home u-2'],
-    unpricedCount: 0,
-    pricedCounts: [1, 14, 14]
+    unpricedCount: 2,
+    pricedCounts: [0, 0, 1]
   });
 });
 
@@ -459,9 +459,9 @@ test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1)), {
     workerEvents: 500,
-    workerPages: 30,
+    workerPages: 120,
     highCapacityEvents: 500,
-    highCapacityPages: 30,
+    highCapacityPages: 119,
     railwayDefaultEvents: 500
   });
 });

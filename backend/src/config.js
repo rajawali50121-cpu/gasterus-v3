@@ -114,11 +114,11 @@ export const config = Object.freeze({
   // Background feed/collector process is separate from settlement (feed-worker.js).
   sportsSourceBackgroundPollEnabled: bool('SPORTS_SOURCE_BACKGROUND_POLL_ENABLED', true),
   feedWorkerEnabled: bool('FEED_WORKER_ENABLED', true),
-  // Batasi snapshot sportsbook agar feed-worker (heap terbatas) dan payload
-  // SSE/Redis tidak meledak saat provider menghasilkan banyak fixture/pasaran.
-  // 120 event × pasaran inti tetap aman untuk heap 256MB dan broadcast SSE.
+  // Event dan payload tetap dibatasi; worker menghilangkan fixture utuh bila
+  // byte budget habis, bukan memangkas market/selection dari fixture tersimpan.
+  // Cache backend menyamai batas ingest 6MB untuk menyimpan snapshot lengkap.
   sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 500, 20, 500),
-  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 2_000_000, 262_144, 15_000_000),
+  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000),
   // Eviction agresif provider cache: entri lama langsung dibuang sebelum menumpuk di RAM.
   sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 40, 1, 10000),
   sportsProviderCacheMaxEntryBytes: int('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 1_048_576, 1024, 100_000_000),

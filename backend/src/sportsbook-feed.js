@@ -14,7 +14,7 @@ import { priceVersionChangeCount } from './sportsbook-live-observability.js';
 import { applySportsbookTradingControls, listActiveSportsbookTradingControls, resolveSportsbookTradingPolicy } from './sportsbook-trading-controls.js';
 import { eventSettlementAuthority, settlementAuthoritySummary } from './sportsbook-settlement-authority.js';
 import { enrichTeamArtwork } from './sportsbook-team-artwork.js';
-import { prioritizeMemberCoreMarkets, projectMemberMarkets, selectMemberSummaryMarkets } from './sportsbook-member-projection.js';
+import { projectMemberMarkets, selectMemberSummaryMarkets } from './sportsbook-member-projection.js';
 
 const MIN_1X2_OVERROUND = 1.00;
 const MAX_1X2_OVERROUND = 1.25;
@@ -160,8 +160,6 @@ const TOP_LEAGUE_PATTERNS = [
 ];
 const MAX_FEED_EVENTS = config.sportsFeedMaxEvents;
 const MAX_CACHE_BYTES = config.sportsFeedMaxCacheBytes;
-// Batasi pasaran per event agar satu event tidak bisa menumpuk ratusan pasaran.
-const MAX_MARKETS_PER_EVENT = 6;
 let lastCacheLimitWarningAt = 0;
 const WIB_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Jakarta',
@@ -226,26 +224,6 @@ function boundedEvents(events = []) {
   diagnostics.capped = sorted.length - sliced.length;
   logger.info('boundedEvents diagnostics', diagnostics);
   return sliced.map(({ event }) => event);
-}
-
-// Batasi market inti per event sambil memprioritaskan coverage FT dan 1H.
-function capMarketsPerEvent(events = []) {
-  return events.map(event => {
-    const sourceMarkets = Array.isArray(event.markets) ? event.markets : [];
-    const core = prioritizeMemberCoreMarkets(sourceMarkets, MAX_MARKETS_PER_EVENT);
-    const retained = core.length
-      ? core
-      : sourceMarkets.filter(market => market && typeof market === 'object' && !Array.isArray(market)).slice(0, MAX_MARKETS_PER_EVENT);
-    return {
-      ...event,
-      markets: retained.map(market => ({
-        ...market,
-        selections: (Array.isArray(market.selections) ? market.selections : [])
-          .filter(selection => selection && typeof selection === 'object' && !Array.isArray(selection))
-          .slice(0, 3)
-      }))
-    };
-  });
 }
 
 function cacheWithinLimit(value) {
@@ -1590,6 +1568,23 @@ export async function sportsbookOperationalStatus() {
   const feed = await currentFeed();
   const controls = await listActiveSportsbookTradingControls();
   const controlledEvents = applySportsbookTradingControls((feed.events || []).map(publicEvent), controls);
+  const allMarkets = (feed.events || []).flatMap(event => Array.isArray(event.markets) ? event.markets : []);
+  const validOddsSelections = allMarkets.flatMap(market => Array.isArray(market.selections) ? market.selections : [])
+    .filter(selection => Number.isFinite(Number(selection?.odds)) && Number(selection.odds) > 1);
+  const marketDistribution = {};
+  let duplicateMarkets = 0;
+  for (const event of feed.events || []) {
+    const seen = new Set();
+    for (const market of Array.isArray(event.markets) ? event.markets : []) {
+      const distributionKey = `${clean(market.type || 'OTHER').toUpperCase()}:${clean(market.period || 'FT').toUpperCase()}`;
+      marketDistribution[distributionKey] = (marketDistribution[distributionKey] || 0) + 1;
+      const marketKey = clean(market.id || market.key);
+      if (marketKey && seen.has(marketKey)) duplicateMarkets += 1;
+      if (marketKey) seen.add(marketKey);
+    }
+  }
+  const eventIds = (feed.events || []).map(event => event.id).filter(Boolean);
+  const uniqueEventIds = new Set(eventIds);
   const activeMarkets = controlledEvents.flatMap(event => event.markets || []).filter(market =>
     !market.suspended && (market.selections || []).some(selection => !selection.suspended && Number(selection.odds) > 1)
   );
@@ -1607,6 +1602,21 @@ export async function sportsbookOperationalStatus() {
     primaryPricingProvider: feed.primaryPricingProvider || null,
     events: (feed.events || []).length,
     liveEvents: (feed.events || []).filter(event => event.live).length,
+    coverageDiagnostics: {
+      uniqueEvents: uniqueEventIds.size,
+      duplicateEvents: eventIds.length - uniqueEventIds.size,
+      competitions: new Set((feed.events || []).map(event => clean(event.league).toLowerCase()).filter(Boolean)).size,
+      markets: allMarkets.length,
+      duplicateMarkets,
+      unmappedMarkets: allMarkets.filter(market => clean(market.type).toUpperCase() === 'OTHER').length,
+      marketDistribution,
+      selections: allMarkets.reduce((total, market) => total + (Array.isArray(market.selections) ? market.selections.length : 0), 0),
+      validOddsSelections: validOddsSelections.length,
+      suspendedMarkets: allMarkets.filter(market => {
+        const selections = Array.isArray(market.selections) ? market.selections : [];
+        return market.suspended || (selections.length > 0 && selections.every(selection => selection.suspended));
+      }).length
+    },
     pricedMarkets: Number(feed.pricedMarkets || 0),
     upstreamBettableMarkets: Number(feed.bettableMarkets || 0),
     bettableMarkets: activeMarkets.length,

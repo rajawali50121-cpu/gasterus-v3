@@ -42,7 +42,19 @@ const MARKET_TYPES = Object.freeze({
   player_assists: 'PLAYER_PROP',
   first_goalscorer: 'PLAYER_PROP',
   corners: 'CORNERS',
+  corner_handicap: 'CORNERS',
+  total_corners: 'CORNERS',
+  team_corners: 'CORNERS',
   cards: 'CARDS',
+  total_cards: 'CARDS',
+  team_cards: 'CARDS',
+  first_goal: 'FIRST_TO_SCORE',
+  first_to_score: 'FIRST_TO_SCORE',
+  next_goal: 'NEXT_TO_SCORE',
+  winning_margin: 'WINNING_MARGIN',
+  win_margin: 'WINNING_MARGIN',
+  clean_sheet: 'CLEAN_SHEET',
+  team_total_goals: 'TEAM_TOTAL',
   bet_builder: 'BET_BUILDER',
   same_game_parlay: 'BET_BUILDER',
   same_game_multi: 'BET_BUILDER'
@@ -112,7 +124,8 @@ function marketType(name, key = '') {
 }
 function periodFromName(name, key = '') {
   const raw = `${clean(key)} ${clean(name)}`.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-  if (/(?:^|_)h1(?:_|$)|first_half|1st_half|firsthalf|half_time(?!_full)|halftime(?!_full)/.test(raw)) return '1H';
+  if (/half_time_full|halftime_full|ht_ft|halftimefull/.test(raw)) return 'FT';
+  if (/(?:^|_)(?:h1|1h|ht)(?:_|$)|first_half|1st_half|firsthalf|half_time(?!_full)|halftime(?!_full)/.test(raw)) return '1H';
   if (/(?:^|_)h2(?:_|$)|second_half|2nd_half|secondhalf/.test(raw)) return '2H';
   if (/(?:^|_)q1(?:_|$)|first_quarter|1st_quarter/.test(raw)) return 'Q1';
   if (/(?:^|_)q2(?:_|$)|second_quarter|2nd_quarter/.test(raw)) return 'Q2';
@@ -1042,22 +1055,6 @@ const DEFAULT_SPORTMONKS_PRIORITY_LEAGUES = [
 // is retained so the sportsbook UI shows full market variety (1X2, Handicap,
 // Totals, HT markets, BTTS, Correct Score, Odd/Even, Corners, Cards, etc.).
 // High-cardinality families (player props, bet builders…) are still excluded.
-const CORE_SPORTMONKS_MARKET_TYPES = new Set([
-  '1X2',
-  'HANDICAP',
-  'TOTALS',
-  'BTTS',
-  'DOUBLE_CHANCE',
-  'DRAW_NO_BET',
-  'HT_FT',
-  'CORRECT_SCORE',
-  'ODD_EVEN',
-  'CORNERS',
-  'CARDS',
-  'FIRST_TO_SCORE',
-  'CLEAN_SHEET',
-  'TEAM_TOTAL'
-]);
 function sportmonksState(raw) {
   const short = clean(raw?.short_name || raw?.name || raw?.state || '', 40).toUpperCase();
   if (SPORTMONKS_LIVE_STATES.has(short) || /HALF|LIVE/.test(short)) return 'LIVE';
@@ -1086,7 +1083,7 @@ function sportmonksLine(type, row) {
     const name = clean(row?.name, 20);
     return /^\d+(\.\d+)?$/.test(name) ? name : null;
   }
-  return total || null;
+  return total || handicap || null;
 }
 function sportmonksLabel(type, row) {
   // Correct Score rows carry the readable scoreline in `name` while `label`
@@ -1113,176 +1110,6 @@ function sportmonksPeriodScores(scores) {
   }
   return out;
 }
-
-
-
-// Generate standard odds markets as fallback when a provider returns no odds
-// for a fixture. Keeps the sportsbook UI populated and bettable.
-function generateStandardMarkets(event) {
-  const home = clean(event.home?.name || 'Home', 80);
-  const away = clean(event.away?.name || 'Away', 80);
-  const markets = [];
-
-  // 1X2
-  markets.push(normalizedMarket(event, {
-    key: '1x2', name: '1X2', type: '1X2', period: 'FT',
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, '1x2', 'Home', 2.10, { source: 'fallback-odds' }),
-      normalizedSelection(event, '1x2', 'Draw', 3.40, { source: 'fallback-odds' }),
-      normalizedSelection(event, '1x2', 'Away', 3.20, { source: 'fallback-odds' })
-    ]
-  }));
-
-  // Handicap (Asian Handicap -0.5 / +0.5)
-  markets.push(normalizedMarket(event, {
-    key: 'handicap', name: 'Asian Handicap', type: 'HANDICAP', period: 'FT', line: -0.5,
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'handicap', 'Home -0.5', 1.90, { line: -0.5, source: 'fallback-odds' }),
-      normalizedSelection(event, 'handicap', 'Away +0.5', 1.90, { line: 0.5, source: 'fallback-odds' })
-    ]
-  }));
-
-  // Totals (Over/Under 2.5)
-  markets.push(normalizedMarket(event, {
-    key: 'totals', name: 'Over / Under', type: 'TOTALS', period: 'FT', line: 2.5,
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'totals', 'Over 2.5', 1.85, { line: 2.5, source: 'fallback-odds' }),
-      normalizedSelection(event, 'totals', 'Under 2.5', 1.95, { line: 2.5, source: 'fallback-odds' })
-    ]
-  }));
-
-  // BTTS
-  markets.push(normalizedMarket(event, {
-    key: 'btts', name: 'Both Teams To Score', type: 'BTTS', period: 'FT',
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'btts', 'Yes', 1.75, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'btts', 'No', 2.05, { source: 'fallback-odds' })
-    ]
-  }));
-
-  // Correct Score
-  markets.push(normalizedMarket(event, {
-    key: 'correct_score', name: 'Correct Score', type: 'CORRECT_SCORE', period: 'FT',
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'correct_score', '1-0', 7.50, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'correct_score', '0-1', 8.00, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'correct_score', '1-1', 6.50, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'correct_score', '2-0', 10.00, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'correct_score', '0-2', 11.00, { source: 'fallback-odds' })
-    ]
-  }));
-
-  // Odd / Even
-  markets.push(normalizedMarket(event, {
-    key: 'odd_even', name: 'Odd / Even', type: 'ODD_EVEN', period: 'FT',
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'odd_even', 'Odd', 1.90, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'odd_even', 'Even', 1.90, { source: 'fallback-odds' })
-    ]
-  }));
-
-  // Corners
-  markets.push(normalizedMarket(event, {
-    key: 'corners', name: 'Corners', type: 'CORNERS', period: 'FT', line: 9.5,
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'corners', 'Over 9.5', 1.85, { line: 9.5, source: 'fallback-odds' }),
-      normalizedSelection(event, 'corners', 'Under 9.5', 1.95, { line: 9.5, source: 'fallback-odds' })
-    ]
-  }));
-
-  // Cards
-  markets.push(normalizedMarket(event, {
-    key: 'cards', name: 'Cards', type: 'CARDS', period: 'FT', line: 3.5,
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'cards', 'Over 3.5', 1.85, { line: 3.5, source: 'fallback-odds' }),
-      normalizedSelection(event, 'cards', 'Under 3.5', 1.95, { line: 3.5, source: 'fallback-odds' })
-    ]
-  }));
-
-  // Double Chance
-  markets.push(normalizedMarket(event, {
-    key: 'double_chance', name: 'Double Chance', type: 'DOUBLE_CHANCE', period: 'FT',
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'double_chance', '1X', 1.35, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'double_chance', 'X2', 1.55, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'double_chance', '12', 1.25, { source: 'fallback-odds' })
-    ]
-  }));
-
-  // Draw No Bet
-  markets.push(normalizedMarket(event, {
-    key: 'draw_no_bet', name: 'Draw No Bet', type: 'DRAW_NO_BET', period: 'FT',
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'draw_no_bet', 'Home', 1.75, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'draw_no_bet', 'Away', 2.05, { source: 'fallback-odds' })
-    ]
-  }));
-
-  // HT / FT
-  markets.push(normalizedMarket(event, {
-    key: 'ht_ft', name: 'Half Time / Full Time', type: 'HT_FT', period: 'FT',
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'ht_ft', 'Home / Home', 4.50, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'ht_ft', 'Home / Draw', 13.00, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'ht_ft', 'Home / Away', 21.00, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'ht_ft', 'Draw / Home', 5.50, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'ht_ft', 'Draw / Draw', 4.50, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'ht_ft', 'Draw / Away', 9.00, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'ht_ft', 'Away / Home', 17.00, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'ht_ft', 'Away / Draw', 11.00, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'ht_ft', 'Away / Away', 5.00, { source: 'fallback-odds' })
-    ]
-  }));
-
-  // First to Score
-  markets.push(normalizedMarket(event, {
-    key: 'first_to_score', name: 'First to Score', type: 'FIRST_TO_SCORE', period: 'FT',
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'first_to_score', home, 1.85, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'first_to_score', away, 1.95, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'first_to_score', 'No Goal', 15.00, { source: 'fallback-odds' })
-    ]
-  }));
-
-  // Clean Sheet
-  markets.push(normalizedMarket(event, {
-    key: 'clean_sheet', name: 'Clean Sheet', type: 'CLEAN_SHEET', period: 'FT',
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'clean_sheet', home + ' Yes', 1.80, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'clean_sheet', home + ' No', 2.00, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'clean_sheet', away + ' Yes', 1.85, { source: 'fallback-odds' }),
-      normalizedSelection(event, 'clean_sheet', away + ' No', 1.95, { source: 'fallback-odds' })
-    ]
-  }));
-
-  // Team Total
-  markets.push(normalizedMarket(event, {
-    key: 'team_total', name: 'Team Total', type: 'TEAM_TOTAL', period: 'FT', line: 1.5,
-    source: 'fallback-odds',
-    selections: [
-      normalizedSelection(event, 'team_total', home + ' Over 1.5', 1.40, { line: 1.5, source: 'fallback-odds' }),
-      normalizedSelection(event, 'team_total', home + ' Under 1.5', 2.75, { line: 1.5, source: 'fallback-odds' }),
-      normalizedSelection(event, 'team_total', away + ' Over 1.5', 1.45, { line: 1.5, source: 'fallback-odds' }),
-      normalizedSelection(event, 'team_total', away + ' Under 1.5', 2.65, { line: 1.5, source: 'fallback-odds' })
-    ]
-  }));
-
-  return markets.filter(Boolean);
-}
-
 function normalizeSportmonksFixture(raw, oddsRows = []) {
   const participants = Array.isArray(raw?.participants) ? raw.participants : [];
   const home = participants.find(participant => participant?.meta?.location === 'home') || participants[0];
@@ -1290,11 +1117,13 @@ function normalizeSportmonksFixture(raw, oddsRows = []) {
   if (!home?.name || !away?.name) return null;
   const byMarket = new Map();
   for (const row of Array.isArray(oddsRows) ? oddsRows : []) {
-    const marketId = String(row?.market_id ?? '');
-    if (!marketId) continue;
-    const list = byMarket.get(marketId) || [];
+    const marketId = clean(row?.market_id);
+    const marketName = clean(row?.market_description || row?.name);
+    const identity = marketId ? `id:${marketId}` : marketName ? `name:${slug(marketName)}` : '';
+    if (!identity) continue;
+    const list = byMarket.get(identity) || [];
     list.push(row);
-    byMarket.set(marketId, list);
+    byMarket.set(identity, list);
   }
   const current = (Array.isArray(raw?.scores) ? raw.scores : []).find(entry => clean(entry?.description).toUpperCase() === 'CURRENT')?.score || {};
   const event = normalizedEvent({
@@ -1316,43 +1145,29 @@ function normalizeSportmonksFixture(raw, oddsRows = []) {
     venue: raw?.venue?.name || null,
     periodScores: sportmonksPeriodScores(raw?.scores)
   });
-  // Only core football betting markets are retained — non-core families
-  // (player props, bet builders, cards, corners, correct score, odd/even…)
-  // are dropped by sportmonksMarket(); the per-event market cap keeps memory bounded.
-  event.markets = [...byMarket.values()].map(rows => sportmonksMarket(event, rows)).filter(Boolean).slice(0, 120);
+    event.markets = [...byMarket.values()].map(rows => sportmonksMarket(event, rows)).filter(Boolean);
   event.statistics = Array.isArray(raw?.statistics) ? raw.statistics : [];
   event.events = Array.isArray(raw?.events) ? raw.events : [];
-
-  // Fallback: jika Sportmonks tidak mengembalikan odds untuk fixture ini,
-  // generate pasaran odds standar agar sportsbook UI tidak kosong dan
-  // member tetap bisa memasang taruhan. Hanya dipakai sebagai fallback,
-  // tidak menimpa data odds yang sudah ada dari provider.
-  if (!event.markets || event.markets.length === 0) {
-    event.markets = generateStandardMarkets(event);
-    event._oddsFallback = true;
-    for (const market of event.markets) {
-      market.source = 'sportmonks';
-      for (const selection of market.selections || []) selection.source = 'sportmonks';
-    }
-  }
 
   return event;
 }
 function sportmonksMarket(event, rows) {
   const sample = rows[0] || {};
-  const description = clean(sample.market_description || sample.name || `Market ${sample.market_id ?? ''}`, 120);
+  const providerMarketId = clean(sample.market_id);
+  const description = clean(sample.market_description || sample.name || (providerMarketId ? `Market ${providerMarketId}` : ''), 120);
+  if (!description) return null;
   const type = sportmonksMarketType(description);
-  if (!CORE_SPORTMONKS_MARKET_TYPES.has(type)) return null;
   const period = periodFromName(description, `m${sample.market_id ?? ''}`);
+  const marketKey = providerMarketId ? `m${providerMarketId}` : `name:${slug(description)}`;
   const grouped = new Map();
   for (const row of rows) {
     const line = sportmonksLine(type, row);
     const label = sportmonksLabel(type, row);
-    const selection = normalizedSelection(event.id, `m${sample.market_id}:${line ?? ''}`, label, row?.value, {
+    const selection = normalizedSelection(event.id, `${marketKey}:${line ?? ''}`, label, row?.value, {
       line,
       source: 'sportmonks',
-      sourceSelectionId: String(row?.id ?? `${sample.market_id}:${label}`),
-      suspended: Boolean(row?.stopped),
+      sourceSelectionId: String(row?.id ?? `${providerMarketId || marketKey}:${label}`),
+      suspended: Boolean(row?.stopped || row?.suspended || row?.active === false || /suspend|closed|inactive/i.test(clean(row?.status))),
       updatedAt: row?.latest_bookmaker_update || null
     });
     if (!selection) continue;
@@ -1367,13 +1182,13 @@ function sportmonksMarket(event, rows) {
     return at && (!latest || at > latest) ? at : latest;
   }, null);
   return normalizedMarket(event.id, {
-    key: `m${sample.market_id}`,
+    key: marketKey,
     name: marketLabel(type, description, `m${sample.market_id}`),
     type,
     period,
     selections,
     source: 'sportmonks',
-    sourceMarketId: sample.market_id ? `m${sample.market_id}` : null,
+    sourceMarketId: providerMarketId ? `m${providerMarketId}` : null,
     suspended: selections.every(selection => selection.suspended),
     updatedAt
   });
@@ -1416,13 +1231,17 @@ async function fetchSportmonksPage(base, date, page) {
         maxBytes: SPORTMONKS_PAGE_MAX_BYTES
       });
       const data = payload?.data || [];
-      const hasMore = data.length > 0
-        && (payload?.pagination?.has_more === true || data.length >= SPORTMONKS_PAGE_SIZE);
+      const hasMore = data.length > 0 && (
+        typeof payload?.pagination?.has_more === 'boolean'
+          ? payload.pagination.has_more
+          : data.length >= SPORTMONKS_PAGE_SIZE
+      );
       return { data, hasMore };
     } catch (error) {
       attempt += 1;
       const status = Number(error?.status);
-      if (status !== 429 || attempt >= maxAttempts) throw error;
+      const retryable = status === 429 || status >= 500 || !Number.isFinite(status);
+      if (!retryable || attempt >= maxAttempts) throw error;
       let retryAfterMs = 0;
       const retryAfter = error?.retryAfter;
       if (retryAfter) {
@@ -1505,7 +1324,10 @@ export async function fetchSportmonks({
     duplicateFixtures: 0,
     stateFiltered: 0,
     pastKickoffFiltered: 0,
-    normalizedRejected: 0
+    normalizedRejected: 0,
+    normalizedEvents: 0,
+    candidateDiscarded: 0,
+    pageFailures: 0
   };
   // Scanning round-robin per tanggal. Skema lama membagi statis totalPages
   // (ceil(1.2 x maxEvents / 20) = 30 halaman) ke seluruh tanggal; dengan
@@ -1514,20 +1336,19 @@ export async function fetchSportmonks({
   // ingest pun terpotong di ~17 match karena fixture awal hari jarang punya
   // odds inti. Round-robin mengambil halaman pertama tiap tanggal lebih dulu
   // (survei), lalu menembak halaman berikutnya secara bergantian memakai
-  // SELURUH anggaran maxPages (maks 120 halaman = 2.400 kandidat), berhenti
-  // lebih awal hanya bila kandidat terkumpul penuh. Heap tetap aman: payload
-  // halaman diproses satu per satu dan kandidat disangga maksimal
-  // candidateLimit; event akhir tetap dibatasi maxEvents (≤500).
+  // SELURUH anggaran maxPages (maks 120 halaman = 2.400 kandidat). Semua
+  // halaman dalam anggaran discan; hanya kandidat terbaik yang disangga agar
+  // event awal di satu tanggal tidak menghentikan pagination sebelum tanggal
+  // dan liga lainnya terbaca.
   const cursors = dates.map(date => ({ date, page: 1, exhausted: false }));
   let pagesFetched = 0;
   while (
     pagesFetched < maxPages
-    && rankedEvents.length < candidateLimit
     && cursors.some(cursor => !cursor.exhausted)
   ) {
     for (const cursor of cursors) {
       if (cursor.exhausted) continue;
-      if (pagesFetched >= maxPages || rankedEvents.length >= candidateLimit) break;
+      if (pagesFetched >= maxPages) break;
       try {
         const { data, hasMore } = await fetchSportmonksPage(base, cursor.date, cursor.page);
         pagesFetched += 1;
@@ -1571,9 +1392,13 @@ export async function fetchSportmonks({
               leaguePriority: sportmonksLeaguePriority(event, configuredPriorityLeagues),
               startTime: start || Number.MAX_SAFE_INTEGER
             };
+            diagnostics.normalizedEvents += 1;
             rankedEvents.push(candidate);
             rankedEvents.sort(compareSportmonksEvents);
-            if (rankedEvents.length > candidateLimit) rankedEvents.pop();
+            if (rankedEvents.length > candidateLimit) {
+              rankedEvents.pop();
+              diagnostics.candidateDiscarded += 1;
+            }
           } catch (error) {
             errors.push(`Fixture ${fixture.id}: ${error.message}`);
           }
@@ -1581,6 +1406,7 @@ export async function fetchSportmonks({
       } catch (error) {
         // Kegagalan satu tanggal diisolasi: tanggal lain tetap discan.
         cursor.exhausted = true;
+        diagnostics.pageFailures += 1;
         errors.push(`Date ${cursor.date}: ${error.message}`);
       }
     }
@@ -1612,11 +1438,16 @@ export async function fetchSportmonks({
     stateFiltered: diagnostics.stateFiltered,
     pastKickoffFiltered: diagnostics.pastKickoffFiltered,
     normalizedRejected: diagnostics.normalizedRejected,
+    normalizedEvents: diagnostics.normalizedEvents,
+    candidateDiscarded: diagnostics.candidateDiscarded,
     rankedCandidates: rankedEvents.length,
     returnedEvents: events.length,
     pagesFetched,
     dates: dates.length,
     candidateLimit,
+    paginationComplete: diagnostics.pageFailures === 0 && cursors.every(cursor => cursor.exhausted),
+    pageBudgetExhausted: pagesFetched >= maxPages && cursors.some(cursor => !cursor.exhausted),
+    pageFailures: diagnostics.pageFailures,
     maxEvents,
     errors: errors.length,
     errorSample: errors.slice(0, 3)
@@ -2071,17 +1902,7 @@ export function mergeProviderEvents(providerResults, options = {}) {
       fixturesByTeams.set(fixtureKey, candidates);
     }
   }
-  // Safety net: pasti setiap event memiliki setidaknya satu pasaran odds.
-  // Event tanpa markets dari provider mana pun diisi dengan generateStandardMarkets
-  // sehingga jumlah event tidak pernah berkurang dan sportsbook UI tidak kosong.
-  const finalEvents = events.map(event => {
-    if (!event.markets || event.markets.length === 0) {
-      event.markets = generateStandardMarkets(event);
-      event._oddsFallback = true;
-    }
-    return applySettlementSafety(applyManualFtSettlementFallback(event, options));
-  });
-  return finalEvents;
+  return events.map(event => applySettlementSafety(applyManualFtSettlementFallback(event, options)));
 }
 export function publicEvent(event) {
   return {

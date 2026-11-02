@@ -98,15 +98,14 @@ export default defineRailway(() => {
   // Scraper odds berjalan sebagai service TERPISAH agar beban scrape tidak
   // pernah menyentuh memori service web (anti-OOM). Pengaman:
   //   - heap V8 dikunci 224MB lewat NODE_OPTIONS (container ~512MB)
-  //   - Sportmonks SUMBER UTAMA cakupan luas: anggaran halaman round-robin
-  //     per tanggal (maks 120 x 20 = 2.400 kandidat, berhenti awal begitu
-  //     1.2 x maxEvents kandidat terkumpul) -> snapshot maks 500 event; key
-  //     diwariskan dari web sehingga tidak perlu service/platform baru
+  //   - Sportmonks SUMBER UTAMA cakupan luas: seluruh halaman dalam anggaran
+  //     120 x 20 discan round-robin per tanggal; snapshot tetap maks 500 event
+  //     setelah ranking, dan key diwariskan dari web.
   //   - The Odds API CADANGAN 5 liga andalan; h2h x eu = 1 kredit/request;
   //     refresh 720 dtk (di bawah jendela harga prematch 900 dtk)
-  //   - provider dijalankan sekuensial (satu payload pada satu waktu), market
-  //     per-event dimatikan (tanpa fetch tambahan), cache provider berbatas
-  //     byte, snapshot berbatas 500 event / 6MB
+  //   - provider dijalankan sekuensial (satu payload pada satu waktu); seluruh
+  //     market/selection ber-odds valid dipertahankan, fixture utuh berperingkat
+  //     rendah dibuang hanya bila anggaran snapshot 6MB tidak mencukupi.
   const sportsbookRenderWorker = service("sportsbook-render-worker", {
     source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile.sportsbook-render-worker" },

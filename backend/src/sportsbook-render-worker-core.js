@@ -85,8 +85,6 @@ export function combineSportsbookProviderResults(providerResults, {
   };
 }
 
-const PAYLOAD_MARKET_TRIM_CAPS = [60, 30, 15, 8, 4, 2, 1];
-
 function snapshotBytes(snapshot) {
   return Buffer.byteLength(JSON.stringify(snapshot), 'utf8');
 }
@@ -139,15 +137,8 @@ function countSnapshotFixtures(events) {
   return snapshotFixtureGroups(events.map(event => ({ event }))).length;
 }
 
-function capEventMarkets(event, cap) {
-  return (event.markets || []).length > cap ? { ...event, markets: event.markets.slice(0, cap) } : event;
-}
-
-// Endpoint ingest menolak payload di atas anggaran byte; snapshot yang gagal
-// dipublikasikan membuat feed member nyangkut di snapshot lama yang kecil.
-// Trim deterministik: pasar per event diturunkan dulu (event berperingkat
-// terbaik dipertahankan utuh), baru event terendah di ujung daftar dibuang —
-// sehingga selalu ada snapshot terbesar yang MUAT dan terkirim.
+// Endpoint ingest menolak payload di atas anggaran byte; mempertahankan tiap
+// event utuh lebih penting daripada mengirim hanya sebagian pasarnya.
 export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
   if (!Number.isFinite(maxBytes) || maxBytes <= 0) return snapshot;
   if (snapshotBytes(snapshot) <= maxBytes) return snapshot;
@@ -156,27 +147,15 @@ export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
   );
   if (!entries.length) return snapshot;
 
-  // Tahap 1: semua event bertahan; batasi jumlah pasar tiap event.
-  for (const cap of PAYLOAD_MARKET_TRIM_CAPS) {
-    const capped = rebuildSnapshot(snapshot, entries.map(entry => ({
-      ...entry,
-      event: capEventMarkets(entry.event, cap)
-    })));
-    if (snapshotBytes(capped) <= maxBytes) return capped;
-  }
-
-  // Tahap 2: bahkan satu event penuh tidak muat — buang event berperingkat
-  // terendah (akhir daftar) dengan pencarian biner.
+  // Buang fixture berperingkat terendah hanya dalam kelompok utuh; jangan
+  // memangkas market atau selection sehingga data odds parsial tampak lengkap.
   const fixtureGroups = snapshotFixtureGroups(entries);
   let low = 1;
   let high = fixtureGroups.length;
   let best = null;
   while (low <= high) {
     const keep = Math.floor((low + high) / 2);
-    const candidateEntries = fixtureGroups.slice(0, keep).flat().map(entry => ({
-      ...entry,
-      event: capEventMarkets(entry.event, 1)
-    }));
+    const candidateEntries = fixtureGroups.slice(0, keep).flat();
     const candidate = rebuildSnapshot(snapshot, candidateEntries);
     if (snapshotBytes(candidate) <= maxBytes) {
       best = candidate;
@@ -185,13 +164,10 @@ export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
       high = keep - 1;
     }
   }
-  // best === null hanya bila SATU event dengan SATU pasar pun melebihi budget;
-  // kembalikan versi minimal agar kegagalan (bila tetap terjadi) tetap terlihat
-  // jelas di log worker, bukan diam-diam.
-  return best || rebuildSnapshot(snapshot, fixtureGroups[0].map(entry => ({
-    ...entry,
-    event: capEventMarkets(entry.event, 1)
-  })));
+  if (!best) {
+    throw new Error('A single complete sportsbook event exceeds the ingest payload budget.');
+  }
+  return best;
 }
 
 export async function buildSportsbookRenderSnapshot({
@@ -205,9 +181,8 @@ export async function buildSportsbookRenderSnapshot({
   now
 }) {
   // Sportmonks adalah sumber utama cakupan luas: anggaran halaman dihabiskan
-  // round-robin per tanggal (maks 120 halaman x 20 = 2.400 kandidat), berhenti
-  // lebih awal begitu candidateLimit tercapai, lalu dibatasi maxEvents. The
-  // Odds API dipertahankan sebagai CADANGAN sehingga feed tidak pernah kosong
+  // round-robin per tanggal (maks 120 halaman x 20 = 2.400 kandidat), lalu
+  // dibatasi maxEvents. The Odds API dipertahankan sebagai CADANGAN sehingga feed tidak pernah kosong
   // bila salah satu provider gagal (dan sebaliknya). Fetcher dijalankan
   // SEKUENSIAL dan tiap kegagalan diisolasi: hanya satu payload provider yang
   // hidup pada satu waktu, sehingga heap worker 224MB tetap dapat diprediksi
