@@ -160,6 +160,8 @@ const TOP_LEAGUE_PATTERNS = [
 ];
 const MAX_FEED_EVENTS = config.sportsFeedMaxEvents;
 const MAX_CACHE_BYTES = config.sportsFeedMaxCacheBytes;
+const MAX_MARKETS_PER_EVENT = 24;
+const CORE_MARKET_KEYS = ['1X2:FT', '1X2:1H', 'HANDICAP:FT', 'HANDICAP:1H', 'TOTALS:FT', 'TOTALS:1H'];
 let lastCacheLimitWarningAt = 0;
 const WIB_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Jakarta',
@@ -224,6 +226,27 @@ function boundedEvents(events = []) {
   diagnostics.capped = sorted.length - sliced.length;
   logger.info('boundedEvents diagnostics', diagnostics);
   return sliced.map(({ event }) => event);
+}
+
+function capMarketsPerEvent(events = []) {
+  return (Array.isArray(events) ? events : []).map(event => {
+    const markets = Array.isArray(event?.markets) ? event.markets : [];
+    if (markets.length <= MAX_MARKETS_PER_EVENT) return event;
+
+    const retained = new Set();
+    for (const key of CORE_MARKET_KEYS) {
+      const index = markets.findIndex(market => `${market.type}:${market.period}` === key);
+      if (index >= 0) retained.add(index);
+    }
+    for (let index = 0; index < markets.length && retained.size < MAX_MARKETS_PER_EVENT; index += 1) {
+      retained.add(index);
+    }
+
+    return {
+      ...event,
+      markets: [...retained].sort((left, right) => left - right).map(index => markets[index])
+    };
+  });
 }
 
 function cacheWithinLimit(value) {
@@ -1718,4 +1741,4 @@ export async function sportsbookSelectionSnapshot({ eventId, marketId, selection
   };
 }
 
-export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail, enabledProviders };
+export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail, enabledProviders, capMarketsPerEvent };
