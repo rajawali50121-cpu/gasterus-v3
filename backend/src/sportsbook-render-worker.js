@@ -1,10 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { sportsbookWorkerStorageAvailable } from './sportsbook-render-worker-runtime.js';
 
 function configureProviderOnlyRuntime() {
   process.env.NODE_ENV ||= 'production';
-  process.env.DATABASE_URL = 'postgres://unused.invalid/unused';
-  process.env.REDIS_URL = 'redis://127.0.0.1:1';
+  process.env.SPORTSBOOK_RENDER_WORKER = 'true';
   for (const name of [
     'MEMBER_PROXY_SECRET',
     'ADMIN_PROXY_SECRET',
@@ -21,15 +21,35 @@ configureProviderOnlyRuntime();
 
 const [
   { config },
-  { fetchTheOddsApi, fetchSportmonks, fetchSharpApi, teamKey },
+  { fetchApiSports, fetchSportmonks, fetchSharpApi, teamKey },
+  { fetchOddsPapi },
+  { createPostgresOddsPapiStore, createRedisOddsPapiCacheStore },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
   import('./sportsbook-providers.js'),
+  import('./sportsbook-oddspapi.js'),
+  import('./sportsbook-oddspapi-store.js'),
   import('./sportsbook-ingest-client.js'),
   import('./sportsbook-render-worker-core.js')
 ]);
+
+const apiSportsQuotaStore = sportsbookWorkerStorageAvailable()
+  ? createPostgresOddsPapiStore({
+    providerCode: 'api-sports',
+    maxDailyLimit: 100,
+    maxMonthlyLimit: 3100,
+    cacheStore: createRedisOddsPapiCacheStore({ prefix: 'sportsbook:api-sports:v1' })
+  })
+  : null;
+if (!apiSportsQuotaStore) {
+  console.warn(JSON.stringify({
+    service: 'sportsbook-render-worker',
+    event: 'provider-quota-storage-unavailable',
+    providers: ['api-sports', 'oddspapi']
+  }));
+}
 
 const endpoint = String(process.env.SPORTSBOOK_INGEST_URL || '').trim();
 if (!endpoint) throw new Error('SPORTSBOOK_INGEST_URL is required.');
@@ -49,9 +69,10 @@ while (!shutdown.signal.aborted) {
   let nextDelayMs = intervalMs;
   try {
     const snapshot = await buildSportsbookRenderSnapshot({
-      fetchOddsApi: fetchTheOddsApi,
+      fetchApiSports: () => fetchApiSports({ quotaStore: apiSportsQuotaStore }),
       fetchSportmonks,
       fetchSharpApi,
+      fetchOddsPapi,
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
       maxPayloadBytes: config.sportsbookIngestMaxPayloadBytes,

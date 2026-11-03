@@ -12,11 +12,13 @@ if (existsSync(localEnvFile)) {
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
-const apiSportsKey = optionalSecret('API_SPORTS_KEY');
+const isSportsbookRenderWorker = process.env.SPORTSBOOK_RENDER_WORKER === 'true';
+const apiSportsKey = optionalSecret('API_SPORTS_KEY') || optionalSecret('API_FOOTBALL_KEY');
 const theOddsApiKey = optionalSecret('THE_ODDS_API_KEY');
 const sharpApiKey = optionalSecret('SHARP_API_KEY');
 const theSportsDbKey = optionalSecret('THESPORTSDB_API_KEY');
 const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
+const oddsPapiKey = optionalSecret('ODDSPAPI_API_KEY');
 const rapidApiKey = optionalSecret('RAPIDAPI_CASINO_KEY') || optionalSecret('RAPIDAPI_KEY');
 const betnexApiKey = optionalSecret('BETNEX_API_KEY');
 const betnexCallbackKey = optionalSecret('BETNEX_CALLBACK_KEY') || betnexApiKey;
@@ -30,10 +32,10 @@ export const config = Object.freeze({
   nodeEnv: process.env.NODE_ENV || 'development',
   host: process.env.HOST || '0.0.0.0',
   port: int('PORT', 8080, 1, 65535),
-  databaseUrl: requiredSecret('DATABASE_URL', 12),
+  databaseUrl: isSportsbookRenderWorker ? optionalSecret('DATABASE_URL') : requiredSecret('DATABASE_URL', 12),
   databaseSsl: bool('DATABASE_SSL', false),
   pgPoolMax: int('PG_POOL_MAX', 15, 2, 100),
-  redisUrl: requiredSecret('REDIS_URL', 12),
+  redisUrl: isSportsbookRenderWorker ? optionalSecret('REDIS_URL') : requiredSecret('REDIS_URL', 12),
   memberProxySecret: requiredSecret('MEMBER_PROXY_SECRET', 32),
   adminProxySecret: requiredSecret('ADMIN_PROXY_SECRET', 32),
   opsInternalSecret: requiredSecret('OPS_INTERNAL_SECRET', 32),
@@ -132,13 +134,10 @@ export const config = Object.freeze({
   apiSportsOddsPages: int('API_SPORTS_ODDS_PAGES', 2, 1, 20),
   apiSportsLiveRefreshSeconds: int('API_SPORTS_LIVE_REFRESH_SECONDS', 30, 15, 300),
   apiSportsPrematchRefreshSeconds: int('API_SPORTS_PREMATCH_REFRESH_SECONDS', 300, 60, 1800),
-  // API-Sports free plan = 100 request/hari (divalidasi via GET /status:
-  // {"plan":"Free","requests":{"limit_day":100}}). Guard kuota di
-  // sportsbook-providers.js memecah angka ini menjadi jeda minimum per endpoint
-  // (live 75%, prematch 25%) sehingga loop refresh 30 detik tidak pernah
-  // meledakkan kuota. Naikkan ke 7500 bila upgrade Pro ($19/bln): floor otomatis
-  // jatuh di bawah TTL konfigurasi dan guard menjadi transparan.
-  apiSportsDailyQuota: int('API_SPORTS_DAILY_QUOTA', 100, 10, 200000),
+  // The installed API-Football account was verified on the Free plan: 100/day.
+  // Never allow configuration to silently raise this budget into a paid tier.
+  apiSportsDailyQuota: int('API_SPORTS_DAILY_QUOTA', 100, 1, 100),
+  apiSportsMonthlyQuota: int('API_SPORTS_MONTHLY_QUOTA', 3100, 1, 3100),
   sharpApiKey,
   sharpApiBaseUrl: text('SHARP_API_BASE_URL', 'https://api.sharpapi.io'),
   sharpApiEnabled: pricedProviderEnabled('SHARP_API_ENABLED', sharpApiKey),
@@ -178,6 +177,15 @@ export const config = Object.freeze({
   sportmonksEnabled: bool('SPORTMONKS_ENABLED', isProduction && Boolean(sportmonksKey)),
   sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 30, 0, 30),
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
+  oddsPapiEnabled: bool('ODDSPAPI_ENABLED', false),
+  oddsPapiKey,
+  oddsPapiBaseUrl: text('ODDSPAPI_BASE_URL', 'https://api.oddspapi.io'),
+  oddsPapiTournamentIds: text('ODDSPAPI_TOURNAMENT_IDS', '17'),
+  oddsPapiBookmaker: text('ODDSPAPI_BOOKMAKER', 'pinnacle'),
+  oddsPapiRefreshSeconds: int('ODDSPAPI_REFRESH_SECONDS', 28800, 3600, 86400),
+  oddsPapiCatalogRefreshSeconds: int('ODDSPAPI_CATALOG_REFRESH_SECONDS', 604800, 3600, 2592000),
+  oddsPapiDailyRequestBudget: int('ODDSPAPI_DAILY_REQUEST_BUDGET', 8, 1, 8),
+  oddsPapiMonthlyRequestBudget: int('ODDSPAPI_MONTHLY_REQUEST_BUDGET', 240, 1, 240),
   sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 180, 30, 1800),
   sportmonksLiveRefreshSeconds: int('SPORTMONKS_LIVE_REFRESH_SECONDS', 30, 15, 300),
   sportmonksPriorityLeagues: text('SPORTMONKS_PRIORITY_LEAGUES', 'Premier League,La Liga,Serie A,Bundesliga,Ligue 1,UEFA Champions League,UEFA Europa League,UEFA Europa Conference League,Eredivisie,Primeira Liga,Major League Soccer'),

@@ -206,11 +206,24 @@ test('Worker republishes cached snapshots before their ingestion freshness windo
     fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
   );
   assert.match(workerSource, /sportsbookRenderIntervalSeconds\(config\)/);
-  assert.match(workerSource, /fetchOddsApi:\s*fetchTheOddsApi/);
-  // Sportmonks primer + The Odds API cadangan keduanya disambungkan ke worker;
-  // hanya adapter api-sports yang memang tidak dipakai.
+  assert.doesNotMatch(workerSource, /fetchOddsApi|fetchTheOddsApi/);
+  // Only explicitly selected provider adapters are connected to the worker.
   assert.match(workerSource, /fetchSportmonks/);
-  assert.doesNotMatch(workerSource, /fetchApiSports/);
+  assert.match(workerSource, /fetchSharpApi/);
+  assert.match(workerSource, /fetchApiSports/);
+});
+
+test('API-Sports quota storage failure does not block the providers already serving the feed', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchApiSports: async () => { throw new Error('quota storage unavailable'); },
+    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'existing' })] }),
+    maxEvents: 500,
+    teamKey,
+    now: NOW
+  });
+
+  assert.equal(snapshot.eventCount, 1);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks']);
 });
 
 test('Worker cadence follows the fastest enabled provider without exceeding ingest freshness', () => {
@@ -270,6 +283,21 @@ test('Worker combines Sportmonks primary with The Odds API fallback in one snaps
   assert.equal(snapshot.eventCount, 2);
   assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'the-odds-api']);
   assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
+});
+
+test('OddsPapi failure leaves Sportmonks and SharpAPI results available', async () => {
+  const primary = event('sportmonks', { id: 'primary-odds-papi-fallback' });
+  const sharp = event('sharpapi', { id: 'sharp-odds-papi-fallback' });
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [primary] }),
+    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: [sharp] }),
+    fetchOddsPapi: async () => { throw new Error('OddsPapi HTTP 503'); },
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 2);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'sharpapi']);
 });
 
 test('Worker bounds the Sportmonks page budget before any provider fetch runs', async () => {
@@ -493,6 +521,24 @@ test('Worker dedupes overlapping fixtures preferring Sportmonks as primary', asy
   assert.equal(merged._refs['the-odds-api'], 'provider-dup-odds');
   assert.deepEqual(new Set(merged.markets.map(market => market.source)), new Set(['sportmonks', 'the-odds-api']));
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
+});
+
+test('Worker keeps same-team fixtures in different leagues separate', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportmonks: async () => ({
+      provider: 'sportmonks',
+      enabled: true,
+      events: [
+        event('sportmonks', { id: 'league-fixture-1', league: 'Premier League', home: 'Alpha', away: 'Beta' }),
+        event('sportmonks', { id: 'league-fixture-2', league: 'Champions League', home: 'Alpha', away: 'Beta' })
+      ]
+    }),
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 2);
+  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 2);
 });
 
 test('Worker fails closed when every provider fetch throws', async () => {

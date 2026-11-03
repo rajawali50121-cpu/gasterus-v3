@@ -78,6 +78,9 @@ test('E2E enforces expanded event volume and core market coverage without requir
   assert.match(e2e,/const minimumEvents = 300/);
   assert.match(e2e,/const minimumPricedEvents = 25/);
   assert.match(e2e,/const requiredCoreMarketTypes = \['1X2', 'HANDICAP', 'TOTALS'\]/);
+  assert.match(e2e,/const requiredCoreMarkets = \[[\s\S]*HT_1X2[\s\S]*HT_HANDICAP[\s\S]*HT_TOTALS/);
+  assert.match(e2e,/function coreMarketState\(markets, type, period\)/);
+  assert.match(e2e,/coreMarketCoverageSummary/);
   assert.match(e2e,/const marketPeriodCoverage/);
   assert.doesNotMatch(e2e,/minimumDerivedMarkets|hasDerivedTypes/);
 });

@@ -267,6 +267,66 @@ test('Sportmonks live window refreshes provider in-play odds without retaining s
     }
 });
 
+test('Sportmonks live odds without a provider timestamp remain fail-closed', async () => {
+  const originalFetch = globalThis.fetch;
+  const liveCache = __sportsbookProviders.sportmonksLiveCache;
+  const liveRetryState = __sportsbookProviders.sportmonksLiveRetryState;
+  const catalogCache = __sportsbookProviders.sportmonksCache;
+  const catalogRetryState = __sportsbookProviders.sportmonksRetryState;
+  const catalogKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:2:2`;
+  liveCache.clear();
+  liveRetryState.clear();
+  const fixture = {
+    id: 'live-without-source-timestamp',
+    state: { short_name: '2H', name: 'Second Half' },
+    starting_at_timestamp: Math.floor((Date.now() - 60 * 60 * 1000) / 1000),
+    league: { name: 'Regional League', country: { name: 'England' } },
+    participants: [
+      { name: 'Timestamp Home', meta: { location: 'home' } },
+      { name: 'Timestamp Away', meta: { location: 'away' } }
+    ]
+  };
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    const data = url.pathname.endsWith('/livescores')
+      ? [{
+          ...fixture,
+          inplayOdds: [{
+            id: 901,
+            market_id: 1,
+            market_description: 'Full Time Result',
+            label: 'Home',
+            value: 2.25
+          }]
+        }]
+      : [{
+          ...fixture,
+          state: { short_name: 'NS', name: 'Not Started' },
+          odds: []
+        }];
+    return new Response(JSON.stringify({
+      data,
+      pagination: { has_more: false }
+    }), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const result = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
+    const event = result.events.find(item => item.home.name === 'Timestamp Home');
+    assert.ok(event);
+    assert.equal(event.markets[0].updatedAt, null);
+    assert.equal(event.markets[0].selections[0].updatedAt, null);
+    const [guarded] = __sportsbookProviders.suspendStaleLiveMarkets([event], Date.now());
+    assert.equal(guarded.markets[0].suspended, true);
+    assert.equal(guarded.markets[0].selections[0].suspended, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    liveCache.clear();
+    liveRetryState.clear();
+    catalogCache.delete(catalogKey);
+    catalogRetryState.delete(catalogKey);
+  }
+});
+
 test('Sportmonks live odds fail closed during provider outage and recover after backoff', async () => {
     const originalFetch = globalThis.fetch;
     const catalogCache = __sportsbookProviders.sportmonksCache;

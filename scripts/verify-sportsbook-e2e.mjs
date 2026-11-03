@@ -11,6 +11,14 @@ const minimumEvents = 300;
 const minimumPricedEvents = 25;
 const minimumInspectedEvents = 10;
 const requiredCoreMarketTypes = ['1X2', 'HANDICAP', 'TOTALS'];
+const requiredCoreMarkets = [
+  { key: 'FT_1X2', type: '1X2', period: 'FT' },
+  { key: 'FT_HANDICAP', type: 'HANDICAP', period: 'FT' },
+  { key: 'FT_TOTALS', type: 'TOTALS', period: 'FT' },
+  { key: 'HT_1X2', type: '1X2', period: '1H' },
+  { key: 'HT_HANDICAP', type: 'HANDICAP', period: '1H' },
+  { key: 'HT_TOTALS', type: 'TOTALS', period: '1H' }
+];
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -77,6 +85,20 @@ function displayLeague(event) {
   return `${country} - ${league}`.toUpperCase();
 }
 
+function coreMarketState(markets, type, period) {
+  const matching = markets.filter(market =>
+    String(market.type || '').toUpperCase() === type &&
+    String(market.period || 'FT').toUpperCase() === period
+  );
+  if (!matching.length) return 'UNAVAILABLE';
+  if (matching.some(market => !market.suspended && (market.selections || []).some(selection =>
+    !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
+  ))) return 'AVAILABLE';
+  if (matching.every(market => market.suspended || (market.selections || []).length > 0 &&
+    (market.selections || []).every(selection => selection.suspended))) return 'SUSPENDED';
+  return 'UNAVAILABLE';
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -126,7 +148,10 @@ async function main() {
       marketCount: markets.length,
       marketTypes,
       periods: [...new Set(markets.map(market => market.period || 'FT'))],
-      marketPeriods: [...new Set(markets.map(market => `${market.type}:${market.period || 'FT'}`))]
+      marketPeriods: [...new Set(markets.map(market => `${market.type}:${market.period || 'FT'}`))],
+      coreMarketCoverage: Object.fromEntries(requiredCoreMarkets.map(({ key, type, period }) =>
+        [key, coreMarketState(markets, type, period)]
+      ))
     });
   }
 
@@ -143,6 +168,14 @@ async function main() {
     .filter(key => !marketPeriodCoverage[key]);
   assert(missingCoreMarkets.length === 0,
     `Core market mapping missing from inspected events: ${missingCoreMarkets.join(', ')}`);
+  const coreMarketCoverageSummary = Object.fromEntries(requiredCoreMarkets.map(({ key }) => [
+    key,
+    {
+      available: inspected.filter(event => event.coreMarketCoverage[key] === 'AVAILABLE').length,
+      suspended: inspected.filter(event => event.coreMarketCoverage[key] === 'SUSPENDED').length,
+      unavailable: inspected.filter(event => event.coreMarketCoverage[key] === 'UNAVAILABLE').length
+    }
+  ]));
   const periodCoverage = [...new Set(inspected.flatMap(event => event.periods))].sort();
   console.log(JSON.stringify({
     status: 'PASS',
@@ -151,6 +184,7 @@ async function main() {
     inspectedEventCount: inspected.length,
     marketCoverage,
     marketPeriodCoverage,
+    coreMarketCoverageSummary,
     periodCoverage,
     sourceMode: snapshot.source?.mode || null,
     leagueLabel: labelSample,
@@ -162,7 +196,8 @@ async function main() {
       marketCount: event.marketCount,
       marketTypes: event.marketTypes,
       periods: event.periods,
-      marketPeriods: event.marketPeriods
+      marketPeriods: event.marketPeriods,
+      coreMarketCoverage: event.coreMarketCoverage
     }))
   }, null, 2));
 }

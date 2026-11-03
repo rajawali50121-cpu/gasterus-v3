@@ -89,6 +89,29 @@ test('accepts a fresh HMAC-signed snapshot and stores only its verified JSON', a
   assert.equal(storedBytes, signed.body.toString());
 });
 
+test('accepts OddsPapi as an additional provider without changing event source ownership', async () => {
+  const payload = snapshot();
+  const result = payload.providerResults[0];
+  result.provider = 'oddspapi';
+  const event = result.events[0];
+  event._refs = { oddspapi: 'oddspapi-fixture-1' };
+  event._sources = ['oddspapi'];
+  for (const market of event.markets) {
+    market.source = 'oddspapi';
+    for (const selection of market.selections) selection.source = 'oddspapi';
+  }
+  const signed = signedRequest(payload);
+  const accepted = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => {}
+    }
+  );
+  assert.deepEqual(accepted.providerResults, ['oddspapi']);
+});
+
 test('accepts active display-only events that carry no priced markets yet', async () => {
   const payload = snapshot();
   payload.providerResults[0].events.push({
@@ -119,6 +142,27 @@ test('accepts active display-only events that carry no priced markets yet', asyn
   assert.equal(result.eventCount, 2, 'event aktif tanpa pasar tetap diterima sebagai katalog display-only');
   assert.equal(stored.providerResults[0].events.length, 2);
   assert.deepEqual(stored.providerResults[0].events[1].markets, []);
+});
+
+test('counts same-team fixtures in different leagues separately', async () => {
+  const payload = snapshot();
+  const second = structuredClone(payload.providerResults[0].events[0]);
+  second.id = 'event-different-league';
+  second.league = 'Serie A';
+  second.country = 'Italy';
+  second._refs.sportmonks = 'provider-event-different-league';
+  payload.providerResults[0].events.push(second);
+
+  const signed = signedRequest(payload);
+  const accepted = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => {}
+    }
+  );
+  assert.equal(accepted.eventCount, 2);
 });
 
 test('rejects an invalid signature without storing the snapshot', async () => {

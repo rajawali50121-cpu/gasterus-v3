@@ -77,7 +77,7 @@ function slug(value) {
 function teamKey(value) {
   return slug(value).replace(/\b(fc|cf|sc|afc|club|the)\b/g, '').replace(/-+/g, '-').replace(/^-|-$/g, '');
 }
-function leagueKey(value) {
+export function leagueKey(value) {
   const key = slug(value);
   const aliases = {
     epl: 'premier-league',
@@ -311,14 +311,14 @@ export function apiSportsQuotaFloorSeconds(bucket) {
   return Math.ceil(86400 * apiSportsEndpointCount(bucket) / share);
 }
 
-function cachedApiSports(path, params, ttlSeconds, bucket = 'prematch') {
+function cachedApiSports(path, params, ttlSeconds, bucket = 'prematch', quotaStore = null) {
   const entries = Object.entries(params || {}).sort(([a], [b]) => a.localeCompare(b));
   const key = `api-sports:${path}:${JSON.stringify(entries)}`;
   const floorSeconds = apiSportsQuotaFloorSeconds(bucket);
   const ttl = Math.max(ttlSeconds, floorSeconds);
   return cachedRequest(key, ttl * 1000, async () => {
     try {
-      return await apiSports(path, params);
+      return await apiSports(path, params, quotaStore);
     } catch (error) {
       if (!String(error?.message || '').includes('HTTP 429')) throw error;
       const cached = providerRequestCache.get(key);
@@ -1365,17 +1365,6 @@ function suspendSportmonksLiveMarkets(events) {
   });
 }
 
-function stampSportmonksMarkets(events, fallbackTimestamp) {
-  const updatedAt = new Date(fallbackTimestamp).toISOString();
-  for (const event of events) {
-    for (const market of event.markets || []) {
-      market.updatedAt ||= updatedAt;
-      for (const selection of market.selections || []) selection.updatedAt ||= market.updatedAt;
-    }
-  }
-  return events;
-}
-
 function mergeSportmonksLiveWindow(events, liveEvents, maxEvents, priorityLeagues) {
   const identity = event => String(event?._refs?.sportmonks || event?.id || '');
   const updates = new Map(liveEvents.map(event => [identity(event), event]));
@@ -1411,12 +1400,11 @@ function mergeSportmonksLiveWindow(events, liveEvents, maxEvents, priorityLeague
     .map(candidate => candidate.event);
 }
 
-async function applySportmonksLiveWindow(events, base, maxEvents, priorityLeagues, fallbackTimestamp) {
+async function applySportmonksLiveWindow(events, base, maxEvents, priorityLeagues) {
   const liveWindow = await fetchSportmonksLiveWindow(base);
   const updatedEvents = liveWindow.failed
     ? suspendSportmonksLiveMarkets(events)
     : mergeSportmonksLiveWindow(events, liveWindow.events, maxEvents, priorityLeagues);
-  stampSportmonksMarkets(updatedEvents, liveWindow.fetchedAt || fallbackTimestamp);
   return { events: updatedEvents, liveWindow };
 }
 
@@ -1470,8 +1458,7 @@ export async function fetchSportmonks({
       cached.events,
       base,
       maxEvents,
-      configuredPriorityLeagues,
-      now
+      configuredPriorityLeagues
     );
     logger.info('Sportmonks: returning cached fixture catalog', {
       age: Math.round((now - cached.fetchedAt) / 1000) + 's',
@@ -1486,8 +1473,7 @@ export async function fetchSportmonks({
       cached?.events || [],
       base,
       maxEvents,
-      configuredPriorityLeagues,
-      now
+      configuredPriorityLeagues
     );
     return {
       provider: 'sportmonks',
@@ -1630,8 +1616,7 @@ export async function fetchSportmonks({
       cached?.events || fixtureEvents,
       base,
       maxEvents,
-      configuredPriorityLeagues,
-      now
+      configuredPriorityLeagues
     );
     return {
       provider: 'sportmonks',
@@ -1662,8 +1647,7 @@ export async function fetchSportmonks({
     fixtureEvents,
     base,
     maxEvents,
-    configuredPriorityLeagues,
-    now
+    configuredPriorityLeagues
   );
   
   logger.info('Sportmonks fetch completed', {
@@ -1802,7 +1786,29 @@ function normalizeApiSportsFixture(raw, bets = []) {
   event.markets = [...candidates.values()].map(item => item.market);
   return event;
 }
-async function apiSports(path, params = {}) {
+async function apiSports(path, params = {}, quotaStore = null) {
+  if (quotaStore) {
+    let reservation;
+    try {
+      reservation = await quotaStore.reserveRequest({
+        now: Date.now(),
+        dailyLimit: config.apiSportsDailyQuota,
+        monthlyLimit: config.apiSportsMonthlyQuota,
+        cooldownMs: 1000,
+        reservationId: crypto.randomUUID()
+      });
+    } catch {
+      throw new Error('API-Sports quota storage is unavailable; outbound request blocked.');
+    }
+    if (reservation.status !== 'reserved') {
+      throw new Error(`API-Sports quota ${reservation.status}; outbound request blocked.`);
+    }
+    if (reservation.waitMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, reservation.waitMs));
+    }
+  } else if (config.nodeEnv === 'production') {
+    throw new Error('API-Sports quota storage is unavailable; outbound request blocked.');
+  }
   const url = new URL(`${config.apiSportsBaseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`);
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value)); });
   return requestJson(url, { headers: { 'x-apisports-key': config.apiSportsKey }, label: 'API-Sports' });
@@ -1815,16 +1821,25 @@ function apiSportsPayloadErrors(payload, endpoint) {
     : Object.keys(errors).filter(key => errors[key] !== null && errors[key] !== undefined && errors[key] !== '' && errors[key] !== false);
   return fields.map(field => `API-Sports ${endpoint} response reported ${clean(field, 40)} error.`);
 }
-export async function fetchApiSports() {
+export async function fetchApiSports({ quotaStore = null } = {}) {
   if (!config.apiSportsEnabled || !config.apiSportsKey) return { provider: 'api-sports', enabled: false, events: [] };
+  if (config.nodeEnv === 'production' && !quotaStore) {
+    return {
+      provider: 'api-sports',
+      enabled: true,
+      transportOk: false,
+      events: [],
+      errors: ['API-Sports quota storage is unavailable; requests were blocked.']
+    };
+  }
   const requestNames = ['fixtures (live)', 'fixtures (prematch)', 'odds/live'];
   const requests = [
-    cachedApiSports('fixtures', { live: 'all' }, config.apiSportsLiveRefreshSeconds, 'live'),
-    cachedApiSports('fixtures', { from: utcDate(0), to: utcDate(config.apiSportsDaysAhead) }, config.apiSportsPrematchRefreshSeconds, 'prematch'),
-    cachedApiSports('odds/live', {}, config.apiSportsLiveRefreshSeconds, 'live')
+    cachedApiSports('fixtures', { live: 'all' }, config.apiSportsLiveRefreshSeconds, 'live', quotaStore),
+    cachedApiSports('fixtures', { from: utcDate(0), to: utcDate(config.apiSportsDaysAhead) }, config.apiSportsPrematchRefreshSeconds, 'prematch', quotaStore),
+    cachedApiSports('odds/live', {}, config.apiSportsLiveRefreshSeconds, 'live', quotaStore)
   ];
   for (let page = 1; page <= config.apiSportsOddsPages; page += 1) {
-    requests.push(cachedApiSports('odds', { date: utcDate(0), page }, config.apiSportsPrematchRefreshSeconds, 'prematch'));
+    requests.push(cachedApiSports('odds', { date: utcDate(0), page }, config.apiSportsPrematchRefreshSeconds, 'prematch', quotaStore));
     requestNames.push(`odds (page ${page})`);
   }
   const settled = await Promise.allSettled(requests);
@@ -1928,7 +1943,9 @@ function kickoffDistance(a, b) {
 function sameFixture(a, b) {
   if (a.sport !== b.sport) return false;
   if (a.country && b.country && slug(a.country) !== slug(b.country)) return false;
-  if (a.league && b.league && leagueKey(a.league) !== leagueKey(b.league)) return false;
+  const firstLeague = leagueKey(a.league);
+  const secondLeague = leagueKey(b.league);
+  if (!firstLeague || firstLeague !== secondLeague) return false;
   const direct = teamKey(a.home.name) === teamKey(b.home.name) && teamKey(a.away.name) === teamKey(b.away.name);
   return direct && (kickoffDistance(a.startTime, b.startTime) <= 3 * 60 * 60 * 1000 || !a.startTime || !b.startTime);
 }
@@ -1947,6 +1964,7 @@ function sourcePriority(source, live) {
   if (source === 'sharpapi') return 50;
   if (source === 'the-odds-api') return 45;
   if (source === 'public-market') return 40;
+  if (source === 'oddspapi') return 5;
 
   return source === 'api-sports' ? 20 : 10;
 }

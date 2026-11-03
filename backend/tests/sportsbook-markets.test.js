@@ -26,20 +26,37 @@ test('primary market columns show live FT markets in sportsbook order with mappe
     ]
   }, 'FT');
 
-  assert.deepEqual(result.map((market) => market.title), ['Asian Handicap', 'Over / Under', '1X2', 'Corners']);
+  assert.deepEqual(result.map((market) => market.title), ['Asian Handicap', 'Over / Under', '1X2']);
   assert.deepEqual(result.slice(0, 3).map((market) => market.outcomes.map(([label]) => label)), [
     ['1', '2'], ['O', 'U'], ['1', 'X', '2']
   ]);
   assert.equal(result[0].market.id, 'main');
   assert.equal(result[1].outcomes[0][1], totals.selections[0]);
-  assert.equal(result[3].outcomes[0][0], 'Over 9.5');
 });
 
-test('primary market columns exclude suspended, empty and other-period markets', () => {
+test('primary market columns retain suspended state and provide non-selectable unavailable slots', () => {
   const result = primaryMarketColumns({ markets: [
     { type: '1X2', period: 'FT', suspended: true, selections: [{ key: 'home', odds: 2 }] },
     { type: 'HANDICAP', period: '1H', selections: [{ key: 'home', odds: 2 }] },
     { type: 'TOTALS', period: 'FT', selections: [] }
   ] }, 'FT');
-  assert.deepEqual(result, []);
+  assert.deepEqual(result.map(item => item.type), ['HANDICAP', 'TOTALS', '1X2']);
+  assert.equal(result[0].market, null);
+  assert.equal(result[1].market.type, 'TOTALS');
+  assert.equal(result[1].market.selections.length, 0);
+  assert.equal(result[2].market.suspended, true);
+  assert.deepEqual(result[0].outcomes.map(([label, selection]) => [label, selection]), [['1', null], ['2', null]]);
+  assert.deepEqual(result[1].outcomes.map(([label, selection]) => [label, selection]), [['O', null], ['U', null]]);
+});
+
+test('primary market columns fill missing selections without creating selectable odds', () => {
+  const result = primaryMarketColumns({ markets: [{
+    id: 'partial',
+    type: '1X2',
+    period: 'FT',
+    selections: [{ key: 'home', label: 'Home', odds: 2.1 }]
+  }] }, 'FT');
+  assert.deepEqual(result[2].outcomes.map(([label, selection]) => [label, selection?.key || null]), [
+    ['1', 'home'], ['X', null], ['2', null]
+  ]);
 });

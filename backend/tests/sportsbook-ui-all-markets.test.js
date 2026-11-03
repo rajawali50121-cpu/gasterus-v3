@@ -80,13 +80,13 @@ test('valid FT and HT odds create selectable tabs and render the selected period
   const event = { markets: [market('ft-main', 'FT'), market('ht-main', '1H', 1.9)] };
   const periods = availableMarketPeriods(event);
   assert.deepEqual(periods, ['FT', '1H']);
-  assert.equal(primaryMarketColumns(event, selectMarketPeriod(periods, 'FT'))[0].market.id, 'ft-main');
-  assert.equal(primaryMarketColumns(event, selectMarketPeriod(periods, '1H'))[0].market.id, 'ht-main');
+  assert.equal(primaryMarketColumns(event, selectMarketPeriod(periods, 'FT'))[2].market.id, 'ft-main');
+  assert.equal(primaryMarketColumns(event, selectMarketPeriod(periods, '1H'))[2].market.id, 'ht-main');
   assert.equal(selectMarketPeriod(periods, '1H'), '1H');
   assert.match(frontend, /selectedEventPeriods\.set\(match\.dataset\.evid, periodButton\.dataset\.matchPeriod\);\s*renderAll\(\)/);
 });
 
-test('invalid or malformed HT markets do not create an empty HT tab or break the FT card', () => {
+test('invalid or suspended HT markets remain visible as an explicit unavailable or suspended primary slot', () => {
   const event = {
     markets: [
       market('ft-main', 'FT'),
@@ -97,7 +97,20 @@ test('invalid or malformed HT markets do not create an empty HT tab or break the
     ]
   };
   assert.deepEqual(availableMarketPeriods(event), ['FT']);
-  assert.equal(primaryMarketColumns(event, 'FT')[0].market.id, 'ft-main');
+  assert.equal(primaryMarketColumns(event, 'FT')[2].market.id, 'ft-main');
+  assert.equal(primaryMarketColumns(event, '1H')[2].market.suspended, true);
+});
+
+test('main market cells show unavailable or suspended status without creating bet buttons', () => {
+  const start = frontend.indexOf('function renderOddCell(');
+  const end = frontend.indexOf('\nfunction renderMarketColumns(', start);
+  assert.ok(start >= 0 && end > start, 'main odd cell renderer must exist');
+  const renderOddCell = new Function(`${frontend.slice(start, end)}; return renderOddCell;`)();
+  const unavailable = renderOddCell({ id: 'event' }, null, null);
+  const suspended = renderOddCell({ id: 'event' }, { id: 'market', suspended: true }, null);
+  assert.match(unavailable, /Tidak tersedia/);
+  assert.match(suspended, /Ditangguhkan/);
+  assert.doesNotMatch(unavailable + suspended, /<button/);
 });
 
 test('premium sportsbook skin separates LIVE and prematch with aligned responsive odds', () => {
@@ -139,13 +152,15 @@ test('detailed markets are refreshed by feed revision and stale odds cannot plac
   assert.match(frontend, /pendingEventDetails\.has\(selection\.eventId\)\)\) \{\s*showToast\('Odds sedang diperbarui/);
 });
 
-test('event cards render only provider-backed primary markets and do not advertise inactive bet builder tabs', () => {
-  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js\?v=\d+-ht-premium-r1'/);
-  assert.match(frontend, /function eventMarketPeriods\(event\)/);
+test('event cards render six stable primary market slots and keep additional markets in All Markets', () => {
+  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js\?v=\d+-primary-markets-r1'/);
+  assert.match(frontend, /function eventMarketPeriods\(\)/);
   assert.match(frontend, /data-match-period=/);
   assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);
+  assert.match(frontend, /function eventMarketPeriods\(\) \{\s*return \['FT', '1H'\]/);
+  assert.match(frontend, /Tidak tersedia/);
+  assert.match(frontend, /Ditangguhkan/);
   assert.match(frontend, /\$\{marketsCount \? `<div class="sb-detail-markets-wrapper">/);
-  assert.match(frontend, /Odds utama belum tersedia dari provider/);
   assert.doesNotMatch(frontend, /<button[^>]*>Bet Builder<\/button>/);
 });
 
@@ -271,7 +286,8 @@ test('market explorer reports the number of markets matching the active filters'
 });
 
 test('market explorer labels HT and FT periods clearly and does not confuse odd/even with totals', () => {
-  assert.match(frontend, /FT: 'FT · Full Time', '1H': 'HT · Babak 1'/);
+  assert.match(frontend, /FT: 'FT · Full Time \/ Babak Penuh \(BP\)', '1H': 'HT · Half Time \/ Babak Pertama \(B1\)'/);
+  assert.match(frontend, /HT_FT: 'HT\/FT \(Kombinasi Half Time \/ Full Time\)'/);
   assert.match(frontend, /ODD_EVEN: 'Ganjil \/ Genap'/);
   assert.match(frontend, /sb-market-browser-filter-label/);
   assert.match(frontend, /countFor\(value\)/);

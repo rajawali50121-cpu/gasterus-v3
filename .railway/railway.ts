@@ -83,16 +83,6 @@ export default defineRailway(() => {
       SPORTMONKS_ODDS_REFRESH_SECONDS: preserve(),
       SPORTMONKS_PAGE_SIZE: preserve(),
       SPORTMONKS_REQUEST_DELAY_MS: preserve(),
-      THE_ODDS_API_BASE_URL: preserve(),
-      THE_ODDS_API_ENABLED: preserve(),
-      THE_ODDS_API_EVENT_MARKETS_ENABLED: preserve(),
-      THE_ODDS_API_EVENT_MARKETS: preserve(),
-      THE_ODDS_API_KEY: preserve(),
-      THE_ODDS_API_MARKETS: preserve(),
-      THE_ODDS_API_MAX_TOTAL_EVENTS: preserve(),
-      THE_ODDS_API_REGIONS: preserve(),
-      THE_ODDS_API_SPORT_KEYS: preserve(),
-      THE_ODDS_API_REFRESH_SECONDS: preserve(),
       WORKER_HEAP_MB: preserve()
     }
   });
@@ -104,8 +94,8 @@ export default defineRailway(() => {
   //     setelah ranking, dan key diwariskan dari web.
   //   - Live window Sportmonks di-refresh terpisah tiap 30 detik (non-paginated)
   //     supaya event dan in-play odds cepat diperbarui tanpa mengulang katalog.
-  //   - The Odds API CADANGAN 5 liga andalan; h2h x eu = 1 kredit/request;
-  //     refresh 720 dtk (di bawah jendela harga prematch 900 dtk)
+  //   - Hanya provider yang di-wire oleh worker dipanggil; provider lain tidak
+  //     diaktifkan sebagai cadangan tersembunyi.
   //   - provider dijalankan sekuensial (satu payload pada satu waktu); seluruh
   //     market/selection ber-odds valid dipertahankan, fixture utuh berperingkat
   //     rendah dibuang hanya bila anggaran snapshot 6MB tidak mencukupi.
@@ -120,20 +110,23 @@ export default defineRailway(() => {
     env: {
       NODE_ENV: "production",
       NODE_OPTIONS: "--max-old-space-size=224",
+      API_FOOTBALL_KEY: preserve(),
+      API_SPORTS_ENABLED: "true",
+      API_SPORTS_DAILY_QUOTA: "100",
+      API_SPORTS_MONTHLY_QUOTA: "3100",
+      DATABASE_URL: "${{web.DATABASE_URL}}",
+      REDIS_URL: "${{web.REDIS_URL}}",
+      ODDSPAPI_ENABLED: "false",
+      ODDSPAPI_API_KEY: preserve(),
+      ODDSPAPI_BASE_URL: preserve(),
+      ODDSPAPI_TOURNAMENT_IDS: "17",
+      ODDSPAPI_BOOKMAKER: "pinnacle",
+      ODDSPAPI_DAILY_REQUEST_BUDGET: "8",
+      ODDSPAPI_MONTHLY_REQUEST_BUDGET: "240",
       SPORTSBOOK_INGEST_URL: "${{web.SPORTSBOOK_INGEST_URL}}",
       SPORTSBOOK_INGEST_HMAC_SECRET: "${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}",
       SPORTSBOOK_RENDER_MAX_EVENTS: "500",
       SPORTSBOOK_RENDER_MAX_PAGES: "120",
-      THE_ODDS_API_ENABLED: "true",
-      THE_ODDS_API_KEY: "${{web.THE_ODDS_API_KEY}}",
-      THE_ODDS_API_REGIONS: "eu",
-      THE_ODDS_API_MARKETS: "h2h",
-      THE_ODDS_API_REFRESH_SECONDS: "720",
-      THE_ODDS_API_MAX_TOTAL_EVENTS: "500",
-      THE_ODDS_API_EVENT_MARKETS_ENABLED: "false",
-      THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT: "0",
-      THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS: "0",
-      THE_ODDS_API_SPORT_KEYS: "soccer_epl,soccer_spain_la_liga,soccer_italy_serie_a,soccer_germany_bundesliga,soccer_uefa_champs_league",
       // Sportmonks primer (cakupan luas). Key & batas diwariskan/diset di
       // worker yang sama — service web tetap bebas beban scrape Sportmonks.
       SPORTMONKS_ENABLED: "true",

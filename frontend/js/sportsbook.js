@@ -13,7 +13,7 @@
 import api from './api.js';
 import auth from './auth.js';
 import { formatRupiah, showToast, escapeHtml } from './utils.js';
-import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from './sportsbook-markets.js?v=20261102-ht-premium-r1';
+import { primaryMarketColumns, selectMarketPeriod } from './sportsbook-markets.js?v=20261103-primary-markets-r1';
 import { chooseCombinations, systemBetMetrics } from './sportsbook-slip-calculation.js';
 import { formatOdds, oddsColorClass } from './sportsbook-odds.js';
 import {
@@ -1384,9 +1384,12 @@ function renderLiveCarousel() {
   }
   section.hidden = false;
   carousel.innerHTML = liveList.slice(0, 6).map((e) => {
-    const primaryMarket = primaryMarketColumns(e, 'FT')[0];
+    const primaryMarkets = primaryMarketColumns(e, 'FT');
+    const primaryMarket = primaryMarkets.find(item => item.market && item.outcomes.some(([, selection]) =>
+      selection && !item.market.suspended && !selection.suspended && Number(selection.odds) > 1
+    ));
     const quickSelections = (primaryMarket?.outcomes || [])
-      .filter(([, selection]) => !selection.suspended && Number(selection.odds) > 1);
+      .filter(([, selection]) => selection && !selection.suspended && Number(selection.odds) > 1);
     
     return `
       <div class="sb-live-card">
@@ -1522,12 +1525,12 @@ function findMarket(e, type, period) {
 }
 
 const MARKET_PERIOD_LABELS = {
-  FT: 'FT · Full Time', '1H': 'HT · Babak 1', '2H': '2H · Babak 2',
+  FT: 'FT · Full Time / Babak Penuh (BP)', '1H': 'HT · Half Time / Babak Pertama (B1)', '2H': '2H · Babak 2',
   Q1: 'Kuarter 1', Q2: 'Kuarter 2', Q3: 'Kuarter 3', Q4: 'Kuarter 4'
 };
 
-function eventMarketPeriods(event) {
-  return availableMarketPeriods(event);
+function eventMarketPeriods() {
+  return ['FT', '1H'];
 }
 
 function findMarketSelection(market, aliases, fallbackIndex, allowPrefix = false) {
@@ -1550,11 +1553,14 @@ function findMarketSelection(market, aliases, fallbackIndex, allowPrefix = false
 }
 
 function renderOddCell(e, m, s, lineOverride) {
-  if (!m || !s) {
+  if (!m) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
   }
-  if (m.suspended || s.suspended) {
+  if (m.suspended || s?.suspended) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Ditangguhkan</span></div>`;
+  }
+  if (!s) {
+    return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
   }
   const decOdds = Number(s.odds);
   if (!Number.isFinite(decOdds) || decOdds <= 1) {
@@ -1709,12 +1715,8 @@ function renderMatch(e) {
       </div>
 
       <div class="sb-matrix-table">
-        ${activeMarkets.length
-          ? `<div class="sb-market-period"><span>${escapeHtml(MARKET_PERIOD_LABELS[activePeriod] || activePeriod)}</span></div>${renderMarketColumns(e, activeMarkets)}`
-          : ''}
-        ${!activeMarkets.length
-          ? '<div class="sb-no-primary-odds">Odds utama belum tersedia dari provider untuk pertandingan ini.</div>'
-          : ''}
+        <div class="sb-market-period"><span>${escapeHtml(MARKET_PERIOD_LABELS[activePeriod] || activePeriod)}</span></div>
+        ${renderMarketColumns(e, activeMarkets)}
       </div>
 
       ${marketsCount ? `<div class="sb-detail-markets-wrapper">
@@ -1757,7 +1759,7 @@ function renderAllEventMarkets(event) {
     DRAW_NO_BET: 'Draw No Bet',
     TEAM_TOTAL: 'Total Tim',
     ODD_EVEN: 'Ganjil / Genap',
-    HT_FT: 'Half Time / Full Time',
+    HT_FT: 'HT/FT (Kombinasi Half Time / Full Time)',
     CORRECT_SCORE: 'Skor Tepat',
     CORNERS: 'Tendangan Sudut',
     CARDS: 'Kartu',

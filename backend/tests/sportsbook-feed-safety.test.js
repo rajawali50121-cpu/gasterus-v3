@@ -655,6 +655,16 @@ test('feed Redis cache retains the maximum number of events that fit its byte ca
   assert.ok(cached.events.length > 1, 'should not discard 90% of events on each reduction');
   assert.ok(canFit(cached.events.length), 'cached payload must stay inside the byte limit');
   assert.equal(canFit(cached.events.length + 1), false, 'no additional event should fit');
+  const withOversizedFirst = {
+    events: [
+      { id: 'oversized', payload: 'x'.repeat(10000) },
+      ...Array.from({ length: 10 }, (_, index) => ({ id: `small-${index}`, payload: 'y'.repeat(500) }))
+    ]
+  };
+  const afterOversized = cacheWithinLimit(withOversizedFirst);
+  assert.ok(afterOversized.events.length > 1, 'an oversized high-priority fixture must not block later complete fixtures');
+  assert.ok(Buffer.byteLength(JSON.stringify(afterOversized), 'utf8') <= 6000);
+  assert.ok(afterOversized.events.every(event => event.id !== 'oversized'));
   assert.throws(
     () => cacheWithinLimit({ events: [{ id: 'oversized', payload: 'x'.repeat(10000) }] }),
     error => error.code === 'SPORTS_FEED_CACHE_LIMIT',

@@ -257,27 +257,31 @@ function cacheWithinLimit(value) {
   const byteLength = candidate => Buffer.byteLength(JSON.stringify(candidate), 'utf8');
   if (byteLength(bounded) <= MAX_CACHE_BYTES) return bounded;
 
-  let low = 0;
-  let high = bounded.events.length - 1;
-  let best = { ...bounded, events: [] };
-  let bestCount = 0;
-  while (low <= high) {
-    const count = Math.floor((low + high) / 2);
-    const candidate = { ...bounded, events: bounded.events.slice(0, count) };
-    if (byteLength(candidate) <= MAX_CACHE_BYTES) {
-      best = candidate;
-      bestCount = count;
-      low = count + 1;
-    } else {
-      high = count - 1;
+  const emptyPayloadBytes = byteLength({ ...bounded, events: [] });
+  const events = [];
+  let retainedBytes = emptyPayloadBytes;
+  let skippedOversizedEvents = 0;
+  let largestEventBytes = 0;
+  for (const event of bounded.events) {
+    const eventBytes = byteLength(event);
+    largestEventBytes = Math.max(largestEventBytes, eventBytes);
+    const candidateBytes = retainedBytes + eventBytes + (events.length ? 1 : 0);
+    if (candidateBytes > MAX_CACHE_BYTES) {
+      skippedOversizedEvents += 1;
+      continue;
     }
+    events.push(event);
+    retainedBytes = candidateBytes;
   }
+  const best = { ...bounded, events };
+  const bestCount = events.length;
 
   const now = Date.now();
   if (!bestCount) {
     if (now - lastCacheLimitWarningAt >= 60000) {
       logger.error('Sportsbook Redis cache cannot fit any event within the byte limit', {
         originalEvents: bounded.events.length,
+        largestEventBytes,
         maxBytes: MAX_CACHE_BYTES
       });
       lastCacheLimitWarningAt = now;
@@ -289,9 +293,11 @@ function cacheWithinLimit(value) {
     );
   }
   if (now - lastCacheLimitWarningAt >= 60000) {
-    logger.warn('Sportsbook Redis cache event list reduced to fit byte limit', {
+    logger.warn('Sportsbook Redis cache omitted events to fit byte limit', {
       originalEvents: bounded.events.length,
       cachedEvents: bestCount,
+      skippedOversizedEvents,
+      largestEventBytes,
       maxBytes: MAX_CACHE_BYTES
     });
     lastCacheLimitWarningAt = now;

@@ -1,3 +1,5 @@
+import { leagueKey } from './sportsbook-providers.js';
+
 const MAX_EVENTS = 500;
 const MAX_PAGES = 120;
 const DUPLICATE_KICKOFF_WINDOW_MS = 3 * 60 * 60 * 1000;
@@ -13,10 +15,6 @@ export function sportsbookRenderIntervalSeconds(settings) {
     );
   }
   if (settings?.sharpApiEnabled) providerIntervals.push(settings.sharpApiRefreshSeconds);
-  if (settings?.theOddsApiEnabled) {
-    providerIntervals.push(settings.theOddsApiRefreshSeconds);
-    if (settings.theOddsApiEventMarketsEnabled) providerIntervals.push(settings.theOddsApiEventRefreshSeconds);
-  }
   const validIntervals = providerIntervals
     .map(Number)
     .filter(value => Number.isFinite(value) && value > 0);
@@ -53,7 +51,9 @@ function compareCandidates(a, b, priorities) {
 }
 
 function sameFixture(a, b, teamKey) {
-  if (a.event.sport !== b.event.sport) return false;
+  if (a.event.sport !== b.event.sport
+    || !leagueKey(a.event.league)
+    || leagueKey(a.event.league) !== leagueKey(b.event.league)) return false;
   const direct = teamKey(a.event.home.name) === teamKey(b.event.home.name)
     && teamKey(a.event.away.name) === teamKey(b.event.away.name);
   if (!direct) return false;
@@ -145,6 +145,8 @@ function normalizedTeamKey(value) {
 
 function sameSnapshotFixture(a, b) {
   if (a.sport !== b.sport
+    || !leagueKey(a.league)
+    || leagueKey(a.league) !== leagueKey(b.league)
     || normalizedTeamKey(a.home?.name) !== normalizedTeamKey(b.home?.name)
     || normalizedTeamKey(a.away?.name) !== normalizedTeamKey(b.away?.name)) return false;
   const first = Date.parse(a.startTime || '');
@@ -201,8 +203,10 @@ export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
 
 export async function buildSportsbookRenderSnapshot({
   fetchOddsApi,
+  fetchApiSports,
   fetchSportmonks,
   fetchSharpApi,
+  fetchOddsPapi,
   maxEvents = 500,
   maxPages = MAX_PAGES,
   maxPayloadBytes = null,
@@ -222,6 +226,8 @@ export async function buildSportsbookRenderSnapshot({
   const fetchers = [
     { provider: 'sportmonks', fetch: fetchSportmonks },
     { provider: 'sharpapi', fetch: fetchSharpApi },
+    { provider: 'api-sports', fetch: fetchApiSports },
+    { provider: 'oddspapi', fetch: fetchOddsPapi },
     { provider: 'the-odds-api', fetch: fetchOddsApi }
   ];
   const providerResults = [];

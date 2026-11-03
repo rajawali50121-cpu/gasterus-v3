@@ -12,7 +12,7 @@ Object.assign(process.env, {
   API_KEY_PEPPER: 'p'.repeat(48),
   MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
   API_SPORTS_ENABLED: 'true',
-  API_SPORTS_KEY: 'test-provider-key',
+  API_FOOTBALL_KEY: 'test-provider-key',
   API_SPORTS_ODDS_PAGES: '2',
   API_SPORTS_LIVE_REFRESH_SECONDS: '30',
   API_SPORTS_PREMATCH_REFRESH_SECONDS: '300',
@@ -21,6 +21,7 @@ Object.assign(process.env, {
   API_SPORTS_DAILY_QUOTA: '100',
   THE_ODDS_API_ENABLED: 'false'
 });
+process.env.API_SPORTS_KEY = '';
 
 const originalFetch = globalThis.fetch;
 const calls = [];
@@ -72,7 +73,17 @@ globalThis.fetch = async url => {
   };
 };
 
-const { fetchApiSports, __sportsbookProviders } = await import('../src/sportsbook-providers.js');
+const [{ config }, { fetchApiSports, __sportsbookProviders }] = await Promise.all([
+  import('../src/config.js'),
+  import('../src/sportsbook-providers.js')
+]);
+
+test('API-Football worker key alias enables the verified free API-Sports account', () => {
+  assert.equal(config.apiSportsKey, 'test-provider-key');
+  assert.equal(config.apiSportsEnabled, true);
+  assert.equal(config.apiSportsDailyQuota, 100);
+  assert.equal(config.apiSportsMonthlyQuota, 3100);
+});
 
 test('API-Sports endpoint cache prevents the 8-second aggregator loop from consuming provider quota every cycle', async () => {
   __sportsbookProviders.providerRequestCache.clear();
@@ -85,6 +96,46 @@ test('API-Sports endpoint cache prevents the 8-second aggregator loop from consu
   assert.ok(calls.some(url => url.includes('/fixtures?live=all')));
   assert.ok(calls.some(url => url.includes('/odds/live')));
   assert.equal(calls.filter(url => url.includes('/odds?')).length, 2);
+});
+
+test('API-Sports reserves persistent quota before every real HTTP request', async () => {
+  __sportsbookProviders.providerRequestCache.clear();
+  calls.length = 0;
+  const reservations = [];
+  const quotaStore = {
+    async reserveRequest(request) {
+      reservations.push(request);
+      return { status: 'reserved', waitMs: 0 };
+    }
+  };
+
+  await fetchApiSports({ quotaStore });
+  assert.equal(calls.length, 5);
+  assert.equal(reservations.length, 5);
+  assert.ok(reservations.every(request => request.dailyLimit === 100));
+  assert.ok(reservations.every(request => request.monthlyLimit === 3100));
+  assert.equal(new Set(reservations.map(request => request.reservationId)).size, 5);
+
+  await fetchApiSports({ quotaStore });
+  assert.equal(calls.length, 5, 'cached requests do not reserve quota or reach the provider again');
+  assert.equal(reservations.length, 5);
+});
+
+test('API-Sports fails closed without quota storage and isolates storage failures from HTTP', async () => {
+  __sportsbookProviders.providerRequestCache.clear();
+  calls.length = 0;
+  const unavailable = await fetchApiSports({
+    quotaStore: { async reserveRequest() { throw new Error('database connection includes private details'); } }
+  });
+  assert.equal(calls.length, 0, 'quota reservation failure must happen before the provider request');
+  assert.equal(unavailable.transportOk, false);
+  assert.ok(unavailable.errors.every(error => !error.includes('private details')));
+
+  const exhausted = await fetchApiSports({
+    quotaStore: { async reserveRequest() { return { status: 'exhausted', waitMs: 0 }; } }
+  });
+  assert.equal(calls.length, 0, 'exhausted quota must not issue an HTTP request');
+  assert.ok(exhausted.errors.some(error => error.includes('quota exhausted')));
 });
 
 test('quota floor translates the 100/day free budget into a minimum refresh window per bucket', () => {
