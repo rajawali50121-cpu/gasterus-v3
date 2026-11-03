@@ -59,7 +59,13 @@ test('detailed event projection preserves every supplied market and selection li
   const projected = projectMemberMarkets(markets);
   assert.equal(projected.length, markets.length);
   assert.equal(projected[13].selections[0].line, 13);
-  assert.doesNotMatch(feed, /MAX_MARKETS_PER_EVENT/);
+  const detailProjection = feed.slice(
+    feed.indexOf('function memberPublicEventDetail(event)'),
+    feed.indexOf('export async function sportsbookSnapshot')
+  );
+  assert.match(detailProjection, /memberEventShape\(item, item\.markets \|\| \[\]\)/);
+  const refresh = feed.slice(feed.indexOf('async function performRefresh'));
+  assert.match(refresh, /events = capMarketsPerEvent\(events\)/);
 });
 
 test('the SSE broadcaster sends the same member snapshot projection, including FT and HT updates', () => {
