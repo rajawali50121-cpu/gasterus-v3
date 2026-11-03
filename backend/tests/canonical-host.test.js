@@ -24,3 +24,7 @@ test('redirect host dijalankan sebelum proxy dan sebelum aset',()=>{
   assert.ok(redirectAt < proxyAt, 'canonical host harus dicek sebelum proxy backend');
   assert.ok(redirectAt < assetAt, 'canonical host harus dicek sebelum melayani aset');
 });
+
+test('health and readiness routes are proxied to the backend',()=>{
+  assert.match(worker,/pathname\.startsWith\('\/api\/'\) \|\| pathname === '\/healthz' \|\| pathname === '\/readyz'/);
+});

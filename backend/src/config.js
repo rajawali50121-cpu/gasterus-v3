@@ -75,13 +75,6 @@ export const config = Object.freeze({
   // (https://widgets.vegasnet.info/result.php). The bare https://vegasnet.info/result.php
   // returns 404, so it must NOT be used. Configurable per-deployment (Railway env).
   totoVegasnetUrl: text('TOTO_VEGASNET_URL', 'https://widgets.vegasnet.info/result.php'),
-  // Chromium browser fallback DISABLED by default (0): TOTO results now come from the
-  // light-weight Vegasnet HTTP widget source (see toto-source-fetch.js). Set the env
-  // var explicitly to re-enable per-run Chromium rendering.
-  totoBrowserFallbackMaxSources: int('TOTO_BROWSER_FALLBACK_MAX_SOURCES', 0, 0, 4),
-  totoOfficialBrowserFallbackMaxSources: int('TOTO_OFFICIAL_BROWSER_FALLBACK_MAX_SOURCES', 2, 0, 4),
-  totoBrowserFallbackCacheSeconds: int('TOTO_BROWSER_FALLBACK_CACHE_SECONDS', 900, 60, 3600),
-  totoBrowserFallbackSettleMs: int('TOTO_BROWSER_FALLBACK_SETTLE_MS', 4500, 1000, 12000),
   totoMaxResultAgeDays: int('TOTO_MAX_RESULT_AGE_DAYS', 4, 1, 14),
   // Operator decision (diminta owner): pasaran pool yang hanya punya 1 keluarga sumber
   // tetap boleh jadi VERIFIED sehingga betting pools bisa dibuka. Angka tetap hasil scrape
@@ -120,10 +113,10 @@ export const config = Object.freeze({
   apiSportsPrematchRefreshSeconds: int('API_SPORTS_PREMATCH_REFRESH_SECONDS', 300, 60, 1800),
   // API-Sports free plan = 100 request/hari (divalidasi via GET /status:
   // {"plan":"Free","requests":{"limit_day":100}}). Guard kuota di
-  // sportsbook-providers.js memecah angka ini menjadi jeda minimum per endpoint
-  // (live 75%, prematch 25%) sehingga loop refresh 30 detik tidak pernah
-  // meledakkan kuota. Naikkan ke 7500 bila upgrade Pro ($19/bln): floor otomatis
-  // jatuh di bawah TTL konfigurasi dan guard menjadi transparan.
+  // sportsbook-providers.js membagi angka ini antara live (75%) dan pra-tanding
+  // (25%), lalu membagi lagi jatah pra-tanding ke semua tanggal dan halaman odds.
+  // Maka pembaruan aktual di paket Free sengaja jarang; jangan menurunkan floor
+  // karena dapat menghabiskan kuota. Naikkan ke 7500 setelah upgrade Pro ($19/bln).
   apiSportsDailyQuota: int('API_SPORTS_DAILY_QUOTA', 100, 10, 200000),
   sharpApiKey,
   sharpApiBaseUrl: text('SHARP_API_BASE_URL', 'https://api.sharpapi.io'),
@@ -140,9 +133,12 @@ export const config = Object.freeze({
   sharpApiMainLinesOnly: bool('SHARP_API_MAIN_LINES_ONLY', false),
   theOddsApiKey,
   theOddsApiBaseUrl: text('THE_ODDS_API_BASE_URL', 'https://api.the-odds-api.com/v4'),
-  theOddsApiEnabled: pricedProviderEnabled('THE_ODDS_API_ENABLED', theOddsApiKey),
-  theOddsApiRegions: text('THE_ODDS_API_REGIONS', 'eu,uk'),
-  theOddsApiMarkets: text('THE_ODDS_API_MARKETS', 'h2h,spreads,totals'),
+  theOddsApiEnabled: false,
+  // Conservative defaults fit The Odds API's 500-credit free monthly tier:
+  // six soccer competitions, one region, one market, twice daily = ~360 credits/month.
+  // This is for low-volume prematch display, not continuous live betting.
+  theOddsApiRegions: text('THE_ODDS_API_REGIONS', 'uk'),
+  theOddsApiMarkets: text('THE_ODDS_API_MARKETS', 'h2h'),
   theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', false),
   theOddsApiEventMarkets: text('THE_ODDS_API_EVENT_MARKETS', 'h2h_3_way_h1,spreads_h1,totals_h1,btts,btts_h1,double_chance,double_chance_h1,halftime_fulltime'),
   theOddsApiEventMaxEventsPerSport: int('THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT', 8, 0, 50),
@@ -153,10 +149,10 @@ export const config = Object.freeze({
   // sekali (nol request), tetapi kalau suatu hari KEY masuk, 250 events x detail
   // markets per-sport bisa jebol heap 512MB bareng Sportmonks. 80 cukup untuk 9 sport keys.
   theOddsApiMaxTotalEvents: int('THE_ODDS_API_MAX_TOTAL_EVENTS', 80, 0, 1200),
-  theOddsApiRefreshSeconds: int('THE_ODDS_API_REFRESH_SECONDS', 300, 60, 1800),
+  theOddsApiRefreshSeconds: int('THE_ODDS_API_REFRESH_SECONDS', 43200, 60, 86400),
   theOddsApiEventRefreshSeconds: int('THE_ODDS_API_EVENT_REFRESH_SECONDS', 300, 60, 1800),
   theOddsApiBookmakers: text('THE_ODDS_API_BOOKMAKERS'),
-  theOddsApiSportKeys: text('THE_ODDS_API_SPORT_KEYS', 'soccer_epl,soccer_spain_la_liga,soccer_italy_serie_a,soccer_germany_bundesliga,soccer_france_ligue_one,soccer_uefa_champs_league,basketball_nba,tennis_atp_us_open,tennis_wta_us_open'),
+  theOddsApiSportKeys: text('THE_ODDS_API_SPORT_KEYS', 'soccer_epl,soccer_spain_la_liga,soccer_italy_serie_a,soccer_germany_bundesliga,soccer_france_ligue_one,soccer_uefa_champs_league'),
   theSportsDbKey,
   theSportsDbBaseUrl: text('THESPORTSDB_BASE_URL', 'https://www.thesportsdb.com/api'),
   theSportsDbEnabled: bool('THESPORTSDB_ENABLED', false),
@@ -209,7 +205,7 @@ export const config = Object.freeze({
   publicMarketMaxStaleSeconds: int('PUBLIC_MARKET_MAX_STALE_SECONDS', 172800, 1800, 604800),
   publicMarketRequestTimeoutMs: int('PUBLIC_MARKET_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
   publicMarketMaxEvents: int('PUBLIC_MARKET_MAX_EVENTS', 500, 10, 1200),
-  publicMarketDerivedMarketsEnabled: isProduction ? false : bool('PUBLIC_MARKET_DERIVED_MARKETS_ENABLED', true),
+  publicMarketDerivedMarketsEnabled: false,
   publicMarketDerivedMarginBps: int('PUBLIC_MARKET_DERIVED_MARGIN_BPS', 450, 100, 1200),
   publicMarketPriceMaxAgeSeconds: int('PUBLIC_MARKET_PRICE_MAX_AGE_SECONDS', 604800, 900, 604800),
   sportsbookRiskRepricingEnabled: bool('SPORTSBOOK_RISK_REPRICING_ENABLED', true),

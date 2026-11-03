@@ -34,6 +34,21 @@ test('Railway public port is bound before dependency readiness to prevent edge 5
   assert.match(s,/phase:'public-port-bound'/);
 });
 
+test('launcher subprocesses and Windows runner use the active Node.js runtime',()=>{
+  const launcher=read('deploy/launcher.js');
+  const predeploy=read('deploy/predeploy.js');
+  const windowsRunner=read('start-server.bat');
+  assert.equal((launcher.match(/spawn\(process\.execPath,/g)||[]).length,2);
+  assert.match(predeploy,/spawn\(process\.execPath,/);
+  assert.match(windowsRunner,/^node ".+deploy\\launcher\.js"$/m);
+  assert.doesNotMatch(`${launcher}\n${predeploy}\n${windowsRunner}`,/\/usr\/local\/share\/nvm|node\.exe|C:\\Program Files\\nodejs/i);
+});
+
+test('launcher resolves project root from its own location, not the current working directory',()=>{
+  const launcher=read('deploy/launcher.js');
+  assert.match(launcher,/const ROOT = resolve\(dirname\(fileURLToPath\(import\.meta\.url\)\), '\.\.'\);/);
+});
+
 test('gateway proxy failure path never writes headers twice after a response has started',()=>{
   const s=read('deploy/gateway.js');
   assert.match(s,/if \(res\.writableEnded \|\| res\.destroyed\) return false;/);

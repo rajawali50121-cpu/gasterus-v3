@@ -19,11 +19,12 @@ test('R6.9.0.22 feed suspends stale live markets fail-closed before bettable cou
   assert.match(feed,/import \{[^}]*suspendStaleLiveMarkets[^}]*\} from '\.\/sportsbook-providers\.js'/);
 });
 
-test('R6.9.0.22 member catalog removes closed results and has bounded horizon', () => {
+test('member catalog removes closed results and paginates within the configured horizon', () => {
   assert.match(feed,/function memberVisibleEvent/);
   assert.match(feed,/sportsbookMemberHorizonDays/);
-  assert.match(feed,/sportsbookMemberMaxEvents/);
   assert.match(feed,/\.filter\(event => memberVisibleEvent\(event, now\)\)/);
+  assert.match(feed,/paginateMemberEvents\(sourceEvents/);
+  assert.match(feed,/cursor: filters\.cursor/);
 });
 
 test('R6.9.0.22 optional legacy detail source is gated and member errors stay provider-neutral', () => {

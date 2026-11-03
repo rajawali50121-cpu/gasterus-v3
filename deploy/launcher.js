@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(process.cwd());
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 for (const envPath of [resolve(ROOT, '.env'), resolve(ROOT, 'backend/.env')]) {
   if (existsSync(envPath)) {
     try { process.loadEnvFile(envPath); } catch {}

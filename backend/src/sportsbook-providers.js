@@ -244,41 +244,53 @@ async function cachedRequest(key, ttlMs, fetcher) {
 // melahap jatah live. Upgrade ke Pro? cukup naikkan API_SPORTS_DAILY_QUOTA
 // (7500) — floor jatuh di bawah TTL konfigurasi dan guard jadi transparan.
 //
-// Jika provider tetap membalas 429 (race lintas proses/restart), payload cache
-// terakhir disajikan tanpa dihitung sebagai gangguan transport, dan retry tidak
-// dipaksa tiap 30 detik.
 const API_SPORTS_LIVE_ENDPOINTS = 2; // fixtures?live=all + odds/live
+const apiSportsFailureCache = new Map();
 
 function apiSportsEndpointCount(bucket) {
-  return bucket === 'live' ? API_SPORTS_LIVE_ENDPOINTS : 1 + Math.max(1, Number(config.apiSportsOddsPages) || 1);
+  if (bucket === 'live') return API_SPORTS_LIVE_ENDPOINTS;
+  const dates = Math.max(1, Number(config.apiSportsDaysAhead) + 1);
+  const oddsPages = Math.max(1, Number(config.apiSportsOddsPages) || 1);
+  return dates * (1 + oddsPages);
 }
 
 export function apiSportsQuotaFloorSeconds(bucket) {
   const budget = Math.max(10, Number(config.apiSportsDailyQuota) || 100);
-  const prematchShare = Math.min(Math.max(10, Math.round(budget * 0.25)), budget - 10);
+  const prematchShare = budget <= 10 ? Math.ceil(budget / 2) : Math.min(Math.max(10, Math.round(budget * 0.25)), budget - 10);
   const share = bucket === 'live' ? budget - prematchShare : prematchShare;
   return Math.ceil(86400 * apiSportsEndpointCount(bucket) / share);
 }
 
-function cachedApiSports(path, params, ttlSeconds, bucket = 'prematch') {
+async function cachedApiSports(path, params, ttlSeconds, bucket = 'prematch') {
   const entries = Object.entries(params || {}).sort(([a], [b]) => a.localeCompare(b));
   const key = `api-sports:${path}:${JSON.stringify(entries)}`;
   const floorSeconds = apiSportsQuotaFloorSeconds(bucket);
   const ttl = Math.max(ttlSeconds, floorSeconds);
-  return cachedRequest(key, ttl * 1000, async () => {
-    try {
-      return await apiSports(path, params);
-    } catch (error) {
-      if (!String(error?.message || '').includes('HTTP 429')) throw error;
-      const cached = providerRequestCache.get(key);
-      logger.warn('API-Sports daily quota reached; serving cached payload', { endpoint: path, bucket, floorSeconds });
-      if (cached?.value !== undefined) return cached.value;
-      // Belum ada data tersimpan: kembalikan payload kosong berbentuk sah supaya
-      // feed tetap hidup dan siklus SETELAH floor berikutnya mencoba lagi,
-      // bukan membanjiri provider dengan retry 429 tiap 30 detik.
-      return { response: [] };
+  const now = Date.now();
+  const failed = apiSportsFailureCache.get(key);
+  if (failed && now < failed.retryAt) {
+    throw new Error(`${failed.message} (retry after ${new Date(failed.retryAt).toISOString()})`);
+  }
+  try {
+    const result = await cachedRequest(key, ttl * 1000, () => apiSports(path, params));
+    apiSportsFailureCache.delete(key);
+    return result;
+  } catch (error) {
+    const retryAt = now + floorSeconds * 1000;
+    apiSportsFailureCache.set(key, { message: error.message, retryAt });
+    if (apiSportsFailureCache.size > 300) {
+      const oldest = [...apiSportsFailureCache.entries()].sort((a, b) => a[1].retryAt - b[1].retryAt);
+      for (const [failedKey] of oldest.slice(0, 50)) apiSportsFailureCache.delete(failedKey);
     }
-  });
+    logger.warn('API-Sports request failed; endpoint backoff applied', {
+      endpoint: path,
+      bucket,
+      floorSeconds,
+      retryAt: new Date(retryAt).toISOString(),
+      error: error.message
+    });
+    throw error;
+  }
 }
 function utcDate(offsetDays = 0) {
   const date = new Date();
@@ -538,6 +550,7 @@ function oddsApiMarket(event, market, source = 'the-odds-api') {
   });
 }
 const oddsApiEventDetailCache = new Map();
+const oddsApiFailureCache = new Map();
 
 function mergeOddsApiBookmakers(base = [], extra = []) {
   const byBook = new Map();
@@ -641,14 +654,28 @@ export async function fetchTheOddsApi() {
     url.searchParams.set('dateFormat', 'iso');
     if (config.theOddsApiBookmakers) url.searchParams.set('bookmakers', config.theOddsApiBookmakers);
     const cacheKey = `the-odds-api:${sportKey}:${config.theOddsApiRegions}:${config.theOddsApiMarkets}:${config.theOddsApiBookmakers || ''}`;
-    const payload = await cachedRequest(cacheKey, config.theOddsApiRefreshSeconds * 1000, () => requestJson(url, { label: 'The Odds API' }));
+    const now = Date.now();
+    const failed = oddsApiFailureCache.get(cacheKey);
+    if (failed && now < failed.retryAt) throw new Error(`${failed.message} (retry after ${new Date(failed.retryAt).toISOString()})`);
+    let payload;
+    try {
+      payload = await cachedRequest(cacheKey, config.theOddsApiRefreshSeconds * 1000, () => requestJson(url, { label: 'The Odds API' }));
+      oddsApiFailureCache.delete(cacheKey);
+    } catch (error) {
+      oddsApiFailureCache.set(cacheKey, { message: error.message, retryAt: now + config.theOddsApiRefreshSeconds * 1000 });
+      if (oddsApiFailureCache.size > 50) {
+        const oldest = [...oddsApiFailureCache.entries()].sort((a, b) => a[1].retryAt - b[1].retryAt);
+        for (const [key] of oldest.slice(0, 10)) oddsApiFailureCache.delete(key);
+      }
+      throw error;
+    }
     const rawEvents = Array.isArray(payload) ? payload : [];
     const enriched = await fetchOddsApiEventMarkets(sportKey, rawEvents);
     return enriched.map(normalizeOddsApiEvent);
   }));
   const events = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []).slice(0, Math.min(MAX_PROVIDER_EVENTS, Math.max(0, Number(config.theOddsApiMaxTotalEvents) || MAX_PROVIDER_EVENTS)));
   const errors = settled.filter(result => result.status === 'rejected').map(result => clean(result.reason?.message || 'request failed'));
-  return { provider: 'the-odds-api', enabled: true, events, errors };
+  return { provider: 'the-odds-api', enabled: true, events, errors, transportOk: settled.some(result => result.status === 'fulfilled') };
 }
 
 // --- Sportmonks (v3 football) ---
@@ -940,7 +967,8 @@ function apiSportsMarket(event, bet, source = 'api-sports') {
       line,
       source,
       sourceSelectionId: value.id || rawLabel,
-      suspended: value.suspended || value.status === 'SUSPENDED'
+      suspended: value.suspended || value.status === 'SUSPENDED',
+      updatedAt: bet.update
     });
     if (!selection) continue;
     const key = `${slug(label)}|${line ?? ''}`;
@@ -963,12 +991,13 @@ function extractApiSportsOdds(payload) {
     const fixtureId = String(record.fixture?.id ?? record.id ?? record.fixture_id ?? '');
     if (!fixtureId) continue;
     const bets = [];
-    if (Array.isArray(record.bets)) bets.push(...record.bets);
-    if (Array.isArray(record.markets)) bets.push(...record.markets);
+    if (Array.isArray(record.bets)) bets.push(...record.bets.map(bet => ({ ...bet, update: bet.update || record.update || null })));
+    if (Array.isArray(record.markets)) bets.push(...record.markets.map(bet => ({ ...bet, update: bet.update || record.update || null })));
     for (const bookmaker of record.bookmakers || record.odds || []) {
-      if (Array.isArray(bookmaker.bets)) bets.push(...bookmaker.bets);
-      else if (Array.isArray(bookmaker.markets)) bets.push(...bookmaker.markets);
-      else if (Array.isArray(bookmaker.values) || Array.isArray(bookmaker.outcomes)) bets.push(bookmaker);
+      const update = bookmaker.update || record.update || null;
+      if (Array.isArray(bookmaker.bets)) bets.push(...bookmaker.bets.map(bet => ({ ...bet, update: bet.update || update })));
+      else if (Array.isArray(bookmaker.markets)) bets.push(...bookmaker.markets.map(bet => ({ ...bet, update: bet.update || update })));
+      else if (Array.isArray(bookmaker.values) || Array.isArray(bookmaker.outcomes)) bets.push({ ...bookmaker, update: bookmaker.update || record.update || null });
     }
     const current = byFixture.get(fixtureId) || [];
     current.push(...bets);
@@ -1007,21 +1036,51 @@ function normalizeApiSportsFixture(raw, bets = []) {
 async function apiSports(path, params = {}) {
   const url = new URL(`${config.apiSportsBaseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`);
   Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value)); });
-  return requestJson(url, { headers: { 'x-apisports-key': config.apiSportsKey }, label: 'API-Sports' });
+  const payload = await requestJson(url, { headers: { 'x-apisports-key': config.apiSportsKey }, label: `API-Sports ${path}` });
+  const errors = payload?.errors;
+  const hasErrors = Array.isArray(errors)
+    ? errors.length > 0
+    : errors && typeof errors === 'object'
+      ? Object.keys(errors).length > 0
+      : Boolean(errors);
+  if (hasErrors) {
+    const details = Array.isArray(errors)
+      ? errors.join('; ')
+      : typeof errors === 'object'
+        ? Object.values(errors).join('; ')
+        : String(errors);
+    throw new Error(`API-Sports ${path}: ${details}`);
+  }
+  return payload;
 }
 export async function fetchApiSports() {
   if (!config.apiSportsEnabled || !config.apiSportsKey) return { provider: 'api-sports', enabled: false, events: [] };
+  const dates = Array.from({ length: Math.max(1, Number(config.apiSportsDaysAhead) + 1) }, (_, offset) => utcDate(offset));
+  const liveRequestCount = 2;
+  const fixtureRequestCount = dates.length;
   const requests = [
     cachedApiSports('fixtures', { live: 'all' }, config.apiSportsLiveRefreshSeconds, 'live'),
-    cachedApiSports('fixtures', { from: utcDate(0), to: utcDate(config.apiSportsDaysAhead) }, config.apiSportsPrematchRefreshSeconds, 'prematch'),
-    cachedApiSports('odds/live', {}, config.apiSportsLiveRefreshSeconds, 'live')
+    cachedApiSports('odds/live', {}, config.apiSportsLiveRefreshSeconds, 'live'),
+    ...dates.map(date => cachedApiSports('fixtures', { date }, config.apiSportsPrematchRefreshSeconds, 'prematch'))
   ];
-  for (let page = 1; page <= config.apiSportsOddsPages; page += 1) {
-    requests.push(cachedApiSports('odds', { date: utcDate(0), page }, config.apiSportsPrematchRefreshSeconds, 'prematch'));
+  for (const date of dates) {
+    for (let page = 1; page <= config.apiSportsOddsPages; page += 1) {
+      requests.push(cachedApiSports('odds', { date, page }, config.apiSportsPrematchRefreshSeconds, 'prematch'));
+    }
   }
   const settled = await Promise.allSettled(requests);
-  const fixturePayloads = settled.slice(0, 2).filter(item => item.status === 'fulfilled').map(item => item.value);
-  const oddsPayloads = settled.slice(2).filter(item => item.status === 'fulfilled').map(item => item.value);
+  const fixturePayloads = settled.slice(0, 1)
+    .filter(item => item.status === 'fulfilled')
+    .map(item => item.value);
+  fixturePayloads.push(...settled.slice(liveRequestCount, liveRequestCount + fixtureRequestCount)
+    .filter(item => item.status === 'fulfilled')
+    .map(item => item.value));
+  const oddsPayloads = [
+    ...settled.slice(1, liveRequestCount),
+    ...settled.slice(liveRequestCount + fixtureRequestCount)
+  ]
+    .filter(item => item.status === 'fulfilled')
+    .map(item => item.value);
   const oddsByFixture = new Map();
   for (const payload of oddsPayloads) {
     for (const [fixtureId, bets] of extractApiSportsOdds(payload)) {
@@ -1055,7 +1114,13 @@ export async function fetchApiSports() {
     }
   }
   const errors = settled.filter(result => result.status === 'rejected').map(result => clean(result.reason?.message || 'request failed'));
-  return { provider: 'api-sports', enabled: true, events: events.slice(0, MAX_PROVIDER_EVENTS), errors };
+  return {
+    provider: 'api-sports',
+    enabled: true,
+    events: events.slice(0, MAX_PROVIDER_EVENTS),
+    errors,
+    transportOk: settled.some(result => result.status === 'fulfilled')
+  };
 }
 
 function normalizeSportsDbEvent(raw) {
@@ -1317,7 +1382,9 @@ export const __sportsbookProviders = {
   extractApiSportsOdds,
   apiSportsQuotaFloorSeconds,
   suspendStaleLiveMarkets,
-  providerRequestCache
+  providerRequestCache,
+  apiSportsFailureCache,
+  oddsApiFailureCache
 };
 
 // Builder helpers shared by provider adapters (e.g. sportsbook-footballdataio.js)

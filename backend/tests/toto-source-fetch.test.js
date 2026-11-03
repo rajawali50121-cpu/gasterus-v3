@@ -13,7 +13,7 @@ Object.assign(process.env, {
   MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
 });
 
-const { TOTO_SOURCES, collectTotoSources, fetchTotoHtml, validateSourceUrl, renderTotoSource, __totoSourceFetch } = await import('../src/toto-source-fetch.js');
+const { TOTO_SOURCES, collectTotoSources, fetchTotoHtml, validateSourceUrl, __totoSourceFetch } = await import('../src/toto-source-fetch.js');
 
 
 function snapshotHtml(label = 'WELLINGTON', result = '4969') {
@@ -107,13 +107,6 @@ test('vegasnet batched combineAll merges rows and tolerates empty batches', asyn
   assert.equal(calls.length, batchCount);
   assert.equal(calls.every(u => new URL(u).hostname === 'widgets.vegasnet.info'), true);
   assert.match(result.attempts.find(a => a.error).error, /VEGASNET_SHOWID_FAILED/);
-});
-
-test('renderTotoSource dilewati untuk sumber VegasNet tanpa browser fallback', async () => {
-  const source = TOTO_SOURCES.find(item => item.code === 'vegasnet');
-  const rendered = await renderTotoSource(source, async () => { throw new Error('tidak boleh dipanggil'); });
-  assert.equal(rendered, source);
-  assert.equal(rendered.browserFallback, undefined);
 });
 
 test('mapLimit bounds concurrent TOTO transport work', async () => {

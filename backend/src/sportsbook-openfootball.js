@@ -69,26 +69,51 @@ function sourceTime(headers, fallback=Date.now()) {
   return new Date(Number.isFinite(parsed) ? parsed : fallback).toISOString();
 }
 
-async function requestRaw(url) {
+async function requestRaw(url, retries = 2) {
   const parsed = new URL(url);
   if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== RAW_HOST) throw new Error('OpenFootball source host is not approved');
   const prior = fileCache.get(url);
-  const controller = new AbortController();
-  const timeout = setTimeout(()=>controller.abort(), Number(config.publicMarketRequestTimeoutMs || 10000));
-  try {
-    const headers = { accept:'text/plain,*/*;q=0.2', 'user-agent':'Gasterus-OpenFootball-Collector/1.0' };
-    if (prior?.etag) headers['if-none-match'] = prior.etag;
-    const response = await fetch(url,{headers,signal:controller.signal,redirect:'error'});
-    if (response.status === 304 && prior) return prior;
-    if (!response.ok) throw new Error(`OpenFootball HTTP ${response.status}`);
-    const text = await response.text();
-    if (text.length > 3*1024*1024) throw new Error('OpenFootball file exceeds size limit');
-    const digest = crypto.createHash('sha256').update(text).digest('hex');
-    const updatedAt = prior?.digest === digest ? prior.updatedAt : sourceTime(response.headers);
-    const item = { text, updatedAt, etag:response.headers.get('etag'), digest, fetchedAt:Date.now() };
-    fileCache.set(url,item);
-    return item;
-  } finally { clearTimeout(timeout); }
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(()=>controller.abort(), Number(config.publicMarketRequestTimeoutMs || 10000));
+    try {
+      const headers = { accept:'text/plain,*/*;q=0.2', 'user-agent':'Gasterus-OpenFootball-Collector/1.0' };
+      if (prior?.etag) headers['if-none-match'] = prior.etag;
+      const response = await fetch(url,{headers,signal:controller.signal,redirect:'error'});
+      if (response.status === 304 && prior) return prior;
+      if (!response.ok) {
+        const message = `OpenFootball HTTP ${response.status}`;
+        if (response.status === 429 || response.status >= 500) {
+          lastError = new Error(message);
+          if (attempt < retries) {
+            await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+            continue;
+          }
+        }
+        throw new Error(message);
+      }
+      const text = await response.text();
+      if (text.length > 3*1024*1024) throw new Error('OpenFootball file exceeds size limit');
+      const digest = crypto.createHash('sha256').update(text).digest('hex');
+      const updatedAt = prior?.digest === digest ? prior.updatedAt : sourceTime(response.headers);
+      const item = { text, updatedAt, etag:response.headers.get('etag'), digest, fetchedAt:Date.now() };
+      fileCache.set(url,item);
+      return item;
+    } catch (error) {
+      lastError = error;
+      const message = String(error?.message || error || '');
+      const retryable = /429|5\d\d|AbortError|fetch failed|network/i.test(message);
+      if (attempt < retries && retryable) {
+        await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+        continue;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw lastError || new Error(`OpenFootball fetch failed for ${url}`);
 }
 
 function parseDayLine(line, seasonStartYear) {
@@ -115,21 +140,27 @@ export function parseOpenFootballText(text,{seasonStartYear=2026}={}) {
     if (!line.trim()) continue;
     const day=parseDayLine(line,seasonStartYear);
     if (day) { currentDay=day; currentTime=null; continue; }
-    if (!currentDay || !/\sv\s/i.test(line)) continue;
+    if (!currentDay) continue;
     let body=line.trim();
     const timeMatch=body.match(/^(\d{1,2}:\d{2})(?:\s+UTC[+-]\d+(?::\d+)?)?\s+/i);
     if (timeMatch) { currentTime=timeMatch[1]; body=body.slice(timeMatch[0].length); }
     if (!currentTime) continue;
     body=body.replace(/\s+@\s+.*$/,'').trim();
     let ft=null, ht=null;
-    const resultMatch=body.match(/\s+(\d+)-(\d+)(?:\s+(?:a\.e\.t\.\s*)?\((\d+)-(\d+)\))?\s*$/i);
+    let resultMatch=body.match(/\s+(\d+)-(\d+)(?:\s+(?:a\.e\.t\.\s*)?\((\d+)-(\d+)\))?\s*$/i);
     if (resultMatch) {
       ft=[Number(resultMatch[1]),Number(resultMatch[2])];
       if (resultMatch[3]!==undefined) ht=[Number(resultMatch[3]),Number(resultMatch[4])];
       body=body.slice(0,resultMatch.index).trim();
     }
-    const teams=body.match(/^(.+?)\s+v\s+(.+)$/i);
-    if (!teams) continue;
+    let teams=body.match(/^(.+?)\s+v\s+(.+)$/i);
+    if (!teams) {
+      const completed=body.match(/^(.+?)\s+(\d+)-(\d+)(?:\s+\((\d+)-(\d+)\))\s+(.+)$/i);
+      if (!completed) continue;
+      teams=[null, completed[1], completed[6]];
+      ft=[Number(completed[2]),Number(completed[3])];
+      ht=[Number(completed[4]),Number(completed[5])];
+    }
     const home=clean(teams[1],120), away=clean(teams[2],120), startTime=isoKickoff(currentDay,currentTime);
     if (!home || !away || !startTime) continue;
     matches.push({home,away,startTime,ft,ht});
@@ -182,23 +213,22 @@ export async function fetchOpenFootballFixtures() {
     let cur=null, prev=null;
     try { cur = await requestRaw(comp.current); } catch { /* musim berjalan mungkin belum tersedia */ }
     try { prev = await requestRaw(comp.previous); } catch { /* abaikan */ }
-    // Jika file musim berjalan belum ada (404), pakai musim sebelumnya sebagai
-    // sumber fixture agar kompetisi tetap muncul, bukan menghilang sama sekali.
-    const fixturesSource = cur || prev;
-    if (!fixturesSource) throw new Error(`${comp.code} current and previous season both unavailable`);
-    const fixtureSeasonStart = cur ? comp.seasonStartYear : comp.seasonStartYear - 1;
-    const current=parseOpenFootballText(fixturesSource.text,{seasonStartYear:fixtureSeasonStart});
+    if (!cur && !prev) throw new Error(`${comp.code} current and previous season both unavailable`);
+    // Prior-season matches are historical model input, never current fixtures.
+    const current=cur?parseOpenFootballText(cur.text,{seasonStartYear:comp.seasonStartYear}):[];
     const previous=prev?parseOpenFootballText(prev.text,{seasonStartYear:comp.seasonStartYear-1}):[];
     const model=weightedModel(current,previous);
-    const updatedAt=[fixturesSource.updatedAt,prev?.updatedAt].filter(Boolean).sort().at(-1) || new Date().toISOString();
-    if (!cur) throw new Error(`${comp.code} current season unavailable; served previous season fixtures`);
-    return {comp,current,model,updatedAt};
+    const updatedAt=[cur?.updatedAt,prev?.updatedAt].filter(Boolean).sort().at(-1) || new Date().toISOString();
+    const warning = cur ? null : `${comp.code} current season unavailable; previous season retained for historical model data only`;
+    return {comp,current,model,updatedAt,warning};
   }));
   const events=[],warnings=[],sources=[];
   for (let i=0;i<results.length;i++) {
     const item=results[i],comp=competitions[i];
     if(item.status!=='fulfilled'){warnings.push(`${comp.code} unavailable: ${item.reason?.message||item.reason}`);continue;}
-    const {current,model,updatedAt}=item.value; sources.push(comp.code);
+    const {current,model,updatedAt,warning}=item.value;
+    if (warning) warnings.push(warning);
+    sources.push(comp.code);
     for(const m of current){
       const anchor=buildOpenFootballModelAnchor(m.home,m.away,model,{marginBps:config.publicMarketDerivedMarginBps});
       events.push({competition:comp,match:m,anchor,updatedAt});

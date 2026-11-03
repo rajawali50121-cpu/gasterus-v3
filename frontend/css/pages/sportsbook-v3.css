@@ -1590,6 +1590,23 @@ body.sb-page {
 .sb-live-card,
 .sb-league-group,
 .sb-events { min-width: 0; overflow: clip; }
+.sb-load-more {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  margin: 12px 0 20px;
+  border: 1px solid var(--sb-border-light);
+  border-radius: 6px;
+  background: #fff;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sb-load-more:hover:not(:disabled) { background: #eff6ff; }
+.sb-load-more:disabled { cursor: wait; opacity: 0.65; }
+.sb-load-more[hidden] { display: none; }
 .sb-card-banner { isolation: isolate; }
 .sb-slip-overlay { z-index: 1001; }
 .sb-slip-sheet { z-index: 1002; }

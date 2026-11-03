@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
 import { config } from './config.js';
-import { fetchOpenFootballFixtures } from './sportsbook-openfootball.js';
 
 const PROVIDER = 'public-market';
 const DEFAULT_MAX_EVENTS = 600;
@@ -21,6 +20,19 @@ const DIVISION_INFO = Object.freeze({
   DNK: ['Superliga', 'Denmark'], FIN: ['Veikkausliiga', 'Finland'], IRL: ['Premier Division', 'Ireland'], JPN: ['J-League', 'Japan'],
   MEX: ['Liga MX', 'Mexico'], NOR: ['Eliteserien', 'Norway'], POL: ['Ekstraklasa', 'Poland'], ROU: ['Liga 1', 'Romania'],
   RUS: ['Premier League', 'Russia'], SWE: ['Allsvenskan', 'Sweden'], SWZ: ['Super League', 'Switzerland'], USA: ['MLS', 'USA']
+});
+
+const DIVISION_TIME_ZONE = Object.freeze({
+  E0: 'Europe/London', E1: 'Europe/London', E2: 'Europe/London', E3: 'Europe/London', EC: 'Europe/London',
+  SC0: 'Europe/London', SC1: 'Europe/London', SC2: 'Europe/London', SC3: 'Europe/London',
+  D1: 'Europe/Berlin', D2: 'Europe/Berlin', I1: 'Europe/Rome', I2: 'Europe/Rome',
+  SP1: 'Europe/Madrid', SP2: 'Europe/Madrid', F1: 'Europe/Paris', F2: 'Europe/Paris',
+  N1: 'Europe/Amsterdam', B1: 'Europe/Brussels', P1: 'Europe/Lisbon', T1: 'Europe/Istanbul', G1: 'Europe/Athens',
+  ARG: 'America/Argentina/Buenos_Aires', AUT: 'Europe/Vienna', BRA: 'America/Sao_Paulo',
+  CHN: 'Asia/Shanghai', DNK: 'Europe/Copenhagen', FIN: 'Europe/Helsinki', IRL: 'Europe/Dublin',
+  JPN: 'Asia/Tokyo', MEX: 'America/Mexico_City', NOR: 'Europe/Oslo', POL: 'Europe/Warsaw',
+  ROU: 'Europe/Bucharest', RUS: 'Europe/Moscow', SWE: 'Europe/Stockholm', SWZ: 'Europe/Zurich',
+  USA: 'America/New_York'
 });
 
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
@@ -60,7 +72,7 @@ export function parseCsv(text) {
   return rows.filter(r => r.some(v => clean(v))).map(values => Object.fromEntries(headers.map((h, i) => [h, values[i] ?? ''])));
 }
 
-function parseKickoff(dateValue, timeValue) {
+function parseKickoff(dateValue, timeValue, timeZone = 'UTC') {
   const date = clean(dateValue, 20);
   const time = clean(timeValue || '12:00', 10) || '12:00';
   let y, m, d;
@@ -73,10 +85,33 @@ function parseKickoff(dateValue, timeValue) {
     if (!Number.isFinite(parsed)) return null;
     const dt = new Date(parsed); y = dt.getUTCFullYear(); m = dt.getUTCMonth() + 1; d = dt.getUTCDate();
   }
-  const tm = time.match(/^(\d{1,2}):(\d{2})/);
+  const tm = time.match(/^(\d{1,2}):(\d{2})$/);
   const hh = tm ? Number(tm[1]) : 12;
   const mm = tm ? Number(tm[2]) : 0;
-  return new Date(Date.UTC(y, m - 1, d, hh, mm, 0)).toISOString();
+  if (!tm && timeValue) return null;
+  if (hh > 23 || mm > 59) return null;
+  const localAsUtc = Date.UTC(y, m - 1, d, hh, mm, 0);
+  const check = new Date(localAsUtc);
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== m - 1 || check.getUTCDate() !== d) return null;
+
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  });
+  let utc = localAsUtc;
+  for (let i = 0; i < 4; i += 1) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(utc))
+      .filter(part => part.type !== 'literal').map(part => [part.type, Number(part.value)]));
+    const representedAsUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    const offset = representedAsUtc - utc;
+    const adjusted = localAsUtc - offset;
+    if (adjusted === utc) break;
+    utc = adjusted;
+  }
+  const resolved = Object.fromEntries(formatter.formatToParts(new Date(utc))
+    .filter(part => part.type !== 'literal').map(part => [part.type, Number(part.value)]));
+  if (resolved.year !== y || resolved.month !== m || resolved.day !== d || resolved.hour !== hh || resolved.minute !== mm) return null;
+  return new Date(utc).toISOString();
 }
 
 function oddsTriplet(row) {
@@ -327,10 +362,10 @@ function buildDerivedMarkets(eventId, anchor, updatedAt) {
 
 export function normalizeFootballDataFixture(row, { updatedAt = new Date().toISOString() } = {}) {
   const home = clean(row.HomeTeam, 120), away = clean(row.AwayTeam, 120);
-  const startTime = parseKickoff(row.Date, row.Time);
+  const div = clean(row.Div, 24);
+  const startTime = parseKickoff(row.Date, row.Time, DIVISION_TIME_ZONE[div] || 'UTC');
   const oneXtwo = oddsTriplet(row);
   if (!home || !away || !startTime || !oneXtwo) return null;
-  const div = clean(row.Div, 24);
   const [league, country] = DIVISION_INFO[div] || [clean(row.League || div || 'Football', 120), clean(row.Country || '', 80) || null];
   const eventId = hash('public-event', slug(home), slug(away), startTime);
   const total = total25(row), ah = handicap(row);
@@ -344,7 +379,6 @@ export function normalizeFootballDataFixture(row, { updatedAt = new Date().toISO
   if (ah) markets.push(market(eventId, 'HANDICAP', 'FT', ah.line, 'Asian Handicap', [
     { label: 'Home', odds: ah.home, line: ah.line }, { label: 'Away', odds: ah.away, line: -ah.line }
   ], updatedAt, { book: ah.book, sourceMarketId: `football-data:${div}:ah`, mainLine: true }));
-  if (config.publicMarketDerivedMarketsEnabled) markets.push(...buildDerivedMarkets(eventId, { oneXtwo, total25: total, handicap: ah }, updatedAt));
   return {
     id: eventId, sport: 'Football', league, country, startTime, status: 'SCHEDULED', providerStatus: 'NS', live: false, clock: null,
     home: { name: home, score: null, logo: null }, away: { name: away, score: null, logo: null }, leagueLogo: null, venue: null, periodScores: {},
@@ -360,24 +394,17 @@ export function normalizeOpenFootballFixture(item) {
   const match = item?.match || {};
   const comp = item?.competition || {};
   const home = clean(match.home, 120), away = clean(match.away, 120), startTime = match.startTime;
-  const oneXtwo = item?.anchor?.oneXtwo;
   const updatedAt = item?.updatedAt || new Date().toISOString();
-  if (!home || !away || !startTime || !oneXtwo?.home || !oneXtwo?.draw || !oneXtwo?.away) return null;
+  if (!home || !away || !startTime) return null;
   const eventId = hash('public-event', slug(home), slug(away), startTime);
-  const markets = [market(eventId, '1X2', 'FT', null, '1X2', [
-    { label:'Home', odds:oneXtwo.home }, { label:'Draw', odds:oneXtwo.draw }, { label:'Away', odds:oneXtwo.away }
-  ], updatedAt, { book:'gasterus-open-model', sourceMarketId:`openfootball:${comp.code || 'league'}:1x2`, mainLine:true })];
-  if (config.publicMarketDerivedMarketsEnabled) markets.push(...buildDerivedMarkets(eventId, { oneXtwo, total25:null, handicap:null }, updatedAt));
   const finished = Array.isArray(match.ft) && match.ft.length === 2;
   const periodScores = Array.isArray(match.ht) && match.ht.length === 2 ? { '1H': { home:match.ht[0], away:match.ht[1] } } : {};
   return {
     id:eventId, sport:'Football', league:clean(comp.league || 'Football',120), country:clean(comp.country || '',80) || null,
     startTime, status:finished ? 'FINISHED' : 'SCHEDULED', providerStatus:finished ? 'FT' : 'NS', live:false, clock:null,
     home:{name:home,score:finished?match.ft[0]:null,logo:null}, away:{name:away,score:finished?match.ft[1]:null,logo:null}, leagueLogo:null, venue:null,
-    periodScores, availableMarketCount:markets.length, detailFetchedAt:updatedAt, markets,
-    _refs:{[PROVIDER]:`openfootball:${comp.code || 'league'}:${home}:${away}:${startTime}`}, _sources:[PROVIDER],
-    _settlementReadySources:[PROVIDER,'manual-ops'], _settlementMode:'PUBLIC_DATA_AUTO_WITH_MANUAL_FALLBACK',
-    _publicMarketAnchor:{oneXtwo,total25:null,handicap:null,model:'Gasterus_OPENFOOTBALL_POISSON_V1',lambdaHome:item?.anchor?.lambdaHome ?? null,lambdaAway:item?.anchor?.lambdaAway ?? null,sampleMatches:item?.anchor?.sampleMatches ?? 0},
+    periodScores, availableMarketCount:0, detailFetchedAt:updatedAt, markets:[],
+    _refs:{'openfootball-cc0':`openfootball:${comp.code || 'league'}:${home}:${away}:${startTime}`}, _sources:['openfootball-cc0'],
     _publicMarketDiv:comp.code || '', _publicMarketOrigin:'openfootball-cc0',
     ...(finished ? {_publicResultProvenance:{source:'openfootball-cc0',date:startTime}} : {})
   };
@@ -553,31 +580,12 @@ async function loadFresh() {
     normalized.push(...cache.events.filter(event => event._publicMarketOrigin === 'football-data'));
   }
 
-  // Source B: CC0 OpenFootball schedules/results plus Gasterus's own deterministic
-  // market model. This path requires no commercial odds credential and keeps the
-  // trading feed alive when an odds-comparison endpoint rate-limits the collector.
-  try {
-    const open = await fetchOpenFootballFixtures();
-    normalized.push(...open.events.map(normalizeOpenFootballFixture).filter(Boolean));
-    warnings.push(...(open.warnings || []));
-  } catch (error) {
-    warnings.push(`OpenFootball CC0 source unavailable: ${error.message}`);
-    normalized.push(...cache.events.filter(event => event._publicMarketOrigin === 'openfootball-cc0'));
-  }
-
   if (!normalized.length) throw new Error(`All Gasterus public-market sources unavailable: ${warnings.join(' | ') || 'no events'}`);
 
-  // Strictly prefer events that carry REAL market odds (football-data.co.uk
-  // bookmaker averages, or any commercial odds API) over the Gasterus Poisson
-  // model events from OpenFootball. The model is only a fallback for fixtures
-  // no real source covers. This guarantees the sportsbook follows market price
-  // whenever a real-odds source is connected.
-  const isModel = e => e._publicMarketOrigin === 'openfootball-cc0';
   const deduped = new Map();
   for (const event of normalized) {
     const existing = deduped.get(event.id);
     if (!existing) { deduped.set(event.id, event); continue; }
-    if (isModel(existing) && !isModel(event)) deduped.set(event.id, event);
   }
   const earliest = Date.now() - 7 * 24 * 60 * 60 * 1000;
   let events = [...deduped.values()]
@@ -585,8 +593,7 @@ async function loadFresh() {
     .sort((a,b)=>Date.parse(a.startTime)-Date.parse(b.startTime))
     .slice(0, config.publicMarketMaxEvents || DEFAULT_MAX_EVENTS);
 
-  // Football-Data result files enrich matching events when available; OpenFootball
-  // fixtures already carry their own CC0 FT/HT result when a match is completed.
+  // Football-Data result files enrich matching priced events when available.
   try {
     const resultResponse = await requestText(config.publicMarketLatestResultsUrl);
     const results = parseCsv(resultResponse.text || '').map(normalizeResultRow).filter(Boolean);
@@ -625,7 +632,3 @@ export const __publicMarket = {
   parseKickoff, oddsTriplet, total25, handicap, normalizeProbabilities, solveTotalLambda, calibrateLambdas,
   scoreGrid, buildDerivedMarkets, normalizeOpenFootballFixture, normalizeResultRow, mergeResults, seasonCodeForKickoff, resultFileUrl, asianOdds, totalOdds, parseResultDate, discoverCsvUrl, sourceTimestamp, resultFileUrlSeason, pruneStaleResultSeasons, resultFileCache
 };
-
-// Re-used by sportsbook-footballdataio.js to expand real 1X2 odds into the full
-// market set (O/U, HDP, BTTS, DC, CS, ...) using Gasterus's probability engine.
-export { buildDerivedMarkets };

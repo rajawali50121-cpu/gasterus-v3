@@ -22,6 +22,8 @@ const FEED_DETAIL_URL = (id) => `/api/member/sportsbook/events/${encodeURICompon
 // State
 // ---------------------------------------------------------------------------
 let feed = { events: [], stale: false, degraded: false, source: {} };
+let pagination = { hasMore: false, nextCursor: null };
+let loadingMoreEvents = false;
 let selected = new Map(); // selectionKey -> leg payload (betslip)
 let currentSport = 'all';
 let currentLeague = 'all';
@@ -361,7 +363,7 @@ async function loadRestSnapshot() {
     if (!res.ok) { console.warn('[GASTERUS] snapshot http', res.status); return false; }
     const json = await res.json();
     const payload = json?.data || json || null;
-    if (payload && Array.isArray(payload.events) && payload.events.length) {
+    if (payload && Array.isArray(payload.events)) {
       onSnapshot(payload);
       return true;
     }
@@ -433,12 +435,17 @@ function handleFrame(frame) {
 function onSnapshot(snapshot) {
   if (!snapshot || !Array.isArray(snapshot.events)) return;
   const revision = snapshot.source?.feedRevision || '';
+  const previousRevision = feed.source?.feedRevision || '';
+  const revisionChanged = Boolean(previousRevision && revision && previousRevision !== revision);
+  const incomingIds = new Set(snapshot.events.map(event => event.id));
+  const retainedEvents = revisionChanged ? [] : feed.events.filter(event => !incomingIds.has(event.id));
   feed = {
-    events: snapshot.events,
+    events: [...snapshot.events, ...retainedEvents],
     stale: Boolean(snapshot.stale),
     degraded: Boolean(snapshot.degraded),
     source: snapshot.source || {}
   };
+  pagination = snapshot.pagination || { hasMore: false, nextCursor: null };
   if (snapshot.betting) bettingConfig = { ...bettingConfig, ...snapshot.betting };
   syncLiveClocks(feed.events);
   const oddsMovedInFeed = trackOddsMovement(feed.events);
@@ -465,10 +472,12 @@ function onSnapshot(snapshot) {
     }
   }
   renderStatusMeta();
+  renderLoadMore();
 }
 
 function pruneSelections(events) {
   if (!selected.size) return;
+  const eventIds = new Set(events.map(event => String(event.id)));
   const liveKeys = new Set();
   for (const ev of events) {
     for (const mk of ev.markets || []) {
@@ -477,7 +486,8 @@ function pruneSelections(events) {
   }
   let changed = false;
   for (const key of [...selected.keys()]) {
-    if (!liveKeys.has(key)) { selected.delete(key); changed = true; }
+    const eventId = key.slice(0, key.indexOf('|'));
+    if (eventIds.has(eventId) && !liveKeys.has(key)) { selected.delete(key); changed = true; }
   }
   if (changed) { quote = null; renderBetslip(); }
 }
@@ -897,6 +907,56 @@ function bindEventHandlers() {
       return;
     }
   });
+  el('sb-load-more')?.addEventListener('click', loadMoreEvents);
+}
+
+function renderLoadMore() {
+  const button = el('sb-load-more');
+  if (!button) return;
+  button.hidden = !pagination.hasMore;
+  button.disabled = loadingMoreEvents;
+  button.textContent = loadingMoreEvents ? 'Memuat pertandingan…' : 'Muat lebih';
+}
+
+async function loadMoreEvents() {
+  if (loadingMoreEvents || !pagination.nextCursor) return;
+  loadingMoreEvents = true;
+  renderLoadMore();
+  try {
+    const headers = { Accept: 'application/json' };
+    if (api.token) { headers.Authorization = `Bearer ${api.token}`; headers['x-session-token'] = api.token; }
+    const url = `${SNAPSHOT_URL}?cursor=${encodeURIComponent(pagination.nextCursor)}`;
+    const response = await fetch(url, { method: 'GET', credentials: 'include', headers });
+    if (response.status === 409) {
+      pagination = { hasMore: false, nextCursor: null };
+      showToast('Daftar pertandingan diperbarui. Memuat ulang halaman pertama.', 'warning');
+      await loadRestSnapshot();
+      return;
+    }
+    if (!response.ok) throw new Error(`snapshot http ${response.status}`);
+    const json = await response.json();
+    const payload = json?.data || json;
+    if (!Array.isArray(payload?.events)) throw new Error('snapshot tidak valid');
+    if (feed.source?.feedRevision && payload.source?.feedRevision !== feed.source.feedRevision) {
+      pagination = { hasMore: false, nextCursor: null };
+      await loadRestSnapshot();
+      return;
+    }
+    const existingIds = new Set(feed.events.map(event => event.id));
+    const appended = payload.events.filter(event => !existingIds.has(event.id));
+    feed.events = [...feed.events, ...appended];
+    pagination = payload.pagination || { hasMore: false, nextCursor: null };
+    syncLiveClocks(appended);
+    trackOddsMovement(appended);
+    syncSelectedOdds(appended);
+    pruneSelections(feed.events);
+    renderAll();
+  } catch (error) {
+    showToast(error?.message || 'Gagal memuat pertandingan berikutnya.', 'danger');
+  } finally {
+    loadingMoreEvents = false;
+    renderLoadMore();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,7 +1125,7 @@ function findMarket(e, type, period) {
 }
 
 function renderOddCell(e, m, s, lineOverride) {
-  if (!m || !s || s.suspended) {
+  if (!m || m.suspended || !s || s.suspended) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">—</span></div>`;
   }
   const decOdds = Number(s.odds);
@@ -1155,7 +1215,7 @@ function renderMatch(e) {
   const a1x2_1 = b11x2?.selections?.find((s) => /^(away|2)$/i.test(s.key || s.label)) || b11x2?.selections?.[1];
   const d1x2_1 = b11x2?.selections?.find((s) => /^(draw|x)$/i.test(s.key || s.label)) || b11x2?.selections?.[2];
 
-  const extraCount = Math.max((e.markets || []).length - 6, 14);
+  const extraCount = Math.max((e.markets || []).length - 6, 0);
 
   return `
     <article class="sb-match-card" data-evid="${escapeHtml(e.id)}">
@@ -1321,51 +1381,32 @@ function renderMatch(e) {
 }
 
 function renderAccordionMarketRows(e) {
-  const accordionCategories = [
-    { title: 'Ganjil/Genap Babak Penuh', type: 'ODD_EVEN', period: 'FT' },
-    { title: 'Tebak Skor Babak Penuh', type: 'CORRECT_SCORE', period: 'FT' },
-    { title: 'Tebak Skor Babak 1', type: 'CORRECT_SCORE', period: '1H' },
-    { title: 'Total Gol', type: 'TOTALS', period: 'FT' },
-    { title: 'B1/BP', type: 'HT_FT', period: 'FT' },
-    { title: 'Gol Pertama Gol Terakhir', type: 'BTTS', period: 'FT' },
-    { title: 'Kesempatan Ganda', type: 'DOUBLE_CHANCE', period: 'FT' },
-    { title: 'Jumlah Tendangan Sudut - Handicap Babak Penuh', type: 'CORNERS_HDP', period: 'FT' },
-    { title: 'Jumlah Tendangan Sudut - Handicap Babak 1', type: 'CORNERS_HDP', period: '1H' },
-    { title: 'Jumlah Tendangan Sudut - Atas/Bawah Babak Penuh', type: 'CORNERS_OU', period: 'FT' },
-    { title: 'Jumlah Tendangan Sudut - Atas/Bawah Babak 1', type: 'CORNERS_OU', period: '1H' },
-    { title: 'Jumlah Tendangan Sudut - Ganjil/Genap Babak Penuh', type: 'CORNERS_OE', period: 'FT' },
-    { title: 'Jumlah Tendangan Sudut - 1X2 Babak Penuh', type: 'CORNERS_1X2', period: 'FT' },
-    { title: 'Jumlah Tendangan Sudut - 1X2 Babak 1', type: 'CORNERS_1X2', period: '1H' }
-  ];
+  return (e.markets || [])
+    .filter(market => Array.isArray(market.selections) && market.selections.length > 0)
+    .map(market => {
+      const period = String(market.period || 'FT').toUpperCase();
+      const line = market.line === null || market.line === undefined ? '' : ` · ${escapeHtml(String(market.line))}`;
+      const suspended = market.suspended ? ' · Ditangguhkan' : '';
 
-  return accordionCategories.map((cat) => {
-    const market = (e.markets || []).find((m) =>
-      String(m.type || '').toUpperCase() === cat.type &&
-      String(m.period || 'FT').toUpperCase() === cat.period
-    );
-    const selections = market?.selections || [];
-
-    return `
+      return `
       <div class="sb-accordion-row">
         <div class="sb-accordion-header">
-          <span>${escapeHtml(cat.title)}</span>
+          <span>${escapeHtml(market.label || market.type || 'Market')} · ${escapeHtml(period)}${line}${suspended}</span>
           <span class="sb-accordion-arrow">▼</span>
         </div>
         <div class="sb-accordion-body" hidden>
           <div class="sb-accordion-grid">
-            ${selections.length 
-              ? selections.map((s) => `
-                <div style="display:flex; flex-direction:column; gap:2px;">
-                  <span style="font-size:10px; color:#64748b; text-align:center;">${escapeHtml(s.label || s.key)}</span>
-                  ${renderOddCell(e, market, s)}
-                </div>
-              `).join('')
-              : `<div style="font-size:11px; color:#94a3b8; grid-column:1/-1; text-align:center; padding:6px;">Pasaran ditutup atau belum dibuka</div>`}
+            ${market.selections.map(selection => `
+              <div style="display:flex; flex-direction:column; gap:2px;">
+                <span style="font-size:10px; color:#64748b; text-align:center;">${escapeHtml(selection.label || selection.key)}</span>
+                ${renderOddCell(e, market, selection)}
+              </div>
+            `).join('')}
           </div>
         </div>
       </div>
     `;
-  }).join('');
+    }).join('');
 }
 
 function toggleAccordion(eventId) {

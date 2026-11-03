@@ -8,13 +8,9 @@ import {
   iso,
   status
 } from './sportsbook-providers.js';
-import { buildDerivedMarkets } from './sportsbook-public-market.js';
 
 // Gasterus sportsbook provider adapter for footballdata.io.
-// Provides REAL market odds (footballdata.io returns bookmaker 1X2 prices plus
-// match probabilities). The 1X2 market uses the live price; the remaining market
-// set (O/U, HDP, BTTS, DC, CS, ...) is expanded by Gasterus's own probability engine
-// from the 1X2 anchor (reusing public-market's buildDerivedMarkets).
+// Only provider-supplied decimal odds are eligible for the betting feed.
 const PROVIDER = 'footballdata-io';
 const BASE_HOST = 'footballdata.io';
 
@@ -24,14 +20,6 @@ function hash(...parts) {
 function teamKey(value) {
   return clean(value).toLowerCase().normalize('NFKC').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
-function probToOdds(p, marginBps) {
-  const pNum = Number(p) / 100;
-  if (!(pNum > 0)) return null;
-  const margin = Math.max(0.01, Math.min(0.12, (Number(marginBps || 450)) / 10000));
-  const o = Math.round((1 / (pNum * (1 + margin))) * 1000) / 1000;
-  return o > 1 ? o : null;
-}
-
 async function requestJson(url) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.sportsFeedRequestTimeoutMs);
@@ -74,11 +62,8 @@ async function fetchMatches() {
 
 function buildEvent(match) {
   const odds = match.odds || {};
-  const probs = match.probabilities || {};
-  const realHome = Number(odds.home_win) > 1 ? Number(odds.home_win) : probToOdds(probs.home_win, config.publicMarketDerivedMarginBps);
-  const realDraw = Number(odds.draw) > 1 ? Number(odds.draw) : probToOdds(probs.draw, config.publicMarketDerivedMarginBps);
-  const realAway = Number(odds.away_win) > 1 ? Number(odds.away_win) : probToOdds(probs.away_win, config.publicMarketDerivedMarginBps);
-  if (!(realHome > 1 && realDraw > 1 && realAway > 1)) return null;
+  const [realHome, realDraw, realAway] = [odds.home_win, odds.draw, odds.away_win].map(Number);
+  if (![realHome, realDraw, realAway].every(value => Number.isFinite(value) && value > 1)) return null;
 
   const providerId = String(match.match_id);
   const startTime = iso(match.match_date);
@@ -123,10 +108,7 @@ function buildEvent(match) {
   });
   if (!oneXtwo) return null;
 
-  const anchor = { oneXtwo: { home: realHome, draw: realDraw, away: realAway }, total25: null, handicap: null };
-  const derived = config.publicMarketDerivedMarketsEnabled ? buildDerivedMarkets(event.id, anchor, startTime) : [];
-
-  event.markets = [oneXtwo, ...derived].filter(Boolean);
+  event.markets = [oneXtwo];
   event._refs = { [PROVIDER]: providerId };
   event._sources = [PROVIDER];
   event._settlementReadySources = [PROVIDER, 'manual-ops'];

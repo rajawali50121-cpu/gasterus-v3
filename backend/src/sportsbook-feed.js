@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { fetchSharpApi, fetchApiSports, fetchTheOddsApi, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
+import { fetchFootballDataIo } from './sportsbook-footballdataio.js';
 import { fetchPublicMarketFeed } from './sportsbook-public-market.js';
 import { advanceProviderLifecycle, publicProviderLifecycle, shouldProbeProvider, transitionProviderLifecycle } from './sportsbook-provider-lifecycle.js';
 import { recordSportsbookMarketTransitions, recordSportsbookProviderTransitions, sportsbookPricingExposureSnapshot } from './sportsbook-operations.js';
@@ -16,7 +17,7 @@ import { priceVersionChangeCount } from './sportsbook-live-observability.js';
 import { applySportsbookTradingControls, listActiveSportsbookTradingControls, resolveSportsbookTradingPolicy } from './sportsbook-trading-controls.js';
 import { eventSettlementAuthority, settlementAuthoritySummary } from './sportsbook-settlement-authority.js';
 import { enrichTeamArtwork } from './sportsbook-team-artwork.js';
-import { compactMemberMarkets, projectMemberMarkets } from './sportsbook-member-projection.js';
+import { compactMemberMarkets, paginateMemberEvents, projectMemberMarkets } from './sportsbook-member-projection.js';
 
 const MIN_1X2_OVERROUND = 1.00;
 const MAX_1X2_OVERROUND = 1.25;
@@ -307,7 +308,14 @@ function assertSelectionFresh(event, market, selection, feedFetchedAt) {
   // Last-Modified may legitimately be older without making the deterministic quote stale.
   const freshnessTimestamp = source === 'public-market' ? new Date(Number(feedFetchedAt || 0)).toISOString() : (selection?.updatedAt || market?.updatedAt);
   const updatedMs = Date.parse(freshnessTimestamp || '');
-  if (!Number.isFinite(updatedMs)) return;
+  if (!Number.isFinite(updatedMs)) {
+    throw new AppError(409, 'Provider tidak memberi waktu pembaruan harga yang dapat diverifikasi. Market ditahan.', 'SPORTS_PRICE_TIMESTAMP_MISSING', {
+      eventId: event?.id || null,
+      marketId: market?.id || null,
+      selectionId: selection?.key || null,
+      source: source || null
+    });
+  }
   const maxAgeSeconds = source === 'public-market'
     ? config.publicMarketPriceMaxAgeSeconds
     : event?.live ? config.sportsbookMaxLivePriceAgeSeconds : config.sportsbookMaxPrematchPriceAgeSeconds;
@@ -344,8 +352,8 @@ function enabledProviders() {
     { name: 'SharpAPI', code: 'sharpapi', enabled: config.sharpApiEnabled && Boolean(config.sharpApiKey) },
     { name: 'API-Sports', code: 'api-sports', enabled: config.apiSportsEnabled && Boolean(config.apiSportsKey) },
     { name: 'The Odds API', code: 'the-odds-api', enabled: config.theOddsApiEnabled && Boolean(config.theOddsApiKey) },
+    { name: 'FootballData.io', code: 'footballdata-io', enabled: config.footballDataIoEnabled && Boolean(config.footballDataIoKey) },
     { name: 'TheSportsDB', code: 'thesportsdb', enabled: config.theSportsDbEnabled && Boolean(config.theSportsDbKey) },
-    { name: 'FootballData.io', code: 'footballdata-io', enabled: config.footballDataIoEnabled && Boolean(config.footballDataIoKey) }
   ];
 }
 async function readRedisCache() {
@@ -533,7 +541,8 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
     { code: 'public-market', enabled: Boolean(config.publicMarketEnabled), fetcher: fetchPublicMarketFeed },
     { code: 'sharpapi', enabled: config.sharpApiEnabled && Boolean(config.sharpApiKey), fetcher: fetchSharpApi },
     { code: 'api-sports', enabled: config.apiSportsEnabled && Boolean(config.apiSportsKey), fetcher: fetchApiSports },
-    { code: 'the-odds-api', enabled: config.theOddsApiEnabled && Boolean(config.theOddsApiKey), fetcher: fetchTheOddsApi }
+    { code: 'the-odds-api', enabled: config.theOddsApiEnabled && Boolean(config.theOddsApiKey), fetcher: fetchTheOddsApi },
+    { code: 'footballdata-io', enabled: config.footballDataIoEnabled && Boolean(config.footballDataIoKey), fetcher: fetchFootballDataIo }
   ].filter(d => d.enabled);
   const settled = await Promise.all(descriptors.map(descriptor => {
     const lifecycle = previousLifecycle[descriptor.code];
@@ -968,11 +977,17 @@ export async function sportsbookSnapshot(filters = {}, { memberView = true } = {
   const stale = Boolean(feed.readOnlySource || feed.snapshotFallback || !feed.fetchedAt || now - Number(feed.fetchedAt) > STALE_MS);
   const controls = await listActiveSportsbookTradingControls();
   let sourceEvents = filterEvents(feed.events, filters);
+  let pagination = null;
   if (memberView) {
     sourceEvents = sourceEvents
       .filter(event => memberVisibleEvent(event, now))
-      .sort((a, b) => Date.parse(a.startTime || '') - Date.parse(b.startTime || ''))
-      .slice(0, Number(config.sportsbookMemberMaxEvents || 250));
+    const page = paginateMemberEvents(sourceEvents, {
+      cursor: filters.cursor,
+      revision: feed.revision || '',
+      filters
+    });
+    sourceEvents = page.events;
+    pagination = { pageSize: page.pageSize, hasMore: page.hasMore, nextCursor: page.nextCursor };
   }
   const projected = memberView ? sourceEvents.map(memberPublicEvent) : sourceEvents.map(publicEvent);
   const events = applySportsbookTradingControls(projected, controls);
@@ -982,6 +997,7 @@ export async function sportsbookSnapshot(filters = {}, { memberView = true } = {
   const memberHealthy = !stale && !feed.readOnlySource && Number(feed.bettableMarkets || 0) > 0;
   return {
     events,
+    ...(memberView ? { pagination } : {}),
     stale,
     degraded: !memberHealthy,
     source: {
@@ -1196,4 +1212,4 @@ export async function sportsbookSelectionSnapshot({ eventId, marketId, selection
   };
 }
 
-export const __sportsbookFeed = { filterEvents, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, eventSettlementAuthority, settlementAuthoritySummary, compactMemberMarkets, memberPublicEvent, memberPublicEventDetail };
+export const __sportsbookFeed = { filterEvents, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, eventSettlementAuthority, settlementAuthoritySummary, compactMemberMarkets, paginateMemberEvents, memberPublicEvent, memberPublicEventDetail };

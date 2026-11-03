@@ -33,7 +33,6 @@ const seedSlugs = new Set(JSON.parse(read('backend/data/markets.seed.json')).map
 
 const scheduler = await import('../src/toto-draw-scheduler.js');
 const collectorCore = await import('../src/toto-collector-core.js');
-const official = await import('../src/toto-official-source.js');
 
 test('source map adalah kosakata kanonik dan bebas slug typo lama', () => {
   assert.equal(canonicalSlugs.size, 45);
@@ -49,23 +48,6 @@ test('scheduler dan DRAW_SCHEDULE memakai slug yang sama persis dengan source ma
   assert.deepEqual([...draw].filter(s => !canonicalSlugs.has(s)), [], 'DRAW_SCHEDULE punya slug asing');
   assert.equal(sched.length, canonicalSlugs.size);
   assert.equal(draw.length, canonicalSlugs.size);
-});
-
-test('toto-official-source tidak memproduksi slug typo lama', () => {
-  for (const typo of LEGACY_TYPO) {
-    assert.equal(official.OFFICIAL_MARKET_SLUGS.has(typo), false, `${typo} masih diproduksi official source`);
-  }
-});
-
-test('slug pasar member-facing yang diproduksi official source harus kanonik', () => {
-  // Pool yang memang disembunyikan operator boleh tetap slug non-kanonik, tetapi
-  // kalau slug itu hanya salah ejaan dari slug kanonik, itu bug identitas.
-  for (const slug of official.OFFICIAL_MARKET_SLUGS) {
-    const nearMiss = [...canonicalSlugs].some(c => c.replace(/-/g, '') === slug.replace(/-/g, ''));
-    if (nearMiss) {
-      assert.equal(canonicalSlugs.has(slug), true, `${slug} adalah ejaan salah dari slug kanonik`);
-    }
-  }
 });
 
 test('markets.seed.json memuat seluruh 45 slug kanonik dan tanpa slug typo', () => {

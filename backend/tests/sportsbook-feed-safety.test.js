@@ -69,6 +69,33 @@ test('Sportmonks is hard-disabled and cannot be re-enabled by production environ
   assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":"sportmonks","enabled":false,"events":[]}'));
 });
 
+test('The Odds API remains disabled even when production env configures a key and enable flag', () => {
+  const script = `
+    const { config } = await import('./src/config.js');
+    console.log(JSON.stringify({ enabled: config.theOddsApiEnabled }));
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgres://user:password@example.com/db',
+      REDIS_URL: 'redis://example.com:6379',
+      MEMBER_PROXY_SECRET: 'm'.repeat(48),
+      ADMIN_PROXY_SECRET: 'a'.repeat(48),
+      OPS_INTERNAL_SECRET: 'o'.repeat(48),
+      SESSION_HMAC_KEY: 's'.repeat(48),
+      API_KEY_PEPPER: 'p'.repeat(48),
+      MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
+      THE_ODDS_API_ENABLED: 'true',
+      THE_ODDS_API_KEY: 'configured-but-disabled'
+    }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"enabled":false}'));
+});
+
 test('stale Sportsbook feed cache is read-only and cannot be settled', () => {
   assert.match(feed, /sportsbook:aggregated-feed:v14/);
   assert.match(feed, /READ_ONLY_STALE_SOURCE/);

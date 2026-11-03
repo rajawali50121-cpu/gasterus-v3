@@ -1,81 +1,54 @@
-function clean(value) { return String(value ?? '').trim(); }
+import { AppError } from './errors.js';
 
-const MEMBER_LIST_MARKET_CAP = 12;
-const MEMBER_LIST_PRIORITY = Object.freeze([
-  '1X2:FT',
-  'HANDICAP:FT',
-  'TOTALS:FT',
-  '1X2:1H',
-  'HANDICAP:1H',
-  'TOTALS:1H',
-  'BTTS:FT',
-  'DOUBLE_CHANCE:FT',
-  'DRAW_NO_BET:FT',
-  'TEAM_TOTAL:FT',
-  'ODD_EVEN:FT',
-  'HT_FT:FT'
-]);
-
-function totalsPairSpread(market) {
-  if (clean(market?.type).toUpperCase() !== 'TOTALS') return null;
-  const selections = (market?.selections || []).filter(selection => !selection?.suspended && Number(selection?.odds) > 1);
-  const over = selections.find(selection => /^over\b/i.test(clean(selection?.label)));
-  const under = selections.find(selection => /^under\b/i.test(clean(selection?.label)));
-  if (!over || !under) return null;
-  const spread = Math.abs(Number(over.odds) - Number(under.odds));
-  return Number.isFinite(spread) ? spread : null;
-}
-function memberMarketRank(market) {
-  const usable = !market?.suspended && (market?.selections || []).some(selection => !selection?.suspended && Number(selection?.odds) > 1);
-  const mainLine = market?.mainLine === true;
-  const line = Number(market?.line);
-  const lineDistance = Number.isFinite(line) ? Math.abs(line) : 1e9;
-  const isTotals = clean(market?.type).toUpperCase() === 'TOTALS';
-  const pairSpread = isTotals ? totalsPairSpread(market) : null;
-  const noValidPair = isTotals && pairSpread === null ? 1 : 0;
-  return [
-    usable ? 0 : 1,
-    mainLine ? 0 : 1,
-    noValidPair,
-    pairSpread ?? 0,
-    lineDistance,
-    clean(market?.id)
-  ];
-}
-function compareMemberMarkets(left, right) {
-  const a = memberMarketRank(left), b = memberMarketRank(right);
-  for (let index = 0; index < a.length; index += 1) {
-    if (a[index] < b[index]) return -1;
-    if (a[index] > b[index]) return 1;
-  }
-  return 0;
-}
 export function compactMemberMarkets(markets = []) {
-  const groups = new Map();
-  for (const market of markets || []) {
-    const key = `${clean(market?.type).toUpperCase()}:${clean(market?.period || 'FT').toUpperCase()}`;
-    if (!key || key === ':FT') continue;
-    const current = groups.get(key);
-    if (!current || compareMemberMarkets(market, current) < 0) groups.set(key, market);
-  }
-  const selected = [];
-  const used = new Set();
-  for (const key of MEMBER_LIST_PRIORITY) {
-    const market = groups.get(key);
-    if (!market) continue;
-    selected.push(market);
-    used.add(key);
-    if (selected.length >= MEMBER_LIST_MARKET_CAP) return selected;
-  }
-  const remaining = [...groups.entries()]
-    .filter(([key]) => !used.has(key))
-    .sort((a, b) => compareMemberMarkets(a[1], b[1]) || a[0].localeCompare(b[0]));
-  for (const [, market] of remaining) {
-    selected.push(market);
-    if (selected.length >= MEMBER_LIST_MARKET_CAP) break;
-  }
-  return selected;
+  return Array.isArray(markets) ? markets : [];
 }
+
+const MEMBER_PAGE_SIZE = 30;
+const CURSOR_FILTERS = ['sport', 'live', 'q', 'league'];
+
+function normalizedCursorFilters(filters = {}) {
+  return Object.fromEntries(CURSOR_FILTERS.map(key => [key, String(filters[key] ?? '')]));
+}
+function eventCursorKey(event) {
+  const parsed = Date.parse(event?.startTime || '');
+  return { start: Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER, id: String(event?.id || '') };
+}
+function compareCursorKeys(left, right) {
+  return left.start - right.start || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+}
+function encodeMemberCursor(event, revision, filters) {
+  return Buffer.from(JSON.stringify({ v: 1, revision, filters, after: eventCursorKey(event) })).toString('base64url');
+}
+function decodeMemberCursor(cursor, revision, filters) {
+  try {
+    const value = JSON.parse(Buffer.from(String(cursor), 'base64url').toString('utf8'));
+    if (value?.v !== 1 || !value.after || !Number.isSafeInteger(value.after.start) || typeof value.after.id !== 'string') throw new Error('invalid cursor');
+    if (value.revision !== revision) throw new AppError(409, 'Katalog pertandingan berubah. Muat ulang daftar sebelum melanjutkan.', 'SPORTSBOOK_CURSOR_STALE');
+    if (JSON.stringify(value.filters) !== JSON.stringify(filters)) throw new Error('cursor filters changed');
+    return value.after;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError(400, 'Cursor katalog sportsbook tidak valid.', 'SPORTSBOOK_CURSOR_INVALID');
+  }
+}
+
+export function paginateMemberEvents(events = [], { cursor = '', revision = '', filters = {} } = {}) {
+  const normalizedFilters = normalizedCursorFilters(filters);
+  const ordered = [...(Array.isArray(events) ? events : [])].sort((left, right) => compareCursorKeys(eventCursorKey(left), eventCursorKey(right)));
+  const after = cursor ? decodeMemberCursor(cursor, revision, normalizedFilters) : null;
+  const remaining = after ? ordered.filter(event => compareCursorKeys(eventCursorKey(event), after) > 0) : ordered;
+  const candidates = remaining.slice(0, MEMBER_PAGE_SIZE + 1);
+  const hasMore = candidates.length > MEMBER_PAGE_SIZE;
+  const page = candidates.slice(0, MEMBER_PAGE_SIZE);
+  return {
+    events: page,
+    hasMore,
+    nextCursor: hasMore ? encodeMemberCursor(page[page.length - 1], revision, normalizedFilters) : null,
+    pageSize: MEMBER_PAGE_SIZE
+  };
+}
+
 export function projectMemberMarkets(markets = []) {
   return (markets || []).map(market => ({
     id: market.id,
