@@ -163,6 +163,8 @@ function clean(value) {
 const CLOSED_EVENT_STATUSES = new Set(['FINISHED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
 const MAX_FEED_EVENTS = config.sportsFeedMaxEvents;
 const MAX_CACHE_BYTES = config.sportsFeedMaxCacheBytes;
+const MAX_MARKETS_PER_EVENT = 24;
+const CORE_MARKET_KEYS = ['1X2:FT', '1X2:1H', 'HANDICAP:FT', 'HANDICAP:1H', 'TOTALS:FT', 'TOTALS:1H'];
 let lastCacheLimitWarningAt = 0;
 
 function boundedEvents(events = []) {
@@ -174,6 +176,27 @@ function boundedEvents(events = []) {
       return (Date.parse(a?.startTime || '') || Number.MAX_SAFE_INTEGER) - (Date.parse(b?.startTime || '') || Number.MAX_SAFE_INTEGER);
     })
     .slice(0, MAX_FEED_EVENTS);
+}
+
+function capMarketsPerEvent(events = []) {
+  return (Array.isArray(events) ? events : []).map(event => {
+    const markets = Array.isArray(event?.markets) ? event.markets : [];
+    if (markets.length <= MAX_MARKETS_PER_EVENT) return event;
+
+    const retained = new Set();
+    for (const key of CORE_MARKET_KEYS) {
+      const index = markets.findIndex(market => `${market.type}:${market.period}` === key);
+      if (index >= 0) retained.add(index);
+    }
+    for (let index = 0; index < markets.length && retained.size < MAX_MARKETS_PER_EVENT; index += 1) {
+      retained.add(index);
+    }
+
+    return {
+      ...event,
+      markets: [...retained].sort((left, right) => left - right).map(index => markets[index])
+    };
+  });
 }
 
 function cacheWithinLimit(value) {
@@ -603,6 +626,7 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
   // Batasi jumlah event sebelum disimpan ke lifecycle/cache. Ini mencegah lonjakan
   // dari satu sumber provider mengembang tanpa batas di heap proses feed atau payload Redis.
   events = boundedEvents(events);
+  events = capMarketsPerEvent(events);
   // Artwork enrichment dimatikan default (SPORTSBOOK_ARTWORK_ENABLED=false): logo tim
   // adalah metadata-only, tetapi enrichTeamArtwork() melakukan structuredClone SELURUH
   // events + 16 fetch logo per siklus refresh. Odds/settlement tidak membutuhkannya.
@@ -1212,4 +1236,4 @@ export async function sportsbookSelectionSnapshot({ eventId, marketId, selection
   };
 }
 
-export const __sportsbookFeed = { filterEvents, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, eventSettlementAuthority, settlementAuthoritySummary, compactMemberMarkets, paginateMemberEvents, memberPublicEvent, memberPublicEventDetail };
+export const __sportsbookFeed = { filterEvents, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, eventSettlementAuthority, settlementAuthoritySummary, compactMemberMarkets, paginateMemberEvents, capMarketsPerEvent, memberPublicEvent, memberPublicEventDetail };
