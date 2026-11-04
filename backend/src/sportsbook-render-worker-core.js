@@ -262,6 +262,7 @@ export async function buildSportsbookRenderSnapshot({
   if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > MAX_PAGES) {
     throw new Error(`Worker sportsbook maxPages must be an integer between 1 and ${MAX_PAGES}.`);
   }
+  console.info('worker-start ' + JSON.stringify({ version: 'fix/root-causes' }));
   const fetchers = [
     { provider: 'sportmonks', fetch: fetchSportmonks },
     { provider: 'sharpapi', fetch: fetchSharpApi },
@@ -277,6 +278,7 @@ export async function buildSportsbookRenderSnapshot({
       const result = await fetch({ maxEvents, maxPages });
       if (result) providerResults.push(result);
     } catch (error) {
+      console.warn('api-sports-error ' + JSON.stringify({ provider, message: String(error?.message || error).slice(0, 200) }));
       failures.push(`${provider}: ${error?.message || String(error)}`);
     }
   }
@@ -341,5 +343,6 @@ export async function buildSportsbookRenderSnapshot({
       maxPayloadBytes
     }));
   }
+  console.info('snapshot-accepted ' + JSON.stringify({ eventCount: fitted?.eventCount ?? snapshot.eventCount, providers: (fitted?.providerResults || snapshot.providerResults).map(r => ({ provider: r.provider, events: (r.events||[]).length })) }));
   return fitted;
 }
