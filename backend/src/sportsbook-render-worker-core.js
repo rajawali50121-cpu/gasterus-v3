@@ -308,7 +308,20 @@ export async function buildSportsbookRenderSnapshot({
     throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
   }
 
-  const validated = filterValidIngestionEvents(combined.providerResults);
+  let prunedEvents = 0; let prunedMarkets = 0;
+  const prunedResults = combined.providerResults.map(result => ({
+    ...result,
+    events: (result.events || []).map(event => {
+      if (Array.isArray(event.markets) && event.markets.length > 120) {
+        prunedEvents += 1;
+        prunedMarkets += event.markets.length - 120;
+        return { ...event, markets: event.markets.slice(0, 120) };
+      }
+      return event;
+    })
+  }));
+  if (prunedEvents > 0) console.info('sportsbook-ingest-diagnostics ' + JSON.stringify({ prunedEvents, prunedMarkets }));
+  const validated = filterValidIngestionEvents(prunedResults);
   const snapshot = {
     schemaVersion: 1,
     generatedAt: new Date(now ?? Date.now()).toISOString(),
