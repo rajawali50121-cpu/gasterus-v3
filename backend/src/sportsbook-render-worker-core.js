@@ -241,6 +241,7 @@ export async function buildSportsbookRenderSnapshot({
       failures.push(`${provider}: ${error?.message || String(error)}`);
     }
   }
+  console.info('sportsbook-ingest-diagnostics ' + JSON.stringify({ cycle: 'refresh', providers: providerResults.map(r => ({ provider: r.provider, eventsIn: (r.events || []).length })) }));
   if (!providerResults.length) {
     throw new Error(`No sportsbook provider could be fetched; snapshot was not sent. ${failures.join('; ')}`);
   }
