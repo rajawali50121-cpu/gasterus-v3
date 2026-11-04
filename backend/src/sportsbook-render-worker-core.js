@@ -64,6 +64,45 @@ function sameFixture(a, b, teamKey) {
     && Math.abs(kickoffA - kickoffB) <= DUPLICATE_KICKOFF_WINDOW_MS;
 }
 
+function classifyEvent(event, provider) {
+  if (!event || typeof event !== 'object') return 'not_record';
+  if (typeof event.id !== 'string' || !event.id.trim()) return 'bad_id';
+  if (!Array.isArray(event.markets)) return 'bad_markets';
+  return null;
+}
+
+function filterValidIngestionEvents(providerResults) {
+  const diag = { providers: {} };
+  const filtered = providerResults.map(result => {
+    const validEvents = [];
+    const reasons = {};
+    const examples = {};
+    let skipped = 0;
+    for (const event of result.events || []) {
+      const reason = classifyEvent(event, result.provider);
+      if (reason === null) {
+        validEvents.push(event);
+      } else {
+        skipped += 1;
+        reasons[reason] = (reasons[reason] || 0) + 1;
+        if (!examples[reason]) {
+          examples[reason] = JSON.stringify(event).slice(0, 300);
+        }
+      }
+    }
+    diag.providers[result.provider] = {
+      masuk: (result.events || []).length,
+      lolos: validEvents.length,
+      dibuang: skipped,
+      alasan: Object.keys(reasons).map(r => ({ alasan: r, jumlah: reasons[r] })),
+      contoh: Object.keys(examples).map(r => ({ alasan: r, contoh: examples[r] }))
+    };
+    return { ...result, events: validEvents };
+  });
+  console.info('sportsbook-ingest-diagnostics ' + JSON.stringify(diag));
+  return filtered.filter(r => r.events.length > 0);
+}
+
 export function combineSportsbookProviderResults(providerResults, {
   maxEvents = MAX_EVENTS,
   priorityLeagues = [],
@@ -269,10 +308,11 @@ export async function buildSportsbookRenderSnapshot({
     throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
   }
 
+  const validated = filterValidIngestionEvents(combined.providerResults);
   const snapshot = {
     schemaVersion: 1,
     generatedAt: new Date(now ?? Date.now()).toISOString(),
-    providerResults: combined.providerResults,
+    providerResults: validated.length ? validated : combined.providerResults,
     eventCount: combined.eventCount
   };
   // Selaraskan dengan anggaran payload ingest (SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES)

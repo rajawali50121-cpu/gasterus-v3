@@ -564,3 +564,19 @@ test('Worker snapshot freshness starts after provider fetches finish', async () 
 
   assert.ok(Date.parse(snapshot.generatedAt) >= startedAt + 20);
 });
+
+test('diagnostics log shape', async () => {
+  const orig = console.info;
+  let captured = '';
+  console.info = (m) => { captured += m; };
+  const { buildSportsbookRenderSnapshot } = await import('../src/sportsbook-render-worker-core.js');
+  try {
+    await buildSportsbookRenderSnapshot({
+      fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [{ id: '', sport: 'Football', league: 'L', country: null, startTime: new Date(Date.now()+3600000).toISOString(), status: 'SCHEDULED', live: false, home: { name: 'A', score: null, logo: null }, away: { name: 'B', score: null, logo: null }, markets: [], _refs: { sportmonks: 'r' }, _sources: ['sportmonks'] }] }),
+      fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [] }),
+      maxEvents: 100, teamKey: (e) => e.home.name + e.away.name, now: Date.now()
+    });
+  } catch (e) {}
+  console.info = orig;
+  assert.ok(captured.includes('sportsbook-ingest-diagnostics'));
+});
