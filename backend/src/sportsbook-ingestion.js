@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { leagueKey, teamKey } from './sportsbook-providers.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
-const ALLOWED_PROVIDERS = new Set(['sportmonks', 'api-sports', 'the-odds-api', 'sharpapi', 'oddspapi']);
+const ALLOWED_PROVIDERS = new Set(['sportmonks', 'api-sports', 'sharpapi', 'oddspapi']);
 const ALLOWED_STATUSES = new Set(['SCHEDULED', 'LIVE', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
 const MAX_PROVIDER_RESULTS = 4;
 const MAX_EVENTS = 500;

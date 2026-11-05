@@ -14,7 +14,6 @@ function marketIdentity(market) {
 
 const MEMBER_MARKET_SOURCE_LABELS = Object.freeze({
   'api-sports': 'API-Sports',
-  'the-odds-api': 'The Odds API',
   oddspapi: 'OddsPapi',
   sharpapi: 'SharpAPI',
   'public-market': 'Gasterus Market Feed',

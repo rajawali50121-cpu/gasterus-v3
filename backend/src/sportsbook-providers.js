@@ -691,48 +691,6 @@ function isHandicapOddsValid(selections, line) {
   return true;
 }
 
-function oddsApiMarket(event, market, source = 'the-odds-api', bookmaker = null) {
-  const type = marketType(market.key, market.key);
-  const period = periodFromName(market.name || market.key, market.key);
-  const marketLine = market.outcomes?.[0]?.point ?? null;
-  const grouped = new Map();
-  for (const outcome of market.outcomes || []) {
-    const line = outcome.point ?? null;
-    const label = type === '1X2'
-      ? outcome.name === event.home.name ? 'Home' : outcome.name === event.away.name ? 'Away' : /draw/i.test(outcome.name) ? 'Draw' : outcome.name
-      : `${outcome.name}${line !== null ? ` ${line > 0 ? '+' : ''}${line}` : ''}`;
-    const selection = normalizedSelection(event.id, `${market.key}:${line ?? ''}`, label, outcome.price, {
-      line,
-      source,
-      sourceSelectionId: `${bookmaker || source}:${outcome.name}:${line ?? ''}`
-    });
-    if (!selection) continue;
-    const key = `${slug(label)}|${line ?? ''}`;
-    const previous = grouped.get(key);
-    if (!previous || selection.odds > previous.odds) grouped.set(key, selection);
-  }
-  let selections = [...grouped.values()];
-  
-  // Validasi odds handicap - jika tidak valid, return null (hapus market)
-  // Ini mencegah odds 1X2 tercampur ke handicap 0
-  if (type === 'HANDICAP' && (marketLine === 0 || marketLine === null)) {
-    if (!isHandicapOddsValid(selections, marketLine)) {
-      return null; // Hapus market ini - odds tidak valid
-    }
-  }
-  
-  return normalizedMarket(event.id, {
-    key: market.key,
-    name: marketLabel(type, market.name || market.key, market.key),
-    type,
-    period,
-    line: marketLine,
-    selections,
-    source,
-    bookmaker,
-    updatedAt: market.last_update
-  });
-}
 const oddsApiEventDetailCache = new Map();
 let oddsApiEventSportCursor = 0;
 
@@ -884,44 +842,6 @@ async function fetchOddsApiEventMarkets(sportKey, rawEvents, maxEvents = config.
     return { ...event, bookmakers: mergeOddsApiBookmakers(event.bookmakers || [], extra.bookmakers || []) };
   });
 }
-
-function normalizeOddsApiEvent(raw) {
-  const event = normalizedEvent({
-    provider: 'the-odds-api',
-    providerId: raw.id,
-    sport: raw.sport_key,
-    league: raw.sport_title,
-    startTime: raw.commence_time,
-    state: raw.completed ? 'FINISHED' : Date.parse(raw.commence_time) <= Date.now() ? 'LIVE' : 'SCHEDULED',
-    home: raw.home_team,
-    away: raw.away_team
-  });
-  const sourceMarkets = new Map();
-  const preferredBookmakers = commaList(config.theOddsApiBookmakers).map(value => value.toLowerCase());
-  const bookmakerRank = bookmaker => {
-    const index = preferredBookmakers.findIndex(value => bookmaker.toLowerCase() === value || bookmaker.toLowerCase().includes(value));
-    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
-  };
-  for (const bookmaker of raw.bookmakers || []) {
-    for (const market of bookmaker.markets || []) {
-      const bookmakerName = clean(bookmaker.title || bookmaker.name || bookmaker.key, 120);
-      const normalized = oddsApiMarket(event, market, 'the-odds-api', bookmakerName);
-      if (!normalized) continue;
-      const key = marketIdentity(normalized);
-      const impliedTotal = normalized.selections.reduce((sum, selection) => sum + 1 / selection.odds, 0);
-      if (((normalized.type === 'HANDICAP' && normalized.selections.length === 2)
-        || (normalized.type === '1X2' && normalized.selections.length === 3))
-        && (impliedTotal < 1 || impliedTotal > 1.25)) continue;
-      const current = sourceMarkets.get(key);
-      if (!current || impliedTotal < current.impliedTotal ||
-        (impliedTotal === current.impliedTotal && bookmakerRank(bookmaker.key || bookmakerName) < bookmakerRank(current.bookmakerKey))) {
-        sourceMarkets.set(key, { market: normalized, impliedTotal, bookmakerKey: bookmaker.key || bookmakerName });
-      }
-    }
-  }
-  event.markets = [...sourceMarkets.values()].map(item => item.market);
-  return event;
-}
 // --- The Odds API daily quota guard ---
 // Kuota harian dihitung per kredit (sports x siklus x markets x regions).
 // Saat provider membalas 429 feed TIDAK boleh mati: payload terakhir per
@@ -983,85 +903,6 @@ async function cachedOddsApiRequest(sportKey, cacheKey, url) {
   }
 }
 
-export async function fetchTheOddsApi({ maxEvents = config.theOddsApiMaxTotalEvents } = {}) {
-  if (!config.theOddsApiEnabled || !config.theOddsApiKey) return { provider: 'the-odds-api', enabled: false, events: [] };
-  if (!Number.isInteger(maxEvents) || maxEvents < 0 || maxEvents > MAX_PROVIDER_EVENTS) {
-    throw new Error(`The Odds API maxEvents must be an integer between 0 and ${MAX_PROVIDER_EVENTS}.`);
-  }
-  if (maxEvents === 0) return { provider: 'the-odds-api', enabled: true, events: [], errors: [] };
-  const sports = commaList(config.theOddsApiSportKeys);
-  const eventMarketAllocations = allocateOddsApiEventMarkets(sports);
-  const eventMarketErrors = [];
-  const settled = await allSettledWithConcurrency(sports, ODDS_API_SPORT_FETCH_CONCURRENCY, async sportKey => {
-    const url = new URL(`${config.theOddsApiBaseUrl.replace(/\/$/, '')}/sports/${encodeURIComponent(sportKey)}/odds`);
-    url.searchParams.set('apiKey', config.theOddsApiKey);
-    url.searchParams.set('regions', config.theOddsApiRegions);
-    url.searchParams.set('markets', config.theOddsApiMarkets);
-    url.searchParams.set('oddsFormat', 'decimal');
-    url.searchParams.set('dateFormat', 'iso');
-    if (config.theOddsApiBookmakers) url.searchParams.set('bookmakers', config.theOddsApiBookmakers);
-    const cacheKey = `the-odds-api:${sportKey}:${config.theOddsApiRegions}:${config.theOddsApiMarkets}:${config.theOddsApiBookmakers || ''}`;
-    const payload = await cachedOddsApiRequest(sportKey, cacheKey, url);
-    const rawEvents = Array.isArray(payload) ? payload : [];
-    const enriched = await fetchOddsApiEventMarkets(sportKey, rawEvents, eventMarketAllocations.get(sportKey) || 0, eventMarketErrors);
-    logger.info('Odds API sport result', { sportKey, rawEvents: rawEvents.length, normalizedEvents: enriched.length });
-    return enriched.map(normalizeOddsApiEvent);
-  });
-  const events = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []).slice(0, Math.min(MAX_PROVIDER_EVENTS, maxEvents));
-  const errors = [
-    ...settled.filter(result => result.status === 'rejected').map(result => clean(result.reason?.message || 'request failed')),
-    ...eventMarketErrors
-  ];
-  const normalizedCount = settled.reduce((total, result) => total + (result.status === 'fulfilled' ? result.value.length : 0), 0);
-  logger.info('The Odds API fetch completed', {
-    provider: 'the-odds-api',
-    sports: sports.length,
-    normalizedEvents: normalizedCount,
-    returnedEvents: events.length,
-    maxEvents,
-    errors: errors.length,
-    errorSample: errors.slice(0, 3)
-  });
-  return { provider: 'the-odds-api', enabled: true, events, errors };
-}
-
-// --- Sportmonks (v3 football) ---
-// Fixture includes contain full odds payloads, so keep pages small and stream
-// them one at a time; only the best normalized events stay in memory.
-let sportmonksNextRequestAt = 0;
-const SPORTMONKS_PAGE_SIZE = 20;
-const SPORTMONKS_PAGE_MAX_BYTES = 10_000_000;
-const SPORTMONKS_MAX_PAGES_PER_REFRESH = 120;
-const SPORTMONKS_MAX_PAGES_PER_WORKER_REFRESH = 120;
-const SPORTMONKS_CANDIDATE_MULTIPLIER = 1.2;
-const SPORTMONKS_LIVE_STATES = new Set(['1H', 'HT', '2H', 'ET', 'BT', 'P', 'LIVE', 'INT', 'INPLAY']);
-const SPORTMONKS_FINISHED_STATES = new Set(['FT', 'AET', 'PEN', 'FINISHED', 'ENDED']);
-const SPORTMONKS_SUSPENDED_STATES = new Set(['CANCL', 'POSTP', 'SUSP', 'SU', 'ABAND', 'DELAYED', 'CANCELED', 'CANCELLED', 'POSTPONED', 'SUSPENDED', 'ABANDONED']);
-const DEFAULT_SPORTMONKS_PRIORITY_LEAGUES = [
-  'premier league',
-  'la liga',
-  'serie a',
-  'bundesliga',
-  'ligue 1',
-  'uefa champions league',
-  'uefa europa league',
-  'uefa europa conference league',
-  'eredivisie',
-  'primeira liga',
-  'major league soccer'
-];
-
-// Comprehensive football betting markets — every market type with active odds
-// is retained so the sportsbook UI shows full market variety (1X2, Handicap,
-// Totals, HT markets, BTTS, Correct Score, Odd/Even, Corners, Cards, etc.).
-// High-cardinality families (player props, bet builders…) are still excluded.
-function sportmonksState(raw) {
-  const short = clean(raw?.short_name || raw?.name || raw?.state || '', 40).toUpperCase();
-  if (SPORTMONKS_LIVE_STATES.has(short) || /HALF|LIVE/.test(short)) return 'LIVE';
-  if (SPORTMONKS_FINISHED_STATES.has(short)) return 'FINISHED';
-  if (SPORTMONKS_SUSPENDED_STATES.has(short)) return 'SUSPENDED';
-  return 'SCHEDULED';
-}
 function sportmonksStartTime(raw) {
   const timestamp = Number(raw?.starting_at_timestamp);
   if (Number.isFinite(timestamp) && timestamp > 0) return new Date(timestamp * 1000).toISOString();
@@ -1955,14 +1796,12 @@ function marketIdentity(market) {
 function sourcePriority(source, live) {
   if (live) {
     if (source === 'api-sports') return 30;
-    if (source === 'the-odds-api') return 20;
     if (source === 'sportmonks') return 10;
     return 0;
   }
 
   if (source === 'footballdata-io') return 55;
   if (source === 'sharpapi') return 50;
-  if (source === 'the-odds-api') return 45;
   if (source === 'public-market') return 40;
   if (source === 'oddspapi') return 5;
 
@@ -2019,8 +1858,8 @@ function mergeMarkets(target, incoming, live) {
   });
 }
 function mergeEvent(target, incoming) {
-  const targetPriority = target._sources.includes('api-sports') ? 4 : target._sources.includes('sharpapi') ? 3 : target._sources.includes('the-odds-api') ? 2 : 1;
-  const incomingPriority = incoming._sources.includes('api-sports') ? 4 : incoming._sources.includes('sharpapi') ? 3 : incoming._sources.includes('the-odds-api') ? 2 : 1;
+  const targetPriority = target._sources.includes('api-sports') ? 4 : target._sources.includes('sharpapi') ? 3 : 1;
+  const incomingPriority = incoming._sources.includes('api-sports') ? 4 : incoming._sources.includes('sharpapi') ? 3 : 1;
   if (incomingPriority >= targetPriority) {
     target.status = incoming.status;
     target.providerStatus = incoming.providerStatus || target.providerStatus || null;
@@ -2216,7 +2055,6 @@ export const __sportsbookProviders = {
   normalizeSharpApiRows,
   sharpDerivedMarketType,
   sharpMarketGroupKey,
-  normalizeOddsApiEvent,
   normalizeApiSportsFixture,
   normalizeSportsDbEvent,
   normalizeSportmonksFixture,
@@ -2236,7 +2074,6 @@ export const __sportsbookProviders = {
   isTopOddsApiEvent,
   selectOddsApiEnrichmentEvents,
   pruneOddsApiEventDetailCache,
-  oddsApiEventDetailCache,
   theOddsApiQuotaGuard,
   sportmonksCache,
   sportmonksCacheTtlMs,

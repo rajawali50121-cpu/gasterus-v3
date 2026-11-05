@@ -14,7 +14,6 @@ if (existsSync(localEnvFile)) {
 const isProduction = process.env.NODE_ENV === 'production';
 const isSportsbookRenderWorker = process.env.SPORTSBOOK_RENDER_WORKER === 'true';
 const apiSportsKey = optionalSecret('API_SPORTS_KEY') || optionalSecret('API_FOOTBALL_KEY');
-const theOddsApiKey = optionalSecret('THE_ODDS_API_KEY');
 const sharpApiKey = optionalSecret('SHARP_API_KEY');
 const theSportsDbKey = optionalSecret('THESPORTSDB_API_KEY');
 const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
@@ -151,22 +150,8 @@ export const config = Object.freeze({
   sharpApiMaxPages: int('SHARP_API_MAX_PAGES', isProduction ? 5 : 3, 1, 10),
   sharpApiPageSize: int('SHARP_API_PAGE_SIZE', 200, 25, 200),
   sharpApiMainLinesOnly: bool('SHARP_API_MAIN_LINES_ONLY', false),
-  theOddsApiKey,
-  theOddsApiBaseUrl: text('THE_ODDS_API_BASE_URL', 'https://api.the-odds-api.com/v4'),
-  theOddsApiEnabled: pricedProviderEnabled('THE_ODDS_API_ENABLED', theOddsApiKey),
-  theOddsApiRegions: text('THE_ODDS_API_REGIONS', 'eu,uk'),
-  theOddsApiMarkets: text('THE_ODDS_API_MARKETS', 'h2h,spreads,totals'),
-  theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', isProduction && Boolean(theOddsApiKey)),
-  theOddsApiEventMarkets: text('THE_ODDS_API_EVENT_MARKETS', 'h2h_3_way_h1,spreads_h1,totals_h1,btts,btts_h1,double_chance,double_chance_h1,halftime_fulltime'),
-  theOddsApiEventMaxEventsPerSport: int('THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT', 25, 0, 50),
-  theOddsApiEventMaxTotalEvents: int('THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS', 120, 0, 120),
   // Keep the configured provider catalog intact; the feed-level event and Redis byte
   // limits remain the final resource guards for the consolidated snapshot.
-  theOddsApiMaxTotalEvents: int('THE_ODDS_API_MAX_TOTAL_EVENTS', 500, 0, 500),
-  theOddsApiRefreshSeconds: int('THE_ODDS_API_REFRESH_SECONDS', 300, 60, 1800),
-  theOddsApiEventRefreshSeconds: int('THE_ODDS_API_EVENT_REFRESH_SECONDS', 300, 60, 1800),
-  theOddsApiBookmakers: text('THE_ODDS_API_BOOKMAKERS'),
-  theOddsApiSportKeys: text('THE_ODDS_API_SPORT_KEYS', 'soccer_australia_aleague,soccer_austria_bundesliga,soccer_belgium_first_div,soccer_brazil_campeonato,soccer_china_superleague,soccer_conmebol_libertadores,soccer_conmebol_sudamericana,soccer_denmark_superliga,soccer_efl_champ,soccer_england_league1,soccer_england_league2,soccer_fa_cup,soccer_france_ligue_one,soccer_france_ligue_two,soccer_germany_bundesliga,soccer_germany_bundesliga2,soccer_germany_liga3,soccer_greece_super_league,soccer_italy_serie_a,soccer_italy_serie_b,soccer_japan_j_league,soccer_korea_kleague1,soccer_mexico_ligamx,soccer_netherlands_eredivisie,soccer_netherlands_eerste_divisie,soccer_norway_eliteserien,soccer_poland_ekstraklasa,soccer_portugal_primeira_liga,soccer_spain_la_liga,soccer_spain_segunda_division,soccer_sweden_allsvenskan,soccer_switzerland_superleague,soccer_turkey_super_league,soccer_usa_mls,soccer_uefa_champs_league,soccer_uefa_europa_league,soccer_uefa_europa_conference_league'),
   theSportsDbKey,
   theSportsDbBaseUrl: text('THESPORTSDB_BASE_URL', 'https://www.thesportsdb.com/api'),
   theSportsDbEnabled: bool('THESPORTSDB_ENABLED', false),
