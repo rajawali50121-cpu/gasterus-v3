@@ -272,11 +272,11 @@ function threeProviderSnapshot() {
   }
 
   const oddsEvent = JSON.parse(JSON.stringify(base.providerResults[0].events[0]));
-  oddsEvent._refs = { 'the-odds-api': 'provider-event-odds' };
-  oddsEvent._sources = ['the-odds-api'];
+  oddsEvent._refs = { oddspapi: 'provider-event-oddspapi' };
+  oddsEvent._sources = ['oddspapi'];
   for (const market of oddsEvent.markets) {
-    market.source = 'the-odds-api';
-    for (const selection of market.selections) selection.source = 'the-odds-api';
+    market.source = 'oddspapi';
+    for (const selection of market.selections) selection.source = 'oddspapi';
   }
 
   return {
@@ -285,7 +285,7 @@ function threeProviderSnapshot() {
     providerResults: [
       base.providerResults[0],
       { provider: 'sharpapi', enabled: true, events: [sharpEvent] },
-      { provider: 'the-odds-api', enabled: true, events: [oddsEvent] }
+      { provider: 'oddspapi', enabled: true, events: [oddsEvent] }
     ]
   };
 }
@@ -303,7 +303,7 @@ test('accepts a fresh snapshot containing all three allowed providers', async ()
     }
   );
 
-  assert.deepEqual(result.providerResults, ['sportmonks', 'sharpapi', 'the-odds-api']);
+  assert.deepEqual(result.providerResults, ['sportmonks', 'sharpapi', 'oddspapi']);
   assert.equal(result.eventCount, 1);
   assert.equal(stored, true);
 });
