@@ -63,9 +63,9 @@ function event(provider, {
 
 test('Worker requests up to 500 fixtures from the licensed odds adapter', async () => {
   const oddsApi = {
-    provider: 'the-odds-api',
+    provider: 'sharpapi',
     enabled: true,
-    events: Array.from({ length: 300 }, (_, index) => event('the-odds-api', {
+    events: Array.from({ length: 300 }, (_, index) => event('sharpapi', {
       id: `odds-${index}`,
       league: index < 200 ? 'Premier League' : 'Regional League',
       startTime: new Date(NOW + (index + 1) * 60000).toISOString()
@@ -74,7 +74,7 @@ test('Worker requests up to 500 fixtures from the licensed odds adapter', async 
   let oddsApiCalled = false;
   let oddsApiOptions;
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchOddsApi: async options => {
+    fetchSharpApi: async options => {
       oddsApiCalled = true;
       oddsApiOptions = options;
       return oddsApi;
@@ -87,15 +87,15 @@ test('Worker requests up to 500 fixtures from the licensed odds adapter', async 
   assert.equal(oddsApiCalled, true);
   assert.deepEqual(oddsApiOptions, { maxEvents: 500, maxPages: 120 });
   assert.equal(snapshot.eventCount, 300);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['the-odds-api']);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sharpapi']);
   assert.equal(snapshot.providerResults[0].events.length, 300);
 
-  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['the-odds-api']);
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sharpapi']);
 });
 
 test('Worker snapshot signs and validates as a bounded ingestion payload', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'odds-only' })] }),
+    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'odds-only' })] }),
     maxEvents: 300,
     teamKey,
     now: NOW
@@ -112,22 +112,22 @@ test('Worker snapshot signs and validates as a bounded ingestion payload', async
   });
 
   assert.equal(result.eventCount, 1);
-  assert.deepEqual(result.providerResults, ['the-odds-api']);
+  assert.deepEqual(result.providerResults, ['sharpapi']);
   assert.equal(stored.providerResults[0].events[0].id, 'odds-only');
   assert.ok(signed.body.length < 6_291_456);
 });
 
 test('Worker signs and delivers a full 500-fixture snapshot within the payload budget', async () => {
-  const bulk = Array.from({ length: 500 }, (_, index) => event('the-odds-api', {
+  const bulk = Array.from({ length: 500 }, (_, index) => event('sharpapi', {
     id: `bulk-${index}`,
     league: index % 2 ? 'Premier League' : 'Regional League',
     startTime: new Date(NOW + (index + 1) * 60000).toISOString()
   }));
   let requestedOptions;
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchOddsApi: async options => {
+    fetchSharpApi: async options => {
       requestedOptions = options;
-      return { provider: 'the-odds-api', enabled: true, events: bulk };
+      return { provider: 'sharpapi', enabled: true, events: bulk };
     },
     maxEvents: 500,
     maxPayloadBytes: 6_291_456,
@@ -137,7 +137,7 @@ test('Worker signs and delivers a full 500-fixture snapshot within the payload b
 
   assert.deepEqual(requestedOptions, { maxEvents: 500, maxPages: 120 });
   assert.equal(snapshot.eventCount, 500, 'seluruh 500 fixture lolos normalisasi tanpa dedupe keliru');
-  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['the-odds-api']);
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sharpapi']);
 
   const signed = createSportsbookIngestRequest(snapshot, SECRET, { timestamp: Math.floor(NOW / 1000) });
   assert.ok(signed.body.length < 6_291_456, `payload ${signed.body.length} bytes wajib di bawah 6MB`);
@@ -156,7 +156,7 @@ test('Worker signs and delivers a full 500-fixture snapshot within the payload b
   });
 
   assert.equal(result.eventCount, 500);
-  assert.deepEqual(result.providerResults, ['the-odds-api']);
+  assert.deepEqual(result.providerResults, ['sharpapi']);
   assert.equal(stored.providerResults[0].events.length, 500);
 });
 
@@ -167,10 +167,10 @@ test('Worker logs the number of unique fixtures omitted by the 500-event catalog
   let snapshot;
   try {
     snapshot = await buildSportsbookRenderSnapshot({
-      fetchOddsApi: async () => ({
-        provider: 'the-odds-api',
+      fetchSharpApi: async () => ({
+        provider: 'sharpapi',
         enabled: true,
-        events: Array.from({ length: 501 }, (_, index) => event('the-odds-api', { id: `capped-${index}` }))
+        events: Array.from({ length: 501 }, (_, index) => event('sharpapi', { id: `capped-${index}` }))
       }),
       maxEvents: 500,
       teamKey,
@@ -194,7 +194,7 @@ test('Worker logs the number of unique fixtures omitted by the 500-event catalog
 test('Worker fails closed if neither provider returns priced fixtures', async () => {
   await assert.rejects(
     buildSportsbookRenderSnapshot({
-      fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: false, events: [] }),
+      fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: false, events: [] }),
       teamKey
     }),
     /No enabled sportsbook provider returned normalized fixtures/
@@ -206,7 +206,7 @@ test('Worker republishes cached snapshots before their ingestion freshness windo
     fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
   );
   assert.match(workerSource, /sportsbookRenderIntervalSeconds\(config\)/);
-  assert.doesNotMatch(workerSource, /fetchOddsApi|fetchTheOddsApi/);
+  assert.doesNotMatch(workerSource, /fetchTheOddsApi/);
   // Only explicitly selected provider adapters are connected to the worker.
   assert.match(workerSource, /fetchSportmonks/);
   assert.match(workerSource, /fetchSharpApi/);
@@ -269,20 +269,20 @@ test('Worker combines Sportmonks primary with The Odds API fallback in one snaps
       assert.deepEqual(options, { maxEvents: 100, maxPages: 120 });
       return { provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'sm-1', league: 'Premier League' })] };
     },
-    fetchOddsApi: async options => {
-      order.push('the-odds-api');
+    fetchSharpApi: async options => {
+      order.push('sharpapi');
       assert.deepEqual(options, { maxEvents: 100, maxPages: 120 });
-      return { provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'odds-1', league: 'Serie A' })] };
+      return { provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'odds-1', league: 'Serie A' })] };
     },
     maxEvents: 100,
     teamKey,
     now: NOW
   });
 
-  assert.deepEqual(order, ['sportmonks', 'the-odds-api'], 'provider berjalan sekuensial, Sportmonks lebih dulu');
+  assert.deepEqual(order, ['sportmonks', 'sharpapi'], 'provider berjalan sekuensial, Sportmonks lebih dulu');
   assert.equal(snapshot.eventCount, 2);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'the-odds-api']);
-  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'the-odds-api']);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'sharpapi']);
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'sharpapi']);
 });
 
 test('OddsPapi failure leaves Sportmonks and SharpAPI results available', async () => {
@@ -305,7 +305,7 @@ test('Worker bounds the Sportmonks page budget before any provider fetch runs', 
   await assert.rejects(
     buildSportsbookRenderSnapshot({
       fetchSportmonks: async () => { fetched = true; return { provider: 'sportmonks', enabled: true, events: [] }; },
-      fetchOddsApi: async () => { fetched = true; return { provider: 'the-odds-api', enabled: true, events: [] }; },
+      fetchSharpApi: async () => { fetched = true; return { provider: 'sharpapi', enabled: true, events: [] }; },
       maxEvents: 100,
       maxPages: 0,
       teamKey,
@@ -327,7 +327,7 @@ test('Worker keeps active unpriced fixtures in the snapshot as display-only even
         event('sportmonks', { id: 'unpriced-2', league: 'La Liga', markets: [] })
       ]
     }),
-    fetchOddsApi: async () => { throw new Error('quota exhausted'); },
+    fetchSharpApi: async () => { throw new Error('quota exhausted'); },
     maxEvents: 100,
     teamKey,
     now: NOW
@@ -347,10 +347,10 @@ test('Worker prefers the priced copy when the same fixture arrives from two prov
       enabled: true,
       events: [event('sportmonks', { id: 'dup-unpriced', home: 'Alpha', away: 'Beta', markets: [] })]
     }),
-    fetchOddsApi: async () => ({
-      provider: 'the-odds-api',
+    fetchSharpApi: async () => ({
+      provider: 'sharpapi',
       enabled: true,
-      events: [event('the-odds-api', { id: 'dup-priced', home: 'Alpha', away: 'Beta' })]
+      events: [event('sharpapi', { id: 'dup-priced', home: 'Alpha', away: 'Beta' })]
     }),
     maxEvents: 100,
     teamKey,
@@ -360,10 +360,10 @@ test('Worker prefers the priced copy when the same fixture arrives from two prov
   assert.equal(snapshot.providerResults.reduce((count, result) => count + result.events.length, 0), 2,
     'salinan provider dipertahankan agar merge market tidak kehilangan data');
   const [survivor] = mergeProviderEvents(snapshot.providerResults);
-  assert.deepEqual(new Set(survivor._sources), new Set(['sportmonks', 'the-odds-api']));
+  assert.deepEqual(new Set(survivor._sources), new Set(['sportmonks', 'sharpapi']));
   assert.ok(survivor.markets.length > 0, 'market berharga tetap tersedia setelah merge kanonis');
   assert.equal(survivor.markets.length, 1, 'market identik tidak diduplikasi');
-  assert.equal(survivor.markets[0].source, 'the-odds-api');
+  assert.equal(survivor.markets[0].source, 'sharpapi');
   assert.ok(survivor.markets[0].selections.every(selection => selection.source === survivor.markets[0].source));
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
 });
@@ -389,7 +389,7 @@ test('Worker trims oversized snapshots by dropping whole fixtures, never partial
   const maxPayloadBytes = 300_000;
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: fat }),
-    fetchOddsApi: async () => { throw new Error('quota exhausted'); },
+    fetchSharpApi: async () => { throw new Error('quota exhausted'); },
     maxEvents: 100,
     maxPayloadBytes,
     teamKey,
@@ -406,7 +406,7 @@ test('Worker trims oversized snapshots by dropping whole fixtures, never partial
   // Anggaran terlalu kecil untuk satu event utuh must fail explicitly.
   await assert.rejects(buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: fat }),
-    fetchOddsApi: async () => { throw new Error('quota exhausted'); },
+    fetchSharpApi: async () => { throw new Error('quota exhausted'); },
     maxEvents: 100,
     maxPayloadBytes: 12_000,
     teamKey,
@@ -443,14 +443,14 @@ test('Payload trimming keeps provider ownership for every retained duplicate fix
 
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: buildFatEvents('sportmonks') }),
-    fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: buildFatEvents('the-odds-api') }),
+    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: buildFatEvents('sharpapi') }),
     maxEvents: 100,
     maxPayloadBytes: 100_000,
     teamKey,
     now: NOW
   });
   const sportmonksEvents = snapshot.providerResults.find(result => result.provider === 'sportmonks').events;
-  const oddsEvents = snapshot.providerResults.find(result => result.provider === 'the-odds-api').events;
+  const oddsEvents = snapshot.providerResults.find(result => result.provider === 'sharpapi').events;
 
   assert.ok(snapshot.eventCount > 0 && snapshot.eventCount < 80);
   assert.equal(sportmonksEvents.length, snapshot.eventCount);
@@ -458,13 +458,13 @@ test('Payload trimming keeps provider ownership for every retained duplicate fix
   assert.ok(sportmonksEvents.every(item => item.markets.length === 40));
   assert.ok(oddsEvents.every(item => item.markets.length === 40));
   assert.ok(sportmonksEvents.every(item => item._sources[0] === 'sportmonks'));
-  assert.ok(oddsEvents.every(item => item._sources[0] === 'the-odds-api'));
+  assert.ok(oddsEvents.every(item => item._sources[0] === 'sharpapi'));
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, snapshot.eventCount);
 });
 
 test('Payload fitting is a no-op when the snapshot already fits the budget', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'small-1' })] }),
+    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'small-1' })] }),
     maxEvents: 100,
     teamKey,
     now: NOW
@@ -476,38 +476,28 @@ test('Payload fitting is a no-op when the snapshot already fits the budget', asy
 test('Worker keeps publishing when Sportmonks fails (The Odds API fallback survives)', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => { throw new Error('Sportmonks down'); },
-    fetchOddsApi: async () => ({ provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'fallback-1' })] }),
+    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'fallback-1' })] }),
     maxEvents: 100,
     teamKey,
     now: NOW
   });
   assert.equal(snapshot.eventCount, 1);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['the-odds-api']);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sharpapi']);
 });
 
-test('Worker still publishes when The Odds API fails (Sportmonks primary survives)', async () => {
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'primary-1' })] }),
-    fetchOddsApi: async () => { throw new Error('quota exhausted'); },
-    maxEvents: 100,
-    teamKey,
-    now: NOW
-  });
-  assert.equal(snapshot.eventCount, 1);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks']);
-});
+
 
 test('Worker dedupes overlapping fixtures preferring Sportmonks as primary', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'dup', home: 'Alpha', away: 'Beta' })] }),
-    fetchOddsApi: async () => ({
-      provider: 'the-odds-api',
+    fetchSharpApi: async () => ({
+      provider: 'sharpapi',
       enabled: true,
-      events: [event('the-odds-api', {
+      events: [event('sharpapi', {
         id: 'dup-odds', home: 'Alpha', away: 'Beta',
         markets: [{
-          id: 'odds-total', type: 'TOTALS', period: 'FT', source: 'the-odds-api', suspended: false,
-          selections: [{ key: 'over', label: 'Over 2.5', odds: 1.9, suspended: false, source: 'the-odds-api', updatedAt: null }]
+          id: 'odds-total', type: 'TOTALS', period: 'FT', source: 'sharpapi', suspended: false,
+          selections: [{ key: 'over', label: 'Over 2.5', odds: 1.9, suspended: false, source: 'sharpapi', updatedAt: null }]
         }]
       })]
     }),
@@ -518,8 +508,8 @@ test('Worker dedupes overlapping fixtures preferring Sportmonks as primary', asy
   assert.equal(snapshot.eventCount, 1, 'fixture sama dari dua provider tidak boleh ganda');
   const [merged] = mergeProviderEvents(snapshot.providerResults);
   assert.equal(merged._refs.sportmonks, 'provider-dup');
-  assert.equal(merged._refs['the-odds-api'], 'provider-dup-odds');
-  assert.deepEqual(new Set(merged.markets.map(market => market.source)), new Set(['sportmonks', 'the-odds-api']));
+  assert.equal(merged._refs['sharpapi'], 'provider-dup-odds');
+  assert.deepEqual(new Set(merged.markets.map(market => market.source)), new Set(['sportmonks', 'sharpapi']));
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
 });
 
@@ -545,7 +535,7 @@ test('Worker fails closed when every provider fetch throws', async () => {
   await assert.rejects(
     buildSportsbookRenderSnapshot({
       fetchSportmonks: async () => { throw new Error('no key'); },
-      fetchOddsApi: async () => { throw new Error('quota'); },
+      fetchSharpApi: async () => { throw new Error('quota'); },
       teamKey
     }),
     /No sportsbook provider could be fetched/
@@ -555,9 +545,9 @@ test('Worker fails closed when every provider fetch throws', async () => {
 test('Worker snapshot freshness starts after provider fetches finish', async () => {
   const startedAt = Date.now();
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchOddsApi: async () => {
+    fetchSharpApi: async () => {
       await new Promise(resolve => setTimeout(resolve, 30));
-      return { provider: 'the-odds-api', enabled: true, events: [event('the-odds-api', { id: 'fresh-after-fetch' })] };
+      return { provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'fresh-after-fetch' })] };
     },
     teamKey
   });
