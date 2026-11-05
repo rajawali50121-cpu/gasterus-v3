@@ -234,10 +234,13 @@ export async function buildSportsbookRenderSnapshot({
   const failures = [];
   for (const { provider, fetch } of fetchers) {
     if (typeof fetch !== 'function') continue;
+    console.log('FETCH_START ' + provider);
     try {
       const result = await fetch({ maxEvents, maxPages });
       if (result) providerResults.push(result);
+      console.log('FETCH_DONE ' + provider + ' events=' + (result?.events?.length ?? 0));
     } catch (error) {
+      console.log('FETCH_FAIL ' + provider + ' ' + String(error?.message||error).slice(0,200));
       failures.push(`${provider}: ${error?.message || String(error)}`);
     }
   }

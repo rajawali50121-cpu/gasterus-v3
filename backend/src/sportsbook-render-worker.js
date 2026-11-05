@@ -1,3 +1,6 @@
+process.on('uncaughtException', (e) => { console.error('WORKER_UNCAUGHT', e && e.stack ? e.stack : String(e)); process.exit(1); });
+process.on('unhandledRejection', (e) => { console.error('WORKER_UNHANDLED', e && e.stack ? e.stack : String(e)); process.exit(1); });
+console.log('WORKER_BOOT');
 import { randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { sportsbookWorkerStorageAvailable } from './sportsbook-render-worker-runtime.js';
@@ -35,6 +38,7 @@ const [
   import('./sportsbook-render-worker-core.js')
 ]);
 
+console.log('WORKER_IMPORTS_DONE');
 const apiSportsQuotaStore = sportsbookWorkerStorageAvailable()
   ? createPostgresOddsPapiStore({
     providerCode: 'api-sports',
@@ -68,11 +72,16 @@ while (!shutdown.signal.aborted) {
   const cycleStartedAt = Date.now();
   let nextDelayMs = intervalMs;
   try {
+    console.log('CYCLE_START');
+    const withTimeout = (fn, ms, name) => Promise.race([
+      fn(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(name + ' timeout ' + ms + 'ms')), ms))
+    ]);
     const snapshot = await buildSportsbookRenderSnapshot({
-      fetchApiSports: () => fetchApiSports({ quotaStore: apiSportsQuotaStore }),
-      fetchSportmonks,
-      fetchSharpApi,
-      fetchOddsPapi,
+      fetchApiSports: () => withTimeout(() => fetchApiSports({ quotaStore: apiSportsQuotaStore }), 20000, 'api-sports'),
+      fetchSportmonks: () => withTimeout(() => fetchSportmonks({ maxEvents: config.sportsbookRenderMaxEvents, maxPages: config.sportsbookRenderMaxPages }), 20000, 'sportmonks'),
+      fetchSharpApi: () => withTimeout(() => fetchSharpApi({}), 20000, 'sharpapi'),
+      fetchOddsPapi: () => withTimeout(() => fetchOddsPapi({}), 20000, 'oddspapi'),
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
       maxPayloadBytes: config.sportsbookIngestMaxPayloadBytes,
