@@ -112,6 +112,26 @@ test('accepts OddsPapi as an additional provider without changing event source o
   assert.deepEqual(accepted.providerResults, ['oddspapi']);
 });
 
+test('accepts merged events that carry multiple provider sources', async () => {
+  const payload = snapshot();
+  const event = payload.providerResults[0].events[0];
+  event._refs = { sportmonks: 'merged-sm-1', sharpapi: 'merged-sh-1' };
+  event._sources = ['sportmonks', 'sharpapi'];
+  for (const market of event.markets) {
+    for (const selection of market.selections) selection.source = 'sportmonks';
+  }
+  const signed = signedRequest(payload);
+  const accepted = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => {}
+    }
+  );
+  assert.deepEqual(accepted.providerResults, ['sportmonks']);
+});
+
 test('accepts active display-only events that carry no priced markets yet', async () => {
   const payload = snapshot();
   payload.providerResults[0].events.push({

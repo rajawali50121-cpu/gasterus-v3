@@ -1889,6 +1889,11 @@ export const __sportsbookProviders = {
   apiSportsQuotaFloorSeconds,
   suspendStaleLiveMarkets,
   providerRequestCache,
+  sportmonksCache,
+  sportmonksCacheTtlMs,
+  sportmonksRetryState,
+  sportmonksLiveCache,
+  sportmonksLiveRetryState,
 };
 
 // Builder helpers shared by provider adapters so every provider emits the exact

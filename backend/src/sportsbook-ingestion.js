@@ -111,7 +111,7 @@ function validateEvent(event, provider) {
     if (!isRecord(event.away) || !requiredString(event.away.name, 120)) problems.push(`away=${JSON.stringify(event?.away)}`);
     if (!Array.isArray(event.markets) || event.markets.length > MAX_MARKETS_PER_EVENT) problems.push(`markets type/len=${JSON.stringify(event?.markets)?.slice?.(0, 60)}`);
     if (!isRecord(event._refs) || !requiredString(event._refs[provider], 160)) problems.push(`refs=${JSON.stringify(event?._refs)}`);
-    if (!Array.isArray(event._sources) || event._sources.length !== 1 || event._sources[0] !== provider) problems.push(`sources=${JSON.stringify(event?._sources)}`);
+    if (!Array.isArray(event._sources) || !event._sources.includes(provider)) problems.push(`sources=${JSON.stringify(event?._sources)}`);
   }
   if (problems.length) {
     invalid(`Event ${String(event?.id || '').slice(0, 40)} tidak memiliki struktur normalisasi yang valid (${provider}: ${problems.join(', ')}.`);
