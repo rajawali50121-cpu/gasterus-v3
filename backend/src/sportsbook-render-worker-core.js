@@ -271,9 +271,47 @@ export async function buildSportsbookRenderSnapshot({
     throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
   }
 
+  function isValidEvent(e, provider) {
+    if (!e || typeof e !== 'object') return false;
+    if (typeof e.id !== 'string' || !e.id.trim()) return false;
+    if (typeof e.sport !== 'string' || !e.sport.trim()) return false;
+    if (typeof e.league !== 'string' || !e.league.trim()) return false;
+    if (e.country !== null && (typeof e.country !== 'string' || !e.country.trim())) return false;
+    if (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime))) return false;
+    if (!['SCHEDULED','LIVE','FINISHED','SUSPENDED','CANCELLED','CANCELED','ABANDONED','POSTPONED','VOID'].includes(e.status)) return false;
+    if (typeof e.live !== 'boolean') return false;
+    if (!e.home || typeof e.home.name !== 'string' || !e.home.name.trim()) return false;
+    if (!e.away || typeof e.away.name !== 'string' || !e.away.name.trim()) return false;
+    if (!Array.isArray(e.markets)) return false;
+    if (!e._refs || typeof e._refs[provider] !== 'string' || !e._refs[provider].trim()) return false;
+    if (!Array.isArray(e._sources) || e._sources.length !== 1 || e._sources[0] !== provider) return false;
+    for (const m of e.markets) {
+      if (!m || typeof m.id !== 'string' || !m.id.trim()) return false;
+      if (typeof m.type !== 'string' || !m.type.trim()) return false;
+      if (typeof m.period !== 'string' || !m.period.trim()) return false;
+      if (m.source !== provider) return false;
+      if (typeof m.suspended !== 'boolean') return false;
+      if (!Array.isArray(m.selections) || m.selections.length === 0) return false;
+      for (const sel of m.selections) {
+        if (!sel || typeof sel.key !== 'string' || !sel.key.trim()) return false;
+        if (typeof sel.label !== 'string' || !sel.label.trim()) return false;
+        if (!Number.isFinite(sel.odds) || sel.odds <= 1) return false;
+        if (typeof sel.suspended !== 'boolean') return false;
+        if (sel.source !== provider) return false;
+      }
+    }
+    return true;
+  }
   const normalizedResults = combined.providerResults.map(result => ({
+
     ...result,
-    events: (result.events || []).map(event => ({
+    events: (result.events || []).filter(event => {
+      if (!isValidEvent(event, result.provider)) {
+        console.warn('EVENT_DROP ' + JSON.stringify({ provider: result.provider, id: event?.id, reason: 'invalid-structure' }));
+        return false;
+      }
+      return true;
+    }).map(event => ({
       ...event,
       _sources: [result.provider],
       _refs: (event._refs && event._refs[result.provider]) ? { [result.provider]: event._refs[result.provider] } : event._refs
