@@ -56,3 +56,15 @@ test('FINAL mobile frontend bootstraps REST snapshot and reconnects SSE with bou
   assert.match(js,/backoff = Math\.min\(backoff \* 1\.6, 15000\)/);
   assert.match(js,/connectStream\(generation\)/);
 });
+
+
+test('FINAL mobile member market projection strips provider/source telemetry',()=>{
+  const output=projectMemberMarkets([{...market('m1','1X2','FT',null,{mainLine:true}),source:'sharpapi',bookmaker:'book-a'}]);
+  assert.equal(output.length,1);
+  assert.equal('provider' in output[0],false);
+  assert.equal('sourceMarketId' in output[0],false);
+  assert.equal(output[0].sourceLabel,'SharpAPI');
+  assert.equal(output[0].bookmaker,'book-a');
+  assert.equal('provider' in output[0].selections[0],false);
+  assert.deepEqual(Object.keys(output[0].selections[0]).sort(),['key','label','line','odds','priceVersion','suspended'].sort());
+});
