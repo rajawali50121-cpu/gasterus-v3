@@ -271,10 +271,18 @@ export async function buildSportsbookRenderSnapshot({
     throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
   }
 
+  const normalizedResults = combined.providerResults.map(result => ({
+    ...result,
+    events: (result.events || []).map(event => ({
+      ...event,
+      _sources: [result.provider],
+      _refs: (event._refs && event._refs[result.provider]) ? { [result.provider]: event._refs[result.provider] } : event._refs
+    }))
+  }));
   const snapshot = {
     schemaVersion: 1,
     generatedAt: new Date(now ?? Date.now()).toISOString(),
-    providerResults: combined.providerResults,
+    providerResults: normalizedResults,
     eventCount: combined.eventCount
   };
   // Selaraskan dengan anggaran payload ingest (SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES)
