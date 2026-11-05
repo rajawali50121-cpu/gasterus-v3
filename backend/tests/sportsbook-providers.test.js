@@ -541,17 +541,17 @@ test('API-Sports preserves bookmaker labels while selecting coherent odds per ma
 });
 
 test('API-Sports settlement authority unlocks merged FT prices', () => {
-  const oddsEvent = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-authority', sport_key: 'soccer_epl', sport_title: 'Premier League', commence_time: '2026-08-07T12:00:00Z',
-    home_team: 'Liverpool', away_team: 'Everton',
-    bookmakers: [{ key: 'book-a', markets: [{ key: 'h2h', outcomes: [{ name: 'Liverpool', price: 1.7 }, { name: 'Draw', price: 3.8 }, { name: 'Everton', price: 5.1 }] }] }]
-  });
+  const sharpEvent = __sportsbookProviders.normalizeSharpApiRows([
+    { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-h', market_type: 'moneyline', market_segment: 'full_game', selection: 'Liverpool', selection_type: 'home', odds_decimal: 1.7, line: null },
+    { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-d', market_type: 'moneyline', market_segment: 'full_game', selection: 'Draw', selection_type: 'draw', odds_decimal: 3.8, line: null },
+    { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-a', market_type: 'moneyline', market_segment: 'full_game', selection: 'Everton', selection_type: 'away', odds_decimal: 5.1, line: null }
+  ], { maxEvents: 1 })[0];
   const apiEvent = __sportsbookProviders.normalizeApiSportsFixture({
     fixture: { id: 9911, date: '2026-08-07T12:00:00Z', status: { short: 'NS' } },
     league: { name: 'Premier League', country: 'England' },
     teams: { home: { name: 'Liverpool' }, away: { name: 'Everton' } }, goals: { home: null, away: null }
   });
-  const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }, { events: [apiEvent] }]);
+  const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharpEvent] }, { events: [apiEvent] }]);
   assert.ok(merged._sources.includes('api-sports'));
   assert.ok(merged.markets.some(market => market.period === 'FT' && !market.suspended));
 });
@@ -592,13 +592,13 @@ test('Sportmonks halftime authority keeps valid FT and 1H odds active while non-
   }, finished), { status: 'LOST', resultValue: 'HT 0-0' });
 
   const untrusted = structuredClone(sportmonks);
-  untrusted._sources = ['api-sports'];
-  untrusted._settlementReadySources = ['api-sports'];
+  untrusted._sources = ['sharpapi'];
+  untrusted._settlementReadySources = ['sharpapi'];
   for (const market of untrusted.markets) {
-    market.source = 'api-sports';
-    for (const selection of market.selections) selection.source = 'api-sports';
+    market.source = 'sharpapi';
+    for (const selection of market.selections) selection.source = 'sharpapi';
   }
-  const [nonAuthority] = __sportsbookProviders.mergeProviderEvents([{ provider: 'api-sports', events: [untrusted] }]);
+  const [nonAuthority] = __sportsbookProviders.mergeProviderEvents([{ provider: 'sharpapi', events: [untrusted] }]);
   assert.ok(nonAuthority.markets.every(market => market.suspended && market.selections.every(selection => selection.suspended)));
   assert.equal(eventSettlementAuthority(nonAuthority).ht, false);
 });

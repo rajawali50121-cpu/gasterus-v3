@@ -343,8 +343,8 @@ test('groups configured tournaments into requests of at most three and observes 
     state
   });
   const oddsCalls = api.urls.filter(url => url.pathname.endsWith('/odds-by-tournaments'));
-  assert.deepEqual(oddsCalls.map(url => url.searchParams.get('tournamentIds')), ['11,12,13', '14']);
-  assert.ok(oddsCalls.every(url => url.searchParams.get('tournamentIds').split(',').length <= 3));
+  assert.deepEqual(oddsCalls.map(url => url.searchParams.get('tournamentIds')), ['11,12', '13,14']);
+  assert.ok(oddsCalls.every(url => url.searchParams.get('tournamentIds').split(',').length <= 2));
   assert.equal(result.events.length, 4);
   assert.ok(delays.some(delay => delay >= 2000), 'fixtures endpoint observes its documented 2-second cooldown');
   assert.ok(delays.some(delay => delay >= 1000));
@@ -372,10 +372,10 @@ test('discovers fixture-backed tournaments to maximize coverage within the eight
   const selectedIds = oddsCalls.flatMap(url => url.searchParams.get('tournamentIds').split(','));
   assert.equal(api.urls.length, 8);
   assert.equal(oddsCalls.length, 5);
-  assert.equal(selectedIds.length, 15);
+  assert.equal(selectedIds.length, 10);
   assert.ok(selectedIds.includes('1'), 'configured tournament is prioritized');
   assert.ok(selectedIds.includes('16'), 'tournament with the most upcoming fixtures is discovered');
-  assert.equal(result.events.length, 18);
+  assert.equal(result.events.length, 13);
 });
 
 test('rejects a configured tournament list larger than the safe daily free-tier capacity', async () => {

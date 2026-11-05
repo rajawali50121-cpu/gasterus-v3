@@ -30,7 +30,7 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
   assert.equal(railwayWorkerEnv('DATABASE_URL'), '${{web.DATABASE_URL}}');
   assert.equal(railwayWorkerEnv('REDIS_URL'), '${{web.REDIS_URL}}');
-  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), 'false');
+  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), 'true');
   assert.match(workerServiceBlock, /ODDSPAPI_API_KEY:\s*preserve\(\)/);
   assert.match(workerServiceBlock, /ODDSPAPI_BASE_URL:\s*preserve\(\)/);
   assert.equal(railwayWorkerEnv('ODDSPAPI_DAILY_REQUEST_BUDGET'), '8');
