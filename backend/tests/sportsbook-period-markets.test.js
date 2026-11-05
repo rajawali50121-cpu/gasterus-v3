@@ -45,7 +45,7 @@ test('provider merger keeps HT priced market bettable only when API-Sports resul
   const oddsEvent = {
     id: 'odds-safety', sport: 'Football', league: 'Premier League', country: 'England', startTime: '2026-08-11T12:00:00Z', status: 'SCHEDULED', live: false,
     home: { name: 'Arsenal', score: null, logo: null }, away: { name: 'Chelsea', score: null, logo: null },
-    markets: [{ id: 'm', type: '1X2', period: '1H', source: 'book-a', suspended: true, selections: [{ key: 'k', label: 'Home', odds: 2.2, suspended: false, source: 'book-a', updatedAt: null }] }],
+    markets: [{ id: 'm', type: '1X2', period: '1H', source: 'book-a', suspended: false, selections: [{ key: 'k', label: 'Home', odds: 2.2, suspended: false, source: 'book-a', updatedAt: null }] }],
     _refs: {}, _sources: ['sharpapi']
   };
   const withoutScoreProvider = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }]);
