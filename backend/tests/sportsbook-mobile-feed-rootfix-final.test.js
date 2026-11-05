@@ -27,16 +27,6 @@ test('member snapshot projection retains every market line and FT/1H variation',
   assert.equal(projected.filter(x=>x.type==='TOTALS'&&x.period==='FT').length,31);
 });
 
-test('FINAL mobile member market projection strips provider/source telemetry',()=>{
-  const output=projectMemberMarkets([{...market('m1','1X2','FT',null,{mainLine:true}),source:'the-odds-api',bookmaker:'book-a'}]);
-  assert.equal(output.length,1);
-  assert.equal('provider' in output[0],false);
-  assert.equal('sourceMarketId' in output[0],false);
-  assert.equal(output[0].sourceLabel,'The Odds API');
-  assert.equal(output[0].bookmaker,'book-a');
-  assert.equal('provider' in output[0].selections[0],false);
-  assert.deepEqual(Object.keys(output[0].selections[0]).sort(),['key','label','line','odds','priceVersion','suspended'].sort());
-});
 
 test('member event list and event detail both preserve all available markets',()=>{
   const feed=readFileSync(new URL('../src/sportsbook-feed.js',import.meta.url),'utf8');

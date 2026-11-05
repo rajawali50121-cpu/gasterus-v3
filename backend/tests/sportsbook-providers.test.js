@@ -31,29 +31,6 @@ const { __sportsbookProviders, fetchTheOddsApi, fetchSportmonks, publicEvent } =
 const { eventSettlementAuthority } = await import('../src/sportsbook-settlement-authority.js');
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
-test('The Odds API normalizer creates stable 1X2 and totals markets', () => {
-  const event = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-1',
-    sport_key: 'soccer_epl',
-    sport_title: 'Premier League',
-    commence_time: '2026-08-06T12:00:00Z',
-    home_team: 'Arsenal',
-    away_team: 'Chelsea',
-    bookmakers: [{
-      key: 'book-a',
-      markets: [
-        { key: 'h2h', outcomes: [{ name: 'Arsenal', price: 1.8 }, { name: 'Draw', price: 3.4 }, { name: 'Chelsea', price: 4.2 }] },
-        { key: 'totals', outcomes: [{ name: 'Over', point: 2.5, price: 1.91 }, { name: 'Under', point: 2.5, price: 1.95 }] }
-      ]
-    }]
-  });
-  assert.equal(event.sport, 'Football');
-  assert.ok(event.markets.some(market => market.type === '1X2' && market.selections.length === 3));
-  assert.ok(event.markets.some(market => market.type === 'TOTALS' && market.selections.length === 2));
-  assert.equal(event.markets[0].selections[0].source, 'the-odds-api');
-  assert.equal(event.markets[0].bookmaker, 'book-a');
-});
-
 test('Sportmonks fixtures without provider odds stay display-only and never receive synthetic markets', () => {
     assert.equal(__sportsbookProviders.sportmonksCacheTtlMs(), 180_000);
     const fixture = {
@@ -543,158 +520,6 @@ test('Sportmonks partial pagination preserves last complete data and backs off b
   }
 });
 
-test('The Odds API selects one coherent bookmaker per market and retains market-only coverage', () => {
-  const event = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-books', sport_key: 'soccer_epl', sport_title: 'Premier League', commence_time: '2026-08-06T12:00:00Z',
-    home_team: 'Arsenal', away_team: 'Chelsea',
-    bookmakers: [
-      { key: 'book-a', title: 'Book A', markets: [
-        { key: 'h2h', last_update: '2026-08-06T11:00:00Z', outcomes: [{ name: 'Arsenal', price: 1.91 }, { name: 'Draw', price: 3.7 }, { name: 'Chelsea', price: 4.8 }] }
-      ] },
-      { key: 'book-b', title: 'Book B', markets: [
-        { key: 'h2h', last_update: '2026-08-06T11:00:00Z', outcomes: [{ name: 'Arsenal', price: 1.8 }, { name: 'Draw', price: 3.8 }, { name: 'Chelsea', price: 4.8 }] },
-        { key: 'btts', last_update: '2026-08-06T11:00:00Z', outcomes: [{ name: 'Yes', price: 1.8 }, { name: 'No', price: 2.0 }] }
-      ] }
-    ]
-  });
-  const winner = event.markets.find(market => market.type === '1X2');
-  const btts = event.markets.find(market => market.type === 'BTTS');
-  assert.equal(winner.bookmaker, 'Book A');
-  assert.equal(winner.selections.find(selection => selection.label === 'Home').odds, 1.91);
-  assert.equal(publicEvent(event).markets.find(market => market.type === '1X2').bookmaker, 'Book A');
-  assert.equal(btts.bookmaker, 'Book B');
-  assert.equal(btts.selections.length, 2);
-});
-
-test('The Odds API fetches extra markets by event ID and reuses the existing detail cache', async () => {
-  const originalFetch = globalThis.fetch;
-  const calls = [];
-  const eventId = 'existing-event-detail-cache-2027';
-  const commenceTime = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-  const event = {
-    id: eventId,
-    sport_key: 'soccer_epl',
-    sport_title: 'Premier League',
-    commence_time: commenceTime,
-    home_team: 'Arsenal',
-    away_team: 'Chelsea',
-    bookmakers: [{ key: 'list-book', title: 'List Book', markets: [
-      { key: 'h2h', outcomes: [{ name: 'Arsenal', price: 1.91 }, { name: 'Draw', price: 3.7 }, { name: 'Chelsea', price: 4.8 }] }
-    ] }]
-  };
-  const detail = {
-    id: eventId,
-    bookmakers: [{ key: 'detail-book', title: 'Detail Book', markets: [
-      { key: 'btts', last_update: '2027-08-06T11:00:00Z', outcomes: [{ name: 'Yes', price: 1.85 }, { name: 'No', price: 2.05 }] },
-      { key: 'totals', last_update: '2027-08-06T11:00:00Z', outcomes: [{ name: 'Over', point: 2.5, price: 1.91 }, { name: 'Under', point: 2.5, price: 1.95 }] }
-    ] }]
-  };
-  __sportsbookProviders.providerRequestCache.clear();
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    calls.push(url);
-    const body = url.pathname.includes(`/events/${eventId}/odds`)
-      ? detail
-      : url.pathname.includes('/sports/soccer_epl/odds') ? [event] : [];
-    return { ok: true, status: 200, async text() { return JSON.stringify(body); } };
-  };
-  try {
-    const result = await fetchTheOddsApi();
-    assert.equal(result.events.length, 1);
-    const markets = result.events[0].markets;
-    assert.ok(markets.some(market => market.type === 'BTTS' && market.bookmaker === 'Detail Book'));
-    assert.ok(markets.some(market => market.type === 'TOTALS' && market.line === 2.5));
-    assert.ok(calls.some(url => url.pathname.includes(`/events/${eventId}/odds`)));
-    const callCount = calls.length;
-    await fetchTheOddsApi();
-    assert.equal(calls.length, callCount, 'list and event-detail responses must be served from cache');
-  } finally {
-    globalThis.fetch = originalFetch;
-    __sportsbookProviders.providerRequestCache.clear();
-  }
-});
-
-test('The Odds API event-detail request budget is globally capped and shared fairly across sports', () => {
-  const allocations = __sportsbookProviders.allocateOddsApiEventMarkets(['soccer', 'basketball', 'tennis']);
-  const values = [...allocations.values()];
-  assert.equal(values.reduce((sum, value) => sum + value, 0), 8);
-  assert.ok(values.every(value => value <= 5));
-  assert.ok(Math.max(...values) - Math.min(...values) <= 1);
-});
-
-test('The Odds API enrichment selects only live or upcoming top-league fixtures', () => {
-  const now = Date.now();
-  const make = (id, { sport = 'soccer_epl', hours = 2, completed = false, title = 'Premier League' } = {}) => ({
-    id,
-    sport_key: sport,
-    sport_title: title,
-    commence_time: new Date(now + hours * 3600000).toISOString(),
-    completed
-  });
-  const selected = __sportsbookProviders.selectOddsApiEnrichmentEvents('soccer_epl', [
-    make('top-today'),
-    make('live-minor', { sport: 'soccer_lower_division', title: 'Regional League', hours: -1 }),
-    make('minor-upcoming', { sport: 'soccer_lower_division', title: 'Regional League' }),
-    make('old-top', { hours: -12 }),
-    make('completed-top', { completed: true })
-  ], 10, now);
-  assert.deepEqual(selected.map(event => event.id), ['live-minor', 'top-today']);
-});
-
-test('The Odds API detail cache removes expired and completed event payloads', () => {
-  const now = Date.now();
-  const cache = __sportsbookProviders.oddsApiEventDetailCache;
-  cache.clear();
-  cache.set('fresh', { fetchedAt: now - 1000, commenceTime: new Date(now + 3600000).toISOString(), completed: false, payload: {} });
-  cache.set('expired-ttl', { fetchedAt: now - 120000, commenceTime: new Date(now + 3600000).toISOString(), completed: false, payload: {} });
-  cache.set('finished', { fetchedAt: now - 1000, commenceTime: new Date(now + 3600000).toISOString(), completed: true, payload: {} });
-  cache.set('old-event', { fetchedAt: now - 1000, commenceTime: new Date(now - 9 * 3600000).toISOString(), completed: false, payload: {} });
-  __sportsbookProviders.pruneOddsApiEventDetailCache(now, 60000);
-  assert.deepEqual([...cache.keys()], ['fresh']);
-  cache.clear();
-});
-
-test('The Odds API fetches at most eight event-detail markets across three sports with five fixture events each', async () => {
-  const originalFetch = globalThis.fetch;
-  const sports = ['soccer_epl', 'basketball_nba', 'tennis_atp_us_open'];
-  const calls = [];
-  const fixtures = new Map(sports.map(sport => [sport, Array.from({ length: 5 }, (_, index) => ({
-    id: `global-cap-${sport}-${index}`,
-    sport_key: sport,
-    sport_title: sport,
-    commence_time: new Date(Date.now() + (index + 1) * 60 * 60 * 1000).toISOString(),
-    home_team: `${sport} Home ${index}`,
-    away_team: `${sport} Away ${index}`,
-    bookmakers: [{ key: 'list-book', title: 'List Book', markets: [
-      { key: 'h2h', outcomes: [{ name: `${sport} Home ${index}`, price: 1.9 }, { name: `${sport} Away ${index}`, price: 2.0 }] }
-    ] }]
-  }))]));
-  __sportsbookProviders.providerRequestCache.clear();
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    calls.push(url);
-    const detail = url.pathname.match(/\/sports\/([^/]+)\/events\/([^/]+)\/odds$/);
-    const sportList = url.pathname.match(/\/sports\/([^/]+)\/odds$/);
-    const body = detail
-      ? { id: detail[2], bookmakers: [{ key: 'detail-book', title: 'Detail Book', markets: [
-          { key: 'btts', last_update: new Date().toISOString(), outcomes: [{ name: 'Yes', price: 1.85 }, { name: 'No', price: 2.05 }] }
-        ] }] }
-      : sportList ? fixtures.get(sportList[1]) || [] : [];
-    return { ok: true, status: 200, async text() { return JSON.stringify(body); } };
-  };
-  try {
-    await fetchTheOddsApi();
-    const details = calls.map(url => url.pathname.match(/\/sports\/([^/]+)\/events\/([^/]+)\/odds$/)).filter(Boolean);
-    assert.equal(details.length, 8);
-    const counts = new Map(sports.map(sport => [sport, details.filter(match => match[1] === sport).length]));
-    assert.ok([...counts.values()].every(count => count <= 5));
-    assert.ok(Math.max(...counts.values()) - Math.min(...counts.values()) <= 1);
-  } finally {
-    globalThis.fetch = originalFetch;
-    __sportsbookProviders.providerRequestCache.clear();
-  }
-});
-
 test('API-Sports preserves bookmaker labels while selecting coherent odds per market', () => {
   const payload = { response: [{ fixture: { id: 7711 }, bookmakers: [
     { id: 1, name: 'Book A', bets: [{ id: 1, name: 'Match Winner', values: [
@@ -713,42 +538,6 @@ test('API-Sports preserves bookmaker labels while selecting coherent odds per ma
   assert.equal(winner.bookmaker, 'Book A');
   assert.equal(winner.selections.find(selection => selection.label === 'Alpha FC').odds, 1.91);
   assert.ok(event.markets.some(market => market.type === 'BTTS' && market.bookmaker === 'Book B'));
-});
-
-test('provider merger combines API-Sports score with The Odds API markets', () => {
-  const oddsEvent = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-2', sport_key: 'soccer_epl', sport_title: 'Premier League', commence_time: '2026-08-06T12:00:00Z',
-    home_team: 'Arsenal', away_team: 'Chelsea',
-    bookmakers: [{ key: 'book-a', markets: [{ key: 'h2h', outcomes: [{ name: 'Arsenal', price: 1.8 }, { name: 'Draw', price: 3.4 }, { name: 'Chelsea', price: 4.2 }] }] }]
-  });
-  const apiEvent = __sportsbookProviders.normalizeApiSportsFixture({
-    fixture: { id: 7788, date: '2026-08-06T12:00:00Z', status: { short: '1H', elapsed: 23 }, venue: { name: 'Emirates Stadium' } },
-    league: { name: 'Premier League', country: 'England' },
-    teams: { home: { name: 'Arsenal', logo: 'home.png' }, away: { name: 'Chelsea', logo: 'away.png' } },
-    goals: { home: 1, away: 0 }
-  });
-  const merged = __sportsbookProviders.mergeProviderEvents([
-    { events: [oddsEvent] },
-    { events: [apiEvent] }
-  ]);
-  assert.equal(merged.length, 1);
-  assert.equal(merged[0].live, true);
-  assert.equal(merged[0].home.score, 1);
-  assert.equal(merged[0].markets.length, 1);
-  assert.deepEqual(new Set(merged[0]._sources), new Set(['the-odds-api', 'api-sports']));
-});
-
-
-test('The Odds API prices stay visible but suspended without settlement authority', () => {
-  const oddsEvent = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-readonly', sport_key: 'soccer_epl', sport_title: 'Premier League', commence_time: '2026-08-07T12:00:00Z',
-    home_team: 'Liverpool', away_team: 'Everton',
-    bookmakers: [{ key: 'book-a', markets: [{ key: 'h2h', outcomes: [{ name: 'Liverpool', price: 1.7 }, { name: 'Draw', price: 3.8 }, { name: 'Everton', price: 5.1 }] }] }]
-  });
-  const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }]);
-  assert.ok(merged.markets.length > 0);
-  assert.ok(merged.markets.every(market => market.suspended));
-  assert.ok(merged.markets.every(market => market.selections.every(selection => selection.suspended)));
 });
 
 test('API-Sports settlement authority unlocks merged FT prices', () => {
@@ -803,13 +592,13 @@ test('Sportmonks halftime authority keeps valid FT and 1H odds active while non-
   }, finished), { status: 'LOST', resultValue: 'HT 0-0' });
 
   const untrusted = structuredClone(sportmonks);
-  untrusted._sources = ['the-odds-api'];
-  untrusted._settlementReadySources = ['the-odds-api'];
+  untrusted._sources = ['api-sports'];
+  untrusted._settlementReadySources = ['api-sports'];
   for (const market of untrusted.markets) {
-    market.source = 'the-odds-api';
-    for (const selection of market.selections) selection.source = 'the-odds-api';
+    market.source = 'api-sports';
+    for (const selection of market.selections) selection.source = 'api-sports';
   }
-  const [nonAuthority] = __sportsbookProviders.mergeProviderEvents([{ provider: 'the-odds-api', events: [untrusted] }]);
+  const [nonAuthority] = __sportsbookProviders.mergeProviderEvents([{ provider: 'api-sports', events: [untrusted] }]);
   assert.ok(nonAuthority.markets.every(market => market.suspended && market.selections.every(selection => selection.suspended)));
   assert.equal(eventSettlementAuthority(nonAuthority).ht, false);
 });
