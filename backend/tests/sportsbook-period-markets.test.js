@@ -18,11 +18,12 @@ const { __sportsbookProviders } = await import('../src/sportsbook-providers.js')
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
 test('provider merger keeps HT priced market bettable only when API-Sports result source is attached', () => {
-  const oddsEvent = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-safety', sport_key: 'soccer_epl', sport_title: 'Premier League', commence_time: '2026-08-11T12:00:00Z',
-    home_team: 'Arsenal', away_team: 'Chelsea',
-    bookmakers: [{ key: 'book-a', markets: [{ key: 'h2h_3_way_h1', outcomes: [{ name: 'Arsenal', price: 2.2 }, { name: 'Draw', price: 2.1 }, { name: 'Chelsea', price: 4.6 }] }] }]
-  });
+  const oddsEvent = {
+    id: 'odds-safety', sport: 'Football', league: 'Premier League', country: 'England', startTime: '2026-08-11T12:00:00Z', status: 'SCHEDULED', live: false,
+    home: { name: 'Arsenal', score: null, logo: null }, away: { name: 'Chelsea', score: null, logo: null },
+    markets: [{ id: 'm', type: '1X2', period: '1H', source: 'book-a', suspended: true, selections: [{ key: 'k', label: 'Home', odds: 2.2, suspended: false, source: 'book-a', updatedAt: null }] }],
+    _refs: {}, _sources: ['sharpapi']
+  };
   const withoutScoreProvider = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }]);
   assert.equal(withoutScoreProvider[0].markets[0].suspended, true);
 
