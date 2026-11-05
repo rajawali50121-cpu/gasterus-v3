@@ -12,10 +12,6 @@ const SPORTMONKS_PAGE_SIZE = 20;
 const SPORTMONKS_PAGE_MAX_BYTES = 2_621_440;
 const SPORTMONKS_CANDIDATE_MULTIPLIER = 1.2;
 const DEFAULT_SPORTMONKS_PRIORITY_LEAGUES = ['Premier League', 'La Liga', 'Serie A', 'Bundesliga', 'Ligue 1', 'UEFA Champions League', 'UEFA Europa League', 'UEFA Europa Conference League', 'Eredivisie', 'Primeira Liga', 'Major League Soccer'];
-const MAX_ODDS_API_DETAIL_CACHE_ENTRIES = 100;
-const ODDS_API_DETAIL_CACHE_TTL_MULTIPLIER = 2;
-const ODDS_API_DETAIL_FETCH_CONCURRENCY = 4;
-const ODDS_API_SPORT_FETCH_CONCURRENCY = 4;
 const MARKET_TYPES = Object.freeze({
   h2h: '1X2',
   moneyline: '1X2',
@@ -698,217 +694,12 @@ function isHandicapOddsValid(selections, line) {
   return true;
 }
 
-const oddsApiEventDetailCache = new Map();
-let oddsApiEventSportCursor = 0;
-
-function allocateOddsApiEventMarkets(sports) {
-  const allocations = new Map(sports.map(sport => [sport, 0]));
-  const perSportLimit = Math.max(0, Number(config.theOddsApiEventMaxEventsPerSport) || 0);
-  let remaining = Math.min(
-    Math.max(0, Number(config.theOddsApiEventMaxTotalEvents) || 0),
-    sports.length * perSportLimit
-  );
-  if (!sports.length || !remaining || !perSportLimit) return allocations;
-
-  const start = oddsApiEventSportCursor % sports.length;
-  while (remaining > 0) {
-    let allocated = false;
-    for (let offset = 0; offset < sports.length && remaining > 0; offset += 1) {
-      const sport = sports[(start + offset) % sports.length];
-      if (allocations.get(sport) >= perSportLimit) continue;
-      allocations.set(sport, allocations.get(sport) + 1);
-      remaining -= 1;
-      allocated = true;
-    }
-    if (!allocated) break;
-  }
-  oddsApiEventSportCursor = (start + 1) % sports.length;
-  return allocations;
-}
-
 const TOP_LEAGUE_TOKENS = [
   'premier league', 'epl', 'la liga', 'serie a', 'bundesliga', 'ligue 1',
   'champions league', 'europa league', 'eredivisie', 'primeira liga',
   'major league soccer', ' mls', 'nba', 'wnba', 'nhl', 'nfl', 'mlb',
   'atp', 'wta', 'us open', 'wimbledon', 'roland garros', 'australian open'
 ];
-
-function isLiveOddsApiEvent(event, now = Date.now()) {
-  if (event?.completed) return false;
-  const kickoff = Date.parse(event?.commence_time || '');
-  return Number.isFinite(kickoff) && kickoff <= now && now - kickoff <= 8 * 60 * 60 * 1000;
-}
-
-function isTopOddsApiEvent(sportKey, event) {
-  const label = String(event?.sport_title || sportKey).toLowerCase();
-  return TOP_LEAGUE_TOKENS.some(token => label.includes(token));
-}
-
-function selectOddsApiEnrichmentEvents(sportKey, events, limit, now = Date.now()) {
-  return events
-    .filter(event => event?.id && !event.completed
-      && (isLiveOddsApiEvent(event, now) || isTopOddsApiEvent(sportKey, event))
-      && Number.isFinite(Date.parse(event.commence_time || ''))
-      && Date.parse(event.commence_time) >= now - 8 * 60 * 60 * 1000
-      && Date.parse(event.commence_time) <= now + 30 * 86400000)
-    .sort((a, b) => {
-      const aLive = isLiveOddsApiEvent(a, now), bLive = isLiveOddsApiEvent(b, now);
-      if (aLive !== bLive) return Number(bLive) - Number(aLive);
-      const aTop = isTopOddsApiEvent(sportKey, a), bTop = isTopOddsApiEvent(sportKey, b);
-      if (aTop !== bTop) return Number(bTop) - Number(aTop);
-      return (Date.parse(a.commence_time || '') || Number.MAX_SAFE_INTEGER)
-        - (Date.parse(b.commence_time || '') || Number.MAX_SAFE_INTEGER);
-    })
-    .slice(0, limit);
-}
-
-function pruneOddsApiEventDetailCache(now, ttlMs) {
-  for (const [key, entry] of oddsApiEventDetailCache) {
-    const kickoff = Date.parse(entry?.commenceTime || '');
-    if (!entry || !Number.isFinite(Number(entry.fetchedAt))
-      || now - entry.fetchedAt >= ttlMs
-      || entry.completed
-      || (Number.isFinite(kickoff) && kickoff < now - 8 * 60 * 60 * 1000)) {
-      oddsApiEventDetailCache.delete(key);
-    }
-  }
-  if (oddsApiEventDetailCache.size <= MAX_ODDS_API_DETAIL_CACHE_ENTRIES) return;
-  const oldestFirst = [...oddsApiEventDetailCache.entries()]
-    .sort((a, b) => a[1].fetchedAt - b[1].fetchedAt);
-  for (const [key] of oldestFirst.slice(0, oddsApiEventDetailCache.size - MAX_ODDS_API_DETAIL_CACHE_ENTRIES)) {
-    oddsApiEventDetailCache.delete(key);
-  }
-}
-
-function mergeOddsApiBookmakers(base = [], extra = []) {
-  const byBook = new Map();
-  for (const bookmaker of [...base, ...extra]) {
-    if (!bookmaker || typeof bookmaker !== 'object') continue;
-    const key = clean(bookmaker.key || bookmaker.title || bookmaker.name || 'bookmaker');
-    const current = byBook.get(key) || { ...bookmaker, markets: [] };
-    const marketMap = new Map((current.markets || []).map(market => [market.key, market]));
-    for (const market of bookmaker.markets || []) {
-      const existing = marketMap.get(market.key);
-      if (!existing || Date.parse(market.last_update || '') >= Date.parse(existing.last_update || '')) marketMap.set(market.key, market);
-    }
-    current.markets = [...marketMap.values()];
-    byBook.set(key, current);
-  }
-  return [...byBook.values()];
-}
-
-async function fetchOddsApiEventMarkets(sportKey, rawEvents, maxEvents = config.theOddsApiEventMaxEventsPerSport, errors = []) {
-  const markets = commaList(config.theOddsApiEventMarkets);
-  if (!config.theOddsApiEventMarketsEnabled || !markets.length || !rawEvents.length || !maxEvents) return rawEvents;
-  const eventLimit = Math.max(0, Math.min(Number(maxEvents) || 0, config.theOddsApiEventMaxEventsPerSport));
-  const refreshMs = config.theOddsApiEventRefreshSeconds * 1000;
-  const now = Date.now();
-  pruneOddsApiEventDetailCache(now, refreshMs * ODDS_API_DETAIL_CACHE_TTL_MULTIPLIER);
-  const selected = selectOddsApiEnrichmentEvents(sportKey, rawEvents, eventLimit, now);
-  const extras = new Map();
-  let nextIndex = 0;
-  const fetchEventMarkets = async () => {
-    while (nextIndex < selected.length) {
-      const event = selected[nextIndex++];
-      const cacheKey = `${sportKey}:${event.id}:${markets.join(',')}:${config.theOddsApiRegions}:${config.theOddsApiBookmakers || ''}`;
-      const cached = oddsApiEventDetailCache.get(cacheKey);
-      if (cached && Date.now() - cached.fetchedAt < refreshMs) {
-        extras.set(event.id, cached.payload);
-        continue;
-      }
-      try {
-        const url = new URL(`${config.theOddsApiBaseUrl.replace(/\/$/, '')}/sports/${encodeURIComponent(sportKey)}/events/${encodeURIComponent(event.id)}/odds`);
-        url.searchParams.set('apiKey', config.theOddsApiKey);
-        url.searchParams.set('regions', config.theOddsApiRegions);
-        url.searchParams.set('markets', markets.join(','));
-        url.searchParams.set('oddsFormat', 'decimal');
-        url.searchParams.set('dateFormat', 'iso');
-        if (config.theOddsApiBookmakers) url.searchParams.set('bookmakers', config.theOddsApiBookmakers);
-        const payload = await requestJson(url, { label: 'The Odds API event markets' });
-        if (payload && typeof payload === 'object') {
-          oddsApiEventDetailCache.set(cacheKey, {
-            fetchedAt: Date.now(),
-            commenceTime: event.commence_time || null,
-            completed: Boolean(event.completed),
-            payload
-          });
-          pruneOddsApiEventDetailCache(Date.now(), refreshMs * ODDS_API_DETAIL_CACHE_TTL_MULTIPLIER);
-          extras.set(event.id, payload);
-        }
-      } catch (error) {
-        const failure = String(error?.message || '').match(/HTTP \d{3}/)?.[0] || 'network request failed';
-        errors.push(`The Odds API event-market enrichment failed for ${event.id}: ${failure}`);
-      }
-    }
-  };
-  const concurrency = Math.min(ODDS_API_DETAIL_FETCH_CONCURRENCY, selected.length);
-  await Promise.all(Array.from({ length: concurrency }, () => fetchEventMarkets()));
-  return rawEvents.map(event => {
-    const extra = extras.get(event.id);
-    if (!extra) return event;
-    return { ...event, bookmakers: mergeOddsApiBookmakers(event.bookmakers || [], extra.bookmakers || []) };
-  });
-}
-// --- The Odds API daily quota guard ---
-// Kuota harian dihitung per kredit (sports x siklus x markets x regions).
-// Saat provider membalas 429 feed TIDAK boleh mati: payload terakhir per
-// sport disajikan kembali, guard floor menahan retry supaya tidak membanjiri
-// provider, dan normalisasi tetap berjalan sehingga snapshot ke Railway tetap
-// hidup. Harga yang menua tetap ditutup fail-closed oleh jendela
-// SPORTSBOOK_MAX_PREMATCH_PRICE_AGE_SECONDS / LIVE di feed — ini murni
-// ketersediaan feed, bukan perpanjangan usia harga.
-const ODDS_API_QUOTA_BACKOFF_SECONDS = 1800;
-const oddsApiStalePayloads = new Map();
-const theOddsApiQuotaGuard = {
-  floorUntil: 0,
-  backoffSeconds: ODDS_API_QUOTA_BACKOFF_SECONDS,
-  stalePayloads: oddsApiStalePayloads,
-  reset() {
-    theOddsApiQuotaGuard.floorUntil = 0;
-    oddsApiStalePayloads.clear();
-  }
-};
-
-function rememberOddsApiStalePayload(sportKey, payload) {
-  if (!Array.isArray(payload)) return;
-  ensureBoundedCacheCapacity(oddsApiStalePayloads, sportKey, config.sportsProviderCacheMaxEntries);
-  setBoundedCacheEntry(oddsApiStalePayloads, sportKey, payload, {
-    fetchedAt: Date.now(),
-    expiresAt: Date.now() + 24 * 3600 * 1000,
-    maxEntryBytes: config.sportsProviderCacheMaxEntryBytes,
-    maxTotalBytes: config.sportsProviderCacheMaxTotalBytes,
-    maxEntries: config.sportsProviderCacheMaxEntries
-  });
-}
-
-// setBoundedCacheEntry menyimpan entri berbentuk { value, fetchedAt, ... };
-// payload mentah yang dibutuhkan normalisasi ada di .value.
-function oddsApiStalePayload(sportKey) {
-  const entry = oddsApiStalePayloads.get(sportKey);
-  if (Array.isArray(entry)) return entry;
-  return Array.isArray(entry?.value) ? entry.value : [];
-}
-
-async function cachedOddsApiRequest(sportKey, cacheKey, url) {
-  if (Date.now() < theOddsApiQuotaGuard.floorUntil) {
-    // Kuota harian habis: sajikan payload terakhir tanpa menyentuh provider.
-    return oddsApiStalePayload(sportKey);
-  }
-  try {
-    const payload = await cachedRequest(cacheKey, config.theOddsApiRefreshSeconds * 1000, () => requestJson(url, { label: 'The Odds API' }));
-    rememberOddsApiStalePayload(sportKey, payload);
-    return payload;
-  } catch (error) {
-    if (!String(error?.message || '').includes('HTTP 429') && Number(error?.status) !== 429) throw error;
-    theOddsApiQuotaGuard.floorUntil = Date.now() + ODDS_API_QUOTA_BACKOFF_SECONDS * 1000;
-    logger.warn('The Odds API daily quota reached; serving cached payload', {
-      sportKey,
-      backoffSeconds: ODDS_API_QUOTA_BACKOFF_SECONDS,
-      stale: oddsApiStalePayloads.has(sportKey)
-    });
-    return oddsApiStalePayload(sportKey);
-  }
-}
 
 function sportmonksStartTime(raw) {
   const timestamp = Number(raw?.starting_at_timestamp);
@@ -957,38 +748,6 @@ function sportmonksPeriodScores(scores) {
     else if (description === '2ND HALF') out['2H'] = { home: number(score.home), away: number(score.away) };
   }
   return out;
-}
-
-function normalizeOddsApiEvent(raw) {
-  // Backward compatibility alias
-  const providerId = clean(raw?.id || raw?.event_id, 180);
-  if (!providerId) return null;
-  const home = clean(raw?.home_team || raw?.teams?.[0] || raw?.home?.name, 120);
-  const away = clean(raw?.away_team || raw?.teams?.[1] || raw?.away?.name, 120);
-  if (!home || !away) return null;
-  const startTime = raw?.commence_time || raw?.start_time || raw?.starts_at || raw?.commenceTime;
-  const isoStart = iso(startTime);
-  if (!isoStart) return null;
-  const league = clean(raw?.sport_title || raw?.league || raw?.competition || 'Other', 120);
-  const sport = clean(raw?.sport_key?.startsWith('soccer') ? 'Football' : raw?.sport || 'Football', 80);
-  const ev = normalizedEvent({
-    provider: raw?._provider || 'odds-api',
-    providerId,
-    sport,
-    league,
-    country: clean(raw?.country, 80) || '',
-    startTime: isoStart,
-    state: 'SCHEDULED',
-    providerStatus: null,
-    home,
-    away,
-    homeScore: null,
-    awayScore: null
-  });
-  const p = raw?._provider || 'odds-api';
-  ev._settlementReadySources = [p];
-  ev._sources = [p];
-  return ev;
 }
 
 function sportmonksState(raw) {
@@ -2130,18 +1889,6 @@ export const __sportsbookProviders = {
   apiSportsQuotaFloorSeconds,
   suspendStaleLiveMarkets,
   providerRequestCache,
-  allocateOddsApiEventMarkets,
-  isLiveOddsApiEvent,
-  isTopOddsApiEvent,
-  selectOddsApiEnrichmentEvents,
-  pruneOddsApiEventDetailCache,
-  theOddsApiQuotaGuard,
-  sportmonksCache,
-  sportmonksCacheTtlMs,
-  sportmonksRetryState,
-  sportmonksLiveCache,
-  sportmonksLiveRetryState,
-  normalizeOddsApiEvent
 };
 
 // Builder helpers shared by provider adapters so every provider emits the exact

@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { AppError } from './errors.js';
 import { redis } from './redis.js';
 import { logger } from './logger.js';
-import { fetchSportmonks, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
+import { fetchSportmonks, fetchSharpApi, fetchApiSports, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
 import { resolveSportsbookProviderResults } from './sportsbook-feed-source.js';
 import { appendFeedRevision, readFeedRevision, paginateEvents, SPORTSBOOK_FEED_REVISIONS_KEY } from './sportsbook-feed-revisions.js';
 import { advanceProviderLifecycle, publicProviderLifecycle, shouldProbeProvider, transitionProviderLifecycle } from './sportsbook-provider-lifecycle.js';
@@ -435,8 +435,28 @@ function bettableMarketCount(events = []) {
 function providerHasPricedMarkets(result) {
   return Boolean(result?.enabled && !result?.stale && pricedMarketCount(result.events || []) > 0);
 }
+// enabledProviders() returns the LIVE provider descriptors that the core feed
+// pipeline may fetch directly. It is intentionally a config-driven allowlist:
+// every provider that has a real fetcher in sportsbook-providers.js and an
+// enabled flag must appear here, otherwise performRefresh() throws
+// SPORTS_PROVIDERS_NOT_CONFIGURED and the whole feed goes read-only.
+// The render worker is a SEPARATE process that builds its own snapshot via
+// sportsbook-render-worker-core.js; it is not constrained by this list.
 function enabledProviders() {
-  return [{ name: 'Sportmonks', code: 'sportmonks', enabled: Boolean(config.sportmonksEnabled && config.sportmonksKey) }];
+  const descriptors = [];
+  if (config.sportmonksEnabled && config.sportmonksKey) {
+    descriptors.push({ name: 'Sportmonks', code: 'sportmonks', enabled: true, fetcher: fetchSportmonks });
+  }
+  if (config.sharpApiEnabled && config.sharpApiKey) {
+    descriptors.push({ name: 'SharpAPI', code: 'sharpapi', enabled: true, fetcher: fetchSharpApi });
+  }
+  if (config.apiSportsEnabled && config.apiSportsKey) {
+    descriptors.push({ name: 'API-Sports', code: 'api-sports', enabled: true, fetcher: fetchApiSports });
+  }
+  if (config.oddsPapiEnabled && config.oddsPapiKey) {
+    descriptors.push({ name: 'OddsPapi', code: 'oddspapi', enabled: true, fetcher: null });
+  }
+  return descriptors;
 }
 
 // ---------------------------------------------------------------------------
@@ -829,9 +849,9 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
       if (!configured.some(provider => provider.enabled)) {
         throw new AppError(503, 'Tidak ada snapshot worker valid atau provider sportsbook lokal terkonfigurasi.', 'SPORTS_PROVIDERS_NOT_CONFIGURED');
       }
-      const descriptors = [
-        { code: 'sportmonks', enabled: true, fetcher: fetchSportmonks }
-      ].filter(d => d.enabled);
+      const descriptors = configured
+        .filter(d => d.enabled && typeof d.fetcher === 'function')
+        .map(d => ({ code: d.code, enabled: true, fetcher: d.fetcher }));
       return Promise.all(descriptors.map(descriptor => {
         const lifecycle = previousLifecycle[descriptor.code];
         if (descriptor.enabled && lifecycle?.state === 'OPEN_CIRCUIT' && !shouldProbeProvider(lifecycle)) {

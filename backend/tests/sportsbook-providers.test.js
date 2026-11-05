@@ -27,7 +27,7 @@ Object.assign(process.env, {
   THE_ODDS_API_SPORT_KEYS: 'soccer_epl,basketball_nba,tennis_atp_us_open'
 });
 
-const { __sportsbookProviders, fetchTheOddsApi, fetchSportmonks, publicEvent } = await import('../src/sportsbook-providers.js');
+const { __sportsbookProviders, fetchSportmonks, publicEvent } = await import('../src/sportsbook-providers.js');
 const { eventSettlementAuthority } = await import('../src/sportsbook-settlement-authority.js');
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 

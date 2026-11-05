@@ -211,6 +211,7 @@ test('Worker republishes cached snapshots before their ingestion freshness windo
   assert.match(workerSource, /fetchSportmonks/);
   assert.match(workerSource, /fetchSharpApi/);
   assert.match(workerSource, /fetchApiSports/);
+  assert.match(workerSource, /fetchOddsPapi/);
 });
 
 test('API-Sports quota storage failure does not block the providers already serving the feed', async () => {
@@ -234,22 +235,22 @@ test('Worker cadence follows the fastest enabled provider without exceeding inge
     sportmonksOddsRefreshSeconds: 180,
     sharpApiEnabled: true,
     sharpApiRefreshSeconds: 45,
-    theOddsApiEnabled: true,
-    theOddsApiRefreshSeconds: 720
+    oddsPapiEnabled: true,
+    oddsPapiRefreshSeconds: 720
   }), 45);
   assert.equal(sportsbookRenderIntervalSeconds({
     sportsbookIngestMaxAgeSeconds: 180,
     sportmonksEnabled: true,
     sportmonksRefreshSeconds: 300,
     sportmonksOddsRefreshSeconds: 180,
-    theOddsApiEnabled: true,
-    theOddsApiRefreshSeconds: 720
+    oddsPapiEnabled: true,
+    oddsPapiRefreshSeconds: 720
   }), 90);
   assert.equal(sportsbookRenderIntervalSeconds({
     sportsbookIngestMaxAgeSeconds: 120,
     sharpApiEnabled: false,
     sportmonksEnabled: false,
-    theOddsApiEnabled: false
+    oddsPapiEnabled: false
   }), 60);
   assert.equal(sportsbookRenderIntervalSeconds({
     sportsbookIngestMaxAgeSeconds: 180,
@@ -257,11 +258,11 @@ test('Worker cadence follows the fastest enabled provider without exceeding inge
     sportmonksRefreshSeconds: 300,
     sportmonksOddsRefreshSeconds: 180,
     sportmonksLiveRefreshSeconds: 30,
-    theOddsApiEnabled: false
+    oddsPapiEnabled: false
   }), 30);
 });
 
-test('Worker combines Sportmonks primary with The Odds API fallback in one snapshot', async () => {
+test('Worker combines Sportmonks primary with SharpAPI fallback in one snapshot', async () => {
   const order = [];
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async options => {
@@ -473,7 +474,7 @@ test('Payload fitting is a no-op when the snapshot already fits the budget', asy
   assert.equal(fitSnapshotToPayloadBudget(snapshot, null), snapshot);
 });
 
-test('Worker keeps publishing when Sportmonks fails (The Odds API fallback survives)', async () => {
+test('Worker keeps publishing when Sportmonks fails (SharpAPI fallback survives)', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async () => { throw new Error('Sportmonks down'); },
     fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'fallback-1' })] }),

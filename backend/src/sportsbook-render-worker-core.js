@@ -15,6 +15,7 @@ export function sportsbookRenderIntervalSeconds(settings) {
     );
   }
   if (settings?.sharpApiEnabled) providerIntervals.push(settings.sharpApiRefreshSeconds);
+  if (settings?.oddsPapiEnabled) providerIntervals.push(settings.oddsPapiRefreshSeconds);
   const validIntervals = providerIntervals
     .map(Number)
     .filter(value => Number.isFinite(value) && value > 0);
@@ -214,11 +215,9 @@ export async function buildSportsbookRenderSnapshot({
 }) {
   // Sportmonks adalah sumber utama cakupan luas: anggaran halaman dihabiskan
   // round-robin per tanggal (maks 120 halaman x 20 = 2.400 kandidat), lalu
-  // dibatasi maxEvents. The Odds API dipertahankan sebagai CADANGAN sehingga feed tidak pernah kosong
-  // bila salah satu provider gagal (dan sebaliknya). Fetcher dijalankan
-  // SEKUENSIAL dan tiap kegagalan diisolasi: hanya satu payload provider yang
-  // hidup pada satu waktu, sehingga heap worker 224MB tetap dapat diprediksi
-  // (anti-OOM).
+  // dibatasi maxEvents. Fetcher dijalankan SEKUENSIAL dan tiap kegagalan
+  // diisolasi: hanya satu payload provider yang hidup pada satu waktu, sehingga
+  // heap worker 224MB tetap dapat diprediksi (anti-OOM).
   if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > MAX_PAGES) {
     throw new Error(`Worker sportsbook maxPages must be an integer between 1 and ${MAX_PAGES}.`);
   }
