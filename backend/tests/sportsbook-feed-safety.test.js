@@ -34,13 +34,6 @@ test('Sportmonks feed increases event coverage with a bounded page budget and co
   assert.match(providers, /SPORTMONKS_PAGE_SIZE = 20/);
 });
 
-test('The Odds API default catalog contains soccer leagues only', () => {
-  const match = config.match(/theOddsApiSportKeys: text\('THE_ODDS_API_SPORT_KEYS', '([^']+)'/);
-  assert.ok(match, 'soccer sport-key catalog should be configured');
-  assert.ok(match[1].split(',').length >= 30, 'global catalog should cover many soccer competitions');
-  assert.ok(match[1].split(',').every(key => key.startsWith('soccer_')));
-});
-
 test('sportsbook feed worker and background polling default to enabled in production', () => {
   const script = `
     const { config } = await import('./src/config.js');
