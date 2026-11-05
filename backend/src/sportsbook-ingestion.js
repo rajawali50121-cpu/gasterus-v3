@@ -97,20 +97,24 @@ function countUniqueFixtures(providerResults) {
 }
 
 function validateEvent(event, provider) {
-  if (!isRecord(event)
-    || !requiredString(event.id, 128)
-    || !requiredString(event.sport, 40)
-    || !requiredString(event.league, 120)
-    || !(event.country === null || requiredString(event.country, 80))
-    || !validTimestamp(event.startTime)
-    || !ALLOWED_STATUSES.has(event.status)
-    || typeof event.live !== 'boolean'
-    || !isRecord(event.home) || !requiredString(event.home.name, 120)
-    || !isRecord(event.away) || !requiredString(event.away.name, 120)
-    || !Array.isArray(event.markets) || event.markets.length > MAX_MARKETS_PER_EVENT
-    || !isRecord(event._refs) || !requiredString(event._refs[provider], 160)
-    || !Array.isArray(event._sources) || event._sources.length !== 1 || event._sources[0] !== provider) {
-    invalid(`Event ${String(event?.id || '').slice(0, 40)} tidak memiliki struktur normalisasi yang valid.`);
+  const problems = [];
+  if (!isRecord(event)) problems.push('not a record');
+  else {
+    if (!requiredString(event.id, 128)) problems.push(`id=${JSON.stringify(event?.id)}`);
+    if (!requiredString(event.sport, 40)) problems.push(`sport=${JSON.stringify(event?.sport)}`);
+    if (!requiredString(event.league, 120)) problems.push(`league=${JSON.stringify(event?.league)}`);
+    if (!(event.country === null || requiredString(event.country, 80))) problems.push(`country=${JSON.stringify(event?.country)}`);
+    if (!validTimestamp(event.startTime)) problems.push(`startTime=${JSON.stringify(event?.startTime)}`);
+    if (!ALLOWED_STATUSES.has(event.status)) problems.push(`status=${JSON.stringify(event?.status)}`);
+    if (typeof event.live !== 'boolean') problems.push(`live=${JSON.stringify(event?.live)}`);
+    if (!isRecord(event.home) || !requiredString(event.home.name, 120)) problems.push(`home=${JSON.stringify(event?.home)}`);
+    if (!isRecord(event.away) || !requiredString(event.away.name, 120)) problems.push(`away=${JSON.stringify(event?.away)}`);
+    if (!Array.isArray(event.markets) || event.markets.length > MAX_MARKETS_PER_EVENT) problems.push(`markets type/len=${JSON.stringify(event?.markets)?.slice?.(0, 60)}`);
+    if (!isRecord(event._refs) || !requiredString(event._refs[provider], 160)) problems.push(`refs=${JSON.stringify(event?._refs)}`);
+    if (!Array.isArray(event._sources) || event._sources.length !== 1 || event._sources[0] !== provider) problems.push(`sources=${JSON.stringify(event?._sources)}`);
+  }
+  if (problems.length) {
+    invalid(`Event ${String(event?.id || '').slice(0, 40)} tidak memiliki struktur normalisasi yang valid (${provider}: ${problems.join(', ')}.`);
   }
 
   if ((event.status === 'LIVE') !== event.live) {
