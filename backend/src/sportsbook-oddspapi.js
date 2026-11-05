@@ -12,10 +12,10 @@ import {
 
 const PROVIDER = 'oddspapi';
 const SOCCER_SPORT_ID = 10;
-const MAX_TOURNAMENTS_PER_REQUEST = 3;
+const MAX_TOURNAMENTS_PER_REQUEST = 2;
 const MAX_TOURNAMENT_BATCHES = 5;
 const MAX_TOURNAMENTS_PER_REFRESH = MAX_TOURNAMENTS_PER_REQUEST * MAX_TOURNAMENT_BATCHES;
-const MAX_RESPONSE_BYTES = 6 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_ATTEMPTS = 2;
 const REQUEST_COOLDOWN_MS = 1000;
 const FIXTURES_COOLDOWN_MS = 2000;
@@ -165,6 +165,7 @@ async function requestJson(path, params, {
 
     try {
       const text = await readBoundedResponseText(response, 'OddsPapi', MAX_RESPONSE_BYTES);
+      console.log('ODDSPAPI_RESP_BYTES ' + Buffer.byteLength(text, 'utf8') + ' path=' + path);
       return JSON.parse(text);
     } catch (error) {
       if (error instanceof SyntaxError) throw new Error('OddsPapi returned invalid JSON');
@@ -344,7 +345,7 @@ function normalizeOddsPapiEvent(fixture, oddsFixture, marketCatalog, tournamentC
   const kickoff = Date.parse(startTime || '');
   if (!fixture?.fixtureId || Number(fixture.sportId) !== SOCCER_SPORT_ID
     || Number(fixture.statusId) !== 0 || fixture.hasOdds !== true
-    || !Number.isFinite(kickoff) || kickoff <= now || kickoff > now + 7 * 24 * 60 * 60_000) return null;
+    || !Number.isFinite(kickoff) || kickoff <= now || kickoff > now + 3 * 24 * 60 * 60_000) return null;
 
   const home = fixture.participant1Name || fixture.participant1ShortName;
   const away = fixture.participant2Name || fixture.participant2ShortName;
@@ -473,7 +474,7 @@ export async function fetchOddsPapi({
       }), 'markets'));
     const tournamentCatalog = metadataMap(tournamentRows, 'tournamentId');
     const from = new Date(current).toISOString();
-    const to = new Date(current + 7 * 24 * 60 * 60_000).toISOString();
+    const to = new Date(current + 3 * 24 * 60 * 60_000).toISOString();
     const fixtureRows = arrayPayload(await requestJson('fixtures', {
       sportId: SOCCER_SPORT_ID,
       from,
@@ -492,8 +493,8 @@ export async function fetchOddsPapi({
         tournamentIds: batch.join(','),
         bookmaker,
         language: 'en',
-        verbosity: 3
-      }, { settings, state, fetchImpl, now, sleepImpl, timeoutMs       }), 'odds');
+        verbosity: 2
+      }, { settings, state, fetchImpl, now, sleepImpl, timeoutMs }), 'odds');
       oddsFixtures.push(...responseRows);
     }
     return { fixtures, oddsFixtures, tournamentRows, marketRows, tournamentCount: selectedIds.length };
@@ -531,6 +532,7 @@ export async function fetchOddsPapi({
     events: events.length,
     markets: events.reduce((total, event) => total + event.markets.length, 0)
   });
+  console.log('ODDSPAPI_SUMMARY raw_fixtures=' + fixtures.length + ' raw_odds_fixtures=' + oddsFixtures.length + ' events=' + events.length);
   return { provider: PROVIDER, enabled: true, events, errors: [] };
 }
 

@@ -6,6 +6,12 @@ import { readBoundedResponseText } from './bounded-response.js';
 import { eventSettlementAuthority } from './sportsbook-settlement-authority.js';
 
 const MAX_PROVIDER_EVENTS = 500;
+const SPORTMONKS_MAX_PAGES_PER_REFRESH = 120;
+const SPORTMONKS_MAX_PAGES_PER_WORKER_REFRESH = 120;
+const SPORTMONKS_PAGE_SIZE = 20;
+const SPORTMONKS_PAGE_MAX_BYTES = 2_621_440;
+const SPORTMONKS_CANDIDATE_MULTIPLIER = 1.2;
+const DEFAULT_SPORTMONKS_PRIORITY_LEAGUES = ['Premier League', 'La Liga', 'Serie A', 'Bundesliga', 'Ligue 1', 'UEFA Champions League', 'UEFA Europa League', 'UEFA Europa Conference League', 'Eredivisie', 'Primeira Liga', 'Major League Soccer'];
 const MAX_ODDS_API_DETAIL_CACHE_ENTRIES = 100;
 const ODDS_API_DETAIL_CACHE_TTL_MULTIPLIER = 2;
 const ODDS_API_DETAIL_FETCH_CONCURRENCY = 4;
@@ -227,7 +233,8 @@ function normalizedEvent({ provider, providerId, sport, league, country = '', st
     periodScores: periodScores && typeof periodScores === 'object' ? periodScores : {},
     markets: markets.filter(Boolean),
     _refs: { [provider]: clean(providerId, 160) },
-    _sources: [provider]
+    _sources: [provider],
+    _settlementReadySources: [provider]
   };
 }
 
@@ -951,6 +958,51 @@ function sportmonksPeriodScores(scores) {
   }
   return out;
 }
+
+function normalizeOddsApiEvent(raw) {
+  // Backward compatibility alias
+  const providerId = clean(raw?.id || raw?.event_id, 180);
+  if (!providerId) return null;
+  const home = clean(raw?.home_team || raw?.teams?.[0] || raw?.home?.name, 120);
+  const away = clean(raw?.away_team || raw?.teams?.[1] || raw?.away?.name, 120);
+  if (!home || !away) return null;
+  const startTime = raw?.commence_time || raw?.start_time || raw?.starts_at || raw?.commenceTime;
+  const isoStart = iso(startTime);
+  if (!isoStart) return null;
+  const league = clean(raw?.sport_title || raw?.league || raw?.competition || 'Other', 120);
+  const sport = clean(raw?.sport_key?.startsWith('soccer') ? 'Football' : raw?.sport || 'Football', 80);
+  const ev = normalizedEvent({
+    provider: raw?._provider || 'odds-api',
+    providerId,
+    sport,
+    league,
+    country: clean(raw?.country, 80) || '',
+    startTime: isoStart,
+    state: 'SCHEDULED',
+    providerStatus: null,
+    home,
+    away,
+    homeScore: null,
+    awayScore: null
+  });
+  const p = raw?._provider || 'odds-api';
+  ev._settlementReadySources = [p];
+  ev._sources = [p];
+  return ev;
+}
+
+function sportmonksState(raw) {
+  const value = typeof raw === 'string' ? raw : raw?.short_name || raw?.name || '';
+  const lower = String(value).toLowerCase();
+  if (lower.includes('2nd') || lower.includes('second') || lower === '2h') return 'LIVE';
+  if (lower.includes('1st') || lower.includes('first') || lower === '1h') return 'LIVE';
+  if (lower.includes('live') || lower.includes('inplay') || lower.includes('ht') || lower.includes('half')) return 'LIVE';
+  if (lower.includes('finished') || lower.includes('ft') || lower.includes('ended') || lower.includes('after')) return 'FINISHED';
+  if (lower.includes('postpon') || lower.includes('suspend') || lower.includes('cancel') || lower.includes('abandon') || lower.includes('void')) return 'SUSPENDED';
+  if (lower.includes('not') || lower.includes('ns') || lower.includes('sched')) return 'SCHEDULED';
+  if (lower === 'in progress' || lower === 'inprogress') return 'LIVE';
+  return 'SCHEDULED';
+}
 function normalizeSportmonksFixture(raw, oddsRows = []) {
   const participants = Array.isArray(raw?.participants) ? raw.participants : [];
   const home = participants.find(participant => participant?.meta?.location === 'home') || participants[0];
@@ -989,6 +1041,10 @@ function normalizeSportmonksFixture(raw, oddsRows = []) {
     event.markets = [...byMarket.values()].map(rows => sportmonksMarket(event, rows)).filter(Boolean);
   event.statistics = Array.isArray(raw?.statistics) ? raw.statistics : [];
   event.events = Array.isArray(raw?.events) ? raw.events : [];
+  if (!Array.isArray(event._settlementReadySources) || event._settlementReadySources.length === 0) {
+    event._settlementReadySources = [event.provider];
+  }
+  if (!Array.isArray(event._sources)) event._sources = [event.provider];
 
   return event;
 }
@@ -1041,6 +1097,7 @@ const sportmonksRetryState = new Map();
 const sportmonksLiveCache = new Map();
 const sportmonksLiveRetryState = new Map();
 let sportmonksLiveInFlight = null;
+let sportmonksNextRequestAt = 0;
 function sportmonksCacheTtlMs() {
   const configuredRefreshSeconds = [
     Number(config.sportmonksRefreshSeconds) || 300,
@@ -1625,6 +1682,10 @@ function normalizeApiSportsFixture(raw, bets = []) {
     if (!current || impliedTotal < current.impliedTotal) candidates.set(key, { market, impliedTotal });
   }
   event.markets = [...candidates.values()].map(item => item.market);
+  if (!Array.isArray(event._settlementReadySources) || event._settlementReadySources.length === 0) {
+    event._settlementReadySources = [event.provider];
+  }
+  if (!Array.isArray(event._sources)) event._sources = [event.provider];
   return event;
 }
 async function apiSports(path, params = {}, quotaStore = null) {
@@ -2079,7 +2140,8 @@ export const __sportsbookProviders = {
   sportmonksCacheTtlMs,
   sportmonksRetryState,
   sportmonksLiveCache,
-  sportmonksLiveRetryState
+  sportmonksLiveRetryState,
+  normalizeOddsApiEvent
 };
 
 // Builder helpers shared by provider adapters so every provider emits the exact
