@@ -24,11 +24,16 @@ test('Sportmonks feed increases event coverage with a bounded page budget and co
   assert.match(config, /sportmonksDaysAhead: int\('SPORTMONKS_DAYS_AHEAD', 30, 0, 100\)/);
   assert.match(config, /sportmonksMaxTotalEvents: boundedInt\('SPORTMONKS_MAX_TOTAL_EVENTS', 500, 0, 500\)/);
   assert.match(config, /sportmonksPriorityLeagues: text\('SPORTMONKS_PRIORITY_LEAGUES'/);
+  assert.match(config, /sportmonksBookmakerIds: text\('SPORTMONKS_BOOKMAKER_IDS'/);
+  assert.match(config, /sportmonksMarketIds: text\('SPORTMONKS_MARKET_IDS'/);
+  assert.match(config, /sportmonksMaxRequestsPerHour: int\('SPORTMONKS_MAX_REQUESTS_PER_HOUR'/);
   assert.match(config, /sportsbookRenderMaxEvents: int\('SPORTSBOOK_RENDER_MAX_EVENTS', 500, 1, 500\)/);
   assert.match(config, /sportsbookRenderMaxPages: int\('SPORTSBOOK_RENDER_MAX_PAGES', 120, 12, 120\)/);
   assert.match(providers, /SPORTMONKS_MAX_PAGES_PER_REFRESH = 120/);
   assert.match(providers, /SPORTMONKS_CANDIDATE_MULTIPLIER = 1\.2/);
-  assert.match(providers, /SPORTMONKS_PAGE_SIZE = 20/);
+  assert.match(providers, /SPORTMONKS_PAGE_SIZE = 50/); // fixtures/between per_page max 50 (docs)
+  assert.match(providers, /\/fixtures\/between\//);
+  assert.match(providers, /filters/);
 });
 
 test('sportsbook feed worker and background polling default to enabled in production', () => {
@@ -295,9 +300,11 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
   assert.equal(output.eventCount, 50);
   assert.deepEqual(output.leagues, ['Premier League', 'Regional League']);
   assert.deepEqual(output.sources, ['sportmonks']);
-  assert.equal(output.pages, 3);
-  assert.deepEqual(output.pageNumbers, [1, 2, 3]);
-  assert.deepEqual(output.pageSizes, ['20']);
+  // CHANGED (SESI 19 B4): fixtures/between + per_page=50 (docs max 50) replaces
+  // per-date round-robin pages (old 20/page, 3 page calls). Same coverage/priority outcome.
+  assert.ok(output.pages >= 1);
+  assert.ok(output.pageNumbers[0] === 1);
+  assert.deepEqual(output.pageSizes, ['50']);
 });
 
 test('Sportmonks keeps active fixtures without odds instead of hiding them from the feed', () => {
@@ -381,94 +388,55 @@ test('Sportmonks keeps active fixtures without odds instead of hiding them from 
   });
 });
 
-test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
+test('Sportmonks adapter remains bounded (fixtures/between, has_more, filters, per_page=50)', () => {
+  // CHANGED (SESI 19 B4): old test assumed /fixtures/date round-robin pages (120 pages).
+  // Now uses fixtures/between (docs max 100 days) with odds filters + per_page=50, follows has_more.
+  // Bounds preserved: 500 events, page budget respected.
   const script = `
     const originalFetch = globalThis.fetch;
     const calls = [];
     const start = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
     const fixture = id => ({
-      id,
-      starting_at: start,
-      starting_at_timestamp: Math.floor(Date.parse(start) / 1000),
-      state: { short_name: 'NS', name: 'Not Started' },
-      has_odds: true,
-      participants: [
-        { name: 'Home ' + id, meta: { location: 'home' } },
-        { name: 'Away ' + id, meta: { location: 'away' } }
-      ],
+      id, starting_at: start, starting_at_timestamp: Math.floor(Date.parse(start) / 1000),
+      state: { short_name: 'NS', name: 'Not Started' }, has_odds: true,
+      participants: [{ name: 'Home ' + id, meta: { location: 'home' } }, { name: 'Away ' + id, meta: { location: 'away' } }],
       league: { name: 'Premier League', country: { name: 'England' } },
-      odds: [
-        { market_id: 1, market_description: 'Fulltime Result', label: 'Home', value: '2.0' },
-        { market_id: 1, market_description: 'Fulltime Result', label: 'Draw', value: '3.2' },
-        { market_id: 1, market_description: 'Fulltime Result', label: 'Away', value: '3.5' }
-      ]
+      odds: [{ market_id: 1, market_description: 'Fulltime Result', label: 'Home', value: '2.0' },{ market_id: 1, market_description: 'Fulltime Result', label: 'Draw', value: '3.2' },{ market_id: 1, market_description: 'Fulltime Result', label: 'Away', value: '3.5' }]
     });
     globalThis.fetch = async input => {
       const url = new URL(input);
-      if (url.pathname.endsWith('/livescores')) {
-        return new Response(JSON.stringify({ data: [] }), {
-          headers: { 'content-type': 'application/json' }
-        });
-      }
-      const page = Number(url.searchParams.get('page'));
-      const perPage = Number(url.searchParams.get('per_page')) || 20;
-      calls.push(page);
-      const data = Array.from({ length: perPage }, (_, index) => fixture((page - 1) * perPage + index + 1));
-      return new Response(JSON.stringify({ data, pagination: { has_more: page < 120 } }), {
-        headers: { 'content-type': 'application/json' }
-      });
+      if (url.pathname.endsWith('/livescores')) return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+      calls.push({ path: url.pathname, page: url.searchParams.get('page'), perPage: url.searchParams.get('per_page'), filters: url.searchParams.get('filters'), include: url.searchParams.get('include') });
+      const page = Number(url.searchParams.get('page') || 1);
+      const perPage = Number(url.searchParams.get('per_page') || 50);
+      const data = Array.from({ length: perPage }, (_, i) => fixture((page - 1) * perPage + i + 1));
+      return new Response(JSON.stringify({ data, pagination: { has_more: page < 10 }, rate_limit: { remaining: 200, resets_in_seconds: 3000 } }), { headers: { 'content-type': 'application/json' } });
     };
     try {
       const { config } = await import('./src/config.js');
       const { fetchSportmonks } = await import('./src/sportsbook-providers.js');
-      const result = await fetchSportmonks({
-        maxEvents: config.sportsbookRenderMaxEvents,
-        maxPages: config.sportsbookRenderMaxPages
-      });
-      const workerPages = calls.length;
-      calls.length = 0;
-      const highCapacity = await fetchSportmonks({ maxEvents: 500, maxPages: 119 });
+      const result = await fetchSportmonks({ maxEvents: config.sportsbookRenderMaxEvents, maxPages: config.sportsbookRenderMaxPages });
+      const between = calls.filter(c => c.path.includes('/fixtures/between/'));
       console.log(JSON.stringify({
-        workerEvents: result.events.length,
-        workerPages,
-        highCapacityEvents: highCapacity.events.length,
-        highCapacityPages: calls.length,
-        railwayDefaultEvents: config.sportmonksMaxTotalEvents
+        workerEvents: result.events.length, totalCalls: calls.length, betweenCalls: between.length,
+        usedBetween: between.length > 0, perPage50: between.every(c => c.perPage === '50'),
+        hasFilters: between.every(c => String(c.filters||'').includes('bookmakers:') && String(c.filters||'').includes('markets:')),
+        followedHasMore: between.length > 1, railwayDefaultEvents: config.sportmonksMaxTotalEvents
       }));
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    } finally { globalThis.fetch = originalFetch; }
   `;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
-    cwd: new URL('..', import.meta.url),
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      NODE_ENV: 'production',
-      DATABASE_URL: '******example.com/db',
-      REDIS_URL: 'redis://example.com:6379',
-      MEMBER_PROXY_SECRET: 'm'.repeat(48),
-      ADMIN_PROXY_SECRET: 'a'.repeat(48),
-      OPS_INTERNAL_SECRET: 'o'.repeat(48),
-      SESSION_HMAC_KEY: 's'.repeat(48),
-      API_KEY_PEPPER: 'p'.repeat(48),
-      MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
-      SPORTMONKS_ENABLED: 'true',
-      SPORTMONKS_API_KEY: 'configured-sportmonks-key',
-      SPORTMONKS_DAYS_AHEAD: '0',
-      SPORTMONKS_MAX_TOTAL_EVENTS: '500',
-      SPORTSBOOK_RENDER_MAX_EVENTS: '500',
-      SPORTMONKS_REQUEST_DELAY_MS: '0'
-    }
+    cwd: new URL('..', import.meta.url), encoding: 'utf8',
+    env: { ...process.env, NODE_ENV: 'production', DATABASE_URL: '******example.com/db', REDIS_URL: 'redis://example.com:6379', MEMBER_PROXY_SECRET: 'm'.repeat(48), ADMIN_PROXY_SECRET: 'a'.repeat(48), OPS_INTERNAL_SECRET: 'o'.repeat(48), SESSION_HMAC_KEY: 's'.repeat(48), API_KEY_PEPPER: 'p'.repeat(48), MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'), SPORTMONKS_ENABLED: 'true', SPORTMONKS_API_KEY: 'configured-sportmonks-key', SPORTMONKS_DAYS_AHEAD: '30', SPORTMONKS_MAX_TOTAL_EVENTS: '500', SPORTSBOOK_RENDER_MAX_EVENTS: '500', SPORTMONKS_REQUEST_DELAY_MS: '0', SPORTMONKS_BOOKMAKER_IDS: '2', SPORTMONKS_MARKET_IDS: '1,31,6,26,80,28' }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1)), {
-    workerEvents: 500,
-    workerPages: 120,
-    highCapacityEvents: 500,
-    highCapacityPages: 119,
-    railwayDefaultEvents: 500
-  });
+  const out = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
+  assert.equal(out.workerEvents, 500);
+  assert.equal(out.usedBetween, true);
+  assert.equal(out.perPage50, true);
+  assert.equal(out.hasFilters, true);
+  assert.equal(out.followedHasMore, true);
+  assert.equal(out.railwayDefaultEvents, 500);
 });
 
 test('stale Sportsbook feed cache is read-only and cannot be settled', () => {

@@ -60,21 +60,26 @@ test('Sportmonks days-ahead window: default 30, max 100 (docs), date range match
   ], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME } });
   assert.match(max.stdout + max.stderr, /must be an integer between 0 and 100/);
 
-  // date range matches window: DAYS_AHEAD=2 => requests fixtures/date for 3 dates (0..2)
+  // date range matches window (fixtures/between, docs max 100 days): DAYS_AHEAD=2 => one range request today..today+2
   const rangeScript = `
     Object.assign(process.env,${JSON.stringify({ ...baseEnv, SPORTMONKS_ENABLED: 'true', SPORTMONKS_API_KEY: 'k', SPORTMONKS_DAYS_AHEAD: '2', SPORTMONKS_REQUEST_DELAY_MS: '0' })});
-    const dates=[]; const orig=globalThis.fetch;
-    globalThis.fetch=async (u)=>{ const s=String(u); if(s.includes('/fixtures/date/')){ dates.push(s.split('/fixtures/date/')[1].split('?')[0]); }
-      return {ok:true,status:200,async text(){return JSON.stringify({data:[],pagination:{has_more:false}});} ,headers:{get:()=>null}}; };
+    const urls=[]; const orig=globalThis.fetch;
+    globalThis.fetch=async (u)=>{ const s=String(u); if(s.includes('/fixtures/between/')||s.includes('/fixtures/date/')) urls.push(s);
+      return {ok:true,status:200,async text(){return JSON.stringify({data:[],pagination:{has_more:false},rate_limit:{remaining:2999,resets_in_seconds:3600}});} ,headers:{get:()=>null}}; };
     const m=await import('./backend/src/sportsbook-providers.js');
     m.__sportsbookProviders.sportmonksCache.clear(); m.__sportsbookProviders.sportmonksRetryState.clear();
     await m.fetchSportmonks({maxEvents:10,maxPages:10});
-    globalThis.fetch=orig; process.stdout.write('DATES='+JSON.stringify([...new Set(dates)]));
+    globalThis.fetch=orig; process.stdout.write('URLS='+JSON.stringify(urls));
   `;
   const rng = spawnSync(process.execPath, ['--input-type=module', '-e', rangeScript], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME } });
   assert.equal(rng.status, 0, rng.stderr);
-  const got = JSON.parse((rng.stdout.match(/DATES=(\[.*\])/) || [,'[]'])[1]);
-  assert.equal(got.length, 3, `expected 3 dates for DAYS_AHEAD=2, got ${rng.stdout}`);
+  const urls = JSON.parse((rng.stdout.match(/URLS=(\[.*\])/) || [,'[]'])[1]);
+  assert.ok(urls.some(u => /\/fixtures\/between\/\d{4}-\d{2}-\d{2}\/\d{4}-\d{2}-\d{2}/.test(u)), `expected /fixtures/between/ range, got ${rng.stdout}`);
+  const between = urls.find(u => u.includes('/fixtures/between/'));
+  const m = between.match(/\/between\/(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})/);
+  assert.ok(m);
+  const days = (Date.parse(m[2]+'T00:00:00Z') - Date.parse(m[1]+'T00:00:00Z')) / 86400000;
+  assert.equal(days, 2, `DAYS_AHEAD=2 => 2-day span, got ${between}`);
 });
 
 test('Sportmonks fixtures without provider odds stay display-only and never receive synthetic markets', () => {
@@ -914,4 +919,69 @@ test('SharpAPI legacy offset pagination unchanged when no next_cursor', async ()
     assert.ok(calls.every(c => c.cursor === null));
     assert.equal(res.events.length, 3);
   } finally { globalThis.fetch = orig; globalThis.__sharpApiTestConfig = oc; }
+});
+
+test('Sportmonks B4 efficiency: /fixtures/between + filters + per_page=50 + has_more (mock fetch)', async () => {
+  const m = await import('../src/sportsbook-providers.js');
+  m.__sportsbookProviders._resetSportmonksBudgetForTest?.();
+  const orig = globalThis.fetch; const calls = [];
+  globalThis.fetch = async (u) => {
+    const url = new URL(String(u)); if (url.pathname.endsWith('/livescores')) return new Response(JSON.stringify({data:[]}), {headers:{'content-type':'application/json'}});
+    calls.push({ path: url.pathname, perPage: url.searchParams.get('per_page'), filters: url.searchParams.get('filters'), page: url.searchParams.get('page') });
+    const page = Number(url.searchParams.get('page')||1);
+    const fx = [{ id: 800000+page, starting_at: new Date(Date.now()+86400000).toISOString(), state:{short_name:'NS'}, participants:[{name:'H',meta:{location:'home'}},{name:'A',meta:{location:'away'}}], league:{name:'PL',country:{name:'England'}}, odds:[] }];
+    return { ok:true, status:200, headers:{get:()=>null}, async text(){ return JSON.stringify({ data: fx, pagination: { has_more: page < 2 }, rate_limit:{remaining:2998,resets_in_seconds:3600} }); } };
+  };
+  try {
+    await m.fetchSportmonks({ maxEvents: 10, maxPages: 10 });
+    assert.ok(calls.some(c => c.path.includes('/fixtures/between/')), `expected /fixtures/between/, got ${JSON.stringify(calls.map(c=>c.path))}`);
+    assert.ok(calls.every(c => c.perPage === '50'));
+    assert.ok(calls.every(c => String(c.filters||'').includes('bookmakers:2') && String(c.filters||'').includes('markets:')));
+    assert.ok(calls.length >= 2, 'follows has_more');
+  } finally { globalThis.fetch = orig; m.__sportsbookProviders._resetSportmonksBudgetForTest?.(); }
+});
+
+test('Sportmonks B4: rate_limit.remaining<=10 pauses, no new catalog request (mock fetch)', async () => {
+  const m = await import('../src/sportsbook-providers.js');
+  m.__sportsbookProviders._resetSportmonksBudgetForTest?.();
+  let calls = 0; const orig = globalThis.fetch;
+  globalThis.fetch = async (u) => { const url=new URL(String(u)); if(url.pathname.endsWith('/livescores')) return {ok:true,status:200,headers:{get:()=>null},async text(){return JSON.stringify({data:[]});}};
+    calls++; return {ok:true,status:200,headers:{get:()=>null},async text(){return JSON.stringify({data:[],pagination:{has_more:false},rate_limit:{remaining:5,resets_in_seconds:120}});}}; };
+  try {
+    await m.fetchSportmonks({ maxEvents: 5, maxPages: 1 });
+    m.__sportsbookProviders.sportmonksRetryState.clear();
+    const before = calls;
+    const r = await m.fetchSportmonks({ maxEvents: 5, maxPages: 1 });
+    assert.equal(calls, before, 'no new catalog request when rate paused');
+    assert.ok((r.errors||[]).some(e=>/rate_limit|pause/i.test(String(e))));
+  } finally { globalThis.fetch = orig; m.__sportsbookProviders._resetSportmonksBudgetForTest?.(); }
+});
+
+test('Sportmonks B4: deadline signal aborts in-flight catalog fetch (mock fetch)', async () => {
+  const m = await import('../src/sportsbook-providers.js');
+  m.__sportsbookProviders._resetSportmonksBudgetForTest?.();
+  const orig = globalThis.fetch;
+  globalThis.fetch = (u, init={}) => new Promise((resolve, reject) => {
+    const url=new URL(String(u)); if(url.pathname.endsWith('/livescores')) return resolve({ok:true,status:200,headers:{get:()=>null},async text(){return JSON.stringify({data:[]});}});
+    const onAbort = () => { const e=new Error('aborted'); e.name='AbortError'; reject(e); };
+    if (init.signal?.aborted) return onAbort();
+    init.signal?.addEventListener('abort', onAbort, { once:true });
+  });
+  try {
+    const ac = new AbortController();
+    const p = m.fetchSportmonks({ maxEvents: 5, maxPages: 1, signal: ac.signal });
+    setTimeout(() => ac.abort(new Error('deadline')), 20);
+    await assert.rejects(p, /abort|deadline/i);
+  } finally { globalThis.fetch = orig; m.__sportsbookProviders._resetSportmonksBudgetForTest?.(); }
+});
+
+test('Sportmonks B4: disabled behavior unchanged (no fetch)', async () => {
+  // run in subprocess with enabled false and no key to avoid mutating config singleton
+  const { spawnSync } = await import('node:child_process');
+  const script = `Object.assign(process.env,{NODE_ENV:'test',DATABASE_URL:'******example.com/db',REDIS_URL:'redis://example.com:6379',MEMBER_PROXY_SECRET:'${'m'.repeat(48)}',ADMIN_PROXY_SECRET:'${'a'.repeat(48)}',OPS_INTERNAL_SECRET:'${'o'.repeat(48)}',SESSION_HMAC_KEY:'${'s'.repeat(48)}',API_KEY_PEPPER:'${'p'.repeat(48)}',MFA_ENCRYPTION_KEY_BASE64:'${Buffer.alloc(32,7).toString('base64')}',SPORTMONKS_ENABLED:'false'}); delete process.env.SPORTMONKS_API_KEY; const m=await import('./src/sportsbook-providers.js'); const r=await m.fetchSportmonks({}); process.stdout.write(JSON.stringify(r));`;
+  const res = spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:new URL('..',import.meta.url),encoding:'utf8',env:{PATH:process.env.PATH,HOME:process.env.HOME}});
+  assert.equal(res.status,0,res.stderr);
+  const line = res.stdout.trim().split(/\r?\n/).filter(l=>l.startsWith('{')).at(-1) || '{}';
+  const r=JSON.parse(line);
+  assert.equal(r.provider,'sportmonks'); assert.equal(r.enabled,false); assert.deepEqual(r.events,[]);
 });

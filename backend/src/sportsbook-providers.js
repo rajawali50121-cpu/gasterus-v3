@@ -8,9 +8,10 @@ import { eventSettlementAuthority } from './sportsbook-settlement-authority.js';
 const MAX_PROVIDER_EVENTS = 500;
 const SPORTMONKS_MAX_PAGES_PER_REFRESH = 120;
 const SPORTMONKS_MAX_PAGES_PER_WORKER_REFRESH = 120;
-const SPORTMONKS_PAGE_SIZE = 20;
+const SPORTMONKS_PAGE_SIZE = 50; // fixtures/between supports per_page max 50 (docs)
 const SPORTMONKS_PAGE_MAX_BYTES = 2_621_440;
 const SPORTMONKS_CANDIDATE_MULTIPLIER = 1.2;
+const SPORTMONKS_DEFAULT_INCLUDE = 'state;participants;league.country;odds;scores;statistics.type;events.type';
 const DEFAULT_SPORTMONKS_PRIORITY_LEAGUES = ['Premier League', 'La Liga', 'Serie A', 'Bundesliga', 'Ligue 1', 'UEFA Champions League', 'UEFA Europa League', 'UEFA Europa Conference League', 'Eredivisie', 'Primeira Liga', 'Major League Soccer'];
 const MARKET_TYPES = Object.freeze({
   h2h: '1X2',
@@ -234,9 +235,14 @@ function normalizedEvent({ provider, providerId, sport, league, country = '', st
   };
 }
 
-async function requestJson(url, { headers = {}, label = 'sports provider', maxBytes = config.sportsProviderCacheMaxEntryBytes } = {}) {
+async function requestJson(url, { headers = {}, label = 'sports provider', maxBytes = config.sportsProviderCacheMaxEntryBytes, signal: outerSignal } = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.sportsFeedRequestTimeoutMs);
+  const timeout = setTimeout(() => controller.abort(new Error(`${label} timed out after ${config.sportsFeedRequestTimeoutMs}ms`)), config.sportsFeedRequestTimeoutMs);
+  const onAbort = () => controller.abort(outerSignal?.reason);
+  if (outerSignal) {
+    if (outerSignal.aborted) onAbort();
+    else outerSignal.addEventListener('abort', onAbort, { once: true });
+  }
   try {
     const response = await fetch(url, {
       headers: { accept: 'application/json', 'user-agent': 'ASEAN777-Sports-Aggregator/2.0', ...headers },
@@ -247,12 +253,15 @@ async function requestJson(url, { headers = {}, label = 'sports provider', maxBy
       const error = new Error(`${label} returned HTTP ${response.status}`);
       error.status = response.status;
       error.retryAfter = response.headers?.get?.('retry-after') || null;
+      // attach parsed body for rate_limit handling (best-effort, bounded)
+      try { error.body = JSON.parse(await readBoundedResponseText(response, label, 65536)); } catch {}
       throw error;
     }
     const text = await readBoundedResponseText(response, label, maxBytes);
     return JSON.parse(text);
   } finally {
     clearTimeout(timeout);
+    outerSignal?.removeEventListener?.('abort', onAbort);
   }
 }
 
@@ -921,23 +930,84 @@ function sportmonksRetryAfterMs(error) {
   return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : 0;
 }
 
-// Read one small page at a time so raw odds payloads are not retained across pages.
-async function fetchSportmonksPage(base, date, page) {
-  const url = new URL(`${base}/football/fixtures/date/${date}`);
+// In-memory hourly Sportmonks request budget (no Redis/DB). Resets on process restart.
+let sportmonksHourWindowStart = 0;
+let sportmonksRequestsThisHour = 0;
+let sportmonksRateLimitPauseUntil = 0;
+function sportmonksHourBudget() {
+  const now = Date.now();
+  if (now - sportmonksHourWindowStart >= 3_600_000) {
+    sportmonksHourWindowStart = now;
+    sportmonksRequestsThisHour = 0;
+  }
+  const max = Math.max(1, Number(config.sportmonksMaxRequestsPerHour) || 150);
+  return { now, max, used: sportmonksRequestsThisHour, remaining: Math.max(0, max - sportmonksRequestsThisHour) };
+}
+function noteSportmonksRequest() {
+  sportmonksHourBudget();
+  sportmonksRequestsThisHour += 1;
+}
+function noteSportmonksRateLimit(payload) {
+  const rl = payload?.rate_limit;
+  if (!rl || typeof rl !== 'object') return;
+  const remaining = Number(rl.remaining);
+  const resets = Number(rl.resets_in_seconds);
+  if (Number.isFinite(remaining) && remaining <= 10 && Number.isFinite(resets) && resets > 0) {
+    sportmonksRateLimitPauseUntil = Math.max(sportmonksRateLimitPauseUntil, Date.now() + Math.min(resets, 3600) * 1000);
+  }
+}
+async function sportmonksBudgetGate(signal) {
+  if (signal?.aborted) throw signal.reason || new Error('Sportmonks aborted');
+  const now = Date.now();
+  if (sportmonksRateLimitPauseUntil > now) {
+    const err = new Error(`Sportmonks rate_limit pause until ${new Date(sportmonksRateLimitPauseUntil).toISOString()}`);
+    err.code = 'SPORTMONKS_RATE_LIMIT_PAUSE';
+    throw err;
+  }
+  const b = sportmonksHourBudget();
+  if (b.remaining <= 0) {
+    const err = new Error(`Sportmonks hourly request budget exhausted (${b.used}/${b.max})`);
+    err.code = 'SPORTMONKS_HOURLY_BUDGET';
+    throw err;
+  }
+}
+
+function sportmonksFiltersParam() {
+  const bookmakers = clean(config.sportmonksBookmakerIds, 120).replace(/\s+/g, '');
+  const markets = clean(config.sportmonksMarketIds, 120).replace(/\s+/g, '');
+  const parts = [];
+  if (bookmakers) parts.push(`bookmakers:${bookmakers}`);
+  if (markets) parts.push(`markets:${markets}`);
+  return parts.join(';');
+}
+function sportmonksOddsUrlParams(url) {
+  url.searchParams.set('include', SPORTMONKS_DEFAULT_INCLUDE);
+  const filters = sportmonksFiltersParam();
+  if (filters) url.searchParams.set('filters', filters);
+}
+
+// Read one page at a time so raw odds payloads are not retained across pages.
+// Uses fixtures/between (docs: max 100 days range, per_page max 50, has_more pagination).
+async function fetchSportmonksBetweenPage(base, startDate, endDate, page, { signal } = {}) {
+  const url = new URL(`${base}/football/fixtures/between/${startDate}/${endDate}`);
   url.searchParams.set('api_token', config.sportmonksKey);
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', String(SPORTMONKS_PAGE_SIZE));
-  url.searchParams.set('include', 'state;participants;league.country;odds;scores;statistics.type;events.type');
+  sportmonksOddsUrlParams(url);
 
   const maxAttempts = 4;
   let attempt = 0;
   while (true) {
+    await sportmonksBudgetGate(signal);
     await waitForSportmonksRequestSlot();
+    noteSportmonksRequest();
     try {
       const payload = await requestJson(url, {
-        label: `Sportmonks ${date} page ${page}`,
-        maxBytes: SPORTMONKS_PAGE_MAX_BYTES
+        label: `Sportmonks between ${startDate}/${endDate} page ${page}`,
+        maxBytes: SPORTMONKS_PAGE_MAX_BYTES,
+        signal
       });
+      noteSportmonksRateLimit(payload);
       const data = payload?.data || [];
       const hasMore = data.length > 0 && (
         typeof payload?.pagination?.has_more === 'boolean'
@@ -946,24 +1016,23 @@ async function fetchSportmonksPage(base, date, page) {
       );
       return { data, hasMore };
     } catch (error) {
+      if (signal?.aborted) throw error;
+      noteSportmonksRateLimit(error?.body);
       attempt += 1;
       const status = Number(error?.status);
       const retryable = status === 429 || status >= 500 || !Number.isFinite(status);
       if (!retryable || attempt >= maxAttempts) throw error;
-      let retryAfterMs = 0;
-      const retryAfter = error?.retryAfter;
-      if (retryAfter) {
-        const seconds = Number(retryAfter);
-        if (Number.isFinite(seconds)) retryAfterMs = seconds * 1000;
-        else {
-          const dateMs = Date.parse(retryAfter);
-          if (Number.isFinite(dateMs)) retryAfterMs = Math.max(0, dateMs - Date.now());
-        }
-      }
-      const backoffMs = retryAfterMs > 0 ? retryAfterMs : Math.min(8000, 1000 * Math.pow(2, attempt - 1));
-      await new Promise(resolve => setTimeout(resolve, backoffMs));
+      const backoffMs = Math.max(sportmonksRetryAfterMs(error), Math.min(8000, 1000 * Math.pow(2, attempt - 1)));
+      await new Promise((resolve, reject) => {
+        const t = setTimeout(resolve, backoffMs);
+        signal?.addEventListener?.('abort', () => { clearTimeout(t); reject(signal.reason || error); }, { once: true });
+      });
     }
   }
+}
+// Back-compat name used by older tests/mocks only; routes to between-style single-date behavior is not assumed.
+async function fetchSportmonksPage(base, date, page, opts = {}) {
+  return fetchSportmonksBetweenPage(base, date, date, page, opts);
 }
 
 async function fetchSportmonksLiveWindow(base) {
@@ -1123,13 +1192,14 @@ function compareSportmonksEvents(a, b) {
 
 export async function fetchSportmonks({
   maxEvents = config.sportmonksMaxTotalEvents,
-  maxPages = SPORTMONKS_MAX_PAGES_PER_REFRESH
+  maxPages = SPORTMONKS_MAX_PAGES_PER_REFRESH,
+  signal
 } = {}) {
   if (!config.sportmonksEnabled || !config.sportmonksKey) {
     logger.warn('Sportmonks disabled or missing API key');
     return { provider: 'sportmonks', enabled: false, events: [] };
   }
-  
+
   const base = config.sportmonksBaseUrl.replace(/\/$/, '');
   const now = Date.now();
   if (!Number.isInteger(maxEvents) || maxEvents < 0 || maxEvents > MAX_PROVIDER_EVENTS) {
@@ -1139,7 +1209,11 @@ export async function fetchSportmonks({
     throw new Error(`Sportmonks maxPages must be an integer between 1 and ${SPORTMONKS_MAX_PAGES_PER_WORKER_REFRESH}.`);
   }
   if (maxEvents === 0) return { provider: 'sportmonks', enabled: true, events: [], errors: [] };
-  const cacheKey = `sportmonks:all-events:${utcDate(0)}:${config.sportmonksDaysAhead}:${maxEvents}:${maxPages}`;
+  const daysAhead = Math.min(Math.max(0, Number(config.sportmonksDaysAhead) || 0), 100);
+  const startDate = utcDate(0);
+  const endDate = utcDate(daysAhead);
+  // Cache key unchanged in shape fields that matter to callers/limits (maxEvents,maxPages preserved).
+  const cacheKey = `sportmonks:all-events:${startDate}:${config.sportmonksDaysAhead}:${maxEvents}:${maxPages}`;
   const priorityLeagues = String(config.sportmonksPriorityLeagues || '')
     .split(',')
     .map(name => clean(name, 120).toLowerCase())
@@ -1148,228 +1222,128 @@ export async function fetchSportmonks({
 
   // Cek cache terlebih dahulu
   const cached = sportmonksCache.get(cacheKey);
+  if (sportmonksRateLimitPauseUntil > now) {
+    const retryAt = sportmonksRateLimitPauseUntil;
+    const message = `Sportmonks rate_limit pause until ${new Date(retryAt).toISOString()}`;
+    const prev = sportmonksRetryState.get(cacheKey);
+    sportmonksRetryState.set(cacheKey, { attempts: (prev?.attempts || 0) + 1, retryAt, message });
+    const { events, liveWindow } = await applySportmonksLiveWindow(cached?.events || [], base, maxEvents, configuredPriorityLeagues);
+    logger.warn('Sportmonks rate_limit pause active: returning stale cache', { retryInMs: retryAt - now, retainedEvents: events.length });
+    return { provider: 'sportmonks', enabled: true, events, stale: true, transportOk: false, errors: [message, ...liveWindow.errors] };
+  }
   if (cached && now - cached.fetchedAt < sportmonksCacheTtlMs()) {
-    const { events, liveWindow } = await applySportmonksLiveWindow(
-      cached.events,
-      base,
-      maxEvents,
-      configuredPriorityLeagues
-    );
-    logger.info('Sportmonks: returning cached fixture catalog', {
-      age: Math.round((now - cached.fetchedAt) / 1000) + 's',
-      events: events.length,
-      liveWindowFailed: liveWindow.failed
-    });
+    const { events, liveWindow } = await applySportmonksLiveWindow(cached.events, base, maxEvents, configuredPriorityLeagues);
+    logger.info('Sportmonks: returning cached fixture catalog', { age: Math.round((now - cached.fetchedAt) / 1000) + 's', events: events.length, liveWindowFailed: liveWindow.failed });
     return { provider: 'sportmonks', enabled: true, events, errors: liveWindow.errors };
   }
   const retryState = sportmonksRetryState.get(cacheKey);
+  const budget = sportmonksHourBudget();
+  const budgetPaused = retryState && now < retryState.retryAt && /budget|rate_limit/i.test(String(retryState.message || ''));
+  const budgetExhausted = budget.remaining <= 0 || (sportmonksRateLimitPauseUntil > now);
   if (retryState && now < retryState.retryAt) {
-    const { events, liveWindow } = await applySportmonksLiveWindow(
-      cached?.events || [],
-      base,
-      maxEvents,
-      configuredPriorityLeagues
-    );
-    return {
-      provider: 'sportmonks',
-      enabled: true,
-      events,
-      stale: true,
-      transportOk: false,
-      errors: [retryState.message, ...liveWindow.errors]
-    };
+    const { events, liveWindow } = await applySportmonksLiveWindow(cached?.events || [], base, maxEvents, configuredPriorityLeagues);
+    return { provider: 'sportmonks', enabled: true, events, stale: true, transportOk: false, errors: [retryState.message, ...liveWindow.errors] };
   }
-  
-  const daysAhead = Math.max(0, Number(config.sportmonksDaysAhead) || 0);
-  const dates = [];
-  for (let offset = 0; offset <= daysAhead; offset += 1) dates.push(utcDate(offset));
-  
+  if (budgetExhausted) {
+    const retryAt = Math.max(sportmonksRateLimitPauseUntil, now + 60_000);
+    const message = sportmonksRateLimitPauseUntil > now
+      ? `Sportmonks rate_limit pause until ${new Date(sportmonksRateLimitPauseUntil).toISOString()}`
+      : `Sportmonks hourly request budget exhausted (${budget.used}/${budget.max})`;
+    sportmonksRetryState.set(cacheKey, { attempts: (retryState?.attempts || 0) + 1, retryAt, message });
+    const { events, liveWindow } = await applySportmonksLiveWindow(cached?.events || [], base, maxEvents, configuredPriorityLeagues);
+    logger.warn('Sportmonks hourly/rate budget gate: returning stale cache', { remaining: budget.remaining, retryInMs: retryAt - now, retainedEvents: events.length });
+    return { provider: 'sportmonks', enabled: true, events, stale: true, transportOk: false, errors: [message, ...liveWindow.errors] };
+  }
+  void budgetPaused;
+
   const errors = [];
-  const candidateLimit = Math.min(
-    Math.ceil(maxEvents * SPORTMONKS_CANDIDATE_MULTIPLIER),
-    maxPages * SPORTMONKS_PAGE_SIZE
-  );
+  const candidateLimit = Math.min(Math.ceil(maxEvents * SPORTMONKS_CANDIDATE_MULTIPLIER), maxPages * SPORTMONKS_PAGE_SIZE);
   const rankedEvents = [];
   const seen = new Set();
-  const diagnostics = {
-    rawFixtures: 0,
-    duplicateFixtures: 0,
-    stateFiltered: 0,
-    pastKickoffFiltered: 0,
-    normalizedRejected: 0,
-    normalizedEvents: 0,
-    candidateDiscarded: 0,
-    pageFailures: 0
-  };
+  const diagnostics = { rawFixtures: 0, duplicateFixtures: 0, stateFiltered: 0, pastKickoffFiltered: 0, normalizedRejected: 0, normalizedEvents: 0, candidateDiscarded: 0, pageFailures: 0 };
   let providerRetryAfterMs = 0;
-  // Scanning round-robin per tanggal. Skema lama membagi statis totalPages
-  // (ceil(1.2 x maxEvents / 20) = 30 halaman) ke seluruh tanggal; dengan
-  // cakrawala sportmonksDaysAhead (default 30, maks 100 per docs Sportmonks) itu berarti HANYA 1 halaman (20
-  // fixture) per tanggal dan tanggal terakhir kelewat sama sekali — snapshot
-  // ingest pun terpotong di ~17 match karena fixture awal hari jarang punya
-  // odds inti. Round-robin mengambil halaman pertama tiap tanggal lebih dulu
-  // (survei), lalu menembak halaman berikutnya secara bergantian memakai
-  // SELURUH anggaran maxPages (maks 120 halaman = 2.400 kandidat). Semua
-  // halaman dalam anggaran discan; hanya kandidat terbaik yang disangga agar
-  // event awal di satu tanggal tidak menghentikan pagination sebelum tanggal
-  // dan liga lainnya terbaca.
-  const cursors = dates.map(date => ({ date, page: 1, exhausted: false }));
   let pagesFetched = 0;
   let permanentPageFailure = false;
-  while (
-    pagesFetched < maxPages
-    && cursors.some(cursor => !cursor.exhausted)
-  ) {
-    for (const cursor of cursors) {
-      if (cursor.exhausted) continue;
-      if (pagesFetched >= maxPages) break;
-      try {
-        const { data, hasMore } = await fetchSportmonksPage(base, cursor.date, cursor.page);
-        pagesFetched += 1;
-        cursor.page += 1;
-        cursor.exhausted = !hasMore;
-        for (const fixture of data) {
-          diagnostics.rawFixtures += 1;
-          const id = String(fixture?.id ?? '');
-          if (!id || seen.has(id)) {
-            if (id) diagnostics.duplicateFixtures += 1;
-            continue;
-          }
-          seen.add(id);
-
-          const state = sportmonksState(fixture.state);
-          if (state !== 'SCHEDULED' && state !== 'LIVE') {
-            diagnostics.stateFiltered += 1;
-            continue;
-          }
-
-          const start = Number(fixture.starting_at_timestamp) * 1000 || Date.parse(fixture.starting_at || '') || 0;
-          if (start && start < now - 3 * 60 * 60 * 1000) {
-            diagnostics.pastKickoffFiltered += 1;
-            continue;
-          }
-          try {
-            const event = normalizeSportmonksFixture(fixture, fixture.odds || []);
-            // Pertandingan aktif TANPA odds tetap ikut feed (display-only).
-            // Filter lama (menandai fixture tanpa odds / tanpa pasar inti sebagai
-            // skip) menyembunyikan ratusan pertandingan aktif dan menutup cakupan
-            // di ~18 match; sekarang hanya fixture tanpa nama tim yang dibuang.
-            // Event tanpa markets tetap valid di schema ingest (markets boleh
-            // kosong) dan frontend menampilkan kartu "odds belum tersedia" —
-            // taruhan tetap mustahil tanpa seleksi berharga.
-            if (!event) {
-              diagnostics.normalizedRejected += 1;
-              continue;
-            }
-            const candidate = {
-              event,
-              leaguePriority: sportmonksLeaguePriority(event, configuredPriorityLeagues),
-              startTime: start || Number.MAX_SAFE_INTEGER
-            };
-            diagnostics.normalizedEvents += 1;
-            rankedEvents.push(candidate);
-            rankedEvents.sort(compareSportmonksEvents);
-            if (rankedEvents.length > candidateLimit) {
-              rankedEvents.pop();
-              diagnostics.candidateDiscarded += 1;
-            }
-          } catch (error) {
-            errors.push(`Fixture ${fixture.id}: ${error.message}`);
-          }
-        }
-      } catch (error) {
-        // Kegagalan satu tanggal diisolasi: tanggal lain tetap discan.
-        cursor.exhausted = true;
-        diagnostics.pageFailures += 1;
-        const status = Number(error?.status);
-        if (Number.isFinite(status) && status >= 400 && status < 500 && status !== 408 && status !== 429) {
-          permanentPageFailure = true;
-        }
-        providerRetryAfterMs = Math.max(providerRetryAfterMs, sportmonksRetryAfterMs(error));
-        errors.push(`Date ${cursor.date}: ${error.message}`);
+  let page = 1;
+  let hasMore = true;
+  // fixtures/between: single date-range request stream (docs max 100 days), per_page max 50, follow has_more.
+  while (pagesFetched < maxPages && hasMore) {
+    if (signal?.aborted) throw signal.reason || new Error('Sportmonks aborted');
+    try {
+      const result = await fetchSportmonksBetweenPage(base, startDate, endDate, page, { signal });
+      pagesFetched += 1;
+      page += 1;
+      hasMore = result.hasMore;
+      for (const fixture of result.data) {
+        diagnostics.rawFixtures += 1;
+        const id = String(fixture?.id ?? '');
+        if (!id || seen.has(id)) { if (id) diagnostics.duplicateFixtures += 1; continue; }
+        seen.add(id);
+        const state = sportmonksState(fixture.state);
+        if (state !== 'SCHEDULED' && state !== 'LIVE') { diagnostics.stateFiltered += 1; continue; }
+        const start = Number(fixture.starting_at_timestamp) * 1000 || Date.parse(fixture.starting_at || '') || 0;
+        if (start && start < now - 3 * 60 * 60 * 1000) { diagnostics.pastKickoffFiltered += 1; continue; }
+        try {
+          const event = normalizeSportmonksFixture(fixture, fixture.odds || []);
+          if (!event) { diagnostics.normalizedRejected += 1; continue; }
+          const candidate = { event, leaguePriority: sportmonksLeaguePriority(event, configuredPriorityLeagues), startTime: start || Number.MAX_SAFE_INTEGER };
+          diagnostics.normalizedEvents += 1;
+          rankedEvents.push(candidate);
+          rankedEvents.sort(compareSportmonksEvents);
+          if (rankedEvents.length > candidateLimit) { rankedEvents.pop(); diagnostics.candidateDiscarded += 1; }
+        } catch (error) { errors.push(`Fixture ${fixture.id}: ${error.message}`); }
       }
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      if (error?.code === 'SPORTMONKS_HOURLY_BUDGET' || error?.code === 'SPORTMONKS_RATE_LIMIT_PAUSE') {
+        diagnostics.pageFailures += 1;
+        providerRetryAfterMs = Math.max(providerRetryAfterMs, Math.max(0, sportmonksRateLimitPauseUntil - now), 60_000);
+        errors.push(error.message);
+        break;
+      }
+      diagnostics.pageFailures += 1;
+      const status = Number(error?.status);
+      if (Number.isFinite(status) && status >= 400 && status < 500 && status !== 408 && status !== 429) permanentPageFailure = true;
+      providerRetryAfterMs = Math.max(providerRetryAfterMs, sportmonksRetryAfterMs(error));
+      errors.push(`Between ${startDate}/${endDate} page ${page - 1}: ${error.message}`);
+      break; // single stream: fail/partial -> preserve cache via existing partial-refresh path
     }
   }
   const fixtureEvents = rankedEvents.slice(0, Math.min(MAX_PROVIDER_EVENTS, maxEvents)).map(candidate => candidate.event);
-  
+
   if (diagnostics.pageFailures > 0) {
     const attempts = (retryState?.attempts || 0) + 1;
-    const backoffMs = permanentPageFailure
-      ? 15 * 60_000
-      : Math.min(15 * 60_000, 30_000 * (2 ** Math.min(attempts - 1, 5)));
+    const backoffMs = permanentPageFailure ? 15 * 60_000 : Math.min(15 * 60_000, 30_000 * (2 ** Math.min(attempts - 1, 5)));
     const retryAt = now + Math.max(backoffMs, providerRetryAfterMs);
     const message = errors[0] || 'Sportmonks pagination was incomplete.';
     sportmonksRetryState.set(cacheKey, { attempts, retryAt, message });
-    logger.warn('Sportmonks partial refresh rejected; preserving last complete provider cache', {
-      provider: 'sportmonks',
-      pageFailures: diagnostics.pageFailures,
-      retryInMs: retryAt - now,
-      retainedEvents: cached?.events.length || 0,
-      partialEvents: fixtureEvents.length
-    });
-    const { events: currentEvents, liveWindow } = await applySportmonksLiveWindow(
-      cached?.events || fixtureEvents,
-      base,
-      maxEvents,
-      configuredPriorityLeagues
-    );
-    return {
-      provider: 'sportmonks',
-      enabled: true,
-      events: currentEvents,
-      stale: true,
-      transportOk: false,
-      errors: [...errors, ...liveWindow.errors]
-    };
+    logger.warn('Sportmonks partial refresh rejected; preserving last complete provider cache', { provider: 'sportmonks', pageFailures: diagnostics.pageFailures, retryInMs: retryAt - now, retainedEvents: cached?.events.length || 0, partialEvents: fixtureEvents.length });
+    const { events: currentEvents, liveWindow } = await applySportmonksLiveWindow(cached?.events || fixtureEvents, base, maxEvents, configuredPriorityLeagues);
+    return { provider: 'sportmonks', enabled: true, events: currentEvents, stale: true, transportOk: false, errors: [...errors, ...liveWindow.errors] };
   }
 
   // Only fully successful page requests replace the provider cache.
   sportmonksCache.set(cacheKey, { fetchedAt: now, events: fixtureEvents });
   sportmonksRetryState.delete(cacheKey);
-  
-  // Bounded cache: hapus entri lama jika terlalu banyak
   if (sportmonksCache.size > 1) {
     const oldest = [...sportmonksCache.entries()].sort((a, b) => a[1].fetchedAt - b[1].fetchedAt);
-    for (const [key] of oldest.slice(0, sportmonksCache.size - 1)) {
-      sportmonksCache.delete(key);
-    }
+    for (const [key] of oldest.slice(0, sportmonksCache.size - 1)) sportmonksCache.delete(key);
   }
-  for (const key of sportmonksRetryState.keys()) {
-    if (key !== cacheKey) sportmonksRetryState.delete(key);
-  }
+  for (const key of sportmonksRetryState.keys()) if (key !== cacheKey) sportmonksRetryState.delete(key);
 
-  const { events, liveWindow } = await applySportmonksLiveWindow(
-    fixtureEvents,
-    base,
-    maxEvents,
-    configuredPriorityLeagues
-  );
-  
+  const { events, liveWindow } = await applySportmonksLiveWindow(fixtureEvents, base, maxEvents, configuredPriorityLeagues);
   logger.info('Sportmonks fetch completed', {
-    provider: 'sportmonks',
-    rawFixtures: diagnostics.rawFixtures,
-    duplicateFixtures: diagnostics.duplicateFixtures,
-    stateFiltered: diagnostics.stateFiltered,
-    pastKickoffFiltered: diagnostics.pastKickoffFiltered,
-    normalizedRejected: diagnostics.normalizedRejected,
-    normalizedEvents: diagnostics.normalizedEvents,
-    candidateDiscarded: diagnostics.candidateDiscarded,
-    rankedCandidates: rankedEvents.length,
-    returnedEvents: events.length,
-    liveWindowEvents: liveWindow.events.length,
-    liveWindowFailed: liveWindow.failed,
-    pagesFetched,
-    dates: dates.length,
-    candidateLimit,
-    paginationComplete: diagnostics.pageFailures === 0 && cursors.every(cursor => cursor.exhausted),
-    pageBudgetExhausted: pagesFetched >= maxPages && cursors.some(cursor => !cursor.exhausted),
-    pageFailures: diagnostics.pageFailures,
-    retryCooldownActive: false,
-    maxEvents,
-    errors: errors.length,
-    errorSample: errors.slice(0, 3)
+    provider: 'sportmonks', endpoint: 'fixtures/between', startDate, endDate, daysAhead,
+    rawFixtures: diagnostics.rawFixtures, duplicateFixtures: diagnostics.duplicateFixtures,
+    stateFiltered: diagnostics.stateFiltered, pastKickoffFiltered: diagnostics.pastKickoffFiltered,
+    normalizedRejected: diagnostics.normalizedRejected, normalizedEvents: diagnostics.normalizedEvents,
+    candidateDiscarded: diagnostics.candidateDiscarded, rankedCandidates: rankedEvents.length,
+    returnedEvents: events.length, liveWindowEvents: liveWindow.events.length, liveWindowFailed: liveWindow.failed,
+    pagesFetched, candidateLimit, paginationComplete: diagnostics.pageFailures === 0 && !hasMore,
+    pageBudgetExhausted: pagesFetched >= maxPages && hasMore, pageFailures: diagnostics.pageFailures,
+    retryCooldownActive: false, maxEvents, hourlyBudgetUsed: sportmonksHourBudget().used,
+    errors: errors.length, errorSample: errors.slice(0, 3)
   });
-
   return { provider: 'sportmonks', enabled: true, events: events.slice(0, Math.min(MAX_PROVIDER_EVENTS, maxEvents)), errors };
 }
 
@@ -1932,6 +1906,11 @@ export const __sportsbookProviders = {
   sportmonksRetryState,
   sportmonksLiveCache,
   sportmonksLiveRetryState,
+  // B4 test hooks (mock fetch only)
+  sportmonksFiltersParam,
+  noteSportmonksRateLimit,
+  sportmonksHourBudget,
+  _resetSportmonksBudgetForTest() { sportmonksHourWindowStart = 0; sportmonksRequestsThisHour = 0; sportmonksRateLimitPauseUntil = 0; sportmonksCache.clear(); sportmonksRetryState.clear(); }
 };
 
 // Builder helpers shared by provider adapters so every provider emits the exact

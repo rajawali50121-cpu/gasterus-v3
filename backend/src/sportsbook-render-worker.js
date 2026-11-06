@@ -73,13 +73,18 @@ while (!shutdown.signal.aborted) {
   let nextDelayMs = intervalMs;
   try {
     console.log('CYCLE_START');
-    const withTimeout = (fn, ms, name) => Promise.race([
-      fn(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error(name + ' timeout ' + ms + 'ms')), ms))
-    ]);
+    const withTimeout = (fn, ms, name) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(new Error(name + ' timeout ' + ms + 'ms')), ms);
+      const task = Promise.resolve().then(() => fn(controller.signal));
+      return Promise.race([
+        task,
+        new Promise((_, rej) => controller.signal.addEventListener('abort', () => rej(controller.signal.reason || new Error(name + ' timeout ' + ms + 'ms')), { once: true }))
+      ]).finally(() => clearTimeout(timer));
+    };
     const snapshot = await buildSportsbookRenderSnapshot({
       fetchApiSports: () => withTimeout(() => fetchApiSports({ quotaStore: apiSportsQuotaStore }), 20000, 'api-sports'),
-      fetchSportmonks: () => withTimeout(() => fetchSportmonks({ maxEvents: config.sportsbookRenderMaxEvents, maxPages: config.sportsbookRenderMaxPages }), 20000, 'sportmonks'),
+      fetchSportmonks: (signal) => withTimeout((signal) => fetchSportmonks({ maxEvents: config.sportsbookRenderMaxEvents, maxPages: config.sportsbookRenderMaxPages, signal }), 20000, 'sportmonks'),
       fetchSharpApi: () => withTimeout(() => fetchSharpApi({}), 20000, 'sharpapi'),
       fetchOddsPapi: () => withTimeout(() => fetchOddsPapi({}), 20000, 'oddspapi'),
       maxEvents: config.sportsbookRenderMaxEvents,
