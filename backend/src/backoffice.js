@@ -15,16 +15,23 @@ function dataImage(value,max=2_500_000){const v=clean(value,max);if(!v)return nu
 function safeUrl(value,max=2500){const v=clean(value,max);if(!v)return null;assert(/^https?:\/\//i.test(v)||/^\//.test(v)||/^#/.test(v)||/^[a-z0-9_.-]+\.html(?:[?#].*)?$/i.test(v),400,'URL tidak valid.','URL_INVALID');return v;}
 
 export async function backofficeSummary(){
-  const {rows}=await query(`SELECT
+  const [{rows},series]=await Promise.all([query(`SELECT
     (SELECT COUNT(*)::int FROM users u WHERE NOT EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id=u.id)) AS members,
     (SELECT COUNT(*)::int FROM users u WHERE u.status='SUSPENDED' AND NOT EXISTS(SELECT 1 FROM user_roles ur WHERE ur.user_id=u.id)) AS suspended,
     (SELECT COUNT(*)::int FROM wallet_requests WHERE status IN('PENDING','AWAITING_SECOND_APPROVAL','PROCESSING')) AS pending_wallet,
+    (SELECT COUNT(*)::int FROM wallet_requests WHERE status='APPROVED') AS transactions_successful,
+    (SELECT COUNT(*)::int FROM wallet_requests WHERE status IN('FAILED','REJECTED')) AS transactions_failed,
     (SELECT COALESCE(SUM(amount),0)::bigint FROM wallet_requests WHERE request_type='DEPOSIT' AND status='APPROVED' AND COALESCE(settled_at,reviewed_at)>=date_trunc('day',now())) AS deposits_today,
     (SELECT COALESCE(SUM(amount),0)::bigint FROM wallet_requests WHERE request_type='WITHDRAW' AND status='APPROVED' AND COALESCE(settled_at,reviewed_at)>=date_trunc('day',now())) AS withdraws_today,
     (SELECT COUNT(*)::int FROM payment_methods WHERE is_active) AS payment_methods,
     (SELECT COUNT(*)::int FROM content_banners WHERE is_active AND (starts_at IS NULL OR starts_at<=now()) AND (ends_at IS NULL OR ends_at>now())) AS live_banners,
-    (SELECT COUNT(*)::int FROM promotions WHERE is_active AND (starts_at IS NULL OR starts_at<=now()) AND (ends_at IS NULL OR ends_at>now())) AS live_promotions`);
-  const r=rows[0];return{members:r.members,suspended:r.suspended,pendingWallet:r.pending_wallet,depositsToday:Number(r.deposits_today||0),withdrawsToday:Number(r.withdraws_today||0),paymentMethods:r.payment_methods,liveBanners:r.live_banners,livePromotions:r.live_promotions};
+    (SELECT COUNT(*)::int FROM promotions WHERE is_active AND (starts_at IS NULL OR starts_at<=now()) AND (ends_at IS NULL OR ends_at>now())) AS live_promotions`),query(`SELECT to_char(days.day,'YYYY-MM-DD') AS day,
+      COALESCE(SUM(w.amount) FILTER(WHERE w.request_type='DEPOSIT' AND w.status='APPROVED'),0)::bigint AS deposits,
+      COALESCE(SUM(w.amount) FILTER(WHERE w.request_type='WITHDRAW' AND w.status='APPROVED'),0)::bigint AS withdrawals
+      FROM generate_series(date_trunc('day',now())-interval '13 days',date_trunc('day',now()),interval '1 day') AS days(day)
+      LEFT JOIN wallet_requests w ON w.created_at>=days.day AND w.created_at<days.day+interval '1 day'
+      GROUP BY days.day ORDER BY days.day`)]);
+  const r=rows[0];return{members:r.members,suspended:r.suspended,pendingWallet:r.pending_wallet,transactionsSuccessful:r.transactions_successful,transactionsFailed:r.transactions_failed,depositsToday:Number(r.deposits_today||0),withdrawsToday:Number(r.withdraws_today||0),paymentMethods:r.payment_methods,liveBanners:r.live_banners,livePromotions:r.live_promotions,transactionSeries:series.rows.map(row=>({day:row.day,deposits:Number(row.deposits||0),withdrawals:Number(row.withdrawals||0)}))};
 }
 
 export async function getMemberDetail(session,id){

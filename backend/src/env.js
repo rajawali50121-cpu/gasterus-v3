@@ -34,6 +34,19 @@ export function int(name, fallback, min, max) {
   return value;
 }
 
+export function boundedInt(name, fallback, min, max) {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isInteger(value)) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}`);
+  }
+
+  const bounded = Math.max(min, Math.min(max, value));
+  if (bounded !== value) {
+    console.warn(`${name} is outside the supported range; using ${bounded}`);
+  }
+  return bounded;
+}
+
 export function bool(name, fallback = false) {
   const value = String(process.env[name] ?? fallback).toLowerCase();
   return ['1', 'true', 'yes', 'on'].includes(value);

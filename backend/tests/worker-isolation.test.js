@@ -11,7 +11,7 @@ test('settlement worker and feed/collector worker are separate processes', () =>
   const settlement = read('backend/src/worker.js');
   const feed = read('backend/src/feed-worker.js');
   assert.match(launcher, /start\('feed-worker',coreDir,\['src\/feed-worker\.js'\]/);
-  assert.match(launcher, /'feed-worker':heapMB\('FEED_WORKER_HEAP_MB',256\)/);
+  assert.match(launcher, /'feed-worker':heapMB\('FEED_WORKER_HEAP_MB',256(?:,\d+)?\)/);
   assert.match(launcher, /isRecoverable = label => \['core', 'worker', 'feed-worker'/);
   assert.doesNotMatch(settlement, /refreshSportsbookFeed|runTotoCollector|DRAW_SCHEDULE/);
   assert.match(feed, /refreshSportsbookFeed/);

@@ -14,7 +14,7 @@ function bettingReadinessReason({ authorityReady, bettingStatus, bettingPeriod, 
   return null;
 }
 
-function mapMarket(row,{includeHistorical=false}={}){
+export function mapMarket(row,{includeHistorical=false}={}){
   const liveVerificationStatus=String(row.verification_status||'');
   const liveTrusted=['VERIFIED','MANUAL_RESOLUTION'].includes(liveVerificationStatus);
   // Single-source publication (display-only): angka asli dari 1 keluarga sumber boleh
@@ -22,7 +22,9 @@ function mapMarket(row,{includeHistorical=false}={}){
   const singleSourceDisplay=Boolean(config.totoPublishSingleSource)&&liveVerificationStatus==='SINGLE_SOURCE'&&/^\d{3,6}$/.test(String(row.result||''));
   const historyAvailable=includeHistorical&&!liveTrusted&&/^\d{3,6}$/.test(String(row.history_result||''));
   const resultTrusted=liveTrusted||historyAvailable||singleSourceDisplay;
-  const result=liveTrusted?row.result:historyAvailable?row.history_result:row.result;
+  const candidate=liveTrusted?row.result:historyAvailable?row.history_result:row.result;
+  const validNumericResult=/^\d{3,6}$/.test(String(candidate||''))?String(candidate):null;
+  const result=resultTrusted?validNumericResult:null;
   const period=liveTrusted?row.period:historyAvailable?row.history_period:row.period;
   const drawDate=liveTrusted?row.draw_date:historyAvailable?row.history_draw_date:row.draw_date;
   const drawTime=liveTrusted?row.draw_time:historyAvailable?row.history_draw_time:row.draw_time;

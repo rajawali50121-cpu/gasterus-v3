@@ -1,7 +1,7 @@
 // Cloudflare Pages Advanced Mode (_worker.js) — reverse proxy API dan Admin ke backend Railway.
 // Semua request non-proxy dilayani dari static assets frontend (env.ASSETS).
 
-const DEFAULT_BACKEND = 'https://web-production-dc041.up.railway.app';
+const DEFAULT_BACKEND = 'https://gasterus-v3-production.up.railway.app';
 
 // Edge cache (Cloudflare Cache API) HANYA untuk endpoint publik non-personal ber-GET.
 // Jalur lain (/api/member/*, /api/owner/*, /admin-api/*, /internal/*,

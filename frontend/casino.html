@@ -10,9 +10,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="css/mobile-blue.css?v=20260925-unified">
+  <link rel="stylesheet" href="css/mobile-blue.css?v=20261014-svg-ui-r1">
   <link rel="stylesheet" href="css/loader-3d.css?v=20260925-1">
-  <link rel="stylesheet" href="/css/animations.css">
+  <link rel="stylesheet" href="/css/animations.css?v=20261012-animations-r1">
   <meta name="theme-color" content="#2563eb">
   <meta property="og:title" content="GASTERUS - Casino dan Slots">
   <meta property="og:type" content="website">
@@ -64,32 +64,32 @@
         <button type="button" class="nav-drawer-close" data-nav-close aria-label="Tutup Menu">X</button>
       </div>
       <div class="nav-drawer-body nav-drawer-links">
-        <a class="nav-drawer-link" href="/index.html"><span class="nav-drawer-ico">#</span>Beranda</a>
-        <a class="nav-drawer-link" href="/member.html"><span class="nav-drawer-ico">#</span>Togel dan Slot</a>
-        <a class="nav-drawer-link" href="/sportsbook.html"><span class="nav-drawer-ico">#</span>Sportsbook</a>
-        <a class="nav-drawer-link" href="/casino.html"><span class="nav-drawer-ico">#</span>Casino</a>
-        <a class="nav-drawer-link" href="/number-history.html"><span class="nav-drawer-ico">#</span>Hasil</a>
-        <a class="nav-drawer-link" href="/bet-history.html"><span class="nav-drawer-ico">#</span>Riwayat Taruhan</a>
-        <a class="nav-drawer-link" href="/notifications.html"><span class="nav-drawer-ico">#</span>Notifikasi</a>
-        <a class="nav-drawer-link" href="/wallet-ledger.html"><span class="nav-drawer-ico">#</span>Mutasi Saldo</a>
-        <a class="nav-drawer-link" href="/gaming-history.html"><span class="nav-drawer-ico">#</span>Riwayat Permainan</a>
-        <a class="nav-drawer-link" href="/support.html"><span class="nav-drawer-ico">#</span>Pusat Bantuan</a>
-        <a class="nav-drawer-link" href="/deposit.html"><span class="nav-drawer-ico">#</span>Setor</a>
-        <a class="nav-drawer-link" href="/withdraw.html"><span class="nav-drawer-ico">#</span>Tarik</a>
-        <a class="nav-drawer-link" href="/promotion.html"><span class="nav-drawer-ico">#</span>Promo</a>
-        <a class="nav-drawer-link" href="/referral.html"><span class="nav-drawer-ico">#</span>Referral</a>
+        <a class="nav-drawer-link" href="/index.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Beranda</a>
+        <a class="nav-drawer-link" href="/member.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Togel dan Slot</a>
+        <a class="nav-drawer-link" href="/sportsbook.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Sportsbook</a>
+        <a class="nav-drawer-link" href="/casino.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Casino</a>
+        <a class="nav-drawer-link" href="/number-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Hasil</a>
+        <a class="nav-drawer-link" href="/bet-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Riwayat Taruhan</a>
+        <a class="nav-drawer-link" href="/notifications.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Notifikasi</a>
+        <a class="nav-drawer-link" href="/wallet-ledger.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Mutasi Saldo</a>
+        <a class="nav-drawer-link" href="/gaming-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Riwayat Permainan</a>
+        <a class="nav-drawer-link" href="/support.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Pusat Bantuan</a>
+        <a class="nav-drawer-link" href="/deposit.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Setor</a>
+        <a class="nav-drawer-link" href="/withdraw.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Tarik</a>
+        <a class="nav-drawer-link" href="/promotion.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Promo</a>
+        <a class="nav-drawer-link" href="/referral.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Referral</a>
         <div style="margin-top:16px; border-top:1px solid #1e293b; padding-top:12px;">
-          <a class="nav-drawer-link" href="/rules.html"><span class="nav-drawer-ico">#</span>Cara Bermain</a>
-          <a class="nav-drawer-link" href="/privacy.html"><span class="nav-drawer-ico">#</span>Privasi</a>
-          <a class="nav-drawer-link" href="/terms.html"><span class="nav-drawer-ico">#</span>Ketentuan</a>
+          <a class="nav-drawer-link" href="/rules.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Cara Bermain</a>
+          <a class="nav-drawer-link" href="/privacy.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Privasi</a>
+          <a class="nav-drawer-link" href="/terms.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Ketentuan</a>
         </div>
       </div>
     </nav>
     <main class="app-main">
       <div class="container">
         <div style="text-align:center; max-width:680px; margin-inline:auto; margin-bottom: var(--space-4);">
-          <h1 style="font-size: 2rem; color:#f8fafc;">Lobby Casino</h1>
-          <p style="color:#cbd5e1;">140+ provider slots, live casino, sportsbook dan arcade. Klik provider untuk melihat game.</p>
+          <h1 id="casino-title" style="font-size: 2rem; color:#f8fafc;">Lobby Casino</h1>
+          <p id="casino-description" style="color:#cbd5e1;">Provider live casino, arcade, sportsbook, dan permainan lainnya. Pilih provider untuk melihat game.</p>
           <p class="casino-status" id="casino-status">Menghubungkan...</p>
         </div>
         <div class="casino-toolbar">
@@ -111,7 +111,7 @@
     </footer>
   </div>
 
-  <script type="module" src="/js/casino.js?v=20261007-casino-lobby"></script>
+  <script type="module" src="/js/casino.js?v=20261008-casino-launch-demo"></script>
   <script>
     (function () {
       function openNav() {

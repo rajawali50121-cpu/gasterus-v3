@@ -508,7 +508,7 @@
     "name": "TENNESSEE MID POOL",
     "slug": "tennessee-mid-pool",
     "sources": {
-      "vegasnet": "Tennessee Midday"
+      "vegasnet": "Tennesse Midday"
     },
     "schedule": {
       "closeTime": "05:20",
@@ -524,7 +524,7 @@
     "name": "TENNESSEE EVE POOL",
     "slug": "tennessee-eve-pool",
     "sources": {
-      "vegasnet": "Tennessee Evening"
+      "vegasnet": "Tennesse Evening"
     },
     "schedule": {
       "closeTime": "04:20",

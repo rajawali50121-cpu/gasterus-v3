@@ -120,6 +120,24 @@ const server = createServer(async (req,res) => {
     if (url.pathname.startsWith('/admin-api/')) return proxy(req,res,ADMIN_PORT,`${url.pathname.replace(/^\/admin-api/,'/api')}${url.search}`);
     return proxy(req,res,ADMIN_PORT,`${url.pathname}${url.search}`);
   }
+  if (url.pathname === '/admin') {
+    res.writeHead(308,{location:`/admin/${url.search}`,'cache-control':'no-store'});
+    return res.end();
+  }
+  if (url.pathname.startsWith('/admin/')) {
+    const rest=url.pathname.slice('/admin'.length)||'/';
+    return proxy(req,res,ADMIN_PORT,`${rest}${url.search}`);
+  }
+  if (url.pathname.startsWith('/admin-api/')) {
+    if(url.pathname==='/admin-api/owner/login'&&req.method==='POST'){
+      const ip=loginIp(req);
+      if(loginBlocked(ip))return json(res,429,{error:{message:'Terlalu banyak percobaan login gagal. Coba lagi dalam 15 menit.',code:'LOGIN_RATE_LIMITED'}});
+      return proxy(req,res,ADMIN_PORT,`${url.pathname.replace(/^\/admin-api/,'/api')}${url.search}`,status=>{
+        if(status===401||status===403)recordLoginFailure(ip);else if(status>=200&&status<300)clearLoginFailures(ip);
+      });
+    }
+    return proxy(req,res,ADMIN_PORT,`${url.pathname.replace(/^\/admin-api/,'/api')}${url.search}`);
+  }
   // R6.94 hardening: member host must never expose raw admin APIs.
   // When no dedicated ADMIN_HOST is set (single-domain), the obfuscated admin path prefix
   // must remain reachable so the back-office is not locked out entirely.
@@ -149,24 +167,8 @@ const server = createServer(async (req,res) => {
 
   if (!PATH_MODE && (MEMBER_HOST || ADMIN_HOST)) return text(res,421,'Misdirected Request');
 
-  // Single-domain mode: member at /, obfuscated admin UI at ADMIN_PATH_PREFIX.
-  // Legacy /admin links redirect permanently to the configured prefix so old
-  // bookmarks keep working while scanners probing /admin/ reveal nothing new.
-  if (url.pathname === '/admin' || url.pathname === '/admin/' || url.pathname.startsWith('/admin/')) {
-    const rest = url.pathname === '/admin' ? '' : url.pathname.slice('/admin'.length);
-    res.writeHead(308,{location:`${ADMIN_PATH_PREFIX}${rest || '/'}${url.search}`,'cache-control':'no-store'}); return res.end();
-  }
+  // The legacy obfuscated prefix remains available as a compatibility alias.
   if (url.pathname === ADMIN_PATH_PREFIX) { res.writeHead(308,{location:`${ADMIN_PATH_PREFIX}/`,'cache-control':'no-store'}); return res.end(); }
-  if (url.pathname === '/admin-api/owner/login') {
-    const ip = loginIp(req);
-    if (req.method === 'POST') {
-      if (loginBlocked(ip)) return json(res,429,{error:{message:'Terlalu banyak percobaan login gagal. Coba lagi dalam 15 menit.',code:'LOGIN_RATE_LIMITED'}});
-      return proxy(req,res,ADMIN_PORT,`${url.pathname.replace(/^\/admin-api/,'/api')}${url.search}`,status => {
-        if (status === 401 || status === 403) recordLoginFailure(ip); else if (status >= 200 && status < 300) clearLoginFailures(ip);
-      });
-    }
-  }
-  if (url.pathname.startsWith('/admin-api/')) return proxy(req,res,ADMIN_PORT,`${url.pathname.replace(/^\/admin-api/,'/api')}${url.search}`);
   if (url.pathname.startsWith(`${ADMIN_PATH_PREFIX}/`)) {
     const stripped = url.pathname.slice(ADMIN_PATH_PREFIX.length) || '/';
     return proxy(req,res,ADMIN_PORT,`${stripped}${url.search}`);

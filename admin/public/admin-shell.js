@@ -27,4 +27,4 @@ window.AdminShell=(()=>{
   return{mount,auth,esc,date};
 })();
 /* R6.94 premium design layer — injected once for every shell page. */
-(()=>{const link=document.createElement('link');link.rel='stylesheet';link.href='enterprise-ui-r6940.css?v=r6940-enterprise-control';document.head.appendChild(link);document.body.classList.add('enterprise-r6940');})();
+(()=>{const link=document.createElement('link');link.rel='stylesheet';link.href='enterprise-ui-r6940.css?v=r6940-enterprise-control';document.head.appendChild(link);const activate=()=>document.body?.classList.add('enterprise-r6940');if(document.body)activate();else document.addEventListener('DOMContentLoaded',activate,{once:true});})();

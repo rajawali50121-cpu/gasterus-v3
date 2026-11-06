@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const ROOT = resolve(process.cwd());
@@ -32,21 +32,24 @@ let fatalReason = null;
 
 function bool(name,fallback=false){const v=String(process.env[name] ?? fallback).toLowerCase();return !['0','false','no','off','disabled'].includes(v);}
 function validPort(value,name){const n=Number(value);if(!Number.isInteger(n)||n<1||n>65535)throw new Error(`${name} must be a valid TCP port`);return n;}
-function heapMB(name,fallback){const n=Number(process.env[name]);return Number.isInteger(n)&&n>0?n:fallback;}
+function containerMemoryMB(){for(const path of ['/sys/fs/cgroup/memory.max','/sys/fs/cgroup/memory/memory.limit_in_bytes']){try{const raw=readFileSync(path,'utf8').trim();if(!raw||raw==='max')continue;const bytes=Number(raw);if(Number.isFinite(bytes)&&bytes>0&&bytes<=Number.MAX_SAFE_INTEGER)return Math.floor(bytes/1048576);}catch{}}return null;}
+const constrainedMemoryMB=containerMemoryMB();
+const rail512Budget=constrainedMemoryMB!==null&&constrainedMemoryMB<=512;
+function heapMB(name,fallback,constrainedFallback=fallback){const n=Number(process.env[name]);const requested=Number.isInteger(n)&&n>0?n:(rail512Budget?constrainedFallback:fallback);return rail512Budget?Math.min(requested,constrainedFallback):requested;}
 // Heap ceiling per child process (MB). Without an explicit cap V8 lets the heap
 // grow way past the container cgroup quota, so the OS OOM-killer tears down
 // ALL services at once. Capping per-child keeps each service inside a budget and
 // makes the launcher recover() restart just that crashed subprocess.
 const HEAP_MB={
-  gateway:heapMB('GATEWAY_HEAP_MB',48),
-  core:heapMB('CORE_HEAP_MB',256),
-  worker:heapMB('WORKER_HEAP_MB',384),
-  'feed-worker':heapMB('FEED_WORKER_HEAP_MB',256),
-  member:heapMB('MEMBER_HEAP_MB',128),
-  admin:heapMB('ADMIN_HEAP_MB',64),
-  'health-monitor':heapMB('HEALTH_MONITOR_HEAP_MB',32),
-  'backup-scheduler':heapMB('BACKUP_HEAP_MB',32),
-  default:heapMB('SCRIPT_HEAP_MB',128),
+  gateway:heapMB('GATEWAY_HEAP_MB',48,32),
+  core:heapMB('CORE_HEAP_MB',256,112),
+  worker:heapMB('WORKER_HEAP_MB',384,48),
+  'feed-worker':heapMB('FEED_WORKER_HEAP_MB',256,48),
+  member:heapMB('MEMBER_HEAP_MB',128,48),
+  admin:heapMB('ADMIN_HEAP_MB',64,32),
+  'health-monitor':heapMB('HEALTH_MONITOR_HEAP_MB',32,16),
+  'backup-scheduler':heapMB('BACKUP_HEAP_MB',32,16),
+  default:heapMB('SCRIPT_HEAP_MB',128,64),
 };
 function childEnv(label='default',overrides={}) {
   const cap=HEAP_MB[label]||HEAP_MB.default;

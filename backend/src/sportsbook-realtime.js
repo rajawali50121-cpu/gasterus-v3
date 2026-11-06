@@ -7,8 +7,7 @@ const clients = new Set();
 let pollTimer = null;
 let heartbeatTimer = null;
 let inFlight = null;
-let lastStateToken = '';
-let lastSnapshot = null;
+let lastFeedRevision = '';
 const metrics = {
   totalConnections: 0,
   broadcasts: 0,
@@ -38,19 +37,16 @@ function removeClient(client) {
 }
 function stateToken(snapshot) {
   const source = snapshot?.source || {};
-  return [source.feedRevision || '', source.status || '', source.mode || '', snapshot?.stale ? 'stale' : 'fresh', Number(source.pricedMarkets || 0), Number(source.bettableMarkets || 0)].join('|');
+  const page = snapshot?.pagination || {};
+  return [source.feedRevision || '', source.status || '', source.mode || '', snapshot?.stale ? 'stale' : 'fresh', page.offset || 0, page.limit || 0, page.total || 0, Number(source.pricedMarkets || 0), Number(source.bettableMarkets || 0)].join('|');
 }
-function broadcastSnapshot(snapshot) {
+function broadcastSnapshot(client, snapshot) {
   const token = stateToken(snapshot);
-  if (!token || token === lastStateToken) return;
-  lastStateToken = token;
-  lastSnapshot = snapshot;
+  if (!token || token === client.lastStateToken) return;
+  client.lastStateToken = token;
+  lastFeedRevision = snapshot?.source?.feedRevision || lastFeedRevision;
   const id = snapshot?.source?.feedRevision || String(Date.now());
-  let bytes = 0;
-  for (const client of [...clients]) {
-    try { bytes += sendEvent(client.response, 'snapshot', snapshot, id); }
-    catch { removeClient(client); }
-  }
+  const bytes = sendEvent(client.response, 'snapshot', snapshot, id);
   metrics.broadcasts += 1;
   metrics.broadcastBytes += bytes;
   metrics.lastBroadcastAt = new Date().toISOString();
@@ -59,10 +55,26 @@ async function refreshOnce() {
   if (inFlight || !clients.size) return inFlight;
   inFlight = (async () => {
     try {
-      const snapshot = await sportsbookSnapshot();
       metrics.lastRefreshAt = new Date().toISOString();
-      broadcastSnapshot(snapshot);
-      return snapshot;
+      const snapshots = new Map();
+      await Promise.all([...clients].map(async client => {
+        try {
+          const key = JSON.stringify(client.filters);
+          let pending = snapshots.get(key);
+          if (!pending) {
+            pending = sportsbookSnapshot(client.filters);
+            snapshots.set(key, pending);
+          }
+          broadcastSnapshot(client, await pending);
+        } catch (error) {
+          metrics.refreshErrors += 1;
+          metrics.lastErrorAt = new Date().toISOString();
+          metrics.lastErrorCode = error?.code || 'SPORTSBOOK_REALTIME_REFRESH_ERROR';
+          logger.warn('Sportsbook realtime view unavailable', { code: error?.code, error: error?.message });
+          sendEvent(client.response, 'degraded', { code: error?.code || 'SPORTSBOOK_REALTIME_REFRESH_ERROR', at: metrics.lastErrorAt });
+        }
+      }));
+      return true;
     } catch (error) {
       metrics.refreshErrors += 1;
       metrics.lastErrorAt = new Date().toISOString();
@@ -97,7 +109,7 @@ function ensureTimers() {
   }, config.sportsbookRealtimeHeartbeatSeconds * 1000).unref();
 }
 
-export function openSportsbookRealtimeStream(request, response) {
+export function openSportsbookRealtimeStream(request, response, filters = {}) {
   if (!config.sportsbookRealtimeEnabled) throw new AppError(503, 'Realtime Sportsbook sedang dinonaktifkan.', 'SPORTSBOOK_REALTIME_DISABLED');
   if (clients.size >= config.sportsbookRealtimeMaxClients) throw new AppError(503, 'Kapasitas koneksi realtime sedang penuh.', 'SPORTSBOOK_REALTIME_CAPACITY');
   response.writeHead(200, {
@@ -108,11 +120,26 @@ export function openSportsbookRealtimeStream(request, response) {
   });
   response.flushHeaders?.();
   response.write('retry: 3000\n\n');
-  const client = { response, connectedAt: Date.now() };
+  const client = {
+    response,
+    connectedAt: Date.now(),
+    lastStateToken: '',
+    filters: {
+      sport: filters.sport || '',
+      live: filters.live || '',
+      q: filters.q || '',
+      tab: filters.tab || 'all',
+      league: filters.league || '',
+      leagues: filters.leagues ?? null,
+      country: filters.country || '',
+      offset: filters.offset || 0,
+      limit: filters.limit || 30,
+      revision: filters.revision || ''
+    }
+  };
   clients.add(client);
   metrics.totalConnections += 1;
   sendEvent(response, 'ready', { connected: true, heartbeatSeconds: config.sportsbookRealtimeHeartbeatSeconds, pollMs: config.sportsbookRealtimePollMs, at: new Date().toISOString() });
-  if (lastSnapshot) sendEvent(response, 'snapshot', lastSnapshot, lastSnapshot?.source?.feedRevision || String(Date.now()));
   ensureTimers();
   refreshOnce().catch(() => {});
   const close = () => removeClient(client);
@@ -128,7 +155,7 @@ export function sportsbookRealtimeStatus() {
     maxClients: config.sportsbookRealtimeMaxClients,
     pollMs: config.sportsbookRealtimePollMs,
     heartbeatSeconds: config.sportsbookRealtimeHeartbeatSeconds,
-    lastFeedRevision: lastSnapshot?.source?.feedRevision || null,
+    lastFeedRevision: lastFeedRevision || null,
     ...metrics
   };
 }

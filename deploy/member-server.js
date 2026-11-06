@@ -89,7 +89,7 @@ const contentTypes = Object.freeze({
 });
 const hopByHop = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailers', 'transfer-encoding', 'upgrade']);
 const responseHidden = new Set(['server', 'x-powered-by', 'x-aspnet-version', 'x-aspnetmvc-version', 'x-runtime', 'via', 'source-map', 'x-source-map', 'x-provider', 'x-upstream', 'x-backend']);
-const requestAllowed = new Set(['accept', 'accept-language', 'content-type', 'content-length', 'cookie', 'user-agent', 'origin', 'referer', 'authorization', 'x-csrf-token', 'idempotency-key', 'last-event-id']);
+const requestAllowed = new Set(['accept', 'accept-language', 'content-type', 'content-length', 'cookie', 'user-agent', 'origin', 'referer', 'authorization', 'x-csrf-token', 'idempotency-key', 'last-event-id', 'x-sportsbook-timestamp', 'x-sportsbook-signature']);
 const blockedPublicPath = /(?:^|\/)(?:\.|node_modules(?:\/|$))|(?:\.map|\.env|\.log|\.bak|\.old|\.sql|\.sqlite|\.db|\.pem|\.key|\.crt|\.yaml|\.yml|\.toml|\.ini|\.md|package(?:-lock)?\.json)$/i;
 
 function sha256(value) { return createHash('sha256').update(value).digest('base64'); }
@@ -232,6 +232,10 @@ const server = createServer((request, response) => {
   }
   const hiddenManagementPath = /^(?:\/admin(?:\/|$)|\/owner(?:\/|$)|\/dashboard(?:\/|$)|\/login-admin(?:\/|$)|\/api\/(?:owner|admin)(?:\/|$))/i;
   if (hiddenManagementPath.test(url.pathname)) return send(response, 404, 'Not found');
+  if (url.pathname === '/api/internal/sportsbook/ingest') {
+    if (request.method !== 'POST') return send(response, 405, 'Method not allowed');
+    return proxy(request, response, `${url.pathname}${url.search}`);
+  }
   if (url.pathname.startsWith('/api/member/') || url.pathname.startsWith('/member-api/')) return proxy(request, response, `${url.pathname}${url.search}`);
   if (url.pathname.startsWith('/api/public/')) return proxy(request, response, `${url.pathname}${url.search}`);
   if (!['GET', 'HEAD'].includes(request.method ?? 'GET')) return send(response, 405, 'Method not allowed');

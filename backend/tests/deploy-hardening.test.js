@@ -11,17 +11,14 @@ const root=resolve(here,'../..');
 const read=p=>readFileSync(resolve(root,p),'utf8');
 
 test('Railway uses Dockerfile lifecycle, predeploy, and health gate',()=>{
-  const cfg=JSON.parse(read('railway.json'));
-  assert.equal(cfg.build.builder,'DOCKERFILE');
-  assert.equal(cfg.build.dockerfilePath,'deploy/Dockerfile');
-  assert.equal(cfg.deploy.preDeployCommand,'node deploy/predeploy.js');
-  assert.equal(cfg.deploy.healthcheckPath,'/healthz');
-  assert.equal(cfg.deploy.startCommand,undefined);
-  assert.equal(typeof cfg.deploy.healthcheckTimeout,'number');
-  assert.equal(typeof cfg.deploy.restartPolicyMaxRetries,'number');
-  assert.equal(typeof cfg.deploy.drainingSeconds,'number');
-  assert.equal(cfg.deploy.drainingSeconds,15);
-  assert.deepEqual(JSON.parse(read('railway.json')),cfg);
+  const cfg=read('.railway/railway.ts');
+  assert.match(cfg,/source:\s*github\("rajawali50121-cpu\/gasterus-v3",\s*\{ branch:\s*"master",\s*checkSuites:\s*true \}\)/);
+  assert.match(cfg,/build:\s*\{\s*builder:\s*"DOCKERFILE",\s*dockerfilePath:\s*"deploy\/Dockerfile"\s*\}/);
+  assert.match(cfg,/preDeploy:\s*"node deploy\/predeploy\.js"/);
+  assert.match(cfg,/healthcheck:\s*"\/healthz"/);
+  assert.match(cfg,/service\("sportsbook-render-worker"/);
+  assert.match(cfg,/dockerfilePath:\s*"deploy\/Dockerfile\.sportsbook-render-worker"/);
+  assert.match(cfg,/SPORTSBOOK_RENDER_MAX_PAGES:\s*"120"/);
 });
 
 

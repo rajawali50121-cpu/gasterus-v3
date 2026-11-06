@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const feedSource = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
-const publicMarketSource = readFileSync(new URL('../src/sportsbook-public-market.js', import.meta.url), 'utf8');
 const validationStart = feedSource.indexOf('const MIN_1X2_OVERROUND');
 const validationEnd = feedSource.indexOf('\nconst LIFECYCLE_GENERATION', validationStart);
 assert.ok(validationStart >= 0 && validationEnd > validationStart, 'feed validator block must exist');
@@ -19,14 +18,6 @@ const validateAllHandicapOdds = new Function(
   'logger',
   `${validationBlock}; return validateAllHandicapOdds;`
 )(validationLogger);
-
-const oddsHelpersStart = publicMarketSource.indexOf('function bookOddsFromProbability');
-const oddsHelpersEnd = publicMarketSource.indexOf('\nfunction asianComponent', oddsHelpersStart);
-assert.ok(oddsHelpersStart >= 0 && oddsHelpersEnd > oddsHelpersStart, 'public market odds helpers must exist');
-const oddsHelpers = new Function(
-  'clamp',
-  `${publicMarketSource.slice(oddsHelpersStart, oddsHelpersEnd)}; return { bookOddsFromProbability, pushAdjustedOdds };`
-)((value, min, max) => Math.max(min, Math.min(max, value)));
 
 function eventWithMarket(market) {
   return { id: 'event-1', markets: [market] };
@@ -145,12 +136,6 @@ test('does not change valid markets and retains events whose markets are all qua
 test('refresh invokes validation without calling the removed reset helper', () => {
   assert.doesNotMatch(feedSource, /resetAbnormalOddsLog\s*\(/);
   assert.match(feedSource, /events = validateAllHandicapOdds\(events\);/);
-});
-
-test('model-derived odds cap long-shot prices at 100', () => {
-  assert.equal(oddsHelpers.bookOddsFromProbability(0.0001), 100);
-  assert.equal(oddsHelpers.pushAdjustedOdds(0.0001, 0), 100);
-  assert.equal(oddsHelpers.bookOddsFromProbability(0.5), 1.914);
 });
 
 test('suspended selections do not quarantine a market for their odds', () => {

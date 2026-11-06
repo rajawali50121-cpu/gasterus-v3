@@ -118,6 +118,17 @@ async function fileExists(file) {
   try { await readFile(file); return true; } catch { return false; }
 }
 
+export async function browserBinaryAvailable(explicit = '') {
+  for (const candidate of executableCandidates(explicit)) {
+    if (candidate.includes('/') || candidate.includes('\\')) {
+      if (await fileExists(candidate)) return true;
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
 async function resolveExecutable(explicit = '') {
   for (const candidate of executableCandidates(explicit)) {
     if (candidate.includes('/') || candidate.includes('\\')) {

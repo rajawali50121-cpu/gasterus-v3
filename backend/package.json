@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node ../deploy/launcher.js",
+    "start:sportsbook-render-worker": "node src/sportsbook-render-worker.js",
     "dev": "node --watch src/server.js",
     "db:migrate": "node migrations/migrate.js",
     "db:seed": "node migrations/seed.js",

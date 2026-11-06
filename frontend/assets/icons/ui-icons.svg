@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M5 21v-2a7 7 0 0 1 14 0v2z"/></symbol>
+  <symbol id="lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+  <symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="inbox" viewBox="0 0 24 24"><path d="M4 4h16l2 11v5H2v-5z"/><path d="M2 15h6l2 3h4l2-3h6"/></symbol>
+  <symbol id="eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="eye-off" viewBox="0 0 24 24"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.2A10 10 0 0 1 12 5c6.5 0 10 7 10 7a15 15 0 0 1-3 3.8M6.2 6.2C3.4 8 2 12 2 12s3.5 7 10 7a9 9 0 0 0 2.1-.2"/></symbol>
+  <symbol id="shield-check" viewBox="0 0 24 24"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="bolt" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-13h-7z"/></symbol>
+  <symbol id="slot" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 5V3h8v2M7 10h2m3 0h2m3 0h2M8 15h8"/></symbol>
+  <symbol id="soccer" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m12 7 3 2-1 4h-4l-1-4zM9 13l-3 2m11-2 2 2m-7-8V2m-2 18 1-7m4 1 2 5"/></symbol>
+  <symbol id="target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="trophy" viewBox="0 0 24 24"><path d="M8 21h8m-4-4v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a4 4 0 0 0 4 4m9-6h3v2a4 4 0 0 1-4 4"/></symbol>
+  <symbol id="gift" viewBox="0 0 24 24"><path d="M3 8h18v4H3zM5 12v9h14v-9M12 8v13m0-13H8a2 2 0 1 1 2-2c0 1 2 2 2 2Zm0 0h4a2 2 0 1 0-2-2c0 1-2 2-2 2Z"/></symbol>
+  <symbol id="history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8m0-5v5h5m4-1v5l3 2"/></symbol>
+  <symbol id="credit-card" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20m-15 5h4"/></symbol>
+  <symbol id="arrow-down" viewBox="0 0 24 24"><path d="M12 3v12m0 0 5-5m-5 5-5-5M5 21h14"/></symbol>
+  <symbol id="arrow-up" viewBox="0 0 24 24"><path d="M12 21V9m0 0 5 5m-5-5-5 5M5 3h14"/></symbol>
+  <symbol id="users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m6-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6-3a4 4 0 0 1 0 8m2 5h2v-2a4 4 0 0 0-3-3.9"/></symbol>
+  <symbol id="dice" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 8h.01M16 8h.01M12 12h.01M8 16h.01M16 16h.01"/></symbol>
+  <symbol id="clipboard" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 4.5V3h6v1.5M9 10h6m-6 4h6m-6 4h4"/></symbol>
+  <symbol id="file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8m-8 4h8"/></symbol>
+  <symbol id="help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3m.1 4h.01"/></symbol>
+  <symbol id="coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M16 8.5c-.8-.7-2-1-3.5-1-2 0-3.5 1-3.5 2.5s1.5 2.5 3.5 2.5 3.5 1 3.5 2.5-1.5 2.5-3.5 2.5c-1.5 0-2.7-.3-3.5-1M12 6v12"/></symbol>
+  <symbol id="bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 13h4"/></symbol>
+  <symbol id="fire" viewBox="0 0 24 24"><path d="M12 22a8 8 0 0 0 8-8c0-4-3-7-5-10 0 4-2 5-3 6-1-3-3-5-5-7 1 5-3 7-3 12a8 8 0 0 0 8 7z"/><path d="M12 22a4 4 0 0 0 4-4c0-2-2-4-3-5 0 2-2 3-3 5a4 4 0 0 0 2 4z"/></symbol>
+  <symbol id="crown" viewBox="0 0 24 24"><path d="m2 8 5 4 5-8 5 8 5-4-2 12H4zM4 20h16"/></symbol>
+  <symbol id="telegram" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4zM22 2 11 13"/></symbol>
+  <symbol id="whatsapp" viewBox="0 0 24 24"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3 20l1.2-4.6A8.5 8.5 0 1 1 20.5 11.5Z"/><path d="M9 8.5c.4 2.4 2.1 4.1 4.5 4.5l1-1 2 1c-.3 1.7-1.6 2.3-3.2 2-3.3-.7-5.7-3.1-6.4-6.4-.3-1.6.3-2.9 2-3.2l1 2z"/></symbol>
+  <symbol id="facebook" viewBox="0 0 24 24"><path d="M14 8h4V4h-4a5 5 0 0 0-5 5v3H6v4h3v4h4v-4h4l1-4h-5V9a1 1 0 0 1 1-1z"/></symbol>
+  <symbol id="instagram" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5h.01"/></symbol>
+</svg>

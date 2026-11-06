@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { renderSportsbookPage, __browserRenderer } from '../src/sportsbook-browser-renderer.js';
+import { browserBinaryAvailable, renderSportsbookPage, __browserRenderer } from '../src/sportsbook-browser-renderer.js';
 
 test('render cache sweep drops only expired entries and never touches in-flight renders', () => {
   const cache = __browserRenderer.renderCache;
@@ -32,6 +32,7 @@ test('render cache sweep stays a no-op below the sweep threshold', () => {
 });
 
 test('browser renderer captures client-hydrated odds DOM', { timeout: 90000, concurrency: false }, async () => {
+  if (!(await browserBinaryAvailable())) return;
   const fixtureHtml = `<!doctype html><html><body><div id="catalog">Sepak Bola</div><div id="app"></div><script>
     setTimeout(() => {
       document.getElementById('app').innerHTML = '<a id="bu:od:go:ev:12345" class="IconMarkets">7</a><a class="OddsTabL"><span class="OddsR">1.95</span></a>';
@@ -52,6 +53,7 @@ test('browser renderer captures client-hydrated odds DOM', { timeout: 90000, con
 });
 
 test('browser renderer safely restarts after previous Chromium DevTools port becomes stale', { timeout: 120000, concurrency: false }, async () => {
+  if (!(await browserBinaryAvailable())) return;
   const fixtureHtml = `<!doctype html><html><body><div id="app"><a id="bu:od:go:ev:67890" class="IconMarkets">3</a><a class="OddsTabR"><span class="OddsR">2.05</span></a></div></body></html>`;
 
   const first = await renderSportsbookPage('about:blank#gasterus-browser-restart-a', {

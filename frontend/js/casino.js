@@ -4,7 +4,8 @@
  */
 import { api } from './api.js';
 
-const state = { providers: [], categories: [], filter: 'ALL', q: '', games: [], gamesProvider: '' };
+const state = { providers: [], categories: [], filter: 'ALL', q: '', games: [], gamesProvider: '', launchMode: 'DEMO' };
+const slotsView = new URLSearchParams(window.location.search).get('view') === 'slots';
 
 function el(id) { return document.getElementById(id); }
 
@@ -85,6 +86,43 @@ async function loadGames(provider) {
   }
 }
 
+async function launchGame(game, card) {
+  const popup = window.open('about:blank', '_blank');
+  if (!popup) {
+    const box = el('casino-games');
+    if (box) {
+      const notice = document.createElement('div');
+      notice.className = 'casino-empty';
+      notice.textContent = 'Izinkan popup untuk membuka game.';
+      box.prepend(notice);
+    }
+    return;
+  }
+  popup.opener = null;
+  card.disabled = true;
+  try {
+    const res = await api.post('/api/member/casino/launch', {
+      gameId: game.id,
+      platform: window.matchMedia('(pointer: coarse)').matches ? 2 : 1
+    });
+    const payload = res?.data ?? res;
+    const launchUrl = new URL(String(payload?.gameUrl || ''));
+    if (launchUrl.protocol !== 'https:') throw new Error('URL game tidak aman.');
+    popup.location.replace(launchUrl.href);
+  } catch (error) {
+    popup.close();
+    const box = el('casino-games');
+    if (box) {
+      const notice = document.createElement('div');
+      notice.className = 'casino-empty';
+      notice.textContent = 'Gagal membuka game: ' + (error?.data?.error?.message || error?.message || 'error');
+      box.prepend(notice);
+    }
+  } finally {
+    card.disabled = false;
+  }
+}
+
 function renderGames() {
   const box = el('casino-games');
   if (!box) return;
@@ -99,11 +137,22 @@ function renderGames() {
   const title = document.createElement('h3');
   title.textContent = state.gamesProvider + ' (' + state.games.length + ')';
   box.appendChild(title);
+  const demoNote = document.createElement('p');
+  demoNote.className = 'casino-status';
+  demoNote.textContent = state.launchMode === 'REAL'
+    ? 'SALDO GASTERUS - transaksi diproses melalui callback Betnex.'
+    : state.launchMode === 'REAL_NOT_CONFIGURED'
+      ? 'Mode saldo Gasterus belum dikonfigurasi; game belum dapat diluncurkan.'
+      : 'MODE DEMO - saldo member tidak digunakan.';
+  box.appendChild(demoNote);
   const grid = document.createElement('div');
   grid.className = 'casino-grid';
   for (const g of state.games.slice(0, 200)) {
-    const card = document.createElement('div');
+    const card = document.createElement('button');
+    card.type = 'button';
     card.className = 'casino-card';
+    card.disabled = !g.id || state.launchMode === 'REAL_NOT_CONFIGURED';
+    card.title = state.launchMode === 'REAL' ? 'Main dengan saldo Gasterus' : 'Main demo - saldo member tidak digunakan';
     if (g.img) {
       const img = document.createElement('img');
       img.src = g.img;
@@ -119,9 +168,10 @@ function renderGames() {
     if (g.type) {
       const typeEl = document.createElement('span');
       typeEl.className = 'casino-cat';
-      typeEl.textContent = String(g.type).slice(0, 20);
+      typeEl.textContent = (state.launchMode === 'REAL' ? 'GASTERUS - ' : 'DEMO - ') + String(g.type).slice(0, 20);
       card.appendChild(typeEl);
     }
+    if (g.id) card.addEventListener('click', () => launchGame(g, card));
     grid.appendChild(card);
   }
   box.appendChild(grid);
@@ -129,16 +179,33 @@ function renderGames() {
 
 async function init() {
   const statusBox = el('casino-status');
+  const title = el('casino-title');
+  const description = el('casino-description');
+  const filters = el('casino-filters');
+  if (slotsView) {
+    document.title = 'Slot - GASTERUS V3';
+    if (title) title.textContent = 'Lobby Slot';
+    if (description) description.textContent = 'Pilih provider slot untuk melihat grid permainan slot.';
+    if (filters) filters.hidden = true;
+  }
+  try {
+    const statusResponse = await api.get('/api/member/casino/status');
+    const wallet = (statusResponse?.data ?? statusResponse)?.wallet;
+    if (['DEMO', 'REAL', 'REAL_NOT_CONFIGURED'].includes(wallet?.launchMode)) state.launchMode = wallet.launchMode;
+  } catch {}
   try {
     const res = await api.get('/api/member/casino/providers');
     const payload = res?.data ?? res;
-    state.providers = Array.isArray(payload?.providers) ? payload.providers : [];
-    state.categories = Array.isArray(payload?.categories) ? payload.categories : [...new Set(state.providers.map((p) => p.category))];
+    const providers = Array.isArray(payload?.providers) ? payload.providers : [];
+    state.providers = providers.filter((provider) => slotsView
+      ? provider.category === 'SLOTS'
+      : provider.category !== 'SLOTS');
+    state.categories = [...new Set(state.providers.map((provider) => provider.category))].sort();
     renderFilters(state.categories);
     renderProviders();
-    if (statusBox) statusBox.textContent = 'Terhubung: ' + state.providers.length + ' provider';
+    if (statusBox) statusBox.textContent = 'Terhubung: ' + state.providers.length + (slotsView ? ' provider Slot' : ' provider Casino') + (state.launchMode === 'REAL_NOT_CONFIGURED' ? ' · saldo game belum dikonfigurasi' : '');
   } catch (e) {
-    if (statusBox) statusBox.textContent = 'Casino belum tersedia: ' + (e.message || 'error');
+    if (statusBox) statusBox.textContent = (slotsView ? 'Slot' : 'Casino') + ' belum tersedia: ' + (e.message || 'error');
     renderProviders();
   }
   const search = el('casino-search');

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bool, int, optionalSecret, requiredSecret, text } from './env.js';
+import { bool, boundedInt, int, optionalSecret, requiredSecret, text } from './env.js';
 
 // Local development: muat backend/.env (gitignored) jika ada. process.loadEnvFile
 // TIDAK menimpa variabel yang sudah ada di process.env, jadi variabel produksi
@@ -12,12 +12,15 @@ if (existsSync(localEnvFile)) {
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
-const apiSportsKey = optionalSecret('API_SPORTS_KEY');
-const theOddsApiKey = optionalSecret('THE_ODDS_API_KEY');
+const isSportsbookRenderWorker = process.env.SPORTSBOOK_RENDER_WORKER === 'true';
+const apiSportsKey = optionalSecret('API_SPORTS_KEY') || optionalSecret('API_FOOTBALL_KEY');
 const sharpApiKey = optionalSecret('SHARP_API_KEY');
 const theSportsDbKey = optionalSecret('THESPORTSDB_API_KEY');
-const footballDataIoKey = optionalSecret('FOOTBALLDATA_IO_KEY');
+const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
+const oddsPapiKey = optionalSecret('ODDSPAPI_API_KEY');
 const rapidApiKey = optionalSecret('RAPIDAPI_CASINO_KEY') || optionalSecret('RAPIDAPI_KEY');
+const betnexApiKey = optionalSecret('BETNEX_API_KEY');
+const betnexCallbackKey = optionalSecret('BETNEX_CALLBACK_KEY') || betnexApiKey;
 function pricedProviderEnabled(name, key) {
   const raw = String(process.env[name] ?? '').trim().toLowerCase();
   if (!raw || raw === 'auto') return isProduction && Boolean(key);
@@ -28,16 +31,21 @@ export const config = Object.freeze({
   nodeEnv: process.env.NODE_ENV || 'development',
   host: process.env.HOST || '0.0.0.0',
   port: int('PORT', 8080, 1, 65535),
-  databaseUrl: requiredSecret('DATABASE_URL', 12),
+  databaseUrl: isSportsbookRenderWorker ? optionalSecret('DATABASE_URL') : requiredSecret('DATABASE_URL', 12),
   databaseSsl: bool('DATABASE_SSL', false),
   pgPoolMax: int('PG_POOL_MAX', 15, 2, 100),
-  redisUrl: requiredSecret('REDIS_URL', 12),
+  redisUrl: isSportsbookRenderWorker ? optionalSecret('REDIS_URL') : requiredSecret('REDIS_URL', 12),
   memberProxySecret: requiredSecret('MEMBER_PROXY_SECRET', 32),
   adminProxySecret: requiredSecret('ADMIN_PROXY_SECRET', 32),
   opsInternalSecret: requiredSecret('OPS_INTERNAL_SECRET', 32),
   sessionHmacKey: requiredSecret('SESSION_HMAC_KEY', 32),
   apiKeyPepper: requiredSecret('API_KEY_PEPPER', 32),
   mfaEncryptionKeyBase64: requiredSecret('MFA_ENCRYPTION_KEY_BASE64', 40),
+  sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
+  sportsbookIngestMaxPayloadBytes: int('SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES', 6_291_456, 65_536, 8_388_608),
+  sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 600),
+  sportsbookRenderMaxEvents: int('SPORTSBOOK_RENDER_MAX_EVENTS', 500, 1, 500),
+  sportsbookRenderMaxPages: int('SPORTSBOOK_RENDER_MAX_PAGES', 120, 12, 120),
   memberSessionTtl: int('MEMBER_SESSION_TTL_SECONDS', 43200, 900, 604800),
   ownerSessionTtl: int('OWNER_SESSION_TTL_SECONDS', 900, 900, 86400), // R6.94: 15-minute admin session (idle refresh)
   highValueThreshold: int('HIGH_VALUE_APPROVAL_THRESHOLD', 1000000, 10000, 200000000),
@@ -107,24 +115,28 @@ export const config = Object.freeze({
   // Background feed/collector process is separate from settlement (feed-worker.js).
   sportsSourceBackgroundPollEnabled: bool('SPORTS_SOURCE_BACKGROUND_POLL_ENABLED', true),
   feedWorkerEnabled: bool('FEED_WORKER_ENABLED', true),
-  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 600, 20, 2000),
-  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 8_000_000, 262_144, 50_000_000),
+  // Event dan payload tetap dibatasi; worker menghilangkan fixture utuh bila
+  // byte budget habis, bukan memangkas market/selection dari fixture tersimpan.
+  // Cache backend menyamai batas ingest 6MB untuk menyimpan snapshot lengkap.
+  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 500, 20, 500),
+  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000),
+  // Eviction agresif provider cache: entri lama langsung dibuang sebelum menumpuk di RAM.
+  sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 40, 1, 10000),
+  sportsProviderCacheMaxEntryBytes: int('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 1_048_576, 1024, 100_000_000),
+  sportsProviderCacheMaxTotalBytes: int('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000, 1024, 100_000_000),
 
   // Provider credentials are read only by core and may be mounted as Docker secrets.
   apiSportsKey,
   apiSportsBaseUrl: text('API_SPORTS_BASE_URL', 'https://v3.football.api-sports.io'),
   apiSportsEnabled: pricedProviderEnabled('API_SPORTS_ENABLED', apiSportsKey),
-  apiSportsDaysAhead: int('API_SPORTS_DAYS_AHEAD', 3, 0, 14),
+  apiSportsDaysAhead: int('API_SPORTS_DAYS_AHEAD', 14, 0, 14),
   apiSportsOddsPages: int('API_SPORTS_ODDS_PAGES', 2, 1, 20),
   apiSportsLiveRefreshSeconds: int('API_SPORTS_LIVE_REFRESH_SECONDS', 30, 15, 300),
   apiSportsPrematchRefreshSeconds: int('API_SPORTS_PREMATCH_REFRESH_SECONDS', 300, 60, 1800),
-  // API-Sports free plan = 100 request/hari (divalidasi via GET /status:
-  // {"plan":"Free","requests":{"limit_day":100}}). Guard kuota di
-  // sportsbook-providers.js memecah angka ini menjadi jeda minimum per endpoint
-  // (live 75%, prematch 25%) sehingga loop refresh 30 detik tidak pernah
-  // meledakkan kuota. Naikkan ke 7500 bila upgrade Pro ($19/bln): floor otomatis
-  // jatuh di bawah TTL konfigurasi dan guard menjadi transparan.
-  apiSportsDailyQuota: int('API_SPORTS_DAILY_QUOTA', 100, 10, 200000),
+  // The installed API-Football account was verified on the Free plan: 100/day.
+  // Never allow configuration to silently raise this budget into a paid tier.
+  apiSportsDailyQuota: int('API_SPORTS_DAILY_QUOTA', 100, 1, 100),
+  apiSportsMonthlyQuota: int('API_SPORTS_MONTHLY_QUOTA', 3100, 1, 3100),
   sharpApiKey,
   sharpApiBaseUrl: text('SHARP_API_BASE_URL', 'https://api.sharpapi.io'),
   sharpApiEnabled: pricedProviderEnabled('SHARP_API_ENABLED', sharpApiKey),
@@ -138,55 +150,33 @@ export const config = Object.freeze({
   sharpApiMaxPages: int('SHARP_API_MAX_PAGES', isProduction ? 5 : 3, 1, 10),
   sharpApiPageSize: int('SHARP_API_PAGE_SIZE', 200, 25, 200),
   sharpApiMainLinesOnly: bool('SHARP_API_MAIN_LINES_ONLY', false),
-  theOddsApiKey,
-  theOddsApiBaseUrl: text('THE_ODDS_API_BASE_URL', 'https://api.the-odds-api.com/v4'),
-  theOddsApiEnabled: pricedProviderEnabled('THE_ODDS_API_ENABLED', theOddsApiKey),
-  theOddsApiRegions: text('THE_ODDS_API_REGIONS', 'eu,uk'),
-  theOddsApiMarkets: text('THE_ODDS_API_MARKETS', 'h2h,spreads,totals'),
-  theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', false),
-  theOddsApiEventMarkets: text('THE_ODDS_API_EVENT_MARKETS', 'h2h_3_way_h1,spreads_h1,totals_h1,btts,btts_h1,double_chance,double_chance_h1,halftime_fulltime'),
-  theOddsApiEventMaxEventsPerSport: int('THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT', 8, 0, 50),
-  // Hard global ceiling for all the-odds-api sports combined. Keeps the in-memory
-  // sportsbook catalog well inside the Railway container budget even when NBA,
-  // tennis ATP/WTA and esports sport keys are enabled alongside football leagues.
-  // Global ceiling diturunkan 250->80: the-odds-api tanpa KEY tidak fetch sama
-  // sekali (nol request), tetapi kalau suatu hari KEY masuk, 250 events x detail
-  // markets per-sport bisa jebol heap 512MB bareng Sportmonks. 80 cukup untuk 9 sport keys.
-  theOddsApiMaxTotalEvents: int('THE_ODDS_API_MAX_TOTAL_EVENTS', 80, 0, 1200),
-  theOddsApiRefreshSeconds: int('THE_ODDS_API_REFRESH_SECONDS', 300, 60, 1800),
-  theOddsApiEventRefreshSeconds: int('THE_ODDS_API_EVENT_REFRESH_SECONDS', 300, 60, 1800),
-  theOddsApiBookmakers: text('THE_ODDS_API_BOOKMAKERS'),
-  theOddsApiSportKeys: text('THE_ODDS_API_SPORT_KEYS', 'soccer_epl,soccer_spain_la_liga,soccer_italy_serie_a,soccer_germany_bundesliga,soccer_france_ligue_one,soccer_uefa_champs_league,basketball_nba,tennis_atp_us_open,tennis_wta_us_open'),
+  // Keep the configured provider catalog intact; the feed-level event and Redis byte
+  // limits remain the final resource guards for the consolidated snapshot.
   theSportsDbKey,
   theSportsDbBaseUrl: text('THESPORTSDB_BASE_URL', 'https://www.thesportsdb.com/api'),
   theSportsDbEnabled: bool('THESPORTSDB_ENABLED', false),
   theSportsDbLeagueIds: text('THESPORTSDB_LEAGUE_IDS', '4328,4335,4332,4331,4334,4387'),
-  footballDataIoKey: optionalSecret('FOOTBALLDATA_IO_KEY'),
-  footballDataIoBaseUrl: text('FOOTBALLDATA_IO_BASE_URL', 'https://footballdata.io/api/v1'),
-  footballDataIoEnabled: pricedProviderEnabled('FOOTBALLDATA_IO_ENABLED', footballDataIoKey),
-  footballDataIoRefreshSeconds: int('FOOTBALLDATA_IO_REFRESH_SECONDS', 300, 60, 1800),
-  footballDataIoUpcomingLimit: int('FOOTBALLDATA_IO_UPCOMING_LIMIT', 200, 10, 1000),
-  // Disabled: this credential currently returns HTTP 401, and this source does not
-  // provide bettable markets for our feed. Do not re-enable from environment variables.
+  // Sportmonks is the sole sportsbook fixture and odds provider.
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
-  sportmonksEnabled: false,
-  sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 2, 0, 7),
+  sportmonksKey,
+  sportmonksEnabled: bool('SPORTMONKS_ENABLED', isProduction && Boolean(sportmonksKey)),
+  sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 30, 0, 30),
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
+  oddsPapiEnabled: bool('ODDSPAPI_ENABLED', false),
+  oddsPapiKey,
+  oddsPapiBaseUrl: text('ODDSPAPI_BASE_URL', 'https://api.oddspapi.io'),
+  oddsPapiTournamentIds: text('ODDSPAPI_TOURNAMENT_IDS', '17'),
+  oddsPapiBookmaker: text('ODDSPAPI_BOOKMAKER', 'pinnacle'),
+  oddsPapiRefreshSeconds: int('ODDSPAPI_REFRESH_SECONDS', 28800, 3600, 86400),
+  oddsPapiCatalogRefreshSeconds: int('ODDSPAPI_CATALOG_REFRESH_SECONDS', 604800, 3600, 2592000),
+  oddsPapiDailyRequestBudget: int('ODDSPAPI_DAILY_REQUEST_BUDGET', 8, 1, 8),
+  oddsPapiMonthlyRequestBudget: int('ODDSPAPI_MONTHLY_REQUEST_BUDGET', 240, 1, 240),
   sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 180, 30, 1800),
-  // Cap diturunkan 40->20: Sportmonks include=odds ~1.5MB/fixture. 40 events =
-  // ~60MB payload mentah per siklus di heap feed-worker 256MB. 20 events tetap
-  // cukup untuk 2 hari matchday, dan env override tetap bisa naikkan lagi.
-  sportmonksMaxTotalEvents: int('SPORTMONKS_MAX_TOTAL_EVENTS', 20, 0, 250),
-  sportmonksMaxParallel: int('SPORTMONKS_MAX_PARALLEL', 6, 1, 12),
-  sportsSourceRegistryEnabled: bool('SPORTS_SOURCE_REGISTRY_ENABLED', true),
-  sportsSourceEvictUnhealthyHours: int('SPORTS_SOURCE_EVICT_UNHEALTHY_HOURS', 2, 1, 720),
-  // Safe floor: promotion is always gated by isConfigEnabled(), so the registry
-  // can never fabricate a healthy source — MIN_ACTIVE only prevents over-eviction.
-  sportsSourceMinActive: int('SPORTS_SOURCE_MIN_ACTIVE', 2, 1, 12),
-  sportsSourceRecycleCooldownHours: int('SPORTS_SOURCE_RECYCLE_COOLDOWN_HOURS', 24, 1, 720),
-  // Provider fan-out budget: do not fetch every enabled provider at once.
-  // 0 keeps the legacy unlimited-parallel behaviour.
-  sportsSourceMaxParallel: int('SPORTS_SOURCE_MAX_PARALLEL', 3, 0, 20),
+  sportmonksLiveRefreshSeconds: int('SPORTMONKS_LIVE_REFRESH_SECONDS', 30, 15, 300),
+  sportmonksPriorityLeagues: text('SPORTMONKS_PRIORITY_LEAGUES', 'Premier League,La Liga,Serie A,Bundesliga,Ligue 1,UEFA Champions League,UEFA Europa League,UEFA Europa Conference League,Eredivisie,Primeira Liga,Major League Soccer'),
+  // Cap per-provider normalized events independently from the larger aggregated feed.
+  sportmonksMaxTotalEvents: boundedInt('SPORTMONKS_MAX_TOTAL_EVENTS', 500, 0, 500),
+  sportmonksRequestDelayMs: int('SPORTMONKS_REQUEST_DELAY_MS', 0, 0, 60000),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
   sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
   // TheSportsDB publishes 123 as its current free V1 API key. Artwork is metadata-only and
@@ -208,16 +198,19 @@ export const config = Object.freeze({
   publicMarketRefreshSeconds: int('PUBLIC_MARKET_REFRESH_SECONDS', 900, 300, 21600),
   publicMarketMaxStaleSeconds: int('PUBLIC_MARKET_MAX_STALE_SECONDS', 172800, 1800, 604800),
   publicMarketRequestTimeoutMs: int('PUBLIC_MARKET_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
-  publicMarketMaxEvents: int('PUBLIC_MARKET_MAX_EVENTS', 500, 10, 1200),
-  publicMarketDerivedMarketsEnabled: isProduction ? false : bool('PUBLIC_MARKET_DERIVED_MARKETS_ENABLED', true),
+  publicMarketMaxEvents: int('PUBLIC_MARKET_MAX_EVENTS', 100, 10, 500),
+  publicMarketDerivedMarketsEnabled: bool('PUBLIC_MARKET_DERIVED_MARKETS_ENABLED', !isProduction),
   publicMarketDerivedMarginBps: int('PUBLIC_MARKET_DERIVED_MARGIN_BPS', 450, 100, 1200),
   publicMarketPriceMaxAgeSeconds: int('PUBLIC_MARKET_PRICE_MAX_AGE_SECONDS', 604800, 900, 604800),
   sportsbookRiskRepricingEnabled: bool('SPORTSBOOK_RISK_REPRICING_ENABLED', true),
   sportsbookRiskRepricingMaxShadeBps: int('SPORTSBOOK_RISK_REPRICING_MAX_SHADE_BPS', 600, 0, 2000),
-  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 30, 5, 300),
+  // Background poll diperlambat 30s -> 90s agar worker tidak request berturut-turut.
+  // Volume event TETAP penuh (500); yang dikurangi hanya frekuensi refresh.
+  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 90, 5, 300),
   sportsFeedStaleSeconds: int('SPORTS_FEED_STALE_SECONDS', 180, 30, 3600),
+  sportsbookFinishedEventRetentionSeconds: int('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600, 3600, 86400),
   sportsbookMemberHorizonDays: int('SPORTSBOOK_MEMBER_HORIZON_DAYS', 30, 1, 60),
-  sportsbookMemberMaxEvents: int('SPORTSBOOK_MEMBER_MAX_EVENTS', 320, 20, 1000),
+  sportsbookMemberMaxEvents: int('SPORTSBOOK_MEMBER_MAX_EVENTS', 500, 20, 500),
   sportsFeedRequestTimeoutMs: int('SPORTS_FEED_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
   sportsbookProviderFailureThreshold: int('SPORTSBOOK_PROVIDER_FAILURE_THRESHOLD', 3, 1, 20),
   sportsbookProviderRecoverySuccesses: int('SPORTSBOOK_PROVIDER_RECOVERY_SUCCESSES', 2, 1, 20),
@@ -233,6 +226,7 @@ export const config = Object.freeze({
   sportsbookMaxSystemCombinations: int('SPORTSBOOK_MAX_SYSTEM_COMBINATIONS', 120, 1, 1000),
   sportsbookOddsTolerance: Number(text('SPORTSBOOK_ODDS_TOLERANCE', '0.001')),
   sportsbookOddsChangePolicyDefault: text('SPORTSBOOK_ODDS_CHANGE_POLICY_DEFAULT', 'REJECT').toUpperCase(),
+  sportsbookLiveAcceptanceDelayMs: int('SPORTSBOOK_LIVE_ACCEPTANCE_DELAY_MS', 3000, 3000, 10000),
   sportsbookQuoteTtlSeconds: int('SPORTSBOOK_QUOTE_TTL_SECONDS', 15, 5, 60),
   sportsbookQuoteRequired: bool('SPORTSBOOK_QUOTE_REQUIRED', process.env.NODE_ENV === 'production'),
   sportsbookPrematchCloseGraceSeconds: int('SPORTSBOOK_PREMATCH_CLOSE_GRACE_SECONDS', 30, 0, 300),
@@ -280,7 +274,10 @@ export const config = Object.freeze({
   rapidApiKey,
   rapidApiCasinoEnabled: bool('RAPIDAPI_CASINO_ENABLED', Boolean(rapidApiKey)),
   rapidApiCasinoCacheSeconds: int('RAPIDAPI_CASINO_CACHE_SECONDS', 300, 15, 3600),
-  rapidApiCasinoTimeoutMs: int('RAPIDAPI_CASINO_TIMEOUT_MS', 12000, 3000, 30000)
+  rapidApiCasinoTimeoutMs: int('RAPIDAPI_CASINO_TIMEOUT_MS', 12000, 3000, 30000),
+  betnexApiKey,
+  betnexCallbackKey,
+  betnexRealMoneyEnabled: bool('BETNEX_REAL_MONEY_ENABLED', false)
 });
 
 const mfaKey = Buffer.from(config.mfaEncryptionKeyBase64, 'base64');

@@ -10,83 +10,597 @@ Object.assign(process.env, {
   OPS_INTERNAL_SECRET: 'o'.repeat(48),
   SESSION_HMAC_KEY: 's'.repeat(48),
   API_KEY_PEPPER: 'p'.repeat(48),
-  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
+  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
+  SPORTMONKS_ENABLED: 'true',
+  SPORTMONKS_API_KEY: 'test-sportmonks-key',
+  SPORTMONKS_DAYS_AHEAD: '0',
+  SPORTMONKS_REFRESH_SECONDS: '300',
+  SPORTMONKS_ODDS_REFRESH_SECONDS: '180',
+  SPORTMONKS_REQUEST_DELAY_MS: '1',
+  SPORTMONKS_LIVE_REFRESH_SECONDS: '30',
+  THE_ODDS_API_ENABLED: 'true',
+  THE_ODDS_API_KEY: 'test-existing-odds-key',
+  THE_ODDS_API_EVENT_MARKETS_ENABLED: 'true',
+  THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT: '5',
+  THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS: '8',
+  THE_ODDS_API_MAX_TOTAL_EVENTS: '10',
+  THE_ODDS_API_SPORT_KEYS: 'soccer_epl,basketball_nba,tennis_atp_us_open'
 });
 
-const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
+const { __sportsbookProviders, fetchSportmonks, publicEvent } = await import('../src/sportsbook-providers.js');
+const { eventSettlementAuthority } = await import('../src/sportsbook-settlement-authority.js');
+const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
-test('The Odds API normalizer creates stable 1X2 and totals markets', () => {
-  const event = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-1',
-    sport_key: 'soccer_epl',
-    sport_title: 'Premier League',
-    commence_time: '2026-08-06T12:00:00Z',
-    home_team: 'Arsenal',
-    away_team: 'Chelsea',
-    bookmakers: [{
-      key: 'book-a',
-      markets: [
-        { key: 'h2h', outcomes: [{ name: 'Arsenal', price: 1.8 }, { name: 'Draw', price: 3.4 }, { name: 'Chelsea', price: 4.2 }] },
-        { key: 'totals', outcomes: [{ name: 'Over', point: 2.5, price: 1.91 }, { name: 'Under', point: 2.5, price: 1.95 }] }
+test('Sportmonks fixtures without provider odds stay display-only and never receive synthetic markets', () => {
+    assert.equal(__sportsbookProviders.sportmonksCacheTtlMs(), 180_000);
+    const fixture = {
+      id: 'sportmonks-no-prices',
+      state: { short_name: 'NS', name: 'Not Started' },
+      starting_at: '2026-08-06T12:00:00Z',
+      league: { name: 'Premier League', country: { name: 'England' } },
+      participants: [
+        { name: 'Arsenal', meta: { location: 'home' } },
+        { name: 'Chelsea', meta: { location: 'away' } }
       ]
-    }]
+    };
+    const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, []);
+    assert.deepEqual(event.markets, []);
+    const [merged] = __sportsbookProviders.mergeProviderEvents([{ provider: 'sportmonks', events: [event] }]);
+    assert.deepEqual(merged.markets, []);
+    assert.doesNotMatch(JSON.stringify(merged), /fallback-odds/);
   });
-  assert.equal(event.sport, 'Football');
-  assert.ok(event.markets.some(market => market.type === '1X2' && market.selections.length === 3));
-  assert.ok(event.markets.some(market => market.type === 'TOTALS' && market.selections.length === 2));
-  assert.equal(event.markets[0].selections[0].source, 'the-odds-api');
+
+  test('Sportmonks preserves provider-supplied markets, periods, lines, and suspended odds', () => {
+    const fixture = {
+      id: 'sportmonks-full-market-coverage',
+      state: { short_name: 'NS', name: 'Not Started' },
+      starting_at: '2026-08-06T12:00:00Z',
+      league: { name: 'Premier League', country: { name: 'England' } },
+      participants: [
+        { name: 'Arsenal', meta: { location: 'home' } },
+        { name: 'Chelsea', meta: { location: 'away' } }
+      ]
+    };
+    const rows = [
+      { id: 1, market_id: 101, market_description: 'HT 1X2', label: 'Home', value: 1.91 },
+      { id: 2, market_id: 102, market_description: 'European Handicap', label: 'Home', handicap: -1, value: 2.15 },
+      { id: 3, market_id: 103, market_description: '2nd Half - Total Goals', label: 'Over', total: 2.5, value: 1.88 },
+      { id: 4, market_id: 104, market_description: 'Player Assists', label: 'Player A', value: 3.25, status: 'suspended' },
+      { id: 5, market_id: 105, market_description: 'Provider Special Market', label: 'Yes', value: 2.4 },
+      { id: 6, market_id: 106, market_description: 'Invalid Price Market', label: 'Yes', value: 1 },
+      { id: 7, market_description: 'Asian Handicap', label: 'Away', handicap: 1, value: 1.92 }
+    ];
+    const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, rows);
+    assert.equal(event.markets.length, 6, 'valid supplied markets remain and invalid odds are excluded');
+    const firstHalf = event.markets.find(market => market.sourceMarketId === 'm101');
+    const handicap = event.markets.find(market => market.sourceMarketId === 'm102');
+    const secondHalfTotals = event.markets.find(market => market.sourceMarketId === 'm103');
+    const playerProps = event.markets.find(market => market.sourceMarketId === 'm104');
+    const unknownMarket = event.markets.find(market => market.sourceMarketId === 'm105');
+    const marketWithoutId = event.markets.find(market => market.key.startsWith('name:'));
+    assert.equal(firstHalf.period, '1H');
+    assert.equal(handicap.type, 'HANDICAP');
+    assert.equal(handicap.selections[0].line, -1);
+    assert.equal(secondHalfTotals.period, '2H');
+    assert.equal(secondHalfTotals.selections[0].line, 2.5);
+    assert.equal(playerProps.type, 'PLAYER_PROP');
+    assert.equal(playerProps.selections[0].suspended, true);
+    assert.equal(unknownMarket.type, 'OTHER');
+    assert.equal(unknownMarket.label, 'Provider Special Market');
+    assert.equal(marketWithoutId.sourceMarketId, null);
+    assert.equal(marketWithoutId.selections[0].line, 1);
+  });
+
+  test('Sportmonks scans pages through the configured budget after its candidate buffer fills', async () => {
+    const originalFetch = globalThis.fetch;
+    const requestedPages = [];
+    globalThis.fetch = async input => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/livescores')) {
+        return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+      }
+      const page = Number(url.searchParams.get('page'));
+      requestedPages.push(page);
+      const fixtures = Array.from({ length: 20 }, (_, index) => {
+        const fixtureId = `pagination-${page}-${index}`;
+        return {
+          id: fixtureId,
+          state: { short_name: 'NS', name: 'Not Started' },
+          starting_at_timestamp: Math.floor((Date.now() + (page * 20 + index + 1) * 60000) / 1000),
+          league: { name: 'Regional League', country: { name: 'England' } },
+          participants: [
+            { name: `Home ${fixtureId}`, meta: { location: 'home' } },
+            { name: `Away ${fixtureId}`, meta: { location: 'away' } }
+          ],
+          odds: []
+        };
+      });
+      const body = JSON.stringify({ data: fixtures, pagination: { has_more: page < 3 } });
+      return { ok: true, status: 200, async text() { return body; } };
+    };
+    try {
+      const result = await fetchSportmonks({ maxEvents: 1, maxPages: 5 });
+      assert.deepEqual(requestedPages, [1, 2, 3]);
+      assert.equal(result.events.length, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
 });
 
-test('provider merger combines API-Sports score with The Odds API markets', () => {
-  const oddsEvent = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-2', sport_key: 'soccer_epl', sport_title: 'Premier League', commence_time: '2026-08-06T12:00:00Z',
-    home_team: 'Arsenal', away_team: 'Chelsea',
-    bookmakers: [{ key: 'book-a', markets: [{ key: 'h2h', outcomes: [{ name: 'Arsenal', price: 1.8 }, { name: 'Draw', price: 3.4 }, { name: 'Chelsea', price: 4.2 }] }] }]
-  });
-  const apiEvent = __sportsbookProviders.normalizeApiSportsFixture({
-    fixture: { id: 7788, date: '2026-08-06T12:00:00Z', status: { short: '1H', elapsed: 23 }, venue: { name: 'Emirates Stadium' } },
-    league: { name: 'Premier League', country: 'England' },
-    teams: { home: { name: 'Arsenal', logo: 'home.png' }, away: { name: 'Chelsea', logo: 'away.png' } },
-    goals: { home: 1, away: 0 }
-  });
-  const merged = __sportsbookProviders.mergeProviderEvents([
-    { events: [oddsEvent] },
-    { events: [apiEvent] }
-  ]);
-  assert.equal(merged.length, 1);
-  assert.equal(merged[0].live, true);
-  assert.equal(merged[0].home.score, 1);
-  assert.equal(merged[0].markets.length, 1);
-  assert.deepEqual(new Set(merged[0]._sources), new Set(['the-odds-api', 'api-sports']));
+test('Sportmonks retries a timed-out page request and recovers without dropping the fixture', async () => {
+    const originalFetch = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = async input => {
+      if (new URL(String(input)).pathname.endsWith('/livescores')) {
+        return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+      }
+      requests += 1;
+      if (requests === 1) {
+        const error = new Error('simulated provider timeout');
+        error.name = 'AbortError';
+        throw error;
+      }
+      return new Response(JSON.stringify({
+        data: [{
+          id: 'timeout-recovered',
+          state: { short_name: 'NS', name: 'Not Started' },
+          starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000),
+          league: { name: 'Regional League', country: { name: 'England' } },
+          participants: [
+            { name: 'Home', meta: { location: 'home' } },
+            { name: 'Away', meta: { location: 'away' } }
+          ],
+          odds: []
+        }],
+        pagination: { has_more: false }
+      }), { headers: { 'content-type': 'application/json' } });
+    };
+    try {
+      const result = await fetchSportmonks({ maxEvents: 1, maxPages: 2 });
+      assert.equal(requests, 2);
+      assert.equal(result.events.length, 1);
+      assert.equal(result.events[0].home.name, 'Home');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
 });
 
+test('Sportmonks live window refreshes provider in-play odds without retaining stale pre-match odds', async () => {
+  const originalFetch = globalThis.fetch;
+    const liveCache = __sportsbookProviders.sportmonksLiveCache;
+    const liveRetryState = __sportsbookProviders.sportmonksLiveRetryState;
+    liveCache.clear();
+    liveRetryState.clear();
+    const makeFixture = (id, state, odds = []) => ({
+      id,
+      state: { short_name: state, name: state === 'NS' ? 'Not Started' : 'Second Half' },
+      starting_at_timestamp: Math.floor((Date.now() - 3600000) / 1000),
+      league: { name: 'Regional League', country: { name: 'England' } },
+      participants: [
+        { name: `Home ${id}`, meta: { location: 'home' } },
+        { name: `Away ${id}`, meta: { location: 'away' } }
+      ],
+      odds
+    });
+    const preMatchOdds = id => [{
+      id: `${id}-prematch`,
+      market_id: 1,
+      market_description: 'Full Time Result',
+      label: 'Home',
+      value: 1.8
+    }];
+    const liveFixtureWithOdds = {
+      ...makeFixture('fast-live-1', '2H'),
+      scores: [{ description: 'CURRENT', score: { home: 2, away: 1 } }],
+      inplayOdds: [{
+        id: 901,
+        market_id: 1,
+        market_description: 'Full Time Result',
+        label: 'Home',
+        value: '2.25',
+        latest_bookmaker_update: new Date().toISOString()
+      }]
+    };
+    const liveFixtureWithoutOdds = {
+      ...makeFixture('fast-live-2', '2H'),
+      inplayOdds: []
+    };
+    globalThis.fetch = async input => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/livescores')) {
+        assert.equal(url.pathname, '/v3/football/livescores');
+        assert.match(url.searchParams.get('include'), /inplayOdds/);
+        return new Response(JSON.stringify({
+          data: [liveFixtureWithOdds, liveFixtureWithoutOdds]
+        }), { headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        data: [
+          makeFixture('fast-live-1', 'NS', preMatchOdds('fast-live-1')),
+          makeFixture('fast-live-2', 'NS', preMatchOdds('fast-live-2'))
+        ],
+        pagination: { has_more: false }
+      }), { headers: { 'content-type': 'application/json' } });
+    };
+    try {
+      const result = await fetchSportmonks({ maxEvents: 7, maxPages: 7 });
+      const withOdds = result.events.find(event => event.home.name === 'Home fast-live-1');
+      const withoutOdds = result.events.find(event => event.home.name === 'Home fast-live-2');
+      assert.equal(withOdds.live, true);
+      assert.equal(withOdds.markets[0].selections[0].odds, 2.25);
+      assert.equal(withOdds.home.score, 2);
+      assert.equal(withoutOdds.live, true);
+      assert.deepEqual(withoutOdds.markets, [], 'old pre-match prices are not carried into a live event without in-play odds');
+    } finally {
+      globalThis.fetch = originalFetch;
+      liveCache.clear();
+      liveRetryState.clear();
+      __sportsbookProviders.sportmonksCache.delete(
+        `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:7:7`
+      );
+      __sportsbookProviders.sportmonksRetryState.delete(
+        `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:7:7`
+      );
+    }
+});
 
-test('The Odds API prices stay visible but suspended without settlement authority', () => {
-  const oddsEvent = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-readonly', sport_key: 'soccer_epl', sport_title: 'Premier League', commence_time: '2026-08-07T12:00:00Z',
-    home_team: 'Liverpool', away_team: 'Everton',
-    bookmakers: [{ key: 'book-a', markets: [{ key: 'h2h', outcomes: [{ name: 'Liverpool', price: 1.7 }, { name: 'Draw', price: 3.8 }, { name: 'Everton', price: 5.1 }] }] }]
+test('Sportmonks live odds without a provider timestamp remain fail-closed', async () => {
+  const originalFetch = globalThis.fetch;
+  const liveCache = __sportsbookProviders.sportmonksLiveCache;
+  const liveRetryState = __sportsbookProviders.sportmonksLiveRetryState;
+  const catalogCache = __sportsbookProviders.sportmonksCache;
+  const catalogRetryState = __sportsbookProviders.sportmonksRetryState;
+  const catalogKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:2:2`;
+  liveCache.clear();
+  liveRetryState.clear();
+  const fixture = {
+    id: 'live-without-source-timestamp',
+    state: { short_name: '2H', name: 'Second Half' },
+    starting_at_timestamp: Math.floor((Date.now() - 60 * 60 * 1000) / 1000),
+    league: { name: 'Regional League', country: { name: 'England' } },
+    participants: [
+      { name: 'Timestamp Home', meta: { location: 'home' } },
+      { name: 'Timestamp Away', meta: { location: 'away' } }
+    ]
+  };
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    const data = url.pathname.endsWith('/livescores')
+      ? [{
+          ...fixture,
+          inplayOdds: [{
+            id: 901,
+            market_id: 1,
+            market_description: 'Full Time Result',
+            label: 'Home',
+            value: 2.25
+          }]
+        }]
+      : [{
+          ...fixture,
+          state: { short_name: 'NS', name: 'Not Started' },
+          odds: []
+        }];
+    return new Response(JSON.stringify({
+      data,
+      pagination: { has_more: false }
+    }), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const result = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
+    const event = result.events.find(item => item.home.name === 'Timestamp Home');
+    assert.ok(event);
+    assert.equal(event.markets[0].updatedAt, null);
+    assert.equal(event.markets[0].selections[0].updatedAt, null);
+    const [guarded] = __sportsbookProviders.suspendStaleLiveMarkets([event], Date.now());
+    assert.equal(guarded.markets[0].suspended, true);
+    assert.equal(guarded.markets[0].selections[0].suspended, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    liveCache.clear();
+    liveRetryState.clear();
+    catalogCache.delete(catalogKey);
+    catalogRetryState.delete(catalogKey);
+  }
+});
+
+test('Sportmonks live odds fail closed during provider outage and recover after backoff', async () => {
+    const originalFetch = globalThis.fetch;
+    const catalogCache = __sportsbookProviders.sportmonksCache;
+    const catalogRetryState = __sportsbookProviders.sportmonksRetryState;
+    const liveCache = __sportsbookProviders.sportmonksLiveCache;
+    const liveRetryState = __sportsbookProviders.sportmonksLiveRetryState;
+    liveCache.clear();
+    liveRetryState.clear();
+    const catalogKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:8:8`;
+    const liveKey = 'sportmonks:live-window:https://api.sportmonks.com/v3';
+    const kickoff = Math.floor((Date.now() - 3600000) / 1000);
+    const fixture = {
+      id: 'live-recovery',
+      state: { short_name: '2H', name: 'Second Half' },
+      starting_at_timestamp: kickoff,
+      league: { name: 'Regional League', country: { name: 'England' } },
+      participants: [
+        { name: 'Recovery Home', meta: { location: 'home' } },
+        { name: 'Recovery Away', meta: { location: 'away' } }
+      ],
+      odds: [{
+        id: 700,
+        market_id: 1,
+        market_description: 'Full Time Result',
+        label: 'Home',
+        value: 1.8
+      }]
+    };
+    let liveMode = 'forbidden';
+    let liveRequests = 0;
+    globalThis.fetch = async input => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/livescores')) {
+        liveRequests += 1;
+        if (liveMode === 'forbidden') return new Response('provider access denied', { status: 403 });
+        return new Response(JSON.stringify({
+          data: [{
+            ...fixture,
+            inplayOdds: [{
+              id: 701,
+              market_id: 1,
+              market_description: 'Full Time Result',
+              label: 'Home',
+              value: 2.4,
+              latest_bookmaker_update: new Date().toISOString()
+            }]
+          }]
+        }), { headers: { 'content-type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        data: [fixture],
+        pagination: { has_more: false }
+      }), { headers: { 'content-type': 'application/json' } });
+    };
+    try {
+      const unavailable = await fetchSportmonks({ maxEvents: 8, maxPages: 8 });
+      assert.equal(unavailable.events[0].markets[0].suspended, true);
+      assert.equal(unavailable.events[0].markets[0].selections[0].suspended, true);
+      assert.equal(liveRequests, 1);
+
+      await fetchSportmonks({ maxEvents: 8, maxPages: 8 });
+      assert.equal(liveRequests, 1, '403 cooldown prevents repeated provider requests');
+
+      liveMode = 'recovery';
+      liveRetryState.get(liveKey).retryAt = 0;
+      const recovered = await fetchSportmonks({ maxEvents: 8, maxPages: 8 });
+      assert.equal(liveRequests, 2);
+      assert.equal(recovered.events[0].markets[0].selections[0].odds, 2.4);
+      assert.equal(recovered.events[0].markets[0].suspended, false);
+      assert.equal(liveRetryState.has(liveKey), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+      catalogCache.delete(catalogKey);
+      catalogRetryState.delete(catalogKey);
+      liveCache.delete(liveKey);
+      liveRetryState.delete(liveKey);
+    }
+});
+
+test('Sportmonks keeps live odds fresh while a complete fixture-catalog retry is cooling down', async () => {
+    const originalFetch = globalThis.fetch;
+    const catalogCache = __sportsbookProviders.sportmonksCache;
+    const catalogRetryState = __sportsbookProviders.sportmonksRetryState;
+    const liveCache = __sportsbookProviders.sportmonksLiveCache;
+    const liveRetryState = __sportsbookProviders.sportmonksLiveRetryState;
+    const catalogKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:2:2`;
+    const liveKey = 'sportmonks:live-window:https://api.sportmonks.com/v3';
+    const fixture = {
+      id: 'catalog-cooldown-live',
+      state: { short_name: '2H', name: 'Second Half' },
+      starting_at_timestamp: Math.floor((Date.now() - 3600000) / 1000),
+      league: { name: 'Regional League', country: { name: 'England' } },
+      participants: [
+        { name: 'Cooldown Home', meta: { location: 'home' } },
+        { name: 'Cooldown Away', meta: { location: 'away' } }
+      ]
+    };
+    const catalogEvent = __sportsbookProviders.normalizeSportmonksFixture(fixture, [{
+      id: 800,
+      market_id: 1,
+      market_description: 'Full Time Result',
+      label: 'Home',
+      value: 1.8
+    }]);
+    catalogCache.set(catalogKey, { fetchedAt: 0, events: [catalogEvent] });
+    catalogRetryState.set(catalogKey, {
+      attempts: 1,
+      retryAt: Date.now() + 60_000,
+      message: 'Fixture catalog page unavailable'
+    });
+    liveCache.clear();
+    liveRetryState.clear();
+    let catalogRequests = 0;
+    globalThis.fetch = async input => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/livescores')) {
+        return new Response(JSON.stringify({
+          data: [{
+            ...fixture,
+            inplayOdds: [{
+              id: 801,
+              market_id: 1,
+              market_description: 'Full Time Result',
+              label: 'Home',
+              value: 2.4,
+              latest_bookmaker_update: new Date().toISOString()
+            }]
+          }]
+        }), { headers: { 'content-type': 'application/json' } });
+      }
+      catalogRequests += 1;
+      throw new Error('fixture catalog must remain in its retry cooldown');
+    };
+    try {
+      const result = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
+      assert.equal(result.stale, true);
+      assert.equal(result.transportOk, false);
+      assert.equal(result.events[0].markets[0].selections[0].odds, 2.4);
+      assert.equal(result.events[0].markets[0].suspended, false);
+      assert.equal(catalogRequests, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      catalogCache.delete(catalogKey);
+      catalogRetryState.delete(catalogKey);
+      liveCache.clear();
+      liveRetryState.clear();
+    }
+});
+
+test('Sportmonks partial pagination preserves last complete data and backs off before retrying', async () => {
+    const originalFetch = globalThis.fetch;
+    const cache = __sportsbookProviders.sportmonksCache;
+    const retryState = __sportsbookProviders.sportmonksRetryState;
+    const liveCache = __sportsbookProviders.sportmonksLiveCache;
+    liveCache.clear();
+  const cacheKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:2:2`;
+  const makeFixture = id => ({
+    id,
+    state: { short_name: 'NS', name: 'Not Started' },
+    starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000),
+    league: { name: 'Regional League', country: { name: 'England' } },
+    participants: [
+      { name: `Home ${id}`, meta: { location: 'home' } },
+      { name: `Away ${id}`, meta: { location: 'away' } }
+    ],
+    odds: []
   });
-  const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }]);
-  assert.ok(merged.markets.length > 0);
-  assert.ok(merged.markets.every(market => market.suspended));
-  assert.ok(merged.markets.every(market => market.selections.every(selection => selection.suspended)));
+  let requestMode = 'complete';
+  let requests = 0;
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/livescores')) {
+      return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+    }
+    requests += 1;
+    const page = Number(url.searchParams.get('page'));
+    if (requestMode === 'partial' && page === 2) {
+      return new Response('provider page unavailable', { status: 400 });
+    }
+    const fixture = makeFixture(requestMode === 'recovery' ? 'recovered' : `complete-${page}`);
+    return new Response(JSON.stringify({
+      data: [fixture],
+      pagination: { has_more: page === 1 && requestMode !== 'recovery' }
+    }), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const complete = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
+    assert.equal(complete.stale, undefined);
+    assert.equal(complete.events.length, 2);
+
+    cache.get(cacheKey).fetchedAt = 0;
+    requestMode = 'partial';
+    const partial = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
+    assert.equal(partial.stale, true);
+    assert.equal(partial.transportOk, false);
+    assert.equal(partial.events[0].id, complete.events[0].id);
+    const requestsAfterFailure = requests;
+
+    const throttled = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
+    assert.equal(throttled.stale, true);
+    assert.equal(requests, requestsAfterFailure, 'provider retry is held during the backoff window');
+
+    retryState.get(cacheKey).retryAt = 0;
+    requestMode = 'recovery';
+    const recovered = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
+    assert.equal(recovered.stale, undefined);
+    assert.equal(recovered.events[0].home.name, 'Home recovered');
+    assert.equal(retryState.has(cacheKey), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    cache.delete(cacheKey);
+    retryState.delete(cacheKey);
+    liveCache.clear();
+  }
+});
+
+test('API-Sports preserves bookmaker labels while selecting coherent odds per market', () => {
+  const payload = { response: [{ fixture: { id: 7711 }, bookmakers: [
+    { id: 1, name: 'Book A', bets: [{ id: 1, name: 'Match Winner', values: [
+      { value: 'Alpha FC', odd: 1.91 }, { value: 'Draw', odd: 3.7 }, { value: 'Beta FC', odd: 4.8 }
+    ] }] },
+    { id: 2, name: 'Book B', bets: [{ id: 1, name: 'Match Winner', values: [
+      { value: 'Alpha FC', odd: 1.8 }, { value: 'Draw', odd: 3.8 }, { value: 'Beta FC', odd: 4.8 }
+    ] }, { id: 8, name: 'Both Teams Score', values: [{ value: 'Yes', odd: 1.85 }, { value: 'No', odd: 2.05 }] }] }
+  ] }] };
+  const odds = __sportsbookProviders.extractApiSportsOdds(payload).get('7711');
+  const event = __sportsbookProviders.normalizeApiSportsFixture({
+    fixture: { id: 7711, date: '2027-08-06T12:00:00Z', status: { short: 'NS' } },
+    league: { name: 'Premier League' }, teams: { home: { name: 'Alpha FC' }, away: { name: 'Beta FC' } }
+  }, odds);
+  const winner = event.markets.find(market => market.type === '1X2');
+  assert.equal(winner.bookmaker, 'Book A');
+  assert.equal(winner.selections.find(selection => selection.label === 'Alpha FC').odds, 1.91);
+  assert.ok(event.markets.some(market => market.type === 'BTTS' && market.bookmaker === 'Book B'));
 });
 
 test('API-Sports settlement authority unlocks merged FT prices', () => {
-  const oddsEvent = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-authority', sport_key: 'soccer_epl', sport_title: 'Premier League', commence_time: '2026-08-07T12:00:00Z',
-    home_team: 'Liverpool', away_team: 'Everton',
-    bookmakers: [{ key: 'book-a', markets: [{ key: 'h2h', outcomes: [{ name: 'Liverpool', price: 1.7 }, { name: 'Draw', price: 3.8 }, { name: 'Everton', price: 5.1 }] }] }]
-  });
+  const sharpEvent = __sportsbookProviders.normalizeSharpApiRows([
+    { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-h', market_type: 'moneyline', market_segment: 'full_game', selection: 'Liverpool', selection_type: 'home', odds_decimal: 1.7, line: null },
+    { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-d', market_type: 'moneyline', market_segment: 'full_game', selection: 'Draw', selection_type: 'draw', odds_decimal: 3.8, line: null },
+    { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-a', market_type: 'moneyline', market_segment: 'full_game', selection: 'Everton', selection_type: 'away', odds_decimal: 5.1, line: null }
+  ], { maxEvents: 1 })[0];
   const apiEvent = __sportsbookProviders.normalizeApiSportsFixture({
     fixture: { id: 9911, date: '2026-08-07T12:00:00Z', status: { short: 'NS' } },
     league: { name: 'Premier League', country: 'England' },
     teams: { home: { name: 'Liverpool' }, away: { name: 'Everton' } }, goals: { home: null, away: null }
   });
-  const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }, { events: [apiEvent] }]);
+  const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharpEvent] }, { events: [apiEvent] }]);
   assert.ok(merged._sources.includes('api-sports'));
   assert.ok(merged.markets.some(market => market.period === 'FT' && !market.suspended));
+});
+
+test('Sportmonks halftime authority keeps valid FT and 1H odds active while non-authority HT remains suspended', () => {
+  const fixture = {
+    id: 'sportmonks-ht-authority',
+    state: { short_name: 'NS', name: 'Not Started' },
+    starting_at: '2026-08-07T12:00:00Z',
+    league: { name: 'Premier League', country: { name: 'England' } },
+    participants: [
+      { name: 'Liverpool', meta: { location: 'home' } },
+      { name: 'Everton', meta: { location: 'away' } }
+    ],
+    scores: [{ description: '1ST HALF', score: { home: 0, away: 0 } }]
+  };
+  const rows = [
+    { market_id: 1, market_description: '1X2', label: 'Home', value: 1.8, stopped: false },
+    { market_id: 1, market_description: '1X2', label: 'Draw', value: 3.4, stopped: false },
+    { market_id: 1, market_description: '1X2', label: 'Away', value: 4.2, stopped: false },
+    { market_id: 2, market_description: '1st Half 1X2', label: 'Home', value: 2.1, stopped: false },
+    { market_id: 2, market_description: '1st Half 1X2', label: 'Draw', value: 2.2, stopped: false },
+    { market_id: 2, market_description: '1st Half 1X2', label: 'Away', value: 3.9, stopped: false }
+  ];
+  const sportmonks = __sportsbookProviders.normalizeSportmonksFixture(fixture, rows);
+  const [trusted] = __sportsbookProviders.mergeProviderEvents([{ provider: 'sportmonks', events: [sportmonks] }]);
+  const ft = trusted.markets.find(market => market.period === 'FT');
+  const ht = trusted.markets.find(market => market.period === '1H');
+  assert.ok(ft && !ft.suspended && ft.selections.every(selection => !selection.suspended));
+  assert.ok(ht && !ht.suspended && ht.selections.every(selection => !selection.suspended));
+  assert.deepEqual(trusted.periodScores['1H'], { home: 0, away: 0 });
+  const authority = eventSettlementAuthority(trusted);
+  assert.equal(authority.ht, true);
+  const finished = { ...trusted, status: 'FINISHED', providerStatus: 'FT', settlementAuthority: authority };
+  assert.deepEqual(evaluateSportsbookLeg({
+    market_period: '1H', market_type: '1X2', selection_label: 'Home',
+    home_team: 'Liverpool', away_team: 'Everton', market_line: null
+  }, finished), { status: 'LOST', resultValue: 'HT 0-0' });
+
+  const untrusted = structuredClone(sportmonks);
+  untrusted._sources = ['sharpapi'];
+  untrusted._settlementReadySources = ['sharpapi'];
+  for (const market of untrusted.markets) {
+    market.source = 'sharpapi';
+    for (const selection of market.selections) selection.source = 'sharpapi';
+  }
+  const [nonAuthority] = __sportsbookProviders.mergeProviderEvents([{ provider: 'sharpapi', events: [untrusted] }]);
+  assert.ok(nonAuthority.markets.every(market => market.suspended && market.selections.every(selection => selection.suspended)));
+  assert.equal(eventSettlementAuthority(nonAuthority).ht, false);
 });
 
 test('SharpAPI normalizer maps soccer FT/HT 1X2 handicap and totals from one sportsbook', () => {
@@ -125,6 +639,7 @@ test('SharpAPI normalizer maps soccer FT/HT 1X2 handicap and totals from one spo
   assert.ok(event.markets.some(market => market.type === 'TOTALS' && market.period === '1H' && market.selections.length === 2));
   assert.ok(event.markets.flatMap(market => market.selections).every(selection => selection.priceVersion && selection.priceVersion.length >= 20));
   assert.ok(event.markets.every(market => market.source === 'sharpapi'));
+  assert.ok(event.markets.every(market => market.bookmaker === 'book-a'));
 });
 
 test('SharpAPI prices remain visible but suspended without result authority', () => {
@@ -221,4 +736,24 @@ test('Live markets fail closed when the provider price timestamp is stale, missi
   assert.equal(guard([liveEvent(null)])[0].markets[0].suspended, true);
   // Prematch tidak pernah disentuh oleh guard ini.
   assert.equal(guard([liveEvent(null, { live: false, status: 'SCHEDULED' })])[0].markets[0].suspended, false);
+});
+
+test("SharpAPI does not merge distinct fixtures that reuse the same provider event ID", () => {
+  const rows = [{ event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League A", home_team: "Home A", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Home A", selection_type: "home", odds_decimal: 1.9, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League A", home_team: "Home A", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Draw", selection_type: "draw", odds_decimal: 3.4, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League A", home_team: "Home A", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Away X", selection_type: "away", odds_decimal: 4.0, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League B", home_team: "Home B", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Home B", selection_type: "home", odds_decimal: 2.1, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League B", home_team: "Home B", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Draw", selection_type: "draw", odds_decimal: 3.1, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }, { event_id: "shared-id", event_uuid: "shared-id", sport: "soccer", league: "League B", home_team: "Home B", away_team: "Away X", event_start_time: "2026-08-14T19:00:00Z", sportsbook: "book-a", market_type: "moneyline", market_segment: "full_game", selection: "Away X", selection_type: "away", odds_decimal: 3.6, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" }];
+  const events = __sportsbookProviders.normalizeSharpApiRows(rows);
+  assert.equal(events.length, 2);
+});
+
+test("SharpAPI merges same fixture with kickoff times 5 minutes apart across sportsbooks", () => {
+  const base = { event_id: "same-fixture", event_uuid: "same-fixture", sport: "soccer", league: "EPL", home_team: "Arsenal", away_team: "Chelsea", is_live: false, is_main_line: true, is_active: true, timestamp: "2026-08-14T10:00:00Z" };
+  const rows = [
+    { ...base, sportsbook: "book-a", event_start_time: "2026-08-14T19:00:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Arsenal", selection_type: "home", odds_decimal: 1.9 },
+    { ...base, sportsbook: "book-a", event_start_time: "2026-08-14T19:00:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Draw", selection_type: "draw", odds_decimal: 3.4 },
+    { ...base, sportsbook: "book-a", event_start_time: "2026-08-14T19:00:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Chelsea", selection_type: "away", odds_decimal: 4.0 },
+    { ...base, sportsbook: "book-b", event_start_time: "2026-08-14T19:05:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Arsenal", selection_type: "home", odds_decimal: 2.0 },
+    { ...base, sportsbook: "book-b", event_start_time: "2026-08-14T19:05:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Draw", selection_type: "draw", odds_decimal: 3.2 },
+    { ...base, sportsbook: "book-b", event_start_time: "2026-08-14T19:05:00Z", market_type: "moneyline", market_segment: "full_game", selection: "Chelsea", selection_type: "away", odds_decimal: 3.8 }
+  ];
+  const events = __sportsbookProviders.normalizeSharpApiRows(rows);
+  assert.equal(events.length, 1);
 });

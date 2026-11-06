@@ -88,7 +88,8 @@ function renderMarkets(markets) {
       ? `<span class="badge badge-danger">TUTUP</span>`
       : `<span class="badge badge-success">BUKA</span>`;
 
-    const digits = String(m.result ?? '----').slice(0, 4).split('');
+    const resultDigits = typeof m.result === 'string' && /^\d{3,6}$/.test(m.result) ? String(m.result).slice(0, 4) : '';
+    const digits = resultDigits ? resultDigits.split('') : [];
     const balls = digits.map(d => `<span class="ball-num" style="width:30px;height:30px;font-size:0.95rem;">${escapeHtml(d)}</span>`).join('');
     const marketCode = String(m.slug || m.code || '');
     const marketHref = `/market-play.html?code=${encodeURIComponent(marketCode)}`;

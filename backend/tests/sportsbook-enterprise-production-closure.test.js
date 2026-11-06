@@ -70,9 +70,13 @@ test('production closure routes, migration and member wiring are present', () =>
   assert.match(migration, /CASHED_OUT/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS sportsbook_cashouts/);
   assert.match(ui, /STREAM_URL\s*=\s*['"]\/api\/member\/sportsbook\/stream['"]/);
-  assert.match(ui, /fetch\(STREAM_URL/);
+  assert.match(ui, /fetch\(streamUrl\(\)/);
   assert.match(ui, /cashout|quoteToken/i);
   assert.match(proxy, /isRealtimeStream/);
+  assert.match(proxy, /url\.pathname === '\/api\/internal\/sportsbook\/ingest'/);
+  assert.match(proxy, /request\.method !== 'POST'/);
+  assert.match(proxy, /x-sportsbook-timestamp/);
+  assert.match(proxy, /x-sportsbook-signature/);
   assert.match(realtime, /text\/event-stream/);
   assert.match(realtime, /feedRevision/);
   assert.match(realtime, /bettableMarkets/);

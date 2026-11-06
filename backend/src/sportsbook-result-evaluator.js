@@ -122,6 +122,32 @@ export function evaluateSportsbookLeg(leg, event) {
     const actual = home > away ? 'HOME' : 'AWAY';
     return result(side === actual ? 'WON' : 'LOST', score);
   }
+  if (type === 'CORNERS') {
+    const cornerRows = Array.isArray(event.statistics) ? event.statistics.filter(row => Number(row?.type_id) === 34 || text(row?.type?.name) === 'corners') : [];
+    const homeCorners = cornerRows.filter(row => text(row?.location) === 'home').reduce((sum, row) => sum + (Number(row?.data?.value) || 0), 0);
+    const awayCorners = cornerRows.filter(row => text(row?.location) === 'away').reduce((sum, row) => sum + (Number(row?.data?.value) || 0), 0);
+    if (!cornerRows.length || homeCorners === null || awayCorners === null) return null;
+    const total = homeCorners + awayCorners;
+    if (line === null) return result('VOID', `Garis corner tidak tersedia · ${score}`);
+    const over = label.includes('over') || label.includes('atas');
+    const under = label.includes('under') || label.includes('bawah');
+    if (!over && !under) return result('VOID', `Pilihan corner tidak dikenali · ${score}`);
+    const components = quarterSplit(line).map(component => totalComponent(total, component, over));
+    return result(combineSplitResults(components), `${score} · corners ${total}`);
+  }
+  if (type === 'CARDS') {
+    const cardRows = Array.isArray(event.statistics) ? event.statistics.filter(row => Number(row?.type_id) === 84 || text(row?.type?.name) === 'yellowcards') : [];
+    const homeCards = cardRows.filter(row => text(row?.location) === 'home').reduce((sum, row) => sum + (Number(row?.data?.value) || 0), 0);
+    const awayCards = cardRows.filter(row => text(row?.location) === 'away').reduce((sum, row) => sum + (Number(row?.data?.value) || 0), 0);
+    if (!cardRows.length || homeCards === null || awayCards === null) return null;
+    const total = homeCards + awayCards;
+    if (line === null) return result('VOID', `Garis kartu tidak tersedia · ${score}`);
+    const over = label.includes('over') || label.includes('atas');
+    const under = label.includes('under') || label.includes('bawah');
+    if (!over && !under) return result('VOID', `Pilihan kartu tidak dikenali · ${score}`);
+    const components = quarterSplit(line).map(component => totalComponent(total, component, over));
+    return result(combineSplitResults(components), `${score} · cards ${total}`);
+  }
   if (type === 'TEAM_TOTAL') {
     if (line === null) return result('VOID', `Garis team total tidak tersedia · ${score}`);
     const isHome = /home|tuan rumah/.test(label);

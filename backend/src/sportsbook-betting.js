@@ -17,10 +17,20 @@ const ODDS_CHANGE_POLICIES = new Set(['REJECT', 'ACCEPT_BETTER', 'ACCEPT_ANY']);
 function clean(value, max = 160) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
+function filterDate(value) {
+  if (!value) return '';
+  const date = String(value).trim();
+  const parsed = new Date(`${date}T00:00:00Z`);
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date, 400, 'Format tanggal tidak valid.', 'DATE_FILTER_INVALID');
+  return date;
+}
 function integer(value, name, min, max) {
   const parsed = Number(value);
   assert(Number.isSafeInteger(parsed) && parsed >= min && parsed <= max, 400, `${name} tidak valid.`, 'SPORTSBOOK_INPUT_INVALID');
   return parsed;
+}
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 function odds(value) {
   const parsed = Number(value);
@@ -123,6 +133,9 @@ async function revalidateResolvedLegs(legs) {
   const fresh = [];
   for (const leg of legs) {
     const latest = await sportsbookSelectionSnapshot({ eventId: leg.event.id, marketId: leg.market.id, selectionId: leg.selection.key });
+    if (latest.event.live && !leg.event.live) {
+      throw new AppError(409, 'Pertandingan baru dimulai. Tinjau quote live sebelum memasang taruhan.', 'SPORTSBOOK_EVENT_BECAME_LIVE');
+    }
     if (latest.selection.priceVersion !== leg.selection.priceVersion) {
       throw new AppError(409, 'Odds berubah saat tiket diproses. Tinjau kembali harga terbaru.', 'SPORTSBOOK_ODDS_VERSION_CHANGED', {
         eventId: leg.event.id,
@@ -413,6 +426,10 @@ export async function createSportsbookBet(session, input, { ip = '' } = {}) {
     if (!repricedLegs.length) assert(Number(verifiedQuote.potentialPayout) === calculation.potentialPayout, 409, 'Quote payout tidak lagi sesuai dengan harga server.', 'SPORTSBOOK_QUOTE_MISMATCH');
   }
 
+  if (legs.some(leg => leg.event.live)) {
+    await wait(config.sportsbookLiveAcceptanceDelayMs);
+  }
+
   return tx(async client => {
     if (quoteToken) verifySportsbookQuoteToken(quoteToken, { memberId: session.userId });
     const existing = await ticketBy(client, 'member_id=$1 AND idempotency_key=$2', [session.userId, idempotencyKey]);
@@ -534,7 +551,7 @@ export async function listManualSportsbookSettlementQueue({ openLimit = 500, rec
   return { open: await loadRows(openResult.rows), recent: await loadRows(recentResult.rows) };
 }
 
-export async function listAllSportsbookBets({ status, username, limit = 100, offset = 0 } = {}) {
+export async function listAllSportsbookBets({ status, username, search = '', from = '', to = '', limit = 100, offset = 0 } = {}) {
   const values = [];
   const where = [];
   if (status) {
@@ -544,6 +561,20 @@ export async function listAllSportsbookBets({ status, username, limit = 100, off
   if (username) {
     values.push(`%${clean(username, 40)}%`);
     where.push(`u.username ILIKE $${values.length}`);
+  }
+  if (search) {
+    values.push(`%${clean(search, 120)}%`);
+    where.push(`(u.username ILIKE $${values.length} OR t.id::text ILIKE $${values.length} OR t.invoice ILIKE $${values.length})`);
+  }
+  const start = filterDate(from);
+  if (start) {
+    values.push(start);
+    where.push(`t.created_at >= $${values.length}::date`);
+  }
+  const end = filterDate(to);
+  if (end) {
+    values.push(end);
+    where.push(`t.created_at < $${values.length}::date + interval '1 day'`);
   }
   values.push(Math.min(Math.max(Number(limit) || 100, 1), 500));
   const limitIndex = values.length;

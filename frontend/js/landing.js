@@ -28,30 +28,30 @@ function generateDefaultResults() {
   const yesterdayStr = formatDate(yesterday);
 
   return [
-    { name: 'SYDNEY', code: 'SDY', date: todayStr, result: '----', period: '----' },
-    { name: 'HONGKONG', code: 'HK', date: todayStr, result: '----', period: '----' },
-    { name: 'SINGAPORE', code: 'SGP', date: todayStr, result: '----', period: '----' },
-    { name: '4D TOTO MACAU', code: '4TMP', date: todayStr, result: '----', period: '----' },
-    { name: '5D TOTO MACAU', code: '5TMP', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'KING KONG 4D', code: 'KK4P', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'NEWYORK', code: 'NY', date: todayStr, result: '----', period: '----' },
-    { name: 'CALIFORNIA', code: 'CAL', date: todayStr, result: '----', period: '----' },
-    { name: 'CAMBODIA', code: 'CMD', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'CHINA', code: 'CHN', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'TAIWAN', code: 'TW', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'PCSO', code: 'PCSO', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'JEPANG', code: 'JPN', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'AUCKLAND', code: 'AKL', date: todayStr, result: '----', period: '----' },
-    { name: 'CHRISTCHURCH', code: 'CHC', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'WELLINGTON', code: 'WLG', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'HAMILTON', code: 'HML', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'TAURANGA', code: 'TRG', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'DUNEDIN', code: 'DND', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'MEDELLIN', code: 'MDL', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'EMERLAD', code: 'EMR', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'PRAGUE', code: 'PRG', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'SEATTLE', code: 'STL', date: yesterdayStr, result: '----', period: '----' },
-    { name: 'BULLSEYE', code: 'BLY', date: yesterdayStr, result: '----', period: '----' }
+    { name: 'SYDNEY', code: 'SDY', date: todayStr, result: '—', period: '----' },
+    { name: 'HONGKONG', code: 'HK', date: todayStr, result: '—', period: '----' },
+    { name: 'SINGAPORE', code: 'SGP', date: todayStr, result: '—', period: '----' },
+    { name: '4D TOTO MACAU', code: '4TMP', date: todayStr, result: '—', period: '----' },
+    { name: '5D TOTO MACAU', code: '5TMP', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'KING KONG 4D', code: 'KK4P', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'NEWYORK', code: 'NY', date: todayStr, result: '—', period: '----' },
+    { name: 'CALIFORNIA', code: 'CAL', date: todayStr, result: '—', period: '----' },
+    { name: 'CAMBODIA', code: 'CMD', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'CHINA', code: 'CHN', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'TAIWAN', code: 'TW', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'PCSO', code: 'PCSO', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'JEPANG', code: 'JPN', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'AUCKLAND', code: 'AKL', date: todayStr, result: '—', period: '----' },
+    { name: 'CHRISTCHURCH', code: 'CHC', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'WELLINGTON', code: 'WLG', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'HAMILTON', code: 'HML', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'TAURANGA', code: 'TRG', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'DUNEDIN', code: 'DND', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'MEDELLIN', code: 'MDL', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'EMERLAD', code: 'EMR', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'PRAGUE', code: 'PRG', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'SEATTLE', code: 'STL', date: yesterdayStr, result: '—', period: '----' },
+    { name: 'BULLSEYE', code: 'BLY', date: yesterdayStr, result: '—', period: '----' }
   ];
 }
 
@@ -72,13 +72,15 @@ async function loadMarkets() {
     const fetched = res.items || res.data || res || [];
 
     if (Array.isArray(fetched) && fetched.length > 0) {
-      marketsList = fetched.map(m => ({
-        name: m.name || m.code || 'Unknown',
-        code: m.code || '',
-        date: m.drawDate ? formatDateID(m.drawDate) : '-',
-        result: m.result || '----',
-        period: m.period || '-'
-      }));
+      marketsList = fetched
+        .filter(m => typeof m.result === 'string' && /^\d{3,6}$/.test(m.result))
+        .map(m => ({
+          name: m.name || m.code || 'Unknown',
+          code: m.code || '',
+          date: m.drawDate ? formatDateID(m.drawDate) : '-',
+          result: m.result,
+          period: m.period || '-'
+        }));
     } else {
       marketsList = [];
     }
@@ -127,7 +129,7 @@ function renderHasilGrid(items) {
         </div>
         <div class="hasil-card-body">
           <span class="hasil-card-date">${escapeHtml(m.date || '-')}</span>
-          <span class="hasil-card-number">${escapeHtml(m.result || '----')}</span>
+          <span class="hasil-card-number">${escapeHtml(m.result || '—')}</span>
           <a href="${escapeHtml(auth.isLoggedIn() ? marketHref : '#login')}"
              class="hasil-card-action"
              onclick="${auth.isLoggedIn() ? '' : 'window.openLoginModal(event)'}">

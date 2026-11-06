@@ -80,6 +80,7 @@ async function main() {
     poller: pollerSnapshot()
   });
 
+  await refreshSportsFeedIfDue(state);
   while (!stopping) {
     await pollDuePools();
     await refreshSportsFeedIfDue(state);

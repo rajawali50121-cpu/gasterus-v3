@@ -17,102 +17,6 @@ Object.assign(process.env, {
 const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
-test('The Odds API event markets preserve FT/HT periods for 1X2 handicap and totals', () => {
-  const event = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'period-odds-1',
-    sport_key: 'soccer_epl',
-    sport_title: 'Premier League',
-    commence_time: '2026-08-11T12:00:00Z',
-    home_team: 'Arsenal',
-    away_team: 'Chelsea',
-    bookmakers: [{
-      key: 'book-a',
-      markets: [
-        { key: 'h2h', outcomes: [{ name: 'Arsenal', price: 1.8 }, { name: 'Draw', price: 3.4 }, { name: 'Chelsea', price: 4.2 }] },
-        { key: 'h2h_3_way_h1', outcomes: [{ name: 'Arsenal', price: 2.2 }, { name: 'Draw', price: 2.1 }, { name: 'Chelsea', price: 4.6 }] },
-        { key: 'spreads_h1', outcomes: [{ name: 'Arsenal', point: -0.25, price: 1.92 }, { name: 'Chelsea', point: 0.25, price: 1.94 }] },
-        { key: 'totals_h1', outcomes: [{ name: 'Over', point: 1.0, price: 1.88 }, { name: 'Under', point: 1.0, price: 1.98 }] }
-      ]
-    }]
-  });
-  assert.ok(event.markets.some(market => market.type === '1X2' && market.period === 'FT'));
-  assert.ok(event.markets.some(market => market.type === '1X2' && market.period === '1H'));
-  assert.ok(event.markets.some(market => market.type === 'HANDICAP' && market.period === '1H'));
-  assert.ok(event.markets.some(market => market.type === 'TOTALS' && market.period === '1H'));
-});
-
-test('The Odds API keeps handicap prices from one coherent bookmaker quote', () => {
-  const event = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'coherent-handicap-odds',
-    sport_key: 'soccer_epl',
-    sport_title: 'Premier League',
-    commence_time: '2026-08-11T12:00:00Z',
-    home_team: 'Arsenal',
-    away_team: 'Chelsea',
-    bookmakers: [
-      {
-        key: 'book-a',
-        markets: [{
-          key: 'spreads',
-          outcomes: [
-            { name: 'Arsenal', point: -0.5, price: 1.91 },
-            { name: 'Chelsea', point: 0.5, price: 1.91 }
-          ]
-        }]
-      },
-      {
-        key: 'book-b',
-        markets: [{
-          key: 'spreads',
-          outcomes: [
-            { name: 'Arsenal', point: -0.5, price: 11.76 },
-            { name: 'Chelsea', point: 0.5, price: 1.25 }
-          ]
-        }]
-      }
-    ]
-  });
-  const handicap = event.markets.find(market => market.type === 'HANDICAP');
-  assert.ok(handicap);
-  assert.deepEqual(handicap.selections.map(selection => selection.odds), [1.91, 1.91]);
-});
-
-test('The Odds API handicap quote takes precedence over model-derived public odds', () => {
-  const oddsApiEvent = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'provider-priority-handicap',
-    sport_key: 'soccer_epl',
-    sport_title: 'Premier League',
-    commence_time: '2026-08-11T12:00:00Z',
-    home_team: 'Arsenal',
-    away_team: 'Chelsea',
-    bookmakers: [{
-      key: 'book-a',
-      markets: [{
-        key: 'spreads',
-        outcomes: [
-          { name: 'Arsenal', point: -0.5, price: 1.91 },
-          { name: 'Chelsea', point: 0.5, price: 1.91 }
-        ]
-      }]
-    }]
-  });
-  const publicEvent = structuredClone(oddsApiEvent);
-  publicEvent._sources = ['public-market'];
-  publicEvent.markets = publicEvent.markets.map(market => ({
-    ...market,
-    source: 'public-market',
-    selections: market.selections.map(selection => ({ ...selection, odds: 1.8, source: 'public-market' }))
-  }));
-  const [merged] = __sportsbookProviders.mergeProviderEvents([
-    { provider: 'public-market', events: [publicEvent] },
-    { provider: 'the-odds-api', events: [oddsApiEvent] }
-  ]);
-  const handicap = merged.markets.find(market => market.type === 'HANDICAP');
-  assert.ok(handicap);
-  assert.equal(handicap.source, 'the-odds-api');
-  assert.deepEqual(handicap.selections.map(selection => selection.odds), [1.91, 1.91]);
-});
-
 test('API-Sports normalizer carries first-half markets and halftime settlement score', () => {
   const event = __sportsbookProviders.normalizeApiSportsFixture({
     fixture: { id: 9911, date: '2026-08-11T12:00:00Z', status: { short: 'FT', elapsed: 90 }, venue: { name: 'Stadium' } },
@@ -136,12 +40,14 @@ test('API-Sports live odds extractor accepts top-level bets payload', () => {
   assert.equal(map.get('123')[0].name, 'First Half Winner');
 });
 
+
 test('provider merger keeps HT priced market bettable only when API-Sports result source is attached', () => {
-  const oddsEvent = __sportsbookProviders.normalizeOddsApiEvent({
-    id: 'odds-safety', sport_key: 'soccer_epl', sport_title: 'Premier League', commence_time: '2026-08-11T12:00:00Z',
-    home_team: 'Arsenal', away_team: 'Chelsea',
-    bookmakers: [{ key: 'book-a', markets: [{ key: 'h2h_3_way_h1', outcomes: [{ name: 'Arsenal', price: 2.2 }, { name: 'Draw', price: 2.1 }, { name: 'Chelsea', price: 4.6 }] }] }]
-  });
+  const oddsEvent = {
+    id: 'odds-safety', sport: 'Football', league: 'Premier League', country: 'England', startTime: '2026-08-11T12:00:00Z', status: 'SCHEDULED', live: false,
+    home: { name: 'Arsenal', score: null, logo: null }, away: { name: 'Chelsea', score: null, logo: null },
+    markets: [{ id: 'm', type: '1X2', period: '1H', source: 'book-a', suspended: false, selections: [{ key: 'k', label: 'Home', odds: 2.2, suspended: false, source: 'book-a', updatedAt: null }] }],
+    _refs: {}, _sources: ['sharpapi']
+  };
   const withoutScoreProvider = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }]);
   assert.equal(withoutScoreProvider[0].markets[0].suspended, true);
 

@@ -1,0 +1,434 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Readable } from 'node:stream';
+
+process.env.DATABASE_URL ||= 'postgres://localhost:5432/gasterus-test';
+process.env.REDIS_URL ||= 'redis://localhost:6379';
+process.env.MEMBER_PROXY_SECRET ||= 'm'.repeat(48);
+process.env.ADMIN_PROXY_SECRET ||= 'a'.repeat(48);
+process.env.OPS_INTERNAL_SECRET ||= 'o'.repeat(48);
+process.env.SESSION_HMAC_KEY ||= 's'.repeat(48);
+process.env.API_KEY_PEPPER ||= 'p'.repeat(48);
+process.env.MFA_ENCRYPTION_KEY_BASE64 ||= Buffer.alloc(32, 1).toString('base64');
+
+const { acceptSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
+const { createSportsbookIngestRequest } = await import('../src/sportsbook-ingest-client.js');
+const SECRET = 'ingest-secret-for-test-only-'.padEnd(48, 'x');
+const NOW = Date.UTC(2025, 0, 2, 12, 0, 0);
+
+function snapshot() {
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date(NOW).toISOString(),
+    providerResults: [{
+      provider: 'sportmonks',
+      enabled: true,
+      events: [{
+        id: 'event-123',
+        sport: 'Football',
+        league: 'Premier League',
+        country: 'England',
+        startTime: new Date(NOW + 3600000).toISOString(),
+        status: 'SCHEDULED',
+        live: false,
+        home: { name: 'Home FC' },
+        away: { name: 'Away FC' },
+        markets: [{
+          id: 'market-123',
+          type: '1X2',
+          period: 'FT',
+          source: 'sportmonks',
+          suspended: false,
+          selections: [{
+            key: 'selection-123',
+            label: 'Home',
+            odds: 2.1,
+            suspended: false,
+            source: 'sportmonks',
+            updatedAt: null
+          }]
+        }],
+        _refs: { sportmonks: 'provider-event-123' },
+        _sources: ['sportmonks']
+      }]
+    }]
+  };
+}
+
+function requestFor(body, headers) {
+  const request = Readable.from([body]);
+  request.headers = headers;
+  return request;
+}
+
+function signedRequest(payload, { timestamp = Math.floor(NOW / 1000), maxPayloadBytes } = {}) {
+  return createSportsbookIngestRequest(payload, SECRET, { timestamp, maxPayloadBytes });
+}
+
+test('accepts a fresh HMAC-signed snapshot and stores only its verified JSON', async () => {
+  const payload = snapshot();
+  const signed = signedRequest(payload);
+  let stored;
+  let storedBytes;
+  const result = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async (value, serialized) => { stored = value; storedBytes = serialized; }
+    }
+  );
+
+  assert.deepEqual(result, {
+    accepted: true,
+    generatedAt: payload.generatedAt,
+    providerResults: ['sportmonks'],
+    eventCount: 1
+  });
+  assert.deepEqual(stored, payload);
+  assert.equal(storedBytes, signed.body.toString());
+});
+
+test('accepts OddsPapi as an additional provider without changing event source ownership', async () => {
+  const payload = snapshot();
+  const result = payload.providerResults[0];
+  result.provider = 'oddspapi';
+  const event = result.events[0];
+  event._refs = { oddspapi: 'oddspapi-fixture-1' };
+  event._sources = ['oddspapi'];
+  for (const market of event.markets) {
+    market.source = 'oddspapi';
+    for (const selection of market.selections) selection.source = 'oddspapi';
+  }
+  const signed = signedRequest(payload);
+  const accepted = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => {}
+    }
+  );
+  assert.deepEqual(accepted.providerResults, ['oddspapi']);
+});
+
+test('accepts merged events that carry multiple provider sources', async () => {
+  const payload = snapshot();
+  const event = payload.providerResults[0].events[0];
+  event._refs = { sportmonks: 'merged-sm-1', sharpapi: 'merged-sh-1' };
+  event._sources = ['sportmonks', 'sharpapi'];
+  for (const market of event.markets) {
+    for (const selection of market.selections) selection.source = 'sportmonks';
+  }
+  const signed = signedRequest(payload);
+  const accepted = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => {}
+    }
+  );
+  assert.deepEqual(accepted.providerResults, ['sportmonks']);
+});
+
+test('accepts active display-only events that carry no priced markets yet', async () => {
+  const payload = snapshot();
+  payload.providerResults[0].events.push({
+    id: 'event-unpriced',
+    sport: 'Football',
+    league: 'Serie A',
+    country: 'Italy',
+    startTime: new Date(NOW + 7200000).toISOString(),
+    status: 'SCHEDULED',
+    live: false,
+    home: { name: 'Home B FC' },
+    away: { name: 'Away B FC' },
+    markets: [],
+    _refs: { sportmonks: 'provider-event-unpriced' },
+    _sources: ['sportmonks']
+  });
+  const signed = signedRequest(payload);
+  let stored;
+  const result = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async value => { stored = value; }
+    }
+  );
+
+  assert.equal(result.eventCount, 2, 'event aktif tanpa pasar tetap diterima sebagai katalog display-only');
+  assert.equal(stored.providerResults[0].events.length, 2);
+  assert.deepEqual(stored.providerResults[0].events[1].markets, []);
+});
+
+test('counts same-team fixtures in different leagues separately', async () => {
+  const payload = snapshot();
+  const second = structuredClone(payload.providerResults[0].events[0]);
+  second.id = 'event-different-league';
+  second.league = 'Serie A';
+  second.country = 'Italy';
+  second._refs.sportmonks = 'provider-event-different-league';
+  payload.providerResults[0].events.push(second);
+
+  const signed = signedRequest(payload);
+  const accepted = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => {}
+    }
+  );
+  assert.equal(accepted.eventCount, 2);
+});
+
+test('rejects an invalid signature without storing the snapshot', async () => {
+  const signed = signedRequest(snapshot());
+  signed.headers['x-sportsbook-signature'] = '0'.repeat(64);
+  let stored = false;
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(signed.body, signed.headers), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => { stored = true; }
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_SIGNATURE_INVALID'
+  );
+  assert.equal(stored, false);
+});
+
+test('rejects stale signing timestamps before reading or storing a body', async () => {
+  const signed = signedRequest(snapshot(), { timestamp: Math.floor(NOW / 1000) - 181 });
+  let stored = false;
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(signed.body, signed.headers), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => { stored = true; }
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_SIGNATURE_EXPIRED'
+  );
+  assert.equal(stored, false);
+});
+
+test('rejects stale snapshot data despite a fresh request signature', async () => {
+  const payload = snapshot();
+  payload.generatedAt = new Date(NOW - 181000).toISOString();
+  const signed = signedRequest(payload);
+  let stored = false;
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(signed.body, signed.headers), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => { stored = true; }
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_SNAPSHOT_STALE'
+  );
+  assert.equal(stored, false);
+});
+
+test('rejects snapshots over the configured byte limit before reading the full body', async () => {
+  const signed = signedRequest(snapshot());
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(signed.body, signed.headers), {
+      secret: SECRET,
+      maxPayloadBytes: signed.body.length - 1,
+      now: NOW,
+      storeSnapshot: async () => assert.fail('oversized snapshot must not be stored')
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE'
+  );
+});
+
+test('rejects malformed normalized events and snapshots above 500 events', async () => {
+  const malformed = snapshot();
+  malformed.providerResults[0].events[0].markets[0].selections[0].odds = 1;
+  const malformedSigned = signedRequest(malformed);
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(malformedSigned.body, malformedSigned.headers), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => assert.fail('invalid event must not be stored')
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_INVALID'
+  );
+
+  const oversized = snapshot();
+  const template = oversized.providerResults[0].events[0];
+  oversized.providerResults[0].events = Array.from({ length: 501 }, (_, index) => ({
+    ...template,
+    id: `event-${index}`,
+    home: { name: `Home ${index}` },
+    away: { name: `Away ${index}` },
+    markets: template.markets.map(market => ({
+      ...market,
+      id: `market-${index}`,
+      selections: market.selections.map(selection => ({ ...selection, key: `selection-${index}` }))
+    })),
+    _refs: { sportmonks: `provider-event-${index}` }
+  }));
+  const oversizedSigned = signedRequest(oversized);
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(oversizedSigned.body, oversizedSigned.headers), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => assert.fail('over-limit snapshot must not be stored')
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_EVENT_LIMIT'
+  );
+});
+
+function threeProviderSnapshot() {
+  const base = snapshot();
+  const sharpEvent = JSON.parse(JSON.stringify(base.providerResults[0].events[0]));
+  sharpEvent._refs = { sharpapi: 'provider-event-sharp' };
+  sharpEvent._sources = ['sharpapi'];
+  for (const market of sharpEvent.markets) {
+    market.source = 'sharpapi';
+    for (const selection of market.selections) selection.source = 'sharpapi';
+  }
+
+  const oddsEvent = JSON.parse(JSON.stringify(base.providerResults[0].events[0]));
+  oddsEvent._refs = { oddspapi: 'provider-event-oddspapi' };
+  oddsEvent._sources = ['oddspapi'];
+  for (const market of oddsEvent.markets) {
+    market.source = 'oddspapi';
+    for (const selection of market.selections) selection.source = 'oddspapi';
+  }
+
+  return {
+    schemaVersion: 1,
+    generatedAt: base.generatedAt,
+    providerResults: [
+      base.providerResults[0],
+      { provider: 'sharpapi', enabled: true, events: [sharpEvent] },
+      { provider: 'oddspapi', enabled: true, events: [oddsEvent] }
+    ]
+  };
+}
+
+test('accepts a fresh snapshot containing all three allowed providers', async () => {
+  const payload = threeProviderSnapshot();
+  const signed = signedRequest(payload);
+  let stored = false;
+  const result = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => { stored = true; }
+    }
+  );
+
+  assert.deepEqual(result.providerResults, ['sportmonks', 'sharpapi', 'oddspapi']);
+  assert.equal(result.eventCount, 1);
+  assert.equal(stored, true);
+});
+
+test('partial provider refresh preserves fresh provider data, expires old data, and re-signs the merged snapshot', async () => {
+  const previousPayload = snapshot();
+  const previousRequest = signedRequest(previousPayload);
+  let stored = (await import('../src/sportsbook-ingestion.js')).createStoredSportsbookSnapshot({
+    serializedSnapshot: previousRequest.body.toString('utf8'),
+    timestamp: previousRequest.headers['x-sportsbook-timestamp'],
+    signature: previousRequest.headers['x-sportsbook-signature'],
+    receivedAt: NOW
+  });
+  let pending;
+  const redisClient = {
+    isOpen: true,
+    async watch() {},
+    async get() { return stored; },
+    async unwatch() {},
+    multi() {
+      return {
+        set(_key, value) { pending = value; return this; },
+        async exec() { stored = pending; return ['OK']; }
+      };
+    }
+  };
+  const providerEvent = JSON.parse(JSON.stringify(previousPayload.providerResults[0].events[0]));
+  providerEvent.id = 'sharp-event';
+  providerEvent.home.name = 'Sharp Home';
+  providerEvent.away.name = 'Sharp Away';
+  providerEvent._refs = { sharpapi: 'sharp-provider-event' };
+  providerEvent._sources = ['sharpapi'];
+  for (const market of providerEvent.markets) {
+    market.source = 'sharpapi';
+    for (const selection of market.selections) selection.source = 'sharpapi';
+  }
+  const { mergeSportsbookSnapshots, storeMergedSportsbookSnapshot, verifyStoredSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
+  const incoming = {
+    schemaVersion: 1,
+    generatedAt: new Date(NOW + 60000).toISOString(),
+    providerResults: [
+      { provider: 'sharpapi', enabled: true, events: [providerEvent] },
+      { provider: 'sportmonks', enabled: true, events: [], transportOk: false }
+    ]
+  };
+  const merged = mergeSportsbookSnapshots(incoming, verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW }), {
+    now: NOW + 60000,
+    maxAgeSeconds: 180
+  });
+  assert.deepEqual(merged.providerResults.map(result => result.provider), ['sharpapi', 'sportmonks']);
+  assert.equal(merged.providerResults.find(result => result.provider === 'sportmonks').stale, true);
+  assert.equal(merged.providerResults.find(result => result.provider === 'sportmonks').transportOk, false);
+  assert.equal(merged.eventCount, 2);
+
+  await storeMergedSportsbookSnapshot(redisClient, incoming, { secret: SECRET, now: NOW + 60000, maxAgeSeconds: 180 });
+  const verified = verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW + 60000, maxAgeSeconds: 180 });
+  assert.deepEqual(verified.providerResults, ['sharpapi', 'sportmonks']);
+  assert.equal(verified.snapshot.eventCount, 2);
+
+  const laterIncoming = { ...incoming, generatedAt: new Date(NOW + 240000).toISOString() };
+  await storeMergedSportsbookSnapshot(redisClient, laterIncoming, { secret: SECRET, now: NOW + 240000, maxAgeSeconds: 180 });
+  const afterExpiry = verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW + 240000, maxAgeSeconds: 180 });
+  assert.deepEqual(afterExpiry.providerResults, ['sharpapi']);
+  assert.equal(afterExpiry.snapshot.eventCount, 1);
+});
+
+test('rejects a snapshot with an unallowed or fourth provider', async () => {
+  const tooMany = threeProviderSnapshot();
+  tooMany.providerResults.push({
+    provider: 'api-sports',
+    enabled: true,
+    events: [JSON.parse(JSON.stringify(tooMany.providerResults[0].events[0]))]
+  });
+  tooMany.providerResults[3]._refs = { 'api-sports': 'provider-event-api' };
+  tooMany.providerResults[3]._sources = ['api-sports'];
+  const tooManySigned = signedRequest(tooMany);
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(tooManySigned.body, tooManySigned.headers), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => assert.fail('over-cap snapshot must not be stored')
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_INVALID'
+  );
+
+  const unallowed = threeProviderSnapshot();
+  unallowed.providerResults[1].provider = 'unknown-provider';
+  const unallowedSigned = signedRequest(unallowed);
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(unallowedSigned.body, unallowedSigned.headers), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => assert.fail('unallowed provider must not be stored')
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_INVALID'
+  );
+});
+test('client signs the raw JSON bytes and refuses non-HTTPS endpoints', async () => {
+  const signed = signedRequest(snapshot());
+  assert.equal(signed.headers['content-length'], String(signed.body.length));
+  assert.equal(signed.headers['x-sportsbook-signature'].length, 64);
+  await assert.rejects(
+    import('../src/sportsbook-ingest-client.js').then(({ postSportsbookSnapshot }) =>
+      postSportsbookSnapshot('http://railway.example/api/internal/sportsbook/ingest', snapshot(), { secret: SECRET })
+    ),
+    /must use HTTPS/
+  );
+});

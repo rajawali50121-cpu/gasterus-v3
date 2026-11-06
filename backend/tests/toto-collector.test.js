@@ -54,6 +54,21 @@ test('setiap pool TOTO punya alias VegasNet dan jadwal tutup/result sendiri', ()
   assert.ok(decision.schedule?.closeTime);
 });
 
+test('Vegasnet spelling mismatch tidak membuat hasil Tennessee unavailable', () => {
+  const sourceResult = source('vegasnet', 'Vegasnet', `<table>
+    <tr><td>Tennesse Midday</td><td>08-10-2026</td><td>6078</td></tr>
+    <tr><td>Tennesse Evening</td><td>08-10-2026</td><td>2086</td></tr>
+  </table>`);
+
+  for (const [slug, result] of [['tennessee-mid-pool', '6078'], ['tennessee-eve-pool', '2086']]) {
+    const mapping = __totoCollector.MARKET_MAP.find(item => item.slug === slug);
+    const decision = __totoCollector.resolveDecision(mapping, [sourceResult]);
+    assert.equal(decision.status, 'VERIFIED', `${slug} harus terpetakan`);
+    assert.equal(decision.result, result);
+    assert.equal(decision.drawDate, '2026-10-08');
+  }
+});
+
 test('collector parses DataToto table rows without losing leading zeroes', () => {
   const html = `<table><tr><th>Market</th><th>Live</th><th>Tanggal</th><th>Hari</th><th>Result</th></tr>
     <tr><td>Sydlotto</td><td>13:30 WIB</td><td>10-08-2026</td><td>Senin</td><td>0332</td></tr></table>`;

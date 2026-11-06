@@ -508,7 +508,7 @@ function openQrisModal(order, form) {
       <div id="qris-image-box" style="background:#fff;border-radius:12px;padding:12px;display:inline-block;min-width:260px;min-height:260px;line-height:260px;">
         ${qrSrc ? `<img src="${qrSrc}" alt="QRIS" style="width:260px;height:260px;display:inline-block;vertical-align:middle;">` : '<span style="font-size:.8rem;color:#333;">QRIS tidak tersedia</span>'}
       </div>
-      <div id="qris-status" style="margin-top:14px;font-size:.85rem;color:#f5dc8a;">⏳ Menunggu pembayaran…</div>
+      <div id="qris-status" style="margin-top:14px;font-size:.85rem;color:#f5dc8a;"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#clock"></use></svg> Menunggu pembayaran…</div>
       <div id="qris-timer" style="margin-top:4px;font-size:.75rem;color:#92a2b6;"></div>
       <button id="qris-close-btn" type="button" style="margin-top:16px;padding:9px 22px;border-radius:8px;border:1px solid #405570;background:#12243a;color:#fff;cursor:pointer;font-weight:700;">Tutup</button>
       ${auto ? '' : '<div style="margin-top:10px;font-size:.72rem;color:#92a2b6;">Saldo akan masuk setelah admin mengonfirmasi pembayaran Anda.</div>'}
@@ -537,7 +537,7 @@ function openQrisModal(order, form) {
       const statusEl = document.getElementById('qris-status');
       if (!statusEl) return;
       if (st.balanceCredited || st.status === 'PAID') {
-        statusEl.textContent = '✅ Pembayaran diterima! Saldo telah masuk.';
+        statusEl.innerHTML = '<svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#check-circle"></use></svg> Pembayaran diterima! Saldo telah masuk.';
         statusEl.style.color = '#29b56d';
         if (overlay._countdown) clearInterval(overlay._countdown);
         clearInterval(_qrisPollTimer); _qrisPollTimer = null;

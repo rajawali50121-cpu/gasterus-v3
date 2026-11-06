@@ -3,7 +3,7 @@ import { query, tx } from './db.js';
 import { redis } from './redis.js';
 import { config } from './config.js';
 import { AppError, assert } from './errors.js';
-import { apiKeyHash, decryptSecret, hashPassword, hmac, randomToken, verifyPassword, verifyTotp } from './security.js';
+import { apiKeyHash, hashPassword, hmac, randomToken, verifyPassword } from './security.js';
 import { bearerToken, cookie, cookies } from './http.js';
 import { audit } from './audit.js';
 import { recordSecurityEvent } from './security-events.js';
@@ -43,7 +43,7 @@ export async function session(request,channel) {
 export function sessionCookie(channel,token,ttl) { return cookie(cookieNames[channel],token,ttl,config.cookieSecure); }
 export function clearSessionCookie(channel) { return cookie(cookieNames[channel],'',0,config.cookieSecure); }
 export function requireCsrf(request,s) { assert(request.headers['x-csrf-token']===s.csrf,403,'Token keamanan tidak valid.','CSRF_INVALID'); }
-export async function logout(request,channel) { const s=await session(request,channel); await redis.del(sessionKey(channel,s.token)); return s; }
+export async function logout(request,channel) { const s=await session(request,channel); await redis.del(sessionKey(channel,s.token)); if(channel==='OWNER')await audit({actorId:s.userId,actorRole:'OWNER',action:'OWNER_LOGOUT',targetType:'SESSION',targetId:hmac(s.token)}); return s; }
 export function hasPermission(s,permission) {
   if(s.roles?.includes('OWNER'))return true;
   const rolePermissions={
@@ -109,14 +109,40 @@ export async function loginMember(input,ip='',userAgent='') {
 }
 export async function loginOwner(input,ip='',userAgent='') {
   const username=String(input.username||'').trim();
+  assert(username==='gasterus',401,'Username atau password salah.','LOGIN_FAILED');
   const {rows}=await query(`SELECT u.*,a.current_balance FROM users u LEFT JOIN ledger_accounts a ON a.owner_user_id=u.id WHERE u.username=$1`,[username]);
   const user=rows[0]; const valid=Boolean(user&&await verifyPassword(input.password,user.password_hash));
   if(!valid){await recordSecurityEvent({memberId:user?.id||null,channel:'ADMIN',eventType:'ADMIN_LOGIN_FAILED',severity:'HIGH',usernameHint:username,ip,userAgent});assert(false,401,'Username atau password salah.','LOGIN_FAILED');}
   assert(user.status==='ACTIVE',403,'Akun tidak aktif.','ACCOUNT_INACTIVE');
-  const roleRows=await query('SELECT role_code FROM user_roles WHERE user_id=$1',[user.id]); const roles=roleRows.rows.map(x=>x.role_code); assert(roles.length>0,403,'Akun tidak memiliki akses pengelola.','CHANNEL_INVALID');
-  assert(user.mfa_enabled&&user.mfa_secret_encrypted,403,'MFA wajib diaktifkan untuk akun pengelola.','MFA_SETUP_REQUIRED');
-  if(!verifyTotp(decryptSecret(user.mfa_secret_encrypted),input.otp)){await recordSecurityEvent({memberId:user.id,channel:'ADMIN',eventType:'ADMIN_MFA_FAILED',severity:'HIGH',usernameHint:username,ip,userAgent});assert(false,401,'Kode autentikasi tidak valid.','MFA_INVALID');}
-  const result=await createSession(user,'OWNER',roles); await recordSecurityEvent({memberId:user.id,channel:'ADMIN',eventType:'ADMIN_LOGIN_SUCCESS',severity:'INFO',usernameHint:username,ip,userAgent});await audit({actorId:user.id,actorRole:roles.join(','),action:'OWNER_LOGIN',targetType:'SESSION',targetId:hmac(result.token),ip}); return result;
+  const roleRows=await query('SELECT role_code FROM user_roles WHERE user_id=$1',[user.id]); const roles=roleRows.rows.map(x=>x.role_code); assert(roles.includes('OWNER'),403,'Akun tidak memiliki akses OWNER.','CHANNEL_INVALID');
+  // OWNER login uses username and password only. MFA is intentionally not required.
+  const result=await createSession(user,'OWNER',['OWNER']); await recordSecurityEvent({memberId:user.id,channel:'ADMIN',eventType:'ADMIN_LOGIN_SUCCESS',severity:'INFO',usernameHint:username,ip,userAgent});await audit({actorId:user.id,actorRole:'OWNER',action:'OWNER_LOGIN',targetType:'SESSION',targetId:hmac(result.token),ip}); return result;
+}
+export async function changeOwnerPassword(ownerSession,input,ip=''){
+  assert(ownerSession.channel==='OWNER'&&ownerSession.roles?.includes('OWNER'),403,'Akses tidak diizinkan.','FORBIDDEN');
+  const currentPassword=String(input.currentPassword||'');
+  const newPassword=String(input.newPassword||'');
+  assert(newPassword.length>=10&&newPassword.length<=128,400,'Password baru harus 10-128 karakter.','PASSWORD_INVALID');
+  assert(newPassword!==currentPassword,400,'Password baru harus berbeda dari password saat ini.','PASSWORD_UNCHANGED');
+  const current=(await query(`SELECT password_hash FROM users WHERE id=$1 AND username='gasterus' AND status='ACTIVE' AND EXISTS(SELECT 1 FROM user_roles WHERE user_id=$1 AND role_code='OWNER')`,[ownerSession.userId])).rows[0];
+  assert(current&&await verifyPassword(currentPassword,current.password_hash),401,'Password saat ini tidak sesuai.','CURRENT_PASSWORD_INVALID');
+  const passwordHash=await hashPassword(newPassword);
+  const updated=await query(`UPDATE users SET password_hash=$1,updated_at=now() WHERE id=$2 AND username='gasterus' AND status='ACTIVE' AND password_hash=$3 AND EXISTS(SELECT 1 FROM user_roles WHERE user_id=$2 AND role_code='OWNER') RETURNING id`,[passwordHash,ownerSession.userId,current.password_hash]);
+  assert(updated.rows[0],409,'Password berubah bersamaan. Silakan coba kembali.','PASSWORD_CHANGE_CONFLICT');
+  let revokedSessions=0;
+  const currentKey=sessionKey('OWNER',ownerSession.token);
+  for await (const batch of redis.scanIterator({MATCH:'session:owner:*',COUNT:100})) {
+    for (const key of (Array.isArray(batch)?batch:[batch])) {
+      if(key===currentKey)continue;
+      const raw=await redis.get(key);
+      if(!raw)continue;
+      try{
+        if(JSON.parse(raw).userId===ownerSession.userId){await redis.del(key);revokedSessions++;}
+      }catch{}
+    }
+  }
+  await audit({actorId:ownerSession.userId,actorRole:'OWNER',action:'OWNER_PASSWORD_CHANGED',targetType:'USER',targetId:ownerSession.userId,details:{revokedSessions},ip});
+  return{changed:true,revokedSessions};
 }
 export async function acceptRules(userId){const {rows}=await query('UPDATE users SET rules_accepted_at=now(),updated_at=now() WHERE id=$1 RETURNING rules_accepted_at',[userId]);return rows[0].rules_accepted_at;}
 export async function authenticateApiKey(request,scope) {
