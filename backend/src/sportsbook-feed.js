@@ -234,17 +234,20 @@ function capMarketsPerEvent(events = []) {
     if (markets.length <= MAX_MARKETS_PER_EVENT) return event;
 
     const retained = new Set();
+    // Prioritaskan 6 pasar inti (BP+B1) sebelum market lain
     for (const key of CORE_MARKET_KEYS) {
-      const index = markets.findIndex(market => `${market.type}:${market.period}` === key);
+      const index = markets.findIndex((market, idx) => `${market.type}:${market.period}` === key && !retained.has(idx));
       if (index >= 0) retained.add(index);
     }
     for (let index = 0; index < markets.length && retained.size < MAX_MARKETS_PER_EVENT; index += 1) {
       retained.add(index);
     }
-
+    const capped = [...retained].sort((left, right) => left - right).map(index => markets[index]);
     return {
       ...event,
-      markets: [...retained].sort((left, right) => left - right).map(index => markets[index])
+      markets: capped,
+      marketCount: markets.length,
+      truncatedMarkets: Math.max(0, markets.length - capped.length)
     };
   });
 }

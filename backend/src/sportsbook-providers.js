@@ -118,9 +118,21 @@ function sportFromKey(key, fallback = 'Football') {
 }
 function marketType(name, key = '') {
   const normalized = `${clean(key)} ${clean(name)}`.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  // corner/card/booking/shot/foul/offside/throw_in/team_total TIDAK boleh jadi inti (HDP/TOTALS/1X2)
+  if (/corner/.test(normalized)) return 'CORNERS';
+  if (/card|booking/.test(normalized)) return 'CARDS';
+  if (/shot|foul|offside|throw_in|team_total/.test(normalized)) return 'OTHER';
+  // Pasar kombinasi (result+total goals / BTTS) -> bukan 1X2 inti
+  if (/match_result_total_goals|result_total_goals|result_both_teams/.test(normalized)) return 'OTHER';
+  // Goal line / total gol babak pertama (O/U gol murni), bukan odd/even/scorer 1st_half_goal
+  if ((/goal_line/.test(normalized) || /1st_half_goal_line|first_half_goal_line|1st_half_goals?_over|first_half_goals?_over|1st_half_total_goals|first_half_total_goals/.test(normalized)) && !/odd_even|scorer|player/.test(normalized)) return 'TOTALS';
+  // 1H/2H moneyline explicit
+  if (/(?:1st_half|first_half|2nd_half|second_half).*moneyline|moneyline.*(?:1st_half|first_half|2nd_half|second_half)/.test(normalized)) return '1X2';
   for (const [needle, type] of Object.entries(MARKET_TYPES)) if (normalized.includes(needle)) return type;
-  if (/over.*under|total/.test(normalized)) return 'TOTALS';
-  if (/handicap|spread/.test(normalized)) return 'HANDICAP';
+  // participant/player markets must not become core HDP/TOTALS/1X2 (allow PLAYER_PROP mapping above)
+  if (/player/.test(normalized)) return 'PLAYER_PROP';
+  if (/over.*under|\btotal\b|total_goals|goals_over_under/.test(normalized)) return 'TOTALS';
+  if (/handicap|spread|point_spread/.test(normalized)) return 'HANDICAP';
   if (/winner|result|1x2|moneyline/.test(normalized)) return '1X2';
   return 'OTHER';
 }

@@ -870,3 +870,31 @@ test('SharpAPI legacy offset pagination unchanged when no next_cursor', async ()
     assert.equal(res.events.length, 3);
   } finally { globalThis.fetch = orig; globalThis.__sharpApiTestConfig = oc; }
 });
+
+
+test('Sharp market name classification (actual sharpDerivedMarketType/periodFromName)', async () => {
+  const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
+  const { sharpDerivedMarketType, periodFromName } = __sportsbookProviders;
+  const CORE = new Set(['1X2:FT','1X2:1H','HANDICAP:FT','HANDICAP:1H','TOTALS:FT','TOTALS:1H']);
+  const cases = [
+    ['moneyline','1X2','FT','YA'],
+    ['1st_half_moneyline','1X2','1H','YA'],
+    ['2nd_half_moneyline','1X2','2H','TIDAK'],
+    ['point_spread','HANDICAP','FT','YA'],
+    ['asian_handicap_corners','CORNERS','FT','TIDAK'],
+    ['1st_half_asian_handicap_corners','CORNERS','1H','TIDAK'],
+    ['2nd_half_asian_handicap_corners','CORNERS','2H','TIDAK'],
+    ['total_goals','TOTALS','FT','YA'],
+    ['1st_half_total_corners','CORNERS','1H','TIDAK'],
+    ['total_corners','CORNERS','FT','TIDAK'],
+    ['match_result_total_goals','OTHER','FT','TIDAK'],
+  ];
+  for (const [name, et, ep, ei] of cases) {
+    const row = { market_type: name, market_segment: '', market_name: name, selection_type: 'home', line: null };
+    const t = sharpDerivedMarketType(row);
+    const p = periodFromName(row.market_segment || name, name);
+    assert.equal(t, et, `${name} type`);
+    assert.equal(p, ep, `${name} period`);
+    assert.equal(CORE.has(`${t}:${p}`) ? 'YA' : 'TIDAK', ei, `${name} inti`);
+  }
+});
