@@ -950,19 +950,42 @@ function sportmonksRetryAfterMs(error) {
 // In-memory hourly Sportmonks request budget (no Redis/DB). Resets on process restart.
 let sportmonksHourWindowStart = 0;
 let sportmonksRequestsThisHour = 0;
+let sportmonksLiveRequestsThisHour = 0;
 let sportmonksRateLimitPauseUntil = 0;
 function sportmonksHourBudget() {
   const now = Date.now();
   if (now - sportmonksHourWindowStart >= 3_600_000) {
     sportmonksHourWindowStart = now;
     sportmonksRequestsThisHour = 0;
+    sportmonksLiveRequestsThisHour = 0;
   }
   const max = Math.max(1, Number(config.sportmonksMaxRequestsPerHour) || 80);
-  return { now, max, used: sportmonksRequestsThisHour, remaining: Math.max(0, max - sportmonksRequestsThisHour) };
+  const liveCap = Math.max(1, Math.floor(max * 0.25));
+  return { now, max, used: sportmonksRequestsThisHour, remaining: Math.max(0, max - sportmonksRequestsThisHour), liveCap, liveUsed: sportmonksLiveRequestsThisHour, liveRemaining: Math.max(0, liveCap - sportmonksLiveRequestsThisHour) };
 }
 function noteSportmonksRequest() {
   sportmonksHourBudget();
   sportmonksRequestsThisHour += 1;
+}
+function noteSportmonksLiveRequest() {
+  sportmonksHourBudget();
+  sportmonksRequestsThisHour += 1;
+  sportmonksLiveRequestsThisHour += 1;
+}
+function sportmonksLiveBudgetGate(signal) {
+  if (signal?.aborted) throw signal.reason || new Error('Sportmonks aborted');
+  const now = Date.now();
+  if (sportmonksRateLimitPauseUntil > now) {
+    const err = new Error(`Sportmonks rate_limit pause until ${new Date(sportmonksRateLimitPauseUntil).toISOString()}`);
+    err.code = 'SPORTMONKS_RATE_LIMIT_PAUSE';
+    throw err;
+  }
+  const b = sportmonksHourBudget();
+  if (b.remaining <= 0 || b.liveRemaining <= 0) {
+    const err = new Error(`Sportmonks live hourly budget exhausted (live ${b.liveUsed}/${b.liveCap}, total ${b.used}/${b.max})`);
+    err.code = 'SPORTMONKS_LIVE_HOURLY_BUDGET';
+    throw err;
+  }
 }
 function noteSportmonksRateLimit(payload) {
   const rl = payload?.rate_limit;
@@ -1070,12 +1093,22 @@ async function fetchSportmonksLiveWindow(base) {
     url.searchParams.set('include', 'state;participants;league.country;scores;inplayOdds');
     let responseError = null;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try { sportmonksLiveBudgetGate(); } catch (error) {
+        if (error?.code === 'SPORTMONKS_LIVE_HOURLY_BUDGET' || error?.code === 'SPORTMONKS_RATE_LIMIT_PAUSE' || error?.code === 'SPORTMONKS_HOURLY_BUDGET') {
+          const retryAt = error?.code === 'SPORTMONKS_RATE_LIMIT_PAUSE' ? sportmonksRateLimitPauseUntil : now + 60_000;
+          sportmonksLiveRetryState.set(cacheKey, { attempts: (sportmonksLiveRetryState.get(cacheKey)?.attempts || 0) + 1, retryAt, message: error.message });
+          return { events: cached?.events || [], fetchedAt: cached?.fetchedAt || null, failed: true, stale: Boolean(cached?.events?.length), errors: [error.message] };
+        }
+        throw error;
+      }
       await waitForSportmonksRequestSlot();
       try {
+        noteSportmonksLiveRequest();
         const payload = await requestJson(url, {
           label: 'Sportmonks livescores',
           maxBytes: SPORTMONKS_PAGE_MAX_BYTES
         });
+        noteSportmonksRateLimit(payload);
         if (!Array.isArray(payload?.data)) {
           throw new Error('Sportmonks livescores returned an invalid data array.');
         }
@@ -1096,6 +1129,12 @@ async function fetchSportmonksLiveWindow(base) {
         return { ...result, failed: false, errors: [] };
       } catch (error) {
         responseError = error;
+        if (error?.code === 'SPORTMONKS_LIVE_HOURLY_BUDGET' || error?.code === 'SPORTMONKS_RATE_LIMIT_PAUSE' || error?.code === 'SPORTMONKS_HOURLY_BUDGET') {
+          const retryAt = error?.code === 'SPORTMONKS_RATE_LIMIT_PAUSE' ? sportmonksRateLimitPauseUntil : now + 60_000;
+          sportmonksLiveRetryState.set(cacheKey, { attempts: (sportmonksLiveRetryState.get(cacheKey)?.attempts || 0) + 1, retryAt, message: error.message });
+          return { events: cached?.events || [], fetchedAt: cached?.fetchedAt || null, failed: true, stale: Boolean(cached?.events?.length), errors: [error.message] };
+        }
+        noteSportmonksRateLimit(error?.body || null);
         const status = Number(error?.status);
         const retryable = status === 408 || status === 429 || status >= 500 || !Number.isFinite(status);
         if (!retryable || attempt >= 3) break;
@@ -1122,7 +1161,7 @@ async function fetchSportmonksLiveWindow(base) {
       retryInMs: retryAt - Date.now(),
       cachedWindowAgeMs: cached ? Date.now() - cached.fetchedAt : null
     });
-    return { events: [], fetchedAt: cached?.fetchedAt || null, failed: true, errors: [message] };
+    return { events: cached?.events || [], fetchedAt: cached?.fetchedAt || null, failed: true, stale: Boolean(cached?.events?.length), errors: [message] };
   })();
 
   try {
@@ -1923,11 +1962,19 @@ export const __sportsbookProviders = {
   sportmonksRetryState,
   sportmonksLiveCache,
   sportmonksLiveRetryState,
-  // B4 test hooks (mock fetch only)
+  // B4/B3 test hooks (mock fetch only)
   sportmonksFiltersParam,
   noteSportmonksRateLimit,
   sportmonksHourBudget,
-  _resetSportmonksBudgetForTest() { sportmonksHourWindowStart = 0; sportmonksRequestsThisHour = 0; sportmonksRateLimitPauseUntil = 0; sportmonksCache.clear(); sportmonksRetryState.clear(); }
+  fetchSportmonksLiveWindow,
+  applySportmonksLiveWindow,
+  _setSportmonksBudgetForTest({ used = 0, liveUsed = 0, pauseUntil = 0 } = {}) {
+    sportmonksHourBudget();
+    sportmonksRequestsThisHour = Math.max(0, Number(used) || 0);
+    sportmonksLiveRequestsThisHour = Math.max(0, Number(liveUsed) || 0);
+    sportmonksRateLimitPauseUntil = Math.max(0, Number(pauseUntil) || 0);
+  },
+  _resetSportmonksBudgetForTest() { sportmonksHourWindowStart = 0; sportmonksRequestsThisHour = 0; sportmonksLiveRequestsThisHour = 0; sportmonksRateLimitPauseUntil = 0; sportmonksCache.clear(); sportmonksRetryState.clear(); sportmonksLiveCache.clear(); sportmonksLiveRetryState.clear(); }
 };
 
 // Builder helpers shared by provider adapters so every provider emits the exact
