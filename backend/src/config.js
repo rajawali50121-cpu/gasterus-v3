@@ -163,7 +163,10 @@ export const config = Object.freeze({
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
   sportmonksKey,
   sportmonksEnabled: bool('SPORTMONKS_ENABLED', isProduction && Boolean(sportmonksKey)),
-  sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 30, 0, 30),
+  // Jendela fixture: default 30 hari, override via SPORTMONKS_DAYS_AHEAD, dibatasi
+  // ke maks 100 hari (batas endpoint fixtures by date / rentang tanggal Sportmonks).
+  // Perilaku saat SPORTMONKS_ENABLED=false tidak berubah.
+  sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 30, 0, 100),
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
   oddsPapiEnabled: bool('ODDSPAPI_ENABLED', false),
   oddsPapiKey,

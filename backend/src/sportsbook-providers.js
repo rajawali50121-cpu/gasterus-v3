@@ -1204,7 +1204,7 @@ export async function fetchSportmonks({
   let providerRetryAfterMs = 0;
   // Scanning round-robin per tanggal. Skema lama membagi statis totalPages
   // (ceil(1.2 x maxEvents / 20) = 30 halaman) ke seluruh tanggal; dengan
-  // cakrawala SPORTMONKS_DAYS_AHEAD=30 itu berarti HANYA 1 halaman (20
+  // cakrawala sportmonksDaysAhead (default 30, maks 100 per docs Sportmonks) itu berarti HANYA 1 halaman (20
   // fixture) per tanggal dan tanggal terakhir kelewat sama sekali — snapshot
   // ingest pun terpotong di ~17 match karena fixture awal hari jarang punya
   // odds inti. Round-robin mengambil halaman pertama tiap tanggal lebih dulu

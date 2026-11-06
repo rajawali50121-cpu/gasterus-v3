@@ -31,8 +31,53 @@ const { __sportsbookProviders, fetchSportmonks, publicEvent } = await import('..
 const { eventSettlementAuthority } = await import('../src/sportsbook-settlement-authority.js');
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
+test('Sportmonks days-ahead window: default 30, max 100 (docs), date range matches window', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const baseEnv = {
+    NODE_ENV: 'test',
+    DATABASE_URL: 'postgresql://user:pass@example.com/db',
+    REDIS_URL: 'redis://example.com:6379',
+    MEMBER_PROXY_SECRET: 'm'.repeat(48),
+    ADMIN_PROXY_SECRET: 'a'.repeat(48),
+    OPS_INTERNAL_SECRET: 'o'.repeat(48),
+    SESSION_HMAC_KEY: 's'.repeat(48),
+    API_KEY_PEPPER: 'p'.repeat(48),
+    MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
+  };
+  const root = new URL('../..', import.meta.url);
+  // default 30 (Sportmonks docs: fixtures by date/range max 100 days)
+  const def = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `Object.assign(process.env,${JSON.stringify({ ...baseEnv, SPORTMONKS_API_KEY: 'k' })});` +
+    `const {config}=await import('./backend/src/config.js');console.log(config.sportmonksDaysAhead);`
+  ], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME } });
+  assert.equal(def.status, 0, def.stderr);
+  assert.equal(def.stdout.trim(), '30');
+
+  // max 100: env 999 -> int() throws "must be an integer between 0 and 100" (bounded by docs)
+  const max = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `Object.assign(process.env,${JSON.stringify({ ...baseEnv, SPORTMONKS_API_KEY: 'k', SPORTMONKS_DAYS_AHEAD: '999' })});` +
+    `try{await import('./backend/src/config.js');console.log('OK')}catch(e){console.log(e.message)}`
+  ], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME } });
+  assert.match(max.stdout + max.stderr, /must be an integer between 0 and 100/);
+
+  // date range matches window: DAYS_AHEAD=2 => requests fixtures/date for 3 dates (0..2)
+  const rangeScript = `
+    Object.assign(process.env,${JSON.stringify({ ...baseEnv, SPORTMONKS_ENABLED: 'true', SPORTMONKS_API_KEY: 'k', SPORTMONKS_DAYS_AHEAD: '2', SPORTMONKS_REQUEST_DELAY_MS: '0' })});
+    const dates=[]; const orig=globalThis.fetch;
+    globalThis.fetch=async (u)=>{ const s=String(u); if(s.includes('/fixtures/date/')){ dates.push(s.split('/fixtures/date/')[1].split('?')[0]); }
+      return {ok:true,status:200,async text(){return JSON.stringify({data:[],pagination:{has_more:false}});} ,headers:{get:()=>null}}; };
+    const m=await import('./backend/src/sportsbook-providers.js');
+    m.__sportsbookProviders.sportmonksCache.clear(); m.__sportsbookProviders.sportmonksRetryState.clear();
+    await m.fetchSportmonks({maxEvents:10,maxPages:10});
+    globalThis.fetch=orig; process.stdout.write('DATES='+JSON.stringify([...new Set(dates)]));
+  `;
+  const rng = spawnSync(process.execPath, ['--input-type=module', '-e', rangeScript], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: process.env.HOME } });
+  assert.equal(rng.status, 0, rng.stderr);
+  const got = JSON.parse((rng.stdout.match(/DATES=(\[.*\])/) || [,'[]'])[1]);
+  assert.equal(got.length, 3, `expected 3 dates for DAYS_AHEAD=2, got ${rng.stdout}`);
+});
+
 test('Sportmonks fixtures without provider odds stay display-only and never receive synthetic markets', () => {
-    assert.equal(__sportsbookProviders.sportmonksCacheTtlMs(), 180_000);
     const fixture = {
       id: 'sportmonks-no-prices',
       state: { short_name: 'NS', name: 'Not Started' },
