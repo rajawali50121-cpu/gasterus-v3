@@ -119,9 +119,21 @@ function sportFromKey(key, fallback = 'Football') {
 }
 function marketType(name, key = '') {
   const normalized = `${clean(key)} ${clean(name)}`.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  // corner/card/booking/shot/foul/offside/throw_in/team_total TIDAK boleh jadi inti (HDP/TOTALS/1X2)
+  if (/corner/.test(normalized)) return 'CORNERS';
+  if (/card|booking/.test(normalized)) return 'CARDS';
+  if (/shot|foul|offside|throw_in|team_total/.test(normalized)) return 'OTHER';
+  // Pasar kombinasi (result+total goals / BTTS) -> bukan 1X2 inti
+  if (/match_result_total_goals|result_total_goals|result_both_teams/.test(normalized)) return 'OTHER';
+  // Goal line / total gol babak pertama (O/U gol murni), bukan odd/even/scorer 1st_half_goal
+  if ((/goal_line/.test(normalized) || /1st_half_goal_line|first_half_goal_line|1st_half_goals?_over|first_half_goals?_over|1st_half_total_goals|first_half_total_goals/.test(normalized)) && !/odd_even|scorer|player/.test(normalized)) return 'TOTALS';
+  // 1H/2H moneyline explicit
+  if (/(?:1st_half|first_half|2nd_half|second_half).*moneyline|moneyline.*(?:1st_half|first_half|2nd_half|second_half)/.test(normalized)) return '1X2';
   for (const [needle, type] of Object.entries(MARKET_TYPES)) if (normalized.includes(needle)) return type;
-  if (/over.*under|total/.test(normalized)) return 'TOTALS';
-  if (/handicap|spread/.test(normalized)) return 'HANDICAP';
+  // participant/player markets must not become core HDP/TOTALS/1X2 (allow PLAYER_PROP mapping above)
+  if (/player/.test(normalized)) return 'PLAYER_PROP';
+  if (/over.*under|\btotal\b|total_goals|goals_over_under/.test(normalized)) return 'TOTALS';
+  if (/handicap|spread|point_spread/.test(normalized)) return 'HANDICAP';
   if (/winner|result|1x2|moneyline/.test(normalized)) return '1X2';
   return 'OTHER';
 }
@@ -753,7 +765,9 @@ function sportmonksStartTime(raw) {
   if (Number.isFinite(timestamp) && timestamp > 0) return new Date(timestamp * 1000).toISOString();
   return iso(raw?.starting_at);
 }
-function sportmonksMarketType(description) {
+function sportmonksMarketType(description, marketId = null) {
+  // market_id 28 = "1st Half Goals" -> TOTALS:1H (explicit, no regex widening)
+  if (String(marketId ?? '') === '28') return 'TOTALS';
   // 'Goal Line' is an over/under market in Sportmonks terms but the generic
   // classifier has no goal-line needle, so resolve it before falling through.
   if (/goal[_\s-]*line/.test(clean(description).toLowerCase())) return 'TOTALS';
@@ -859,8 +873,11 @@ function sportmonksMarket(event, rows) {
   const providerMarketId = clean(sample.market_id);
   const description = clean(sample.market_description || sample.name || (providerMarketId ? `Market ${providerMarketId}` : ''), 120);
   if (!description) return null;
-  const type = sportmonksMarketType(description);
-  const period = periodFromName(description, `m${sample.market_id ?? ''}`);
+  const type = sportmonksMarketType(description, sample.market_id);
+  // market_id 28 = "1st Half Goals" -> lock period 1H (description may vary)
+  const period = String(sample.market_id ?? '') === '28'
+    ? '1H'
+    : periodFromName(description, `m${sample.market_id ?? ''}`);
   const marketKey = providerMarketId ? `m${providerMarketId}` : `name:${slug(description)}`;
   const grouped = new Map();
   for (const row of rows) {

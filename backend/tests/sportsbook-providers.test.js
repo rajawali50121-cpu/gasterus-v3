@@ -100,7 +100,50 @@ test('Sportmonks fixtures without provider odds stay display-only and never rece
     assert.doesNotMatch(JSON.stringify(merged), /fallback-odds/);
   });
 
-  test('Sportmonks preserves provider-supplied markets, periods, lines, and suspended odds', () => {
+  test('Sportmonks maps market_id 28 "1st Half Goals" to TOTALS:1H (explicit, no regex widen)', () => {
+  const fixture = {
+    id: 'sm-m28',
+    state: { short_name: 'NS', name: 'Not Started' },
+    starting_at: '2026-11-06T12:00:00Z',
+    league: { name: 'Test League', country: { name: 'X' } },
+    participants: [
+      { name: 'Home', meta: { location: 'home' } },
+      { name: 'Away', meta: { location: 'away' } }
+    ]
+  };
+  const mkRows = desc => [
+    { id: 1, market_id: 28, market_description: desc, label: 'Over', name: '0.5', total: '0.5', value: 1.9 },
+    { id: 2, market_id: 28, market_description: desc, label: 'Under', name: '0.5', total: '0.5', value: 1.9 }
+  ];
+  const check = desc => {
+    const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, mkRows(desc));
+    const m = event.markets.find(x => String(x.sourceMarketId).replace(/^m/, '') === '28');
+    assert.ok(m, 'market 28 present ' + desc);
+    assert.equal(m.type, 'TOTALS');
+    assert.equal(m.period, '1H');
+    const over = m.selections.find(s => /over/i.test(s.label));
+    const under = m.selections.find(s => /under/i.test(s.label));
+    assert.ok(over && under, 'Over/Under selections');
+    assert.equal(Number(over.line), 0.5);
+    assert.equal(Number(under.line), 0.5);
+    assert.equal(Number(over.odds), 1.9);
+  };
+  check('1st Half Goals');
+  check('Goals Over/Under - First Period');
+  // stopped odds must not be bettable (selection/market suspended; mechanism already exists)
+  const stoppedEvent = __sportsbookProviders.normalizeSportmonksFixture(fixture, [
+    { id: 991, market_id: 28, market_description: '1st Half Goals', label: 'Over', total: '0.5', value: 1.9, stopped: true },
+    { id: 992, market_id: 28, market_description: '1st Half Goals', label: 'Under', total: '0.5', value: 1.9, stopped: true }
+  ]);
+  const stoppedM28 = stoppedEvent.markets.find(x => String(x.sourceMarketId).replace(/^m/, '') === '28');
+  assert.ok(stoppedM28);
+  assert.equal(stoppedM28.type, 'TOTALS');
+  assert.equal(stoppedM28.period, '1H');
+  assert.equal(stoppedM28.suspended, true);
+  assert.ok(stoppedM28.selections.every(s => s.suspended));
+});
+
+test('Sportmonks preserves provider-supplied markets, periods, lines, and suspended odds', () => {
     const fixture = {
       id: 'sportmonks-full-market-coverage',
       state: { short_name: 'NS', name: 'Not Started' },
@@ -984,4 +1027,31 @@ test('Sportmonks B4: disabled behavior unchanged (no fetch)', async () => {
   const line = res.stdout.trim().split(/\r?\n/).filter(l=>l.startsWith('{')).at(-1) || '{}';
   const r=JSON.parse(line);
   assert.equal(r.provider,'sportmonks'); assert.equal(r.enabled,false); assert.deepEqual(r.events,[]);
+});
+
+test('Sharp market name classification (actual sharpDerivedMarketType/periodFromName)', async () => {
+  const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
+  const { sharpDerivedMarketType, periodFromName } = __sportsbookProviders;
+  const CORE = new Set(['1X2:FT','1X2:1H','HANDICAP:FT','HANDICAP:1H','TOTALS:FT','TOTALS:1H']);
+  const cases = [
+    ['moneyline','1X2','FT','YA'],
+    ['1st_half_moneyline','1X2','1H','YA'],
+    ['2nd_half_moneyline','1X2','2H','TIDAK'],
+    ['point_spread','HANDICAP','FT','YA'],
+    ['asian_handicap_corners','CORNERS','FT','TIDAK'],
+    ['1st_half_asian_handicap_corners','CORNERS','1H','TIDAK'],
+    ['2nd_half_asian_handicap_corners','CORNERS','2H','TIDAK'],
+    ['total_goals','TOTALS','FT','YA'],
+    ['1st_half_total_corners','CORNERS','1H','TIDAK'],
+    ['total_corners','CORNERS','FT','TIDAK'],
+    ['match_result_total_goals','OTHER','FT','TIDAK'],
+  ];
+  for (const [name, et, ep, ei] of cases) {
+    const row = { market_type: name, market_segment: '', market_name: name, selection_type: 'home', line: null };
+    const t = sharpDerivedMarketType(row);
+    const p = periodFromName(row.market_segment || name, name);
+    assert.equal(t, et, `${name} type`);
+    assert.equal(p, ep, `${name} period`);
+    assert.equal(CORE.has(`${t}:${p}`) ? 'YA' : 'TIDAK', ei, `${name} inti`);
+  }
 });

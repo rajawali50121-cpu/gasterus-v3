@@ -69,7 +69,7 @@ test('render worker keeps provider/page/payload limits and Sportmonks coverage',
 
   // Sportmonks primer di worker yang sama: key diwariskan dari web (tanpa
   // service/platform baru) dan dibatasi 500 event agar heap 224MB aman.
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'false');
   assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
   assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), '500');
   assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '300');
