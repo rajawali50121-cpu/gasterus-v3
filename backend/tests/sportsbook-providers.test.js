@@ -757,3 +757,116 @@ test("SharpAPI merges same fixture with kickoff times 5 minutes apart across spo
   const events = __sportsbookProviders.normalizeSharpApiRows(rows);
   assert.equal(events.length, 1);
 });
+
+
+
+function mkSharpCfg(markets, patch = {}) {
+  return { sharpApiEnabled: true, sharpApiKey: 'k', sharpApiBaseUrl: 'https://api.sharpapi.io', sharpApiSport: 'soccer', sharpApiMarkets: markets, sharpApiSportsbook: '', sharpApiMaxPages: 5, sharpApiMaxRequestsPerCycle: 5, sharpApiTimeBudgetMs: 15000, sharpApiMainLinesOnly: false, sharpApiPageSize: 200, sharpApiRefreshSeconds: 45, ...patch };
+}
+test('SharpAPI cursor pagination fetches 5 pages (next_cursor, next_offset null)', async () => {
+  const { fetchSharpApi } = await import('../src/sportsbook-providers.js');
+  const orig = globalThis.fetch; const oc = globalThis.__sharpApiTestConfig;
+  globalThis.__sharpApiTestConfig = mkSharpCfg('cursor5', { sharpApiMaxPages: 10, sharpApiMaxRequestsPerCycle: 10 });
+  const calls = [];
+  globalThis.fetch = async (input) => {
+    const u = new URL(String(input));
+    calls.push({ offset: u.searchParams.get('offset'), cursor: u.searchParams.get('cursor') });
+    const n = calls.length;
+    const ev=`ev${n}`; const rows=[{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`H${n}`,selection_type:"home",odds_decimal:2.0,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:"Draw",selection_type:"draw",odds_decimal:3.2,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`A${n}`,selection_type:"away",odds_decimal:3.5,line:null}];
+    return new Response(JSON.stringify({data:rows,pagination:n<5?{has_more:true,next_offset:null,next_cursor:`c${n}`}:{has_more:false,next_offset:null,next_cursor:null}}), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const res = await fetchSharpApi();
+    assert.equal(calls.length, 5);
+    assert.equal(calls[1].cursor, 'c1');
+    assert.equal(calls[1].offset, null);
+    assert.equal(res.events.length, 5);
+  } finally { globalThis.fetch = orig; globalThis.__sharpApiTestConfig = oc; }
+});
+
+test('SharpAPI cursor preferred when next_offset empty and next_cursor present', async () => {
+  const { fetchSharpApi } = await import('../src/sportsbook-providers.js');
+  const orig = globalThis.fetch; const oc = globalThis.__sharpApiTestConfig;
+  globalThis.__sharpApiTestConfig = mkSharpCfg('cursorpref');
+  const calls = [];
+  globalThis.fetch = async (input) => {
+    const u = new URL(String(input));
+    calls.push({ offset: u.searchParams.get('offset'), cursor: u.searchParams.get('cursor') });
+    const n = calls.length;
+    const ev=`ev${n}`; const rows=[{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`H${n}`,selection_type:"home",odds_decimal:2.0,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:"Draw",selection_type:"draw",odds_decimal:3.2,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`A${n}`,selection_type:"away",odds_decimal:3.5,line:null}];
+    return new Response(JSON.stringify({data:rows,pagination:n===1?{has_more:true,next_offset:'',next_cursor:'cx'}:{has_more:false}}), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    await fetchSharpApi();
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].cursor, 'cx');
+  } finally { globalThis.fetch = orig; globalThis.__sharpApiTestConfig = oc; }
+});
+
+test('SharpAPI page-3 failure returns 2 collected pages (warn, no throw)', async () => {
+  const { fetchSharpApi } = await import('../src/sportsbook-providers.js');
+  const orig = globalThis.fetch; const oc = globalThis.__sharpApiTestConfig;
+  globalThis.__sharpApiTestConfig = mkSharpCfg('p3fail');
+  let n = 0;
+  globalThis.fetch = async () => {
+    n += 1;
+    if (n === 3) return new Response(JSON.stringify({ error: { message: 'boom' } }), { status: 500, headers: { 'content-type': 'application/json' } });
+    const ev=`ev${n}`; const rows=[{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`H${n}`,selection_type:"home",odds_decimal:2.0,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:"Draw",selection_type:"draw",odds_decimal:3.2,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`A${n}`,selection_type:"away",odds_decimal:3.5,line:null}];
+    return new Response(JSON.stringify({data:rows,pagination:{has_more:true,next_offset:n*200,next_cursor:null}}), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const res = await fetchSharpApi();
+    assert.equal(res.events.length, 2);
+  } finally { globalThis.fetch = orig; globalThis.__sharpApiTestConfig = oc; }
+});
+
+test('SharpAPI page-1 failure throws', async () => {
+  const { fetchSharpApi } = await import('../src/sportsbook-providers.js');
+  const orig = globalThis.fetch; const oc = globalThis.__sharpApiTestConfig;
+  globalThis.__sharpApiTestConfig = mkSharpCfg('p1fail');
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: 'bad' } }), { status: 500, headers: { 'content-type': 'application/json' } });
+  try {
+    await assert.rejects(() => fetchSharpApi(), /SharpAPI/);
+  } finally { globalThis.fetch = orig; globalThis.__sharpApiTestConfig = oc; }
+});
+
+test('SharpAPI time budget stops loop and returns collected rows', async () => {
+  const { fetchSharpApi } = await import('../src/sportsbook-providers.js');
+  const orig = globalThis.fetch; const oc = globalThis.__sharpApiTestConfig;
+  globalThis.__sharpApiTestConfig = mkSharpCfg('tbudget', { sharpApiMaxPages: 10, sharpApiMaxRequestsPerCycle: 10, sharpApiTimeBudgetMs: 60 });
+  let n = 0;
+  globalThis.fetch = async () => {
+    n += 1;
+    await new Promise(r => setTimeout(r, 45));
+    const ev=`ev${n}`; const rows=[{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`H${n}`,selection_type:"home",odds_decimal:2.0,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:"Draw",selection_type:"draw",odds_decimal:3.2,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`A${n}`,selection_type:"away",odds_decimal:3.5,line:null}];
+    return new Response(JSON.stringify({data:rows,pagination:{has_more:true,next_offset:n*200}}), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const res = await fetchSharpApi();
+    assert.ok(n >= 1 && n <= 5, `expected budget stop, got ${n} calls`);
+    assert.ok(res.events.length >= 1);
+  } finally { globalThis.fetch = orig; globalThis.__sharpApiTestConfig = oc; }
+});
+
+test('SharpAPI legacy offset pagination unchanged when no next_cursor', async () => {
+  const { fetchSharpApi } = await import('../src/sportsbook-providers.js');
+  const orig = globalThis.fetch; const oc = globalThis.__sharpApiTestConfig;
+  globalThis.__sharpApiTestConfig = mkSharpCfg('offsetold');
+  const calls = [];
+  globalThis.fetch = async (input) => {
+    const u = new URL(String(input));
+    calls.push({ offset: u.searchParams.get('offset'), cursor: u.searchParams.get('cursor') });
+    const n = calls.length;
+    const ev=`ev${n}`; const rows=[{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`H${n}`,selection_type:"home",odds_decimal:2.0,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:"Draw",selection_type:"draw",odds_decimal:3.2,line:null},{event_id:ev,sport:"soccer",league:"L",home_team:`H${n}`,away_team:`A${n}`,event_start_time:"2026-11-06T10:00:00Z",is_live:false,is_main_line:true,is_alternate_line:false,is_active:true,timestamp:"2026-11-06T09:00:00Z",sportsbook:"draftkings",market_type:"moneyline",market_segment:"full_game",selection:`A${n}`,selection_type:"away",odds_decimal:3.5,line:null}];
+    return new Response(JSON.stringify({data:rows,pagination:n<3?{has_more:true,next_offset:n*200}:{has_more:false,next_offset:null}}), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const res = await fetchSharpApi();
+    assert.equal(calls.length, 3);
+    assert.equal(calls[0].offset, null);
+    assert.equal(calls[1].offset, '200');
+    assert.equal(calls[2].offset, '400');
+    assert.ok(calls.every(c => c.cursor === null));
+    assert.equal(res.events.length, 3);
+  } finally { globalThis.fetch = orig; globalThis.__sharpApiTestConfig = oc; }
+});

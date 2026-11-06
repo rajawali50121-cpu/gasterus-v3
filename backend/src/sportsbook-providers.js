@@ -638,34 +638,72 @@ function normalizeSharpApiRows(rows = []) {
   });
   return events.slice(0, MAX_PROVIDER_EVENTS);
 }
-async function sharpApiOddsPage(offset = 0) {
-  const url = new URL(`${config.sharpApiBaseUrl.replace(/\/$/, '')}/api/v1/odds`);
-  url.searchParams.set('sport', config.sharpApiSport);
-  if (config.sharpApiMarkets) url.searchParams.set('market', config.sharpApiMarkets);
-  if (config.sharpApiSportsbook) url.searchParams.set('sportsbook', config.sharpApiSportsbook);
-  url.searchParams.set('limit', String(config.sharpApiPageSize));
-  if (Number.isFinite(offset) && offset > 0) url.searchParams.set('offset', String(offset));
-  return requestJson(url, { headers: { 'X-API-Key': config.sharpApiKey }, label: 'SharpAPI' });
+async function sharpApiOddsPage({ offset = 0, cursor = null, cfg = config } = {}) {
+  const url = new URL(`${cfg.sharpApiBaseUrl.replace(/\/$/, '')}/api/v1/odds`);
+  url.searchParams.set('sport', cfg.sharpApiSport);
+  if (cfg.sharpApiMarkets) url.searchParams.set('market', cfg.sharpApiMarkets);
+  if (cfg.sharpApiSportsbook) url.searchParams.set('sportsbook', cfg.sharpApiSportsbook);
+  url.searchParams.set('limit', String(cfg.sharpApiPageSize));
+  // cursor didahulukan oleh API bila ada (filter harus sama); offset dipertahankan untuk kompatibilitas.
+  if (cursor) url.searchParams.set('cursor', String(cursor));
+  else if (Number.isFinite(offset) && offset > 0) url.searchParams.set('offset', String(offset));
+  return requestJson(url, { headers: { 'X-API-Key': cfg.sharpApiKey }, label: 'SharpAPI' });
 }
+function sharpCfg(){ return (globalThis.__sharpApiTestConfig && typeof globalThis.__sharpApiTestConfig === 'object') ? globalThis.__sharpApiTestConfig : config; }
 export async function fetchSharpApi() {
-  if (!config.sharpApiEnabled || !config.sharpApiKey) return { provider: 'sharpapi', enabled: false, events: [] };
-  const cacheKey = `sharpapi:${config.sharpApiSport}:${config.sharpApiMarkets}:${config.sharpApiSportsbook || '*'}:${config.sharpApiMainLinesOnly}`;
-  const payload = await cachedRequest(cacheKey, config.sharpApiRefreshSeconds * 1000, async () => {
+  const cfg = sharpCfg();
+  if (!cfg.sharpApiEnabled || !cfg.sharpApiKey) return { provider: 'sharpapi', enabled: false, events: [] };
+  const cacheKey = `sharpapi:${cfg.sharpApiSport}:${cfg.sharpApiMarkets}:${cfg.sharpApiSportsbook || '*'}:${cfg.sharpApiMainLinesOnly}`;
+  const payload = await cachedRequest(cacheKey, (cfg.sharpApiRefreshSeconds || 45) * 1000, async () => {
     const rows = [];
     let offset = 0;
+    let cursor = null;
     let pagesFetched = 0;
-    for (let page = 0; page < config.sharpApiMaxPages; page += 1) {
-      const current = await sharpApiOddsPage(offset);
+    let stoppedBy = 'no_more';
+    let hasMore = false;
+    const startedAt = Date.now();
+    const maxPages = Math.max(1, Number(cfg.sharpApiMaxPages) || 1);
+    const maxRequests = Math.max(1, Math.min(Number(cfg.sharpApiMaxRequestsPerCycle) || maxPages, maxPages));
+    const timeBudgetMs = Math.max(0, Number(cfg.sharpApiTimeBudgetMs) || 15000);
+    for (let page = 0; page < maxRequests; page += 1) {
+      if (timeBudgetMs > 0 && (Date.now() - startedAt) >= timeBudgetMs) { stoppedBy = 'time_budget'; break; }
+      let current;
+      try {
+        current = await sharpApiOddsPage({ offset, cursor, cfg });
+      } catch (error) {
+        if (pagesFetched === 0) throw error;
+        stoppedBy = 'error';
+        logger.warn('SharpAPI page fetch failed after partial rows; returning collected data', {
+          provider: 'sharpapi', pagesFetched, rows: rows.length, error: error?.message
+        });
+        break;
+      }
       pagesFetched += 1;
       const pageRows = Array.isArray(current?.data) ? current.data : [];
       rows.push(...pageRows);
       const pagination = current?.pagination || {};
+      hasMore = Boolean(pagination?.has_more);
+      if (!hasMore) { stoppedBy = 'no_more'; break; }
+      const nextCursor = pagination?.next_cursor;
       const nextOffset = pagination?.next_offset;
-      if (!pagination?.has_more || nextOffset === null || nextOffset === undefined) break;
-      const parsedOffset = Number(nextOffset);
-      if (!Number.isFinite(parsedOffset) || parsedOffset <= offset) break;
-      offset = parsedOffset;
+      if (nextCursor && (nextOffset === null || nextOffset === undefined || nextOffset === '')) {
+        cursor = String(nextCursor);
+        continue;
+      }
+      if (nextOffset !== null && nextOffset !== undefined && nextOffset !== '') {
+        const parsedOffset = Number(nextOffset);
+        if (!Number.isFinite(parsedOffset) || parsedOffset <= offset) { stoppedBy = 'no_more'; break; }
+        offset = parsedOffset;
+        cursor = null;
+        continue;
+      }
+      stoppedBy = 'no_more';
+      break;
     }
+    if (stoppedBy === 'no_more' && hasMore && pagesFetched >= maxRequests) stoppedBy = 'max_pages';
+    logger.info('SharpAPI fetch page loop completed', {
+      provider: 'sharpapi', pagesFetched, rows: rows.length, hasMore, stoppedBy, durationMs: Date.now() - startedAt
+    });
     return rows;
   });
   const events = normalizeSharpApiRows(payload);

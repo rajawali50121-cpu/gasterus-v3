@@ -148,6 +148,9 @@ export const config = Object.freeze({
   sharpApiPreferredSportsbooks: text('SHARP_API_PREFERRED_SPORTSBOOKS', 'sbobet,pinnacle,bet365'),
   sharpApiRefreshSeconds: int('SHARP_API_REFRESH_SECONDS', isProduction ? 45 : 30, 15, 1800),
   sharpApiMaxPages: int('SHARP_API_MAX_PAGES', isProduction ? 5 : 3, 1, 10),
+  // Anggaran per siklus fetch SharpAPI (mencegah over-budget kuota/rate). Default = SHARP_API_MAX_PAGES.
+  sharpApiMaxRequestsPerCycle: int('SHARP_API_MAX_REQUESTS_PER_CYCLE', int('SHARP_API_MAX_PAGES', isProduction ? 5 : 3, 1, 10), 1, 20),
+  sharpApiTimeBudgetMs: int('SHARP_API_TIME_BUDGET_MS', 15000, 1000, 120000),
   sharpApiPageSize: int('SHARP_API_PAGE_SIZE', 200, 25, 200),
   sharpApiMainLinesOnly: bool('SHARP_API_MAIN_LINES_ONLY', false),
   // Keep the configured provider catalog intact; the feed-level event and Redis byte

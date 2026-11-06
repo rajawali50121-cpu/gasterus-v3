@@ -129,7 +129,7 @@ export default defineRailway(() => {
       SPORTSBOOK_RENDER_MAX_PAGES: "120",
       // Sportmonks primer (cakupan luas). Key & batas diwariskan/diset di
       // worker yang sama — service web tetap bebas beban scrape Sportmonks.
-      SPORTMONKS_ENABLED: "true",
+      SPORTMONKS_ENABLED: "false",
       SPORTMONKS_API_KEY: "${{web.SPORTMONKS_API_KEY}}",
       SPORTMONKS_MAX_TOTAL_EVENTS: "500",
       SPORTMONKS_REFRESH_SECONDS: "300",
@@ -138,7 +138,8 @@ export default defineRailway(() => {
       SHARP_API_ENABLED: "${{web.SHARP_API_ENABLED}}",
       SHARP_API_KEY: "${{web.SHARP_API_KEY}}",
       SHARP_API_MAX_PAGES: "${{web.SHARP_API_MAX_PAGES}}",
-      SHARP_API_PAGE_SIZE: "${{web.SHARP_API_PAGE_SIZE}}"
+      SHARP_API_PAGE_SIZE: "${{web.SHARP_API_PAGE_SIZE}}",
+      SHARP_API_SPORTSBOOK: "draftkings"
     }
   });
 
