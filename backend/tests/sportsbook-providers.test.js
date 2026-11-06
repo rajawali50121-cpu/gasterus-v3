@@ -50,7 +50,39 @@ test('Sportmonks fixtures without provider odds stay display-only and never rece
     assert.doesNotMatch(JSON.stringify(merged), /fallback-odds/);
   });
 
-  test('Sportmonks preserves provider-supplied markets, periods, lines, and suspended odds', () => {
+  test('Sportmonks maps market_id 28 "1st Half Goals" to TOTALS:1H (explicit, no regex widen)', () => {
+  const fixture = {
+    id: 'sm-m28',
+    state: { short_name: 'NS', name: 'Not Started' },
+    starting_at: '2026-11-06T12:00:00Z',
+    league: { name: 'Test League', country: { name: 'X' } },
+    participants: [
+      { name: 'Home', meta: { location: 'home' } },
+      { name: 'Away', meta: { location: 'away' } }
+    ]
+  };
+  const mkRows = desc => [
+    { id: 1, market_id: 28, market_description: desc, label: 'Over', name: '0.5', total: '0.5', value: 1.9 },
+    { id: 2, market_id: 28, market_description: desc, label: 'Under', name: '0.5', total: '0.5', value: 1.9 }
+  ];
+  const check = desc => {
+    const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, mkRows(desc));
+    const m = event.markets.find(x => String(x.sourceMarketId).replace(/^m/, '') === '28');
+    assert.ok(m, 'market 28 present ' + desc);
+    assert.equal(m.type, 'TOTALS');
+    assert.equal(m.period, '1H');
+    const over = m.selections.find(s => /over/i.test(s.label));
+    const under = m.selections.find(s => /under/i.test(s.label));
+    assert.ok(over && under, 'Over/Under selections');
+    assert.equal(Number(over.line), 0.5);
+    assert.equal(Number(under.line), 0.5);
+    assert.equal(Number(over.odds), 1.9);
+  };
+  check('1st Half Goals');
+  check('Goals Over/Under - First Period');
+});
+
+test('Sportmonks preserves provider-supplied markets, periods, lines, and suspended odds', () => {
     const fixture = {
       id: 'sportmonks-full-market-coverage',
       state: { short_name: 'NS', name: 'Not Started' },

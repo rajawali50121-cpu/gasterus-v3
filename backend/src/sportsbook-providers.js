@@ -756,7 +756,9 @@ function sportmonksStartTime(raw) {
   if (Number.isFinite(timestamp) && timestamp > 0) return new Date(timestamp * 1000).toISOString();
   return iso(raw?.starting_at);
 }
-function sportmonksMarketType(description) {
+function sportmonksMarketType(description, marketId = null) {
+  // market_id 28 = "1st Half Goals" -> TOTALS:1H (explicit, no regex widening)
+  if (String(marketId ?? '') === '28') return 'TOTALS';
   // 'Goal Line' is an over/under market in Sportmonks terms but the generic
   // classifier has no goal-line needle, so resolve it before falling through.
   if (/goal[_\s-]*line/.test(clean(description).toLowerCase())) return 'TOTALS';
@@ -862,8 +864,11 @@ function sportmonksMarket(event, rows) {
   const providerMarketId = clean(sample.market_id);
   const description = clean(sample.market_description || sample.name || (providerMarketId ? `Market ${providerMarketId}` : ''), 120);
   if (!description) return null;
-  const type = sportmonksMarketType(description);
-  const period = periodFromName(description, `m${sample.market_id ?? ''}`);
+  const type = sportmonksMarketType(description, sample.market_id);
+  // market_id 28 = "1st Half Goals" -> lock period 1H (description may vary)
+  const period = String(sample.market_id ?? '') === '28'
+    ? '1H'
+    : periodFromName(description, `m${sample.market_id ?? ''}`);
   const marketKey = providerMarketId ? `m${providerMarketId}` : `name:${slug(description)}`;
   const grouped = new Map();
   for (const row of rows) {
