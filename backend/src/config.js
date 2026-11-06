@@ -186,8 +186,9 @@ export const config = Object.freeze({
   // Odds include filters (fixtures/between). Defaults preserve probe-known working form.
   sportmonksBookmakerIds: text('SPORTMONKS_BOOKMAKER_IDS', '2'),
   sportmonksMarketIds: text('SPORTMONKS_MARKET_IDS', '1,31,6,26,80,28'),
-  // In-memory hourly request budget (no Redis/DB). Free plan safe default below 180/hour.
-  sportmonksMaxRequestsPerHour: int('SPORTMONKS_MAX_REQUESTS_PER_HOUR', 150, 1, 3000),
+  // In-memory hourly request budget (no Redis/DB). Worker+web may share same key and each
+  // count independently: 2 * 80 = 160 < 180/hour (Sportmonks free plan).
+  sportmonksMaxRequestsPerHour: int('SPORTMONKS_MAX_REQUESTS_PER_HOUR', 80, 1, 3000),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
   sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
   // TheSportsDB publishes 123 as its current free V1 API key. Artwork is metadata-only and

@@ -940,7 +940,7 @@ function sportmonksHourBudget() {
     sportmonksHourWindowStart = now;
     sportmonksRequestsThisHour = 0;
   }
-  const max = Math.max(1, Number(config.sportmonksMaxRequestsPerHour) || 150);
+  const max = Math.max(1, Number(config.sportmonksMaxRequestsPerHour) || 80);
   return { now, max, used: sportmonksRequestsThisHour, remaining: Math.max(0, max - sportmonksRequestsThisHour) };
 }
 function noteSportmonksRequest() {
