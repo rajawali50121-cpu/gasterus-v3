@@ -80,6 +80,17 @@ test('Sportmonks fixtures without provider odds stay display-only and never rece
   };
   check('1st Half Goals');
   check('Goals Over/Under - First Period');
+  // stopped odds must not be bettable (selection/market suspended; mechanism already exists)
+  const stoppedEvent = __sportsbookProviders.normalizeSportmonksFixture(fixture, [
+    { id: 991, market_id: 28, market_description: '1st Half Goals', label: 'Over', total: '0.5', value: 1.9, stopped: true },
+    { id: 992, market_id: 28, market_description: '1st Half Goals', label: 'Under', total: '0.5', value: 1.9, stopped: true }
+  ]);
+  const stoppedM28 = stoppedEvent.markets.find(x => String(x.sourceMarketId).replace(/^m/, '') === '28');
+  assert.ok(stoppedM28);
+  assert.equal(stoppedM28.type, 'TOTALS');
+  assert.equal(stoppedM28.period, '1H');
+  assert.equal(stoppedM28.suspended, true);
+  assert.ok(stoppedM28.selections.every(s => s.suspended));
 });
 
 test('Sportmonks preserves provider-supplied markets, periods, lines, and suspended odds', () => {
