@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 const env = { DATABASE_URL: 'postgresql://user:pass@localhost/db', REDIS_URL: 'redis://localhost:6379', MEMBER_PROXY_SECRET: 'm'.repeat(48), ADMIN_PROXY_SECRET: 'a'.repeat(48), OPS_INTERNAL_SECRET: 'o'.repeat(48), SESSION_HMAC_KEY: 'y'.repeat(48), API_KEY_PEPPER: 'z'.repeat(48), MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'), RAPIDAPI_CASINO_KEY: 'test-rapidapi-key' };
 Object.assign(process.env, env);
+delete process.env.RAPIDAPI_CASINO_KEY;
+delete process.env.RAPIDAPI_KEY;
+process.env.GITSLOTPARK_API_KEY = 'test-rapidapi-key';
+process.env.GITSLOTPARK_BASE_URL = 'https://test-slots.p.rapidapi.com';
 const casino = await import('../src/casino-rapidapi.js');
 test('normalizeProviders maps games array to coded categories', () => {
   const out = casino.normalizeProviders({ success: true, games: ['PGSOFT', 'EVOLUTIONLIVE', 'CMDSPORTS', 'AVIATOR', 'pgsoft', '  '] });
@@ -72,6 +76,7 @@ test('demo launch POST is not cached and sends money=0', async () => {
     assert.equal(call.options.method, 'POST');
     assert.equal(JSON.parse(call.options.body).money, 0);
     assert.equal(call.options.headers['x-rapidapi-key'], 'test-rapidapi-key');
+    assert.equal(call.options.headers['x-rapidapi-host'], 'test-slots.p.rapidapi.com');
     assert.equal(result.mode, 'DEMO');
     await casino.launchCasinoDemo('550e8400-e29b-41d4-a716-446655440000', { gameId: '1189baca' });
     assert.equal(callCount, 2, 'URL sesi tidak boleh di-cache');

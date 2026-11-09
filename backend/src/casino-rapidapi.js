@@ -5,7 +5,12 @@ import { betnexWalletStatus, betnexProvidersForCurrency, betnexGamesForCurrency,
 
 // RapidAPI casino aggregator. Key HANYA dari env backend.
 // Frontend TIDAK PERNAH menerima key — semua lewat proxy ini.
-const HOST = 'live-casino-slots-evolution-jili-and-50-plus-provider.p.rapidapi.com';
+const API_BASE_URL = config.rapidApiCasinoBaseUrl;
+const HOST = new URL(API_BASE_URL).host;
+
+function rapidApiUrl(path) {
+  return new URL(path, `${API_BASE_URL}/`);
+}
 
 // Allowlist path agar proxy tidak bisa dipakai SSRF ke endpoint lain.
 // Path diverifikasi dari respons provider asli:
@@ -138,7 +143,7 @@ async function rapidFetch(path, params = {}, options = {}) {
   if (!ALLOWED_PATHS.has(path)) {
     throw new AppError(400, 'Endpoint casino tidak diizinkan.', 'CASINO_PATH_NOT_ALLOWED');
   }
-  const url = new URL('https://' + HOST + path);
+  const url = rapidApiUrl(path);
   for (const entry of Object.entries(params || {})) {
     if (entry[1] === undefined || entry[1] === null || entry[1] === '') continue;
     url.searchParams.set(entry[0], String(entry[1]));
@@ -224,7 +229,7 @@ export async function casinoProviders() {
 
 async function probeUpstream(path, params) {
   const key = rapidApiKey();
-  const url = new URL('https://' + HOST + path);
+  const url = rapidApiUrl(path);
   for (const entry of Object.entries(params || {})) {
     if (entry[1] === undefined || entry[1] === null || entry[1] === '') continue;
     url.searchParams.set(entry[0], String(entry[1]));

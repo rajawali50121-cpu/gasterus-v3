@@ -1,4 +1,13 @@
 import { AppError } from './errors.js';
+import { isIP } from 'node:net';
+import { config } from './config.js';
+
+function normalizedIp(value) {
+  const ip = String(value || '').trim().toLowerCase();
+  if (isIP(ip) === 0) return '';
+  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+}
+
 export function json(response, status, data, headers = {}) {
   const body = Buffer.from(JSON.stringify(data));
   response.writeHead(status, {'content-type':'application/json; charset=utf-8','content-length':body.length,'cache-control':'no-store',...headers});
@@ -41,7 +50,13 @@ export function cookie(name,value,maxAge,secure=true) {
   return parts.join('; ');
 }
 export function clientIp(request) {
-  return String(request.headers['x-forwarded-for']||request.socket.remoteAddress||'unknown').split(',')[0].trim().slice(0,100);
+  const remoteAddress = normalizedIp(request.socket.remoteAddress) || 'unknown';
+  const trustedProxyIps = config.trustedProxyIps.map(normalizedIp);
+  if (!trustedProxyIps.includes(remoteAddress)) return remoteAddress.slice(0, 100);
+
+  const forwardedAddresses = String(request.headers['x-forwarded-for'] || '').split(',');
+  const nearestForwardedAddress = normalizedIp(forwardedAddresses.at(-1));
+  return (nearestForwardedAddress || remoteAddress).slice(0, 100);
 }
 export function securityHeaders(response) {
   response.setHeader('x-content-type-options','nosniff');

@@ -14,6 +14,7 @@ import { applySportsbookTradingControls, listActiveSportsbookTradingControls, re
 import { eventSettlementAuthority, settlementAuthoritySummary } from './sportsbook-settlement-authority.js';
 import { enrichTeamArtwork } from './sportsbook-team-artwork.js';
 import { projectMemberMarkets } from './sportsbook-member-projection.js';
+import { persistSportsbookEventStates } from './sportsbook-event-state.js';
 
 const MIN_1X2_OVERROUND = 1.00;
 const MAX_1X2_OVERROUND = 1.25;
@@ -830,6 +831,10 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
   nextFeed.pricedMarkets = pricedMarketCount(nextFeed.events);
   nextFeed.bettableMarkets = bettableMarketCount(nextFeed.events);
   nextFeed.revision = stableFeedRevision(nextFeed.events, nextLifecycle);
+  await persistSportsbookEventStates(nextFeed.events, {
+    feedRevision: nextFeed.revision,
+    observedAt: new Date(fetchedAt).toISOString()
+  });
   await writeRedisCache(nextFeed, { alreadyBounded: true });
   memory = nextFeed;
   await recordSportsbookProviderTransitions(transitions, {

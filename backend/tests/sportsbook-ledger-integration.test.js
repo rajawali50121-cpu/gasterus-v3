@@ -470,6 +470,22 @@ test('isolated database: sportsbook bet, ledger, settlement, cashout and exposur
     const replay = await settleSportsbookTicketAutomatic(ticket.id, result, { sourceName: 'sportmonks', feedRevision: 'winner-revision-1' });
     assert.equal(first.payout, replay.payout);
     assert.equal(await memberBalance(session.userId), 101000);
+    const appliedRevisions = await query(
+      `SELECT COUNT(*)::int AS count FROM sportsbook_settlement_revisions
+       WHERE ticket_id=$1 AND action='SETTLE' AND status='APPLIED'`,
+      [ticket.id]
+    );
+    assert.equal(appliedRevisions.rows[0].count, 1, 'settlement replay creates no additional applied revision');
+    const settlementTransfers = await query(
+      `SELECT COUNT(*)::int AS count FROM ledger_transactions
+       WHERE reference_type='SPORTSBOOK_SETTLEMENT_REVISION'
+         AND reference_id IN (
+           SELECT id::text FROM sportsbook_settlement_revisions
+           WHERE ticket_id=$1 AND action='SETTLE' AND status='APPLIED'
+         )`,
+      [ticket.id]
+    );
+    assert.equal(settlementTransfers.rows[0].count, 1, 'replay cannot transfer the payout twice');
     await assertLedgerBalanced();
     const rolledBack = await rollbackSportsbookSettlement(session, ticket.id, { reason: 'Integration rollback', idempotencyKey: `rollback-${randomUUID()}` });
     assert.equal(rolledBack.status, 'OPEN');

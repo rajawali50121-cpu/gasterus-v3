@@ -7,12 +7,40 @@ const { Pool, types } = pg;
 types.setTypeParser(20, value => Number(value));
 // Keep PostgreSQL DATE values as YYYY-MM-DD strings. DATE is a calendar value, not an instant.
 configurePostgresTypeParsers(types);
+const sslConnectionParameters = new Set([
+  'ssl',
+  'sslmode',
+  'sslrootcert',
+  'sslcert',
+  'sslkey',
+  'sslpassword',
+  'sslnegotiation',
+  'uselibpqcompat'
+]);
+function connectionStringForPool(connectionString) {
+  if (!config.databaseSsl) return connectionString;
+  const queryStart = connectionString.indexOf('?');
+  if (queryStart < 0) return connectionString;
+  const prefix = connectionString.slice(0, queryStart);
+  const params = new URLSearchParams(connectionString.slice(queryStart + 1));
+  for (const key of [...params.keys()]) {
+    if (sslConnectionParameters.has(key.toLowerCase())) params.delete(key);
+  }
+  const query = params.toString();
+  return query ? `${prefix}?${query}` : prefix;
+}
+const ssl = config.databaseSsl
+  ? {
+      rejectUnauthorized: true,
+      ...(config.databaseSslCa ? { ca: config.databaseSslCa } : {})
+    }
+  : undefined;
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL_OVERRIDE || config.databaseUrl,
+  connectionString: connectionStringForPool(process.env.DATABASE_URL_OVERRIDE || config.databaseUrl),
   max: config.pgPoolMax,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
-  ssl: config.databaseSsl ? { rejectUnauthorized: false } : undefined,
+  ssl,
   application_name: 'gasterus-core'
 });
 pool.on('error', error => logger.error('Unexpected PostgreSQL pool error', { error: error.message }));

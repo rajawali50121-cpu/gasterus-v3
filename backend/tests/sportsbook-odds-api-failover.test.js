@@ -128,6 +128,20 @@ test('quota exhaustion retries once with the next key and logs labels only', asy
   assertNoCredentialLeaks({ result, providerLogs });
 });
 
+test('transient Odds API server errors retry the same provider key before failing over', async () => {
+  resetState();
+  responses = [
+    { status: 503, body: { message: 'temporarily unavailable' } },
+    { status: 200, body: [], remaining: 499 }
+  ];
+
+  const result = await fetchTheOddsApi();
+
+  assert.deepEqual(requestLabels, ['key#1', 'key#1']);
+  assert.equal(result.errors.length, 0);
+  assertNoCredentialLeaks({ result, providerLogs });
+});
+
 test('a successful response below the threshold switches future requests without retrying it', async () => {
   resetState();
   responses = [{ status: 200, body: [], remaining: 9 }];
@@ -187,11 +201,11 @@ test('all exhausted keys serve the last cached payload without another request',
 
 test('non-quota API errors remain sanitized in provider results and logs', async () => {
   resetState();
-  responses = [{ status: 500, body: { message: primaryKey } }];
+  responses = Array.from({ length: 3 }, () => ({ status: 500, body: { message: primaryKey } }));
 
   const result = await fetchTheOddsApi();
 
-  assert.deepEqual(requestLabels, ['key#1']);
+  assert.deepEqual(requestLabels, ['key#1', 'key#1', 'key#1']);
   assert.match(result.errors[0], /HTTP 500/);
   assertNoCredentialLeaks({ result, providerLogs });
 });

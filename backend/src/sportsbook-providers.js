@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { config } from './config.js';
 import { eventSettlementAuthority } from './sportsbook-settlement-authority.js';
 import { logger } from './logger.js';
@@ -12,6 +13,8 @@ const MAX_ODDS_API_DETAIL_RESPONSE_BYTES = 512_000;
 const ODDS_API_DETAIL_CACHE_TTL_MULTIPLIER = 2;
 const ODDS_API_DETAIL_FETCH_CONCURRENCY = 4;
 const ODDS_API_SPORT_FETCH_CONCURRENCY = 4;
+const PROVIDER_REQUEST_MAX_ATTEMPTS = 3;
+const PROVIDER_RETRY_DELAY_MS = 200;
 const MARKET_TYPES = Object.freeze({
   h2h: '1X2',
   moneyline: '1X2',
@@ -221,25 +224,40 @@ function normalizedEvent({ provider, providerId, sport, league, country = '', st
 }
 
 async function requestJson(url, { headers = {}, label = 'sports provider', maxBytes = config.sportsProviderCacheMaxEntryBytes } = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.sportsFeedRequestTimeoutMs);
-  try {
-    const response = await fetch(url, {
-      headers: { accept: 'application/json', 'user-agent': 'ASEAN777-Sports-Aggregator/2.0', ...headers },
-      signal: controller.signal,
-      redirect: 'error'
-    });
-    if (!response.ok) {
-      const error = new Error(`${label} returned HTTP ${response.status}`);
-      error.status = response.status;
-      if (response.status === 429) error.retryAfterMs = retryAfterDelayMs(response.headers?.get?.('retry-after'));
-      throw error;
+  for (let attempt = 1; attempt <= PROVIDER_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), config.sportsFeedRequestTimeoutMs);
+    let retryable = false;
+    try {
+      let response;
+      try {
+        response = await fetch(url, {
+          headers: { accept: 'application/json', 'user-agent': 'ASEAN777-Sports-Aggregator/2.0', ...headers },
+          signal: controller.signal,
+          redirect: 'error'
+        });
+      } catch (cause) {
+        const error = new Error(`${label} request failed`, { cause });
+        retryable = true;
+        throw error;
+      }
+      if (!response.ok) {
+        const error = new Error(`${label} returned HTTP ${response.status}`);
+        error.status = response.status;
+        retryable = [408, 425, 500, 502, 503, 504].includes(response.status);
+        if (response.status === 429) error.retryAfterMs = retryAfterDelayMs(response.headers?.get?.('retry-after'));
+        throw error;
+      }
+      const text = await readBoundedResponseText(response, label, maxBytes);
+      return JSON.parse(text);
+    } catch (error) {
+      if (!retryable || attempt === PROVIDER_REQUEST_MAX_ATTEMPTS) throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    const text = await readBoundedResponseText(response, label, maxBytes);
-    return JSON.parse(text);
-  } finally {
-    clearTimeout(timeout);
+    await sleep(PROVIDER_RETRY_DELAY_MS * attempt);
   }
+  throw new Error(`${label} request failed after retries.`);
 }
 
 const providerRequestCache = new Map();
@@ -899,17 +917,24 @@ function hasOddsApiQuotaSignal(error) {
       && error.requestsRemaining < config.theOddsApiFailoverRemainingThreshold);
 }
 
-async function requestOddsApiJsonOnce(url, keyIndex, label, maxBytes) {
+async function requestOddsApiJsonAttempt(url, keyIndex, label, maxBytes) {
   const key = oddsApiKeyPool[keyIndex];
   url.searchParams.set('apiKey', key.value);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.sportsFeedRequestTimeoutMs);
   try {
-    const response = await fetch(url, {
-      headers: { accept: 'application/json', 'user-agent': 'ASEAN777-Sports-Aggregator/2.0' },
-      signal: controller.signal,
-      redirect: 'error'
-    });
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: { accept: 'application/json', 'user-agent': 'ASEAN777-Sports-Aggregator/2.0' },
+        signal: controller.signal,
+        redirect: 'error'
+      });
+    } catch (cause) {
+      const error = new Error(`${label} request failed`, { cause });
+      error.retryableTransport = true;
+      throw error;
+    }
     const rawRemaining = response.headers?.get?.('x-requests-remaining');
     const parsedRemaining = rawRemaining === null || rawRemaining === undefined || !/^\d+$/.test(String(rawRemaining).trim())
       ? null
@@ -948,11 +973,26 @@ async function requestOddsApiJsonOnce(url, keyIndex, label, maxBytes) {
     }
     return { payload, requestsRemaining: parsedRemaining };
   } catch (error) {
-    if (error?.oddsApiResponseError) throw error;
+    if (error?.oddsApiResponseError || error?.retryableTransport) throw error;
     throw new Error(`${label} request failed`);
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function requestOddsApiJsonOnce(url, keyIndex, label, maxBytes) {
+  for (let attempt = 1; attempt <= PROVIDER_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await requestOddsApiJsonAttempt(url, keyIndex, label, maxBytes);
+    } catch (error) {
+      const transientStatus = [408, 425, 500, 502, 503, 504].includes(error?.status);
+      if ((!transientStatus && !error?.retryableTransport) || attempt === PROVIDER_REQUEST_MAX_ATTEMPTS) {
+        throw error;
+      }
+      await sleep(PROVIDER_RETRY_DELAY_MS * attempt);
+    }
+  }
+  throw new Error(`${label} request failed after retries.`);
 }
 
 async function requestOddsApiJsonWithFailover(url, { cycle, label = 'The Odds API', maxBytes = config.sportsProviderCacheMaxEntryBytes }) {
@@ -1299,6 +1339,9 @@ function sportmonksLeaguePriority(event, configuredLeagues) {
 
 function compareSportmonksEvents(a, b) {
   if (a.event.live !== b.event.live) return Number(b.event.live) - Number(a.event.live);
+  const statusPriority = { LIVE: 0, SCHEDULED: 1, FINISHED: 2 };
+  const statusDifference = (statusPriority[a.event.status] ?? 3) - (statusPriority[b.event.status] ?? 3);
+  if (statusDifference) return statusDifference;
   // Retention ranking: fixture berharga (punya pasar) menang atas fixture
   // display-only pada slot yang sama sehingga anggaran 500 event selalu
   // diprioritaskan untuk pertandingan yang bisa ditampilkan odds-nya.
@@ -1394,10 +1437,13 @@ export async function fetchSportmonks({
           seen.add(id);
 
           const state = sportmonksState(fixture.state);
-          if (state !== 'SCHEDULED' && state !== 'LIVE') continue;
+          if (state !== 'SCHEDULED' && state !== 'LIVE' && state !== 'FINISHED') continue;
 
           const start = Number(fixture.starting_at_timestamp) * 1000 || Date.parse(fixture.starting_at || '') || 0;
-          if (start && start < now - 3 * 60 * 60 * 1000) continue;
+          const retentionMs = state === 'FINISHED'
+            ? config.sportsbookFinishedEventRetentionSeconds * 1000
+            : 3 * 60 * 60 * 1000;
+          if (start && start < now - retentionMs) continue;
           try {
             const event = normalizeSportmonksFixture(fixture, fixture.odds || []);
             // Pertandingan aktif TANPA odds tetap ikut feed (display-only).

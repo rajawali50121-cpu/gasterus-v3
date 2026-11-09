@@ -42,6 +42,39 @@ test('Sportmonks feed increases event coverage with a bounded page budget and co
   assert.match(providers, /SPORTMONKS_PAGE_SIZE = 20/);
 });
 
+test('Sportmonks auto-enables in development when an API key is configured and can be explicitly disabled', () => {
+  const script = `
+    const { config } = await import('./src/config.js');
+    console.log(JSON.stringify({ enabled: config.sportmonksEnabled }));
+  `;
+  const baseEnv = {
+    ...process.env,
+    NODE_ENV: 'development',
+    DATABASE_URL: 'postgres://test:test@example.com/db',
+    REDIS_URL: 'redis://example.com:6379',
+    MEMBER_PROXY_SECRET: 'm'.repeat(48),
+    ADMIN_PROXY_SECRET: 'a'.repeat(48),
+    OPS_INTERNAL_SECRET: 'o'.repeat(48),
+    SESSION_HMAC_KEY: 's'.repeat(48),
+    API_KEY_PEPPER: 'p'.repeat(48),
+    MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
+    SPORTMONKS_API_KEY: 'configured-sportmonks-key'
+  };
+  const run = enabled => spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: { ...baseEnv, SPORTMONKS_ENABLED: enabled }
+  });
+
+  const automatic = run(undefined);
+  assert.equal(automatic.status, 0, automatic.stderr);
+  assert.ok(automatic.stdout.split(/\r?\n/).includes('{"enabled":true}'));
+
+  const explicitlyDisabled = run('false');
+  assert.equal(explicitlyDisabled.status, 0, explicitlyDisabled.stderr);
+  assert.ok(explicitlyDisabled.stdout.split(/\r?\n/).includes('{"enabled":false}'));
+});
+
 test('The Odds API default catalog contains soccer leagues only', () => {
   const match = config.match(/theOddsApiSportKeys: text\('THE_ODDS_API_SPORT_KEYS', '([^']+)'/);
   assert.ok(match, 'soccer sport-key catalog should be configured');
@@ -273,6 +306,12 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
         eventCount: result.events.length,
         leagues: [...new Set(result.events.map(event => event.league))],
         sources: [...new Set(result.events.flatMap(event => event.markets.map(market => market.source)))],
+        pricedEvents: result.events.filter(event => event.markets.some(market => market.selections.some(selection => selection.odds > 1))).length,
+        firstMarket: result.events[0]?.markets[0] && {
+          type: result.events[0].markets[0].type,
+          selectionCount: result.events[0].markets[0].selections.length,
+          firstOdds: result.events[0].markets[0].selections[0].odds
+        },
         pages: calls.length,
         pageNumbers: calls.map(call => call.page),
         pageSizes: [...new Set(calls.map(call => call.perPage))]
@@ -308,6 +347,8 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
   assert.equal(output.eventCount, 50);
   assert.deepEqual(output.leagues, ['Premier League', 'Regional League']);
   assert.deepEqual(output.sources, ['sportmonks']);
+  assert.equal(output.pricedEvents, 50);
+  assert.deepEqual(output.firstMarket, { type: '1X2', selectionCount: 3, firstOdds: 2 });
   assert.equal(output.pages, 3);
   assert.deepEqual(output.pageNumbers, [1, 2, 3]);
   assert.deepEqual(output.pageSizes, ['20']);

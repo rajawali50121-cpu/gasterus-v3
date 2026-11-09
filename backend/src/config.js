@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { isIP } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bool, boundedInt, int, optionalSecret, requiredSecret, text } from './env.js';
@@ -23,9 +24,33 @@ const theOddsApiKeys = [...new Set([
 const sharpApiKey = optionalSecret('SHARP_API_KEY');
 const theSportsDbKey = optionalSecret('THESPORTSDB_API_KEY');
 const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
-const rapidApiKey = optionalSecret('RAPIDAPI_CASINO_KEY') || optionalSecret('RAPIDAPI_KEY');
+const rapidApiKey = optionalSecret('RAPIDAPI_CASINO_KEY')
+  || optionalSecret('RAPIDAPI_KEY')
+  || optionalSecret('GITSLOTPARK_API_KEY');
+const rapidApiCasinoBaseUrl = text(
+  'GITSLOTPARK_BASE_URL',
+  'https://live-casino-slots-evolution-jili-and-50-plus-provider.p.rapidapi.com'
+);
+let parsedRapidApiCasinoBaseUrl;
+try {
+  parsedRapidApiCasinoBaseUrl = new URL(rapidApiCasinoBaseUrl);
+} catch {
+  throw new Error('GITSLOTPARK_BASE_URL must be an HTTPS URL.');
+}
+if (parsedRapidApiCasinoBaseUrl.protocol !== 'https:'
+  || parsedRapidApiCasinoBaseUrl.username
+  || parsedRapidApiCasinoBaseUrl.password
+  || parsedRapidApiCasinoBaseUrl.search
+  || parsedRapidApiCasinoBaseUrl.hash
+  || parsedRapidApiCasinoBaseUrl.pathname !== '/') {
+  throw new Error('GITSLOTPARK_BASE_URL must be an HTTPS origin without credentials, path, query, or fragment.');
+}
+const normalizedRapidApiCasinoBaseUrl = parsedRapidApiCasinoBaseUrl.origin;
 const betnexApiKey = optionalSecret('BETNEX_API_KEY');
 const betnexCallbackKey = optionalSecret('BETNEX_CALLBACK_KEY') || betnexApiKey;
+const slotProviderToken = optionalSecret('GITSLOTPARK_API_TOKEN');
+const slotProviderAgentId = text('GITSLOTPARK_AGENT_ID', '');
+const slotCallbackSigningKey = optionalSecret('GITSLOTPARK_SIGNING_KEY') || optionalSecret('GITSLOTPARK_SECRET');
 function pricedProviderEnabled(name, key) {
   const raw = String(process.env[name] ?? '').trim().toLowerCase();
   if (!raw || raw === 'auto') return isProduction && Boolean(key);
@@ -38,13 +63,21 @@ function uuidList(name) {
   }
   return Object.freeze([...new Set(values.map(value => value.toLowerCase()))]);
 }
+function ipList(name, fallback) {
+  const values = text(name, fallback).split(',').map(value => value.trim()).filter(Boolean);
+  if (values.some(value => isIP(value) === 0)) {
+    throw new Error(`${name} must contain comma-separated IP addresses.`);
+  }
+  return Object.freeze([...new Set(values)]);
+}
 
 export const config = Object.freeze({
   nodeEnv: process.env.NODE_ENV || 'development',
   host: process.env.HOST || '0.0.0.0',
   port: int('PORT', 8080, 1, 65535),
   databaseUrl: requiredSecret('DATABASE_URL', 12),
-  databaseSsl: bool('DATABASE_SSL', false),
+  databaseSsl: isProduction || bool('DATABASE_SSL', false),
+  databaseSslCa: optionalSecret('DATABASE_SSL_CA'),
   pgPoolMax: int('PG_POOL_MAX', 15, 2, 100),
   redisUrl: requiredSecret('REDIS_URL', 12),
   memberProxySecret: requiredSecret('MEMBER_PROXY_SECRET', 32),
@@ -68,7 +101,7 @@ export const config = Object.freeze({
   workerHeartbeatMaxAgeSeconds: int('WORKER_HEARTBEAT_MAX_AGE_SECONDS', 90, 20, 600),
   allowedMemberOrigin: process.env.ALLOWED_MEMBER_ORIGIN || '',
   allowedAdminOrigin: process.env.ALLOWED_ADMIN_ORIGIN || '',
-  trustProxy: bool('TRUST_PROXY', true),
+  trustedProxyIps: ipList('TRUSTED_PROXY_IPS', '127.0.0.1,::1'),
   cookieSecure: bool('COOKIE_SECURE', process.env.NODE_ENV === 'production'),
   balanceUnitName: process.env.BALANCE_UNIT_NAME || 'Saldo',
   resendApiKey: optionalSecret('RESEND_API_KEY'),
@@ -189,7 +222,7 @@ export const config = Object.freeze({
   // Sportmonks supplies fixture/settlement authority; The Odds API adds prices in the render worker.
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
   sportmonksKey,
-  sportmonksEnabled: bool('SPORTMONKS_ENABLED', isProduction && Boolean(sportmonksKey)),
+  sportmonksEnabled: bool('SPORTMONKS_ENABLED', Boolean(sportmonksKey)),
   sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 30, 0, 30),
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
   sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 180, 30, 1800),
@@ -298,12 +331,18 @@ export const config = Object.freeze({
 
   // Casino aggregator via RapidAPI (key hanya dari env, tidak pernah ke frontend).
   rapidApiKey,
+  rapidApiCasinoBaseUrl: normalizedRapidApiCasinoBaseUrl,
   rapidApiCasinoEnabled: bool('RAPIDAPI_CASINO_ENABLED', Boolean(rapidApiKey)),
   rapidApiCasinoCacheSeconds: int('RAPIDAPI_CASINO_CACHE_SECONDS', 300, 15, 3600),
   rapidApiCasinoTimeoutMs: int('RAPIDAPI_CASINO_TIMEOUT_MS', 12000, 3000, 30000),
   betnexApiKey,
   betnexCallbackKey,
-  betnexRealMoneyEnabled: bool('BETNEX_REAL_MONEY_ENABLED', false)
+  betnexRealMoneyEnabled: bool('BETNEX_REAL_MONEY_ENABLED', false),
+  slotProviderToken,
+  slotProviderAgentId,
+  slotCallbackSigningKey,
+  slotWalletEnabled: bool('GITSLOTPARK_ENABLED', Boolean(slotProviderAgentId && slotCallbackSigningKey)),
+  slotProviderTimeoutMs: int('GITSLOTPARK_TIMEOUT_MS', 12000, 3000, 30000)
 });
 
 const mfaKey = Buffer.from(config.mfaEncryptionKeyBase64, 'base64');

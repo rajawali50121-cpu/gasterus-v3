@@ -14,6 +14,7 @@ Object.assign(process.env, {
 });
 
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
+const { legReturnMultiplier, settleCalculation } = await import('../src/sportsbook-settlement-calculation.js');
 const event = { status: 'FINISHED', home: { score: 2 }, away: { score: 1 } };
 const leg = (marketType, selectionLabel, marketLine = null) => ({
   market_type: marketType,
@@ -35,4 +36,39 @@ test('auto settlement evaluates core football markets', () => {
 
 test('unsupported markets are safely voided', () => {
   assert.equal(evaluateSportsbookLeg(leg('PLAYER_PROPS', 'Player A'), event).status, 'VOID');
+});
+
+test('settlement calculator returns the expected amount for every final leg outcome', () => {
+  const expected = new Map([
+    ['WON', 2000],
+    ['LOST', 0],
+    ['VOID', 1000],
+    ['PUSH', 1000],
+    ['HALF_WON', 1500],
+    ['HALF_LOST', 500]
+  ]);
+  for (const [status, payout] of expected) {
+    assert.equal(legReturnMultiplier({ accepted_odds: 2, result_status: status }), payout / 1000, `${status} multiplier`);
+    assert.equal(
+      settleCalculation({ bet_type: 'SINGLE', unit_stake: 1000 }, [{ accepted_odds: 2, result_status: status }]),
+      payout,
+      `${status} payout`
+    );
+  }
+});
+
+test('settlement calculator handles voided legs and system combinations without double-counting stake', () => {
+  const legs = [
+    { accepted_odds: 2, result_status: 'WON' },
+    { accepted_odds: 3, result_status: 'WON' },
+    { accepted_odds: 4, result_status: 'LOST' }
+  ];
+  assert.equal(
+    settleCalculation({ bet_type: 'PARLAY', unit_stake: 1000 }, [legs[0], { ...legs[1], result_status: 'VOID' }]),
+    2000
+  );
+  assert.equal(
+    settleCalculation({ bet_type: 'SYSTEM', system_size: 2, unit_stake: 1000 }, legs),
+    6000
+  );
 });

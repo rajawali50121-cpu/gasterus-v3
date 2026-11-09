@@ -6,6 +6,15 @@ Runbook ini berlaku untuk tiket sportsbook yang sudah diterima. Settlement manua
 mengubah sumber hasil, authority settlement, suspension, status lifecycle, atau odds dan
 tidak boleh dipakai untuk membuka pasar yang ditangguhkan.
 
+Snapshot feed tetap disajikan dari cache Redis. Setiap refresh yang berhasil juga
+memproyeksikan status pertandingan, skor, status provider, sumber, dan referensi fixture
+ke tabel PostgreSQL `sportsbook_event_states`; proyeksi diperbarui saat datanya berubah.
+Status `FINISHED` dari Sportmonks dipertahankan dalam jendela retensi konfigurasi
+`SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS` (default 6 jam) agar worker settlement
+memiliki hasil akhir yang baru. Status dan hasil tiket serta perubahan saldo tetap
+dicatat melalui transaksi PostgreSQL/ledger settlement, bukan dengan mengubah saldo
+secara langsung.
+
 Sebelum settlement:
 
 1. Pastikan pasar dan periode pada tiket mempunyai settlement authority yang tercatat.
@@ -91,6 +100,10 @@ authority settlement yang sesuai untuk FT/HT harus tersedia, saldo cukup, serta 
 stake/payout dan risiko pasar harus lolos.
 
 ## Catatan migrasi dan predeploy
+
+Jalankan migrasi `044_sportsbook_event_states.sql` sebelum deploy kode yang menulis
+proyeksi status event. Tabel tersebut menyimpan snapshot status event, bukan ledger
+keuangan; ledger dan status tiket/leg settlement tetap menjadi sumber audit finansial.
 
 Migrasi indeks quote memakai `SET LOCAL lock_timeout='5s'`; bila lock tidak didapat dalam
 5 detik, atau quote ID lama duplikat, migrasi gagal dan deploy dibatalkan dengan pesan

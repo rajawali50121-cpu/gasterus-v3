@@ -25,7 +25,7 @@ const [{ buildSportsbookRenderSnapshot, fitSnapshotToPayloadBudget }, { teamKey,
   import('../src/sportsbook-ingestion.js'),
   import('../src/sportsbook-settlement-authority.js')
 ]);
-const { createSportsbookIngestRequest } = await import('../src/sportsbook-ingest-client.js');
+const { createSportsbookIngestRequest, postSportsbookSnapshot } = await import('../src/sportsbook-ingest-client.js');
 const SECRET = 'render-worker-test-secret-'.padEnd(48, 'x');
 const NOW = Date.UTC(2026, 9, 15, 12, 0, 0);
 
@@ -122,6 +122,33 @@ test('Worker snapshot signs and validates as a bounded ingestion payload', async
   assert.deepEqual(result.providerResults, ['the-odds-api']);
   assert.equal(stored.providerResults[0].events[0].id, 'odds-only');
   assert.ok(signed.body.length < 6_291_456);
+});
+
+test('ingest client retries transient server errors but does not retry client errors', async () => {
+  const requests = [];
+  const accepted = await postSportsbookSnapshot('https://ingest.test/sportsbook', { schemaVersion: 1 }, {
+    secret: SECRET,
+    timeoutMs: 1000,
+    fetchImpl: async (_url, options) => {
+      requests.push(options);
+      return requests.length === 1
+        ? new Response('', { status: 503 })
+        : new Response(JSON.stringify({ accepted: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  });
+  assert.deepEqual(accepted, { accepted: true });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].headers['x-sportsbook-signature'], requests[1].headers['x-sportsbook-signature']);
+
+  let clientErrorCalls = 0;
+  await assert.rejects(postSportsbookSnapshot('https://ingest.test/sportsbook', { schemaVersion: 1 }, {
+    secret: SECRET,
+    fetchImpl: async () => {
+      clientErrorCalls += 1;
+      return new Response('', { status: 400 });
+    }
+  }), /HTTP 400/);
+  assert.equal(clientErrorCalls, 1);
 });
 
 test('Worker signs and delivers a full 500-fixture snapshot within the payload budget', async () => {
@@ -445,6 +472,46 @@ test('Sportmonks 429 stops pagination, honors Retry-After, and remains fail-clos
     assert.equal(cooldown.transportOk, false);
     assert.equal(cooldown.stale, true);
     assert.equal(cooldown.skipped, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    __sportsbookProviders.resetSportmonksRateLimit();
+  }
+});
+
+test('Sportmonks retries transient HTTP failures and retains fresh finished results for settlement', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const start = new Date(Date.now() - 30 * 60 * 1000);
+  __sportsbookProviders.resetSportmonksRateLimit();
+  globalThis.fetch = async () => {
+    calls.push(true);
+    if (calls.length === 1) return new Response('temporarily unavailable', { status: 503 });
+    return new Response(JSON.stringify({
+      data: [{
+        id: 9876543,
+        starting_at: start.toISOString(),
+        starting_at_timestamp: Math.floor(start.getTime() / 1000),
+        state: { short_name: 'FT', name: 'Full Time' },
+        participants: [
+          { name: 'Alpha', meta: { location: 'home' } },
+          { name: 'Beta', meta: { location: 'away' } }
+        ],
+        league: { name: 'Test League', country: { name: 'Testland' } },
+        scores: [{ description: 'CURRENT', score: { home: 2, away: 1 } }],
+        odds: []
+      }],
+      pagination: { has_more: false }
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+
+  try {
+    const result = await fetchSportmonks({ maxEvents: 50, maxPages: 30 });
+    assert.equal(calls.length, 2, 'temporary 503 is retried once before the successful response');
+    assert.equal(result.events.length, 1);
+    assert.equal(result.events[0].status, 'FINISHED');
+    assert.equal(result.events[0].providerStatus, 'Full Time');
+    assert.equal(result.events[0].home.score, 2);
+    assert.equal(result.events[0].away.score, 1);
   } finally {
     globalThis.fetch = originalFetch;
     __sportsbookProviders.resetSportmonksRateLimit();
