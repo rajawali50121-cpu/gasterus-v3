@@ -21,7 +21,8 @@ test('R6.9.0.14 prefers SBOBET when available and preserves broad soccer markets
   add('sbobet','double_chance','home_draw','1X',1.25); add('sbobet','double_chance','away_draw','X2',1.8); add('sbobet','double_chance','home_away','12',1.35);
   add('sbobet','draw_no_bet','home','Arsenal',1.4); add('sbobet','draw_no_bet','away','Chelsea',2.7);
   const [event]=__sportsbookProviders.normalizeSharpApiRows(rows);
-  assert.equal(event._refs.sharpapiSportsbook,'sbobet');
+  assert.ok(event._refs.sharpapiSportsbook.includes('sbobet'), 'SBOBET included');
+  assert.ok(event._refs.sharpapiSportsbook.includes('pinnacle'), 'Pinnacle included');
   const types=new Set(event.markets.map(m=>m.type));
   for(const expected of ['1X2','HANDICAP','TOTALS','BTTS','DOUBLE_CHANCE','DRAW_NO_BET']) assert.ok(types.has(expected), expected);
 });

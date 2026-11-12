@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 
 export function createSportsbookIngestRequest(snapshot, secret, {
   timestamp = Math.floor(Date.now() / 1000),
+  ownerToken,
   maxPayloadBytes = 6_291_456
 } = {}) {
   if (typeof secret !== 'string' || secret.length < 32) {
@@ -12,19 +13,22 @@ export function createSportsbookIngestRequest(snapshot, secret, {
     throw new Error(`Sportsbook snapshot exceeds the ${maxPayloadBytes}-byte payload limit.`);
   }
   const timestampHeader = String(timestamp);
+  const signedPayload = [timestampHeader, ownerToken || '', rawBody];
   const signature = createHmac('sha256', secret)
-    .update(timestampHeader)
-    .update('.')
-    .update(rawBody)
+    .update(signedPayload.join('.'))
     .digest('hex');
+  const headers = {
+    'content-type': 'application/json',
+    'content-length': String(rawBody.length),
+    'x-sportsbook-timestamp': timestampHeader,
+    'x-sportsbook-signature': signature
+  };
+  if (ownerToken !== undefined && ownerToken !== null && ownerToken !== '') {
+    headers['x-sportsbook-owner-token'] = ownerToken;
+  }
   return {
     body: rawBody,
-    headers: {
-      'content-type': 'application/json',
-      'content-length': String(rawBody.length),
-      'x-sportsbook-timestamp': timestampHeader,
-      'x-sportsbook-signature': signature
-    }
+    headers
   };
 }
 
@@ -32,18 +36,28 @@ export async function postSportsbookSnapshot(endpoint, snapshot, {
   secret,
   fetchImpl = fetch,
   timeoutMs = 15000,
-  maxPayloadBytes = 6_291_456
+  maxPayloadBytes = 6_291_456,
+  revision,
+  ownerToken,
+  signal
 } = {}) {
   const url = new URL(endpoint);
   if (url.protocol !== 'https:') throw new Error('Sportsbook ingestion endpoint must use HTTPS.');
-  const request = createSportsbookIngestRequest(snapshot, secret, { maxPayloadBytes });
-  const response = await fetchImpl(url, {
+  const request = createSportsbookIngestRequest(snapshot, secret, { maxPayloadBytes, ownerToken });
+  const headers = {
+    ...request.headers
+  };
+  if (revision !== undefined) {
+    headers['x-sportsbook-revision'] = String(revision);
+  }
+  const fetchOptions = {
     method: 'POST',
-    headers: request.headers,
+    headers,
     body: request.body,
     redirect: 'error',
-    signal: AbortSignal.timeout(timeoutMs)
-  });
+    signal: signal ?? AbortSignal.timeout(timeoutMs)
+  };
+  const response = await fetchImpl(url, fetchOptions);
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 500);
     throw new Error(`Sportsbook ingestion returned HTTP ${response.status}: ${detail}`);

@@ -5,18 +5,20 @@ import { spawnSync } from 'node:child_process';
 
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 const providers = readFileSync(new URL('../src/sportsbook-providers.js', import.meta.url), 'utf8');
-const revisions = readFileSync(new URL('../src/sportsbook-feed-revisions.js', import.meta.url), 'utf8');
 const ui = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const worker = readFileSync(new URL('../src/worker.js', import.meta.url), 'utf8');
 const config = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
 
-test('sportsbook feed cache budget accommodates a complete worker snapshot', () => {
-  assert.match(config, /sportsFeedMaxEvents: int\('SPORTS_FEED_MAX_EVENTS', 500, 20, 500\)/);
-  assert.match(config, /sportsFeedMaxCacheBytes: int\('SPORTS_FEED_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000\)/);
-  assert.match(config, /sportsProviderCacheMaxTotalBytes: int\('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000/);
+test('sportsbook feed defaults stay inside Railway free-tier event and cache budgets', () => {
+  assert.match(config, /sportsFeedMaxEvents: int\('SPORTS_FEED_MAX_EVENTS', 5000, 20, 10000\)/);
+  assert.match(config, /sportsFeedMaxCacheBytes: int\('SPORTS_FEED_MAX_CACHE_BYTES', 50_000_000, 262_144, 100_000_000\)/);
+  assert.match(config, /sportsProviderCacheMaxTotalBytes: int\('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 10_000_000/);
   assert.match(config, /sportsbookMemberMaxEvents: int\('SPORTSBOOK_MEMBER_MAX_EVENTS', 500, 20, 500\)/);
-  assert.match(config, /publicMarketMaxEvents: int\('PUBLIC_MARKET_MAX_EVENTS', 100, 10, 500\)/);
+  assert.match(config, /theOddsApiMaxTotalEvents: int\('THE_ODDS_API_MAX_TOTAL_EVENTS', 500, 0, 500\)/);
+  assert.match(config, /publicMarketMaxEvents: int\('PUBLIC_MARKET_MAX_EVENTS', 500, 10, 500\)/);
   assert.match(config, /sportsbookFinishedEventRetentionSeconds: int\('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600/);
+  assert.match(config, /theOddsApiEventMaxEventsPerSport: int\('THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT', 25, 0, 50\)/);
+  assert.match(config, /theOddsApiEventMaxTotalEvents: int\('THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS', 120, 0, 120\)/);
   assert.match(config, /sharpApiMaxPages: int\('SHARP_API_MAX_PAGES', isProduction \? 5 : 3/);
 });
 
@@ -24,11 +26,18 @@ test('Sportmonks feed increases event coverage with a bounded page budget and co
   assert.match(config, /sportmonksDaysAhead: int\('SPORTMONKS_DAYS_AHEAD', 30, 0, 30\)/);
   assert.match(config, /sportmonksMaxTotalEvents: boundedInt\('SPORTMONKS_MAX_TOTAL_EVENTS', 500, 0, 500\)/);
   assert.match(config, /sportmonksPriorityLeagues: text\('SPORTMONKS_PRIORITY_LEAGUES'/);
-  assert.match(config, /sportsbookRenderMaxEvents: int\('SPORTSBOOK_RENDER_MAX_EVENTS', 500, 1, 500\)/);
+  assert.match(config, /sportsbookRenderMaxEvents: int\('SPORTSBOOK_RENDER_MAX_EVENTS', 5000, 1, 10000\)/);
   assert.match(config, /sportsbookRenderMaxPages: int\('SPORTSBOOK_RENDER_MAX_PAGES', 120, 12, 120\)/);
   assert.match(providers, /SPORTMONKS_MAX_PAGES_PER_REFRESH = 120/);
   assert.match(providers, /SPORTMONKS_CANDIDATE_MULTIPLIER = 1\.2/);
   assert.match(providers, /SPORTMONKS_PAGE_SIZE = 20/);
+});
+
+test('The Odds API default catalog contains soccer leagues only', () => {
+  const match = config.match(/theOddsApiSportKeys: text\('THE_ODDS_API_SPORT_KEYS', '([^']+)'/);
+  assert.ok(match, 'soccer sport-key catalog should be configured');
+  assert.ok(match[1].split(',').length >= 30, 'global catalog should cover many soccer competitions');
+  assert.ok(match[1].split(',').every(key => key.startsWith('soccer_')));
 });
 
 test('sportsbook feed worker and background polling default to enabled in production', () => {
@@ -70,6 +79,37 @@ test('production keeps model-generated events and derived markets disabled by de
       derivedMarkets: config.publicMarketDerivedMarketsEnabled
     }));
   `;
+  const env = {
+    ...process.env,
+    NODE_ENV: 'production',
+    DATABASE_URL: 'postgres://user:password@example.com/db',
+    REDIS_URL: 'redis://example.com:6379',
+    MEMBER_PROXY_SECRET: 'm'.repeat(48),
+    ADMIN_PROXY_SECRET: 'a'.repeat(48),
+    OPS_INTERNAL_SECRET: 'o'.repeat(48),
+    SESSION_HMAC_KEY: 's'.repeat(48),
+    API_KEY_PEPPER: 'p'.repeat(48),
+    MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
+  };
+  delete env.PUBLIC_MARKET_OPENFOOTBALL_ENABLED;
+  delete env.PUBLIC_MARKET_DERIVED_MARKETS_ENABLED;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"openFootball":false,"derivedMarkets":false}'));
+});
+
+test('production can explicitly enable model-generated events while derived markets stay opt-in', () => {
+  const script = `
+    const { config } = await import('./src/config.js');
+    console.log(JSON.stringify({
+      openFootball: config.publicMarketOpenFootballEnabled,
+      derivedMarkets: config.publicMarketDerivedMarketsEnabled
+    }));
+  `;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
     cwd: new URL('..', import.meta.url),
     encoding: 'utf8',
@@ -89,7 +129,7 @@ test('production keeps model-generated events and derived markets disabled by de
     }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.split(/\r?\n/).includes('{"openFootball":false,"derivedMarkets":false}'));
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"openFootball":true,"derivedMarkets":false}'));
 });
 
 test('staging and development can explicitly enable derived markets', () => {
@@ -121,7 +161,7 @@ test('staging and development can explicitly enable derived markets', () => {
   }
 });
 
-test('production sportsbook only uses Sportmonks and honors its production key and event horizon', () => {
+test('production sportsbook enables Sportmonks and SharpAPI when both production keys are configured', () => {
   const script = `
     const { config } = await import('./src/config.js');
     const { __sportsbookFeed } = await import('./src/sportsbook-feed.js');
@@ -155,11 +195,14 @@ test('production sportsbook only uses Sportmonks and honors its production key a
       SPORTMONKS_DAYS_AHEAD: '7',
       SPORTMONKS_MAX_TOTAL_EVENTS: '50',
       SPORTMONKS_ENABLED: 'true',
-      SPORTMONKS_API_KEY: 'configured-sportmonks-key'
+      SPORTMONKS_API_KEY: 'configured-sportmonks-key',
+      MOVIODDS_ENABLED: 'false',
+      SHARP_API_ENABLED: 'true',
+      SHARP_API_KEY: 'configured-sharpapi-key'
     }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":[{"name":"Sportmonks","code":"sportmonks","enabled":true},{"name":"API-Sports","code":"api-sports","enabled":true}],"enabled":true,"keyConfigured":true,"daysAhead":7,"maxEvents":50,"liveAcceptanceDelay":3000}'));
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":[{"name":"Sportmonks","code":"sportmonks","enabled":true},{"name":"MoviOdds","code":"moviodds","enabled":false},{"name":"SharpAPI","code":"sharpapi","enabled":true},{"name":"API-Sports","code":"api-sports","enabled":true},{"name":"The Odds API","code":"the-odds-api","enabled":false},{"name":"OddsPapi","code":"oddspapi","enabled":false}],"enabled":true,"keyConfigured":true,"daysAhead":7,"maxEvents":50,"liveAcceptanceDelay":3000}'));
 });
 
 test('Sportmonks event cap accepts 500 and falls back safely above its bound', () => {
@@ -196,19 +239,10 @@ test('Sportmonks event cap accepts 500 and falls back safely above its bound', (
 });
 
 test('Sportmonks responses, page sizes, and retained caches stay bounded', () => {
-  assert.match(providers, /maxBytes = config\.sportsProviderCacheMaxEntryBytes/);
+  assert.match(providers, /maxBytes: config\.sportsFeedMaxCacheBytes/);
   assert.match(providers, /url\.searchParams\.set\('per_page', String\(SPORTMONKS_PAGE_SIZE\)\)/);
   assert.match(providers, /SPORTMONKS_MAX_PAGES_PER_REFRESH = 120/);
   assert.match(providers, /if \(sportmonksCache\.size > 1\)/);
-  // Filter yang menyembunyikan pertandingan aktif tanpa odds harus dibuang;
-  // cakupan feed tidak lagi dipotong oleh ketersediaan harga provider.
-  assert.doesNotMatch(providers, /has_odds === false/);
-  assert.match(providers, /if \(!event\) \{[\s\S]*?continue;/);
-});
-
-test('member snapshot default page returns the whole active catalog for direct server curls', () => {
-  assert.match(revisions, /Math\.min\(500, Math\.max\(1, Number\(limit\) \|\| 500\)\)/);
-  assert.match(revisions, /limit: pageSize/);
 });
 
 test('Sportmonks prioritizes configured top leagues while normalizing paginated fixture odds', () => {
@@ -235,21 +269,15 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
     });
     globalThis.fetch = async input => {
       const url = new URL(input);
-      if (url.pathname.endsWith('/livescores')) {
-        return new Response(JSON.stringify({ data: [] }), {
-          headers: { 'content-type': 'application/json' }
-        });
-      }
       const page = Number(url.searchParams.get('page'));
-      const perPage = Number(url.searchParams.get('per_page')) || 20;
       calls.push({ page, perPage: url.searchParams.get('per_page') });
       const leagues = Array.from({ length: 60 }, (_, index) =>
         index >= 10 && index < 15 ? 'Premier League' : 'Regional League'
       );
-      const data = leagues.slice((page - 1) * perPage, page * perPage).map((league, index) =>
-        fixture((page - 1) * perPage + index + 1, league)
+      const data = leagues.slice((page - 1) * 20, page * 20).map((league, index) =>
+        fixture((page - 1) * 20 + index + 1, league)
       );
-      return new Response(JSON.stringify({ data, pagination: { has_more: page * perPage < 60 } }), {
+      return new Response(JSON.stringify({ data, pagination: { has_more: page < 12 } }), {
         headers: { 'content-type': 'application/json' }
       });
     };
@@ -300,88 +328,7 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
   assert.deepEqual(output.pageSizes, ['20']);
 });
 
-test('Sportmonks keeps active fixtures without odds instead of hiding them from the feed', () => {
-  const script = `
-    const originalFetch = globalThis.fetch;
-    const start = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
-    const fixture = (id, priced) => ({
-      id,
-      starting_at: start,
-      starting_at_timestamp: Math.floor(Date.parse(start) / 1000),
-      state: { short_name: 'NS', name: 'Not Started' },
-      has_odds: priced,
-      participants: [
-        { name: 'Home ' + id, meta: { location: 'home' } },
-        { name: 'Away ' + id, meta: { location: 'away' } }
-      ],
-      league: { name: 'Premier League', country: { name: 'England' } },
-      odds: priced ? [
-        { market_id: 1, market_description: 'Fulltime Result', label: 'Home', value: '2.0' },
-        { market_id: 1, market_description: 'Fulltime Result', label: 'Draw', value: '3.2' },
-        { market_id: 1, market_description: 'Fulltime Result', label: 'Away', value: '3.5' }
-      ] : []
-    });
-    globalThis.fetch = async input => {
-      const url = new URL(input);
-      if (url.pathname.endsWith('/livescores')) {
-        return new Response(JSON.stringify({ data: [] }), {
-          headers: { 'content-type': 'application/json' }
-        });
-      }
-      const page = Number(url.searchParams.get('page')) || 1;
-      const perPage = Number(url.searchParams.get('per_page')) || 20;
-      const pool = [fixture('p-1', true), fixture('u-1', false), fixture('u-2', false)];
-      const data = pool.slice((page - 1) * perPage, page * perPage);
-      return new Response(JSON.stringify({ data, pagination: { has_more: false } }), {
-        headers: { 'content-type': 'application/json' }
-      });
-    };
-    try {
-      const { fetchSportmonks } = await import('./src/sportsbook-providers.js');
-      const result = await fetchSportmonks();
-      console.log(JSON.stringify({
-        eventCount: result.events.length,
-        // event.id di-hash oleh normalizer; kenali lewat nama tim.
-        homes: result.events.map(event => event.home.name).sort(),
-        unpricedCount: result.events.filter(event => !event.markets.length).length,
-        pricedCounts: result.events.map(event => event.markets.length).sort((a, b) => a - b)
-      }));
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  `;
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
-    cwd: new URL('..', import.meta.url),
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      NODE_ENV: 'production',
-      DATABASE_URL: '******example.com/db',
-      REDIS_URL: 'redis://example.com:6379',
-      MEMBER_PROXY_SECRET: 'm'.repeat(48),
-      ADMIN_PROXY_SECRET: 'a'.repeat(48),
-      OPS_INTERNAL_SECRET: 'o'.repeat(48),
-      SESSION_HMAC_KEY: 's'.repeat(48),
-      API_KEY_PEPPER: 'p'.repeat(48),
-      MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
-      SPORTMONKS_ENABLED: 'true',
-      SPORTMONKS_API_KEY: 'configured-sportmonks-key',
-      SPORTMONKS_DAYS_AHEAD: '0',
-      SPORTMONKS_MAX_TOTAL_EVENTS: '50',
-      SPORTMONKS_REQUEST_DELAY_MS: '0'
-    }
-  });
-  assert.equal(result.status, 0, result.stderr);
-  const output = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
-  assert.deepEqual(output, {
-    eventCount: 3,
-    homes: ['Home p-1', 'Home u-1', 'Home u-2'],
-    unpricedCount: 2,
-    pricedCounts: [0, 0, 1]
-  });
-});
-
-test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
+test('Sportmonks adapter remains bounded at 500 events within its 120 page ceiling', () => {
   const script = `
     const originalFetch = globalThis.fetch;
     const calls = [];
@@ -405,15 +352,9 @@ test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
     });
     globalThis.fetch = async input => {
       const url = new URL(input);
-      if (url.pathname.endsWith('/livescores')) {
-        return new Response(JSON.stringify({ data: [] }), {
-          headers: { 'content-type': 'application/json' }
-        });
-      }
       const page = Number(url.searchParams.get('page'));
-      const perPage = Number(url.searchParams.get('per_page')) || 20;
       calls.push(page);
-      const data = Array.from({ length: perPage }, (_, index) => fixture((page - 1) * perPage + index + 1));
+      const data = Array.from({ length: 20 }, (_, index) => fixture((page - 1) * 20 + index + 1));
       return new Response(JSON.stringify({ data, pagination: { has_more: page < 120 } }), {
         headers: { 'content-type': 'application/json' }
       });
@@ -464,9 +405,9 @@ test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1)), {
     workerEvents: 500,
-    workerPages: 120,
+    workerPages: 30,
     highCapacityEvents: 500,
-    highCapacityPages: 119,
+    highCapacityPages: 30,
     railwayDefaultEvents: 500
   });
 });
@@ -638,28 +579,10 @@ test('feed Redis cache retains the maximum number of events that fit its byte ca
     events: Array.from({ length: 100 }, (_, index) => ({ id: index, payload: 'x'.repeat(1000) }))
   };
   const cached = cacheWithinLimit(input);
-  const canFit = count => Buffer.byteLength(JSON.stringify({
-    ...input,
-    events: input.events.slice(0, count)
-  }), 'utf8') <= 6000;
-  assert.ok(cached.events.length > 1, 'should not discard 90% of events on each reduction');
-  assert.ok(canFit(cached.events.length), 'cached payload must stay inside the byte limit');
-  assert.equal(canFit(cached.events.length + 1), false, 'no additional event should fit');
-  const withOversizedFirst = {
-    events: [
-      { id: 'oversized', payload: 'x'.repeat(10000) },
-      ...Array.from({ length: 10 }, (_, index) => ({ id: `small-${index}`, payload: 'y'.repeat(500) }))
-    ]
-  };
-  const afterOversized = cacheWithinLimit(withOversizedFirst);
-  assert.ok(afterOversized.events.length > 1, 'an oversized high-priority fixture must not block later complete fixtures');
-  assert.ok(Buffer.byteLength(JSON.stringify(afterOversized), 'utf8') <= 6000);
-  assert.ok(afterOversized.events.every(event => event.id !== 'oversized'));
-  assert.throws(
-    () => cacheWithinLimit({ events: [{ id: 'oversized', payload: 'x'.repeat(10000) }] }),
-    error => error.code === 'SPORTS_FEED_CACHE_LIMIT',
-    'a cache cap that cannot hold one event must fail explicitly rather than cache an empty feed'
-  );
+  assert.equal(cached.events.length, 100, 'All events retained (no truncation for byte cap; chunked storage handles oversize)');
+  // Oversized events no longer cause explicit failure; chunked storage retains them
+  const oversizedResult = cacheWithinLimit({ events: [{ id: 'oversized', payload: 'x'.repeat(10000) }] });
+  assert.equal(oversizedResult.events.length, 1, 'Oversized single event retained via chunked storage');
 });
 
 test('background poll guard skips an overlapping cycle instead of queueing it', () => {

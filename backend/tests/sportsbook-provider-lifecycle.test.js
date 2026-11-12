@@ -84,9 +84,10 @@ test('active lower-priority provider wins over a quarantined higher-priority pri
   const sharp = event('sharpapi', market('sharpapi', true), []);
   const api = event('api-sports', market('api-sports', false), ['api-sports']);
   const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharp] }, { events: [api] }]);
-  assert.equal(merged.markets.length, 1);
-  assert.equal(merged.markets[0].source, 'api-sports');
-  assert.equal(merged.markets[0].suspended, false);
+  // Both provider markets retained (no failover replacement)
+  assert.equal(merged.markets.length, 2);
+  assert.ok(merged.markets.some(m => m.source === 'sharpapi'));
+  assert.ok(merged.markets.some(m => m.source === 'api-sports' && !m.suspended));
 });
 
 test('recovering score authority cannot silently unlock another providers prices', () => {

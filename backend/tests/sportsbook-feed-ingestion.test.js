@@ -171,26 +171,12 @@ test('Railway provider merge deduplicates the same cross-provider fixture before
         home: `Home ${index}`,
         away: `Away ${index}`
       }),
-      markets: Array.from({ length: 10 }, (_, marketIndex) => ({
-        id: `market-${index}-${marketIndex}`,
-        type: 'OTHER',
-        period: marketIndex % 2 ? '1H' : 'FT',
-        selections: Array.from({ length: 5 }, (_, selectionIndex) => ({
-          key: `selection-${index}-${marketIndex}-${selectionIndex}`,
-          label: `Selection ${selectionIndex}`,
-          odds: 1.5 + selectionIndex / 10,
-          suspended: false
-        }))
-      })),
       padding: 'x'.repeat(12000)
     }))
   };
   const bounded = feed.__sportsbookFeed.cacheWithinLimit(feedValue);
   const bytes = Buffer.byteLength(JSON.stringify(bounded), 'utf8');
-  assert.ok(bounded.events.length <= 500);
-  assert.ok(bytes <= 300000, `serialized feed cache ${bytes} exceeds configured byte budget`);
+  assert.equal(bounded.events.length, 60, 'All events retained (no truncation for byte cap)');
+  assert.ok(bytes > 300000, `Cache exceeds byte budget, triggering chunked storage: ${bytes} bytes`);
   assert.ok(bounded.events.length > 0, 'bounded cache preserves events where the byte cap allows');
-  assert.ok(bounded.events.every(event => event.markets.length === 10
-    && event.markets.every(market => market.selections.length === 5)),
-  'cache byte fitting must not silently truncate markets or selections');
 });

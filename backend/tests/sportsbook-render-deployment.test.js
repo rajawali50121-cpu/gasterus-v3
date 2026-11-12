@@ -8,7 +8,8 @@ const envExample = readFileSync(new URL('../.env.example', import.meta.url), 'ut
 const proxy = readFileSync(new URL('../../deploy/member-server.js', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const worker = readFileSync(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8');
-const workerServiceBlock = railway.match(/const sportsbookRenderWorker = service\("sportsbook-render-worker", \{[\s\S]*?\n  \}\);/)?.[0] || '';
+const config = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8');
+const providers = readFileSync(new URL('../src/sportsbook-providers.js', import.meta.url), 'utf8');
 
 const INGEST_PATH = '/api/internal/sportsbook/ingest';
 // Nilai env worker memakai bentuk `KEY: "value"`; bentuk preserve() di blok web
@@ -22,66 +23,60 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(railway, /resources: \[Postgres, web, sportsbookRenderWorker, Redis, postgresVolume, redisVolume\]/);
 
   // Secret diwariskan dari service web — tidak diduplikasi manual.
-  assert.match(workerServiceBlock, /API_FOOTBALL_KEY:\s*preserve\(\)/);
-  assert.equal(railwayWorkerEnv('API_SPORTS_ENABLED'), 'true');
-  assert.equal(railwayWorkerEnv('API_SPORTS_DAILY_QUOTA'), '100');
-  assert.equal(railwayWorkerEnv('API_SPORTS_MONTHLY_QUOTA'), '3100');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_HMAC_SECRET'), '${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
-  assert.equal(railwayWorkerEnv('DATABASE_URL'), '${{web.DATABASE_URL}}');
-  assert.equal(railwayWorkerEnv('REDIS_URL'), '${{web.REDIS_URL}}');
-  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), 'true');
-  assert.match(workerServiceBlock, /ODDSPAPI_API_KEY:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /ODDSPAPI_BASE_URL:\s*preserve\(\)/);
-  assert.equal(railwayWorkerEnv('ODDSPAPI_DAILY_REQUEST_BUDGET'), '8');
-  assert.equal(railwayWorkerEnv('ODDSPAPI_MONTHLY_REQUEST_BUDGET'), '240');
-  assert.doesNotMatch(worker, /127\.0\.0\.1:1|localhost/);
-  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), undefined);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
+  assert.equal(railwayWorkerEnv('SHARP_API_KEY'), '${{web.SHARP_API_KEY}}');
 
-  // Image includes only production backend dependencies, not frontend assets.
+  // The Odds API harus juga dipetakan ke service worker agar adapter dapat diaktifkan.
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_ENABLED'), '${{web.THE_ODDS_API_ENABLED}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), '${{web.THE_ODDS_API_KEY}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_BASE_URL'), '${{web.THE_ODDS_API_BASE_URL}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_REGIONS'), '${{web.THE_ODDS_API_REGIONS}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_MARKETS'), '${{web.THE_ODDS_API_MARKETS}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_REFRESH_SECONDS'), '${{web.THE_ODDS_API_REFRESH_SECONDS}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_MAX_TOTAL_EVENTS'), '${{web.THE_ODDS_API_MAX_TOTAL_EVENTS}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_SPORT_KEYS'), '${{web.THE_ODDS_API_SPORT_KEYS}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_EVENT_MARKETS'), '${{web.THE_ODDS_API_EVENT_MARKETS}}');
+  assert.equal(railwayWorkerEnv('THE_ODDS_API_EVENT_MARKETS_ENABLED'), '${{web.THE_ODDS_API_EVENT_MARKETS_ENABLED}}');
+
+  // Image hanya membawa backend/src — tanpa frontend/node_modules berat.
   assert.match(renderDockerfile, /^FROM node:22\./m);
-  assert.match(renderDockerfile, /COPY backend\/package\*\.json \.\/backend\//);
-  assert.match(renderDockerfile, /npm ci --omit=dev/);
   assert.match(renderDockerfile, /COPY backend\/src \.\/backend\/src/);
   assert.match(renderDockerfile, /CMD \["node", "backend\/src\/sportsbook-render-worker\.js"\]/);
 });
 
-test('render worker is not wired to The Odds API', () => {
-  assert.equal(railwayWorkerEnv('THE_ODDS_API_ENABLED'), undefined);
-  assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), undefined);
-  assert.doesNotMatch(worker, /fetchTheOddsApi|fetchOddsApi/);
-  assert.doesNotMatch(railway, /^\s*THE_ODDS_API_ENABLED:\s*"true"/m);
-  assert.doesNotMatch(envExample, /^THE_ODDS_API_/m);
-});
+test('worker uses Sportmonks, MoviOdds and SharpAPI provider adapters', () => {
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), '${{web.SPORTMONKS_ENABLED}}');
+  assert.equal(railwayWorkerEnv('SHARP_API_ENABLED'), '${{web.SHARP_API_ENABLED}}');
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '5000');
+  assert.match(worker, /fetchMoviOdds,\s*fetchSharpApi,\s*fetchSportmonks/);
+  assert.match(worker, /fetchMoviOdds,/);
+  assert.match(worker, /config\.sportmonksRefreshSeconds/);
+  assert.match(worker, /config\.movioddsRefreshSeconds/);
+  assert.match(worker, /config\.sharpApiRefreshSeconds/);
+  assert.match(config, /movioddsGroupIds:[\s\S]*text\('MOVIODDS_GROUP_IDS', '40'\)/);
+  assert.match(config, /movioddsMaxStaleSeconds: int\('MOVIODDS_MAX_STALE_SECONDS', 180/);
+  assert.match(config, /movioddsTotalsGroupPriority:[\s\S]*'981,10202,10143,50139'/);
+  assert.match(config, /decimal\('MOVIODDS_1X2_MIN_IMPLIED_PROBABILITY', 1\.005/);
+  assert.match(config, /decimal\('MOVIODDS_1X2_MAX_IMPLIED_PROBABILITY', 1\.2/);
+  assert.doesNotMatch(providers, /'11': Object\.freeze\(\{ type: 'HANDICAP_3WAY'/);
+  assert.doesNotMatch(providers, /'50264': Object\.freeze\(\{ type: 'HANDICAP_3WAY'/);
+  assert.match(providers, /MOVIODDS_FORBIDDEN_GROUPS = new Set\(\['1777', '4001'\]\)/);
 
-test('render worker keeps provider/page/payload limits and Sportmonks coverage', () => {
-  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
-  // Anggaran halaman penuh diteruskan ke fetchSportmonks agar snapshot ingest
-  // mengambil cakupan luas (bukan terpotong ~17 match oleh pembagian statis).
-  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
-  assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
-  // Snapshot besar wajib selaras dengan anggaran payload ingest SEBELUM berangkat
-  // (trim deterministik, bukan gagal 413 diam-diam yang membekukan feed).
-  assert.match(worker, /maxPayloadBytes: config\.sportsbookIngestMaxPayloadBytes/);
-  assert.match(worker, /fetchSportmonks/);
-  assert.match(worker, /fetchSharpApi/);
-  assert.match(worker, /fetchApiSports/);
-
-  // Sportmonks primer di worker yang sama: key diwariskan dari web (tanpa
-  // service/platform baru) dan dibatasi 500 event agar heap 224MB aman.
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), '500');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '300');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '0');
-  assert.match(worker, /fetchSportmonks/);
-
+  const prematchWindow = Number(config.match(/sportsbookMaxPrematchPriceAgeSeconds: int\('SPORTSBOOK_MAX_PREMATCH_PRICE_AGE_SECONDS', (\d+)/)?.[1]);
+  assert.ok(Number.isFinite(prematchWindow));
+  assert.ok(config.includes("sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300"));
+  assert.ok(config.includes("sharpApiRefreshSeconds: int('SHARP_API_REFRESH_SECONDS', isProduction ? 45"));
 });
 
 test('ingest URL, env example, both proxies and backend route stay aligned', () => {
   const envUrl = envExample.match(/^SPORTSBOOK_INGEST_URL=(\S+)$/m)?.[1];
   assert.ok(envUrl?.endsWith(INGEST_PATH), 'URL ingest menunjuk ke /api/internal/sportsbook/ingest');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
+  assert.match(envExample, /^THE_ODDS_API_REFRESH_SECONDS=720$/m);
+  assert.match(envExample, /^THE_ODDS_API_SPORT_KEYS=soccer_epl,/m);
+
   assert.match(proxy, /url\.pathname === '\/api\/internal\/sportsbook\/ingest'/);
   assert.match(proxy, /request\.method !== 'POST'/);
   assert.match(proxy, /x-sportsbook-timestamp/);
@@ -110,4 +105,21 @@ test('member sportsbook endpoints stay clean and fast behind the Cloudflare fron
   // Snapshot worker masuk lewat POST internal saja; keamanannya dijamin
   // validasi HMAC + jendela timestamp + cap payload di acceptSportsbookSnapshot.
   assert.ok(app.includes(String.raw`\/api\/internal\/sportsbook\/ingest`), 'rute ingest internal wajib terdaftar');
+});
+
+test('configureProviderOnlyRuntime requires DATABASE_URL and REDIS_URL in production, tidak boleh dummy fallback', () => {
+  const workerSource = worker;
+  // Fungsi harus memeriksa NODE_ENV === 'production' sebelum melempar kesalahan koneksi.
+  assert.match(workerSource, /NODE_ENV === 'production'/);
+  // Jika DATABASE_URL hilang di production, harus throw error.
+  assert.match(workerSource, /missing\.push\('DATABASE_URL'\)/);
+  assert.match(workerSource, /missing\.push\('REDIS_URL'\)/);
+  // Jika semua variabel terpenuhi, fungsi harus return tanpa override dummy.
+  assert.match(workerSource, /return;/);
+  // Test/development path hanya isi dummy jika belum ada.
+  assert.match(workerSource, /if \(!process\.env\.DATABASE_URL\)/);
+  assert.match(workerSource, /if \(!process\.env\.REDIS_URL\)/);
+  // Dummy URL harus mengandung tanda tidak valid agar tidak tertukar dengan production.
+  assert.match(workerSource, /unused\.invalid/);
+  assert.match(workerSource, /127\.0\.0\.1:1/);
 });

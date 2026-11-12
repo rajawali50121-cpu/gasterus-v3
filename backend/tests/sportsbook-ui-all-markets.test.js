@@ -3,144 +3,16 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { ticketCalculation } from '../src/sportsbook-calculation.js';
 import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
-import { projectMemberMarkets, selectMemberSummaryMarkets } from '../src/sportsbook-member-projection.js';
-import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from '../../frontend/js/sportsbook-markets.js';
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
-const sportsbookCss = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
-const realtime = readFileSync(new URL('../src/sportsbook-realtime.js', import.meta.url), 'utf8');
-
-function market(id, period, odds = 2.1) {
-  return {
-    id,
-    type: '1X2',
-    period,
-    selections: [
-      { key: 'HOME', label: 'Home', odds, suspended: false },
-      { key: 'DRAW', label: 'Draw', odds: odds + 1, suspended: false },
-      { key: 'AWAY', label: 'Away', odds: odds + 2, suspended: false }
-    ]
-  };
-}
-
-test('member REST snapshot projection retains valid FT and HT markets without duplicates', () => {
-  const markets = [
-    { ...market('ft-main', 'FT'), selections: [...market('ft-main', 'FT').selections, market('ft-main', 'FT').selections[0]] },
-    market('ht-main', '1H', 1.8),
-    market('ht-main', '1H', 1.7),
-    market('ft-main', '1H', 1.9),
-    { ...market('malformed-ht', '1H'), selections: [null, { key: 'HOME', label: 'Home', odds: 2.2 }] },
-    market('second-half', '2H')
-  ];
-  const result = projectMemberMarkets(selectMemberSummaryMarkets(markets));
-  assert.deepEqual([...new Set(result.map(item => item.period))], ['FT', '1H']);
-  assert.equal(new Set(result.map(item => `${item.id}|${item.period}|${item.line ?? ''}`)).size, result.length);
-  const ftMarket = result.find(item => item.id === 'ft-main' && item.period === 'FT');
-  assert.equal(new Set(ftMarket.selections.map(item => `${item.key}|${item.line ?? ''}`)).size, ftMarket.selections.length);
-  assert.equal(result.some(item => item.id === 'ft-main' && item.period === '1H'), true);
-  assert.equal(result.find(item => item.id === 'ht-main').selections.some(item => item.key === 'HOME'), true);
-});
-
-test('detailed event projection preserves every supplied market and selection line', () => {
-  const markets = Array.from({ length: 14 }, (_, index) => ({
-    id: `market-${index}`,
-    type: index === 13 ? 'OTHER' : ['1X2', 'HANDICAP', 'TOTALS', 'BTTS'][index % 4],
-    period: index % 2 ? '1H' : 'FT',
-    selections: [{
-      key: `selection-${index}`,
-      label: `Selection ${index}`,
-      odds: 1.91,
-      line: index,
-      suspended: false
-    }]
-  }));
-  const projected = projectMemberMarkets(markets);
-  assert.equal(projected.length, markets.length);
-  assert.equal(projected[13].selections[0].line, 13);
-  const detailProjection = feed.slice(
-    feed.indexOf('function memberPublicEventDetail(event)'),
-    feed.indexOf('export async function sportsbookSnapshot')
-  );
-  assert.match(detailProjection, /memberEventShape\(item, item\.markets \|\| \[\]\)/);
-  const refresh = feed.slice(feed.indexOf('async function performRefresh'));
-  assert.match(refresh, /events = capMarketsPerEvent\(events\)/);
-});
-
-test('the SSE broadcaster sends the same member snapshot projection, including FT and HT updates', () => {
-  assert.match(feed, /sourceEvents\.map\(memberPublicEvent\)/);
-  assert.match(realtime, /pending = sportsbookSnapshot\(client\.filters\)/);
-  assert.match(realtime, /broadcastSnapshot\(client, await pending\)/);
-  const result = projectMemberMarkets(selectMemberSummaryMarkets([market('ft-main', 'FT'), market('ht-main', '1H', 1.9)]));
-  assert.deepEqual(result.map(item => item.period), ['FT', '1H']);
-});
-
-test('valid FT and HT odds create selectable tabs and render the selected period markets', () => {
-  const event = { markets: [market('ft-main', 'FT'), market('ht-main', '1H', 1.9)] };
-  const periods = availableMarketPeriods(event);
-  assert.deepEqual(periods, ['FT', '1H']);
-  assert.equal(primaryMarketColumns(event, selectMarketPeriod(periods, 'FT'))[2].market.id, 'ft-main');
-  assert.equal(primaryMarketColumns(event, selectMarketPeriod(periods, '1H'))[2].market.id, 'ht-main');
-  assert.equal(selectMarketPeriod(periods, '1H'), '1H');
-  assert.match(frontend, /selectedEventPeriods\.set\(match\.dataset\.evid, periodButton\.dataset\.matchPeriod\);\s*renderAll\(\)/);
-});
-
-test('invalid or suspended HT markets remain visible as an explicit unavailable or suspended primary slot', () => {
-  const event = {
-    markets: [
-      market('ft-main', 'FT'),
-      null,
-      { id: 'malformed-ft', type: '1X2', period: 'FT', selections: [null] },
-      { ...market('ht-invalid', '1H', Infinity), selections: [null, { key: 'HOME', odds: 'bad' }] },
-      { ...market('ht-suspended', '1H'), suspended: true }
-    ]
-  };
-  assert.deepEqual(availableMarketPeriods(event), ['FT']);
-  assert.equal(primaryMarketColumns(event, 'FT')[2].market.id, 'ft-main');
-  assert.equal(primaryMarketColumns(event, '1H')[2].market.suspended, true);
-});
-
-test('main market cells show unavailable or suspended status without creating bet buttons', () => {
-  const start = frontend.indexOf('function renderOddCell(');
-  const end = frontend.indexOf('\nfunction renderMarketColumns(', start);
-  assert.ok(start >= 0 && end > start, 'main odd cell renderer must exist');
-  const renderOddCell = new Function(`${frontend.slice(start, end)}; return renderOddCell;`)();
-  const unavailable = renderOddCell({ id: 'event' }, null, null);
-  const suspended = renderOddCell({ id: 'event' }, { id: 'market', suspended: true }, null);
-  assert.match(unavailable, /Tidak tersedia/);
-  assert.match(suspended, /Ditangguhkan/);
-  assert.doesNotMatch(unavailable + suspended, /<button/);
-});
-
-test('premium sportsbook skin separates LIVE and prematch with aligned responsive odds', () => {
-  assert.match(page, /<body class="sb-page sb-premium">/);
-  assert.match(frontend, /class="sb-match-card \$\{isLive \? 'is-live' : 'is-prematch'\}"/);
-  assert.match(frontend, /const isLive = Boolean\(e\.live\) \|\| String\(e\.status \|\| ''\)\.toUpperCase\(\) === 'LIVE'/);
-  assert.ok(sportsbookCss.includes('.sb-premium .sb-match-card.is-live {'));
-  assert.ok(sportsbookCss.includes('background: linear-gradient(145deg, #fff 0%, #fff4f6 100%)'));
-  assert.ok(sportsbookCss.includes('.sb-premium .sb-match-card.is-prematch {'));
-  assert.ok(sportsbookCss.includes('background: linear-gradient(145deg, #fff 0%, #f1f7ff 100%)'));
-  assert.ok(sportsbookCss.includes('min-height: 48px;'));
-  assert.ok(sportsbookCss.includes('grid-template-columns: repeat(3, minmax(0, 1fr));'));
-  assert.ok(sportsbookCss.includes('@media (max-width: 860px)'));
-  assert.ok(sportsbookCss.includes('@media (max-width: 480px)'));
-  assert.ok(sportsbookCss.includes('.sb-market-period-tab[data-match-period="1H"].active'));
-});
-
-test('MAX SPEED feed status is visible and reflects snapshot freshness without claiming betting availability', () => {
-  assert.match(page, /id="sb-max-speed-status"[^>]*data-state="connecting"/);
-  assert.match(frontend, /const snapshotAt = Date\.parse\(feed\.source\?\.capturedAt \|\| feed\.source\?\.fetchedAt \|\| ''\)/);
-  assert.match(frontend, /feed\.stale \|\| snapshotAgeMs === null \|\| snapshotAgeMs > staleAfterMs/);
-  assert.match(frontend, /MAX SPEED FEED · \$\{labels\[syncState\]\}/);
-  assert.match(sportsbookCss, /\.sb-max-speed-status\[data-state="delayed"\]/);
-});
 
 test('member sportsbook lazy-loads complete event market details and retains all list market variants', () => {
   assert.match(frontend, /const FEED_DETAIL_URL = \(id\) => `\/api\/member\/sportsbook\/events\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(frontend, /await api\.get\(FEED_DETAIL_URL\(eventId\)\)/);
   assert.match(frontend, /function renderAllEventMarkets\(event\)[\s\S]*event\.markets[\s\S]*market\.selections\.map/);
-  assert.match(feed, /function memberPublicEvent\(event\)[\s\S]*selectMemberSummaryMarkets\(item\.markets\)[\s\S]*memberEventShape\(item, markets\)/);
+  assert.match(feed, /function memberPublicEvent\(event\)[\s\S]*memberEventShape\(item, item\.markets \|\| \[\]\)/);
   assert.match(feed, /function memberPublicEventDetail\(event\)[\s\S]*memberEventShape\(item, item\.markets \|\| \[\]\)/);
 });
 
@@ -152,15 +24,13 @@ test('detailed markets are refreshed by feed revision and stale odds cannot plac
   assert.match(frontend, /pendingEventDetails\.has\(selection\.eventId\)\)\) \{\s*showToast\('Odds sedang diperbarui/);
 });
 
-test('event cards render six stable primary market slots and keep additional markets in All Markets', () => {
-  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js\?v=\d+-primary-markets-r1'/);
-  assert.match(frontend, /function eventMarketPeriods\(\)/);
+test('event cards render only provider-backed primary markets and do not advertise inactive bet builder tabs', () => {
+  assert.match(frontend, /import \{ primaryMarketColumns \} from '\.\/sportsbook-markets\.js'/);
+  assert.match(frontend, /function eventMarketPeriods\(event\)/);
   assert.match(frontend, /data-match-period=/);
   assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);
-  assert.match(frontend, /function eventMarketPeriods\(\) \{\s*return \['FT', '1H'\]/);
-  assert.match(frontend, /Tidak tersedia/);
-  assert.match(frontend, /Ditangguhkan/);
   assert.match(frontend, /\$\{marketsCount \? `<div class="sb-detail-markets-wrapper">/);
+  assert.match(frontend, /Odds utama belum tersedia dari provider/);
   assert.doesNotMatch(frontend, /<button[^>]*>Bet Builder<\/button>/);
 });
 
@@ -286,8 +156,7 @@ test('market explorer reports the number of markets matching the active filters'
 });
 
 test('market explorer labels HT and FT periods clearly and does not confuse odd/even with totals', () => {
-  assert.match(frontend, /FT: 'FT · Full Time \/ Babak Penuh \(BP\)', '1H': 'HT · Half Time \/ Babak Pertama \(B1\)'/);
-  assert.match(frontend, /HT_FT: 'HT\/FT \(Kombinasi Half Time \/ Full Time\)'/);
+  assert.match(frontend, /FT: 'FT · Full Time', '1H': 'HT · Babak 1'/);
   assert.match(frontend, /ODD_EVEN: 'Ganjil \/ Genap'/);
   assert.match(frontend, /sb-market-browser-filter-label/);
   assert.match(frontend, /countFor\(value\)/);

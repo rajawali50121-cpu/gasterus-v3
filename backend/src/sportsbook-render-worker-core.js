@@ -1,34 +1,11 @@
-import { leagueKey } from './sportsbook-providers.js';
+import {
+  createMovioddsCycleDiagnostics,
+  hasTrustedResultAuthority,
+  sportsbookEventsMatch
+} from './sportsbook-providers.js';
+import { config } from './config.js';
 
-const MAX_EVENTS = 500;
-const MAX_PAGES = 120;
-const DUPLICATE_KICKOFF_WINDOW_MS = 3 * 60 * 60 * 1000;
-
-export function sportsbookRenderIntervalSeconds(settings) {
-  const freshnessInterval = Math.floor(Number(settings?.sportsbookIngestMaxAgeSeconds) / 2);
-  const providerIntervals = [];
-  if (settings?.sportmonksEnabled) {
-    providerIntervals.push(
-      settings.sportmonksRefreshSeconds,
-      settings.sportmonksOddsRefreshSeconds,
-      settings.sportmonksLiveRefreshSeconds
-    );
-  }
-  if (settings?.sharpApiEnabled) providerIntervals.push(settings.sharpApiRefreshSeconds);
-  if (settings?.oddsPapiEnabled) providerIntervals.push(settings.oddsPapiRefreshSeconds);
-  const validIntervals = providerIntervals
-    .map(Number)
-    .filter(value => Number.isFinite(value) && value > 0);
-  const nextProviderRefresh = validIntervals.length
-    ? Math.min(...validIntervals)
-    : Number.isFinite(freshnessInterval) && freshnessInterval > 0
-      ? freshnessInterval
-      : 90;
-  const maxFreshnessInterval = Number.isFinite(freshnessInterval) && freshnessInterval > 0
-    ? freshnessInterval
-    : 90;
-  return Math.max(15, Math.min(nextProviderRefresh, maxFreshnessInterval));
-}
+const MAX_EVENTS = 5000;
 
 function leaguePriority(event, priorities) {
   const league = String(event?.league || '').trim().toLowerCase();
@@ -36,33 +13,35 @@ function leaguePriority(event, priorities) {
   return index < 0 ? priorities.length : index;
 }
 
-function providerPriority(provider, live) {
-  if (live) return provider === 'api-sports' ? 2 : 1;
-  return provider === 'sportmonks' ? 2 : 1;
+function providerPriority(provider) {
+  if (provider === 'sportmonks') return 3;
+  if (provider === 'api-sports') return 2.5;
+  if (provider === 'sharpapi') return 2;
+  if (provider === 'the-odds-api') return 1.5;
+  if (provider === 'moviodds') return 1;
+  return 1;
 }
 
 function compareCandidates(a, b, priorities) {
   if (a.event.live !== b.event.live) return Number(b.event.live) - Number(a.event.live);
+  const sourceDifference = providerPriority(b.provider) - providerPriority(a.provider);
+  if (sourceDifference) return sourceDifference;
   const leagueDifference = leaguePriority(a.event, priorities) - leaguePriority(b.event, priorities);
   if (leagueDifference) return leagueDifference;
   const kickoffDifference = Date.parse(a.event.startTime) - Date.parse(b.event.startTime);
   if (Number.isFinite(kickoffDifference) && kickoffDifference !== 0) return kickoffDifference;
-  const sourceDifference = providerPriority(b.provider, b.event.live) - providerPriority(a.provider, a.event.live);
-  return sourceDifference || a.event.id.localeCompare(b.event.id);
+  return a.event.id.localeCompare(b.event.id);
+}
+
+function compareDuplicateCandidates(a, b, priorities) {
+  if (a.event.live !== b.event.live) return Number(b.event.live) - Number(a.event.live);
+  const sourceDifference = providerPriority(b.provider) - providerPriority(a.provider);
+  if (sourceDifference) return sourceDifference;
+  return compareCandidates(a, b, priorities);
 }
 
 function sameFixture(a, b, teamKey) {
-  if (a.event.sport !== b.event.sport
-    || !leagueKey(a.event.league)
-    || leagueKey(a.event.league) !== leagueKey(b.event.league)) return false;
-  const direct = teamKey(a.event.home.name) === teamKey(b.event.home.name)
-    && teamKey(a.event.away.name) === teamKey(b.event.away.name);
-  if (!direct) return false;
-  const kickoffA = Date.parse(a.event.startTime);
-  const kickoffB = Date.parse(b.event.startTime);
-  return Number.isFinite(kickoffA)
-    && Number.isFinite(kickoffB)
-    && Math.abs(kickoffA - kickoffB) <= DUPLICATE_KICKOFF_WINDOW_MS;
+  return sportsbookEventsMatch(a.event, b.event, teamKey);
 }
 
 export function combineSportsbookProviderResults(providerResults, {
@@ -76,24 +55,60 @@ export function combineSportsbookProviderResults(providerResults, {
   if (typeof teamKey !== 'function') throw new Error('A normalized team-key helper is required.');
 
   const enabledResults = providerResults.filter(result => result?.enabled === true);
-  const candidates = enabledResults.flatMap(result =>
+  const providerCandidates = enabledResults.flatMap(result =>
     (Array.isArray(result.events) ? result.events : [])
-      // Pertandingan tanpa pasar (display-only) ikut snapshot: cakupan feed
-      // tidak boleh dipotong oleh ketersediaan odds provider. Semua event
-      // terstruktur (termasuk yang tanpa odds) dihitung dalam eventCount.
       .map(event => ({ provider: result.provider, event }))
   );
+  const resultCandidates = providerCandidates.filter(candidate => hasTrustedResultAuthority(candidate.provider));
+  const fixtureMatchingByProvider = new Map(enabledResults.map(result => [result.provider, {
+    matched: 0,
+    ambiguous: 0,
+    unmatched: 0
+  }]));
+  const debugExamples = [];
+  const includeDebugExamples = String(process.env.LOG_LEVEL || '').toLowerCase() === 'debug';
+  const candidateMatchCounts = new Map();
+  for (const candidate of providerCandidates) {
+    if (hasTrustedResultAuthority(candidate.provider)) continue;
+    const matches = resultCandidates.filter(other => sameFixture(other, candidate, teamKey));
+    candidateMatchCounts.set(candidate, matches.length);
+    const matching = fixtureMatchingByProvider.get(candidate.provider);
+    if (matches.length === 0) matching.unmatched += 1;
+    else if (matches.length === 1) matching.matched += 1;
+    else matching.ambiguous += 1;
+    if (includeDebugExamples && matches.length !== 1 && debugExamples.length < 5) {
+      debugExamples.push({
+        provider: candidate.provider,
+        category: matches.length ? 'ambiguous' : 'unmatched',
+        home: candidate.event.home?.name || '',
+        away: candidate.event.away?.name || ''
+      });
+    }
+  }
+  const candidates = providerCandidates.filter(candidate => hasTrustedResultAuthority(candidate.provider)
+    || candidateMatchCounts.get(candidate) === 0
+    || candidateMatchCounts.get(candidate) === 1
+    || candidateMatchCounts.get(candidate) > 1);
   candidates.sort((a, b) => compareCandidates(a, b, priorityLeagues));
 
-  const fixtureGroups = [];
+  const groups = [];
   for (const candidate of candidates) {
-    let group = fixtureGroups.find(existing => sameFixture(existing[0], candidate, teamKey));
-    if (!group) fixtureGroups.push(group = []);
-    group.push(candidate);
+    const isAmbiguous = !hasTrustedResultAuthority(candidate.provider)
+      && candidateMatchCounts.get(candidate) > 1;
+    if (isAmbiguous) {
+      groups.push([candidate]);
+      continue;
+    }
+    const duplicateIndex = groups.findIndex(group => sameFixture(group[0], candidate, teamKey));
+    if (duplicateIndex === -1) {
+      groups.push([candidate]);
+      continue;
+    }
+    const group = groups[duplicateIndex];
+    if (!group.some(existing => existing.provider === candidate.provider)) group.push(candidate);
   }
-  fixtureGroups.sort((a, b) => compareCandidates(a[0], b[0], priorityLeagues));
-  const boundedGroups = fixtureGroups.slice(0, maxEvents);
-  const truncatedEventCount = fixtureGroups.length - boundedGroups.length;
+  groups.sort((a, b) => compareDuplicateCandidates(a[0], b[0], priorityLeagues));
+  const boundedGroups = groups.slice(0, maxEvents);
 
   const selectedByProvider = new Map();
   for (const group of boundedGroups) {
@@ -106,232 +121,121 @@ export function combineSportsbookProviderResults(providerResults, {
 
   const combinedResults = enabledResults.map(result => ({
     ...result,
+    diagnostics: {
+      ...(result.diagnostics || {}),
+      receivedFixtures: result.diagnostics?.receivedFixtures ?? (result.events || []).length,
+      acceptedFixtures: result.diagnostics?.acceptedFixtures ?? (result.events || []).length,
+      snapshotFixtures: (selectedByProvider.get(result.provider) || []).length,
+      discardedFixtures: {
+        ...(result.diagnostics?.discardedFixtures || {}),
+        ambiguous: fixtureMatchingByProvider.get(result.provider)?.ambiguous || 0,
+        unmatched: fixtureMatchingByProvider.get(result.provider)?.unmatched || 0
+      },
+      fixtureMatching: {
+        ...(fixtureMatchingByProvider.get(result.provider) || { matched: 0, ambiguous: 0, unmatched: 0 }),
+        usedAsSupplement: hasTrustedResultAuthority(result.provider)
+          ? 0
+          : (selectedByProvider.get(result.provider) || []).length,
+        ambiguousUsedAsSupplement: 0,
+        ambiguousNotUsed: fixtureMatchingByProvider.get(result.provider)?.ambiguous || 0
+      },
+      ...(includeDebugExamples && debugExamples.some(example => example.provider === result.provider)
+        ? { debugExamples: debugExamples.filter(example => example.provider === result.provider) }
+        : {})
+    },
     events: selectedByProvider.get(result.provider) || []
   }));
   return {
     providerResults: combinedResults,
-    eventCount: boundedGroups.length,
-    truncatedEventCount
+    eventCount: boundedGroups.length
   };
 }
 
-function snapshotBytes(snapshot) {
-  return Buffer.byteLength(JSON.stringify(snapshot), 'utf8');
-}
+export async function runWithProviderDeadline(fetcher, args, signal, deadlineMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => abortCause('provider-timeout'), deadlineMs);
+  let firstCause = null;
 
-function rebuildSnapshot(snapshot, entries) {
-  const eventsByProvider = new Map();
-  for (const { provider, event } of entries) {
-    const events = eventsByProvider.get(provider) || [];
-    events.push(event);
-    eventsByProvider.set(provider, events);
-  }
-  const providerResults = snapshot.providerResults.map(result => {
-    return { ...result, events: eventsByProvider.get(result.provider) || [] };
-  });
-  return {
-    ...snapshot,
-    providerResults,
-    eventCount: countSnapshotFixtures(entries.map(entry => entry.event))
-  };
-}
-
-function normalizedTeamKey(value) {
-  return String(value || '').toLowerCase().normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\b(fc|cf|sc|afc|club|the)\b/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
-function sameSnapshotFixture(a, b) {
-  if (a.sport !== b.sport
-    || !leagueKey(a.league)
-    || leagueKey(a.league) !== leagueKey(b.league)
-    || normalizedTeamKey(a.home?.name) !== normalizedTeamKey(b.home?.name)
-    || normalizedTeamKey(a.away?.name) !== normalizedTeamKey(b.away?.name)) return false;
-  const first = Date.parse(a.startTime || '');
-  const second = Date.parse(b.startTime || '');
-  return Number.isFinite(first) && Number.isFinite(second) && Math.abs(first - second) <= DUPLICATE_KICKOFF_WINDOW_MS;
-}
-
-function snapshotFixtureGroups(entries) {
-  const groups = [];
-  for (const entry of entries) {
-    let group = groups.find(items => sameSnapshotFixture(items[0].event, entry.event));
-    if (!group) groups.push(group = []);
-    group.push(entry);
-  }
-  return groups;
-}
-
-function countSnapshotFixtures(events) {
-  return snapshotFixtureGroups(events.map(event => ({ event }))).length;
-}
-
-// Endpoint ingest menolak payload di atas anggaran byte; mempertahankan tiap
-// event utuh lebih penting daripada mengirim hanya sebagian pasarnya.
-export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
-  if (!Number.isFinite(maxBytes) || maxBytes <= 0) return snapshot;
-  if (snapshotBytes(snapshot) <= maxBytes) return snapshot;
-  const entries = snapshot.providerResults.flatMap(result =>
-    (result.events || []).map(event => ({ provider: result.provider, event }))
-  );
-  if (!entries.length) return snapshot;
-
-  // Buang fixture berperingkat terendah hanya dalam kelompok utuh; jangan
-  // memangkas market atau selection sehingga data odds parsial tampak lengkap.
-  const fixtureGroups = snapshotFixtureGroups(entries);
-  let low = 1;
-  let high = fixtureGroups.length;
-  let best = null;
-  while (low <= high) {
-    const keep = Math.floor((low + high) / 2);
-    const candidateEntries = fixtureGroups.slice(0, keep).flat();
-    const candidate = rebuildSnapshot(snapshot, candidateEntries);
-    if (snapshotBytes(candidate) <= maxBytes) {
-      best = candidate;
-      low = keep + 1;
-    } else {
-      high = keep - 1;
+  const abortCause = (reason) => {
+    if (firstCause === null) {
+      firstCause = reason;
     }
+    controller.abort();
+  };
+
+  const onExternalAbort = () => abortCause('shutdown');
+  if (signal) {
+    if (signal.aborted) abortCause('shutdown');
+    else signal.addEventListener('abort', onExternalAbort, { once: true });
   }
-  if (!best) {
-    throw new Error('A single complete sportsbook event exceeds the ingest payload budget.');
+
+  try {
+    return await fetcher({ ...args, signal: controller.signal });
+  } catch (error) {
+    error.cause = firstCause ?? error.cause ?? 'provider-error';
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onExternalAbort);
   }
-  return best;
 }
 
 export async function buildSportsbookRenderSnapshot({
-  fetchApiSports,
+  fetchMoviOdds,
+  fetchOddsPapi,
   fetchSportmonks,
   fetchSharpApi,
-  fetchOddsPapi,
-  maxEvents = 500,
-  maxPages = MAX_PAGES,
-  maxPayloadBytes = null,
+  fetchTheOddsApi,
+  fetchApiSports,
+  maxEvents = 5000,
   teamKey,
-  now
+  now,
+  revision,
+  signal
 }) {
-  // Sportmonks adalah sumber utama cakupan luas: anggaran halaman dihabiskan
-  // round-robin per tanggal (maks 120 halaman x 20 = 2.400 kandidat), lalu
-  // dibatasi maxEvents. Fetcher dijalankan SEKUENSIAL dan tiap kegagalan
-  // diisolasi: hanya satu payload provider yang hidup pada satu waktu, sehingga
-  // heap worker 224MB tetap dapat diprediksi (anti-OOM).
-  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > MAX_PAGES) {
-    throw new Error(`Worker sportsbook maxPages must be an integer between 1 and ${MAX_PAGES}.`);
-  }
-  const fetchers = [
-    { provider: 'sportmonks', fetch: fetchSportmonks },
-    { provider: 'sharpapi', fetch: fetchSharpApi },
-    { provider: 'api-sports', fetch: fetchApiSports },
-    { provider: 'oddspapi', fetch: fetchOddsPapi },
-  ];
-  const providerResults = [];
-  const failures = [];
-  for (const { provider, fetch } of fetchers) {
-    if (typeof fetch !== 'function') continue;
-    console.log('FETCH_START ' + provider);
+  const providers = [
+    ['sportmonks', fetchSportmonks],
+    ['moviodds', fetchMoviOdds],
+    ['sharpapi', fetchSharpApi],
+    ['the-odds-api', fetchTheOddsApi],
+    ['api-sports', fetchApiSports],
+    ['oddspapi', fetchOddsPapi]
+  ].filter(([, fetcher]) => typeof fetcher === 'function');
+
+  const deadlineMs = Number(config.sportsFeedRequestTimeoutMs) || 12000;
+  const providerResults = await Promise.all(providers.map(async ([provider, fetcher]) => {
     try {
-      const result = await fetch({ maxEvents, maxPages });
-      if (result) providerResults.push(result);
-      console.log('FETCH_DONE ' + provider + ' events=' + (result?.events?.length ?? 0) + ' errors=' + JSON.stringify(result?.errors || []));
+      return await runWithProviderDeadline(fetcher, { maxEvents }, signal, deadlineMs);
     } catch (error) {
-      console.log('FETCH_FAIL ' + provider + ' ' + String(error?.message||error).slice(0,200));
-      failures.push(`${provider}: ${error?.message || String(error)}`);
+      return {
+        provider,
+        enabled: true,
+        events: [],
+        errors: [String(error?.message || error).slice(0, 300)],
+        transportOk: false,
+        cause: error?.cause ?? 'provider-error',
+        ...(provider === 'moviodds' ? { diagnostics: createMovioddsCycleDiagnostics() } : {})
+      };
     }
-  }
-  if (!providerResults.length) {
-    throw new Error(`No sportsbook provider could be fetched; snapshot was not sent. ${failures.join('; ')}`);
+  }));
+
+  if (signal?.aborted) {
+    throw new Error('Worker shutdown detected; snapshot was not sent.');
   }
 
   const combined = combineSportsbookProviderResults(providerResults, {
     maxEvents,
     teamKey
   });
-  console.info(JSON.stringify({
-    service: 'sportsbook-render-worker',
-    event: 'snapshot-combined',
-    eventCount: combined.eventCount,
-    providerResults: combined.providerResults.map(result => ({ provider: result.provider, enabled: result.enabled, events: result.events.length }))
-  }));
-  if (combined.truncatedEventCount > 0) {
-    console.warn(JSON.stringify({
-      service: 'sportsbook-render-worker',
-      event: 'snapshot-event-limit-trimmed',
-      eventCount: combined.eventCount,
-      omittedUniqueEvents: combined.truncatedEventCount,
-      maxEvents
-    }));
-  }
   if (!combined.eventCount) {
-    throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
+    throw new Error('No enabled sportsbook provider returned normalized, priced fixtures; snapshot was not sent.');
   }
 
-  function isValidEvent(e, provider) {
-    if (!e || typeof e !== 'object') return false;
-    if (typeof e.id !== 'string' || !e.id.trim()) return false;
-    if (typeof e.sport !== 'string' || !e.sport.trim()) return false;
-    if (typeof e.league !== 'string' || !e.league.trim()) return false;
-    if (e.country !== null && (typeof e.country !== 'string' || !e.country.trim())) return false;
-    if (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime))) return false;
-    if (!['SCHEDULED','LIVE','FINISHED','SUSPENDED','CANCELLED','CANCELED','ABANDONED','POSTPONED','VOID'].includes(e.status)) return false;
-    if (typeof e.live !== 'boolean') return false;
-    if (!e.home || typeof e.home.name !== 'string' || !e.home.name.trim()) return false;
-    if (!e.away || typeof e.away.name !== 'string' || !e.away.name.trim()) return false;
-    if (!Array.isArray(e.markets)) return false;
-    if (!e._refs || typeof e._refs[provider] !== 'string' || !e._refs[provider].trim()) return false;
-    if (!Array.isArray(e._sources) || e._sources.length !== 1 || e._sources[0] !== provider) return false;
-    for (const m of e.markets) {
-      if (!m || typeof m.id !== 'string' || !m.id.trim()) return false;
-      if (typeof m.type !== 'string' || !m.type.trim()) return false;
-      if (typeof m.period !== 'string' || !m.period.trim()) return false;
-      if (m.source !== provider) return false;
-      if (typeof m.suspended !== 'boolean') return false;
-      if (!Array.isArray(m.selections) || m.selections.length === 0) return false;
-      for (const sel of m.selections) {
-        if (!sel || typeof sel.key !== 'string' || !sel.key.trim()) return false;
-        if (typeof sel.label !== 'string' || !sel.label.trim()) return false;
-        if (!Number.isFinite(sel.odds) || sel.odds <= 1) return false;
-        if (typeof sel.suspended !== 'boolean') return false;
-        if (sel.source !== provider) return false;
-      }
-    }
-    return true;
-  }
-  const normalizedResults = combined.providerResults.map(result => ({
-
-    ...result,
-    events: (result.events || []).filter(event => {
-      if (!isValidEvent(event, result.provider)) {
-        console.warn('EVENT_DROP ' + JSON.stringify({ provider: result.provider, id: event?.id, reason: 'invalid-structure' }));
-        return false;
-      }
-      return true;
-    }).map(event => ({
-      ...event,
-      _sources: [result.provider],
-      _refs: (event._refs && event._refs[result.provider]) ? { [result.provider]: event._refs[result.provider] } : event._refs
-    }))
-  }));
-  const snapshot = {
+  return {
     schemaVersion: 1,
     generatedAt: new Date(now ?? Date.now()).toISOString(),
-    providerResults: normalizedResults,
+    revision,
+    providerResults: combined.providerResults,
     eventCount: combined.eventCount
   };
-  // Selaraskan dengan anggaran payload ingest (SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES)
-  // sebelum berangkat: lebih baik memotong deterministik daripada seluruh push
-  // ditolak 413 dan feed member nyangkut di snapshot lama.
-  const fitted = fitSnapshotToPayloadBudget(snapshot, maxPayloadBytes);
-  if (fitted !== snapshot) {
-    console.warn(JSON.stringify({
-      service: 'sportsbook-render-worker',
-      event: 'snapshot-payload-trimmed',
-      originalEvents: snapshot.eventCount,
-      fittedEvents: fitted?.eventCount ?? snapshot.eventCount,
-      maxPayloadBytes
-    }));
-  }
-  return fitted;
 }

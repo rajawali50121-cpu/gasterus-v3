@@ -12,29 +12,43 @@ if (existsSync(localEnvFile)) {
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
-const isSportsbookRenderWorker = process.env.SPORTSBOOK_RENDER_WORKER === 'true';
-const apiSportsKey = optionalSecret('API_SPORTS_KEY') || optionalSecret('API_FOOTBALL_KEY');
+const apiSportsKey = optionalSecret('API_SPORTS_KEY');
+const theOddsApiKey = optionalSecret('THE_ODDS_API_KEY');
 const sharpApiKey = optionalSecret('SHARP_API_KEY');
+const oddsPapiKey = optionalSecret('ODDSPAPI_API_KEY');
 const theSportsDbKey = optionalSecret('THESPORTSDB_API_KEY');
 const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
-const oddsPapiKey = optionalSecret('ODDSPAPI_API_KEY');
 const rapidApiKey = optionalSecret('RAPIDAPI_CASINO_KEY') || optionalSecret('RAPIDAPI_KEY');
 const betnexApiKey = optionalSecret('BETNEX_API_KEY');
 const betnexCallbackKey = optionalSecret('BETNEX_CALLBACK_KEY') || betnexApiKey;
 function pricedProviderEnabled(name, key) {
   const raw = String(process.env[name] ?? '').trim().toLowerCase();
-  if (!raw || raw === 'auto') return isProduction && Boolean(key);
+  if (!raw) return false;
+  if (raw === 'auto') return isProduction && Boolean(key);
   return ['1', 'true', 'yes', 'on'].includes(raw);
+}
+function decimal(name, fallback, min, max) {
+  const value = Number(text(name, String(fallback)));
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${name} must be a number between ${min} and ${max}`);
+  }
+  return value;
+}
+
+const movioddsMin1X2ImpliedProbability = decimal('MOVIODDS_1X2_MIN_IMPLIED_PROBABILITY', 1.005, 0, 10);
+const movioddsMax1X2ImpliedProbability = decimal('MOVIODDS_1X2_MAX_IMPLIED_PROBABILITY', 1.2, 0, 10);
+if (movioddsMin1X2ImpliedProbability > movioddsMax1X2ImpliedProbability) {
+  throw new Error('MOVIODDS_1X2_MIN_IMPLIED_PROBABILITY must not exceed MOVIODDS_1X2_MAX_IMPLIED_PROBABILITY');
 }
 
 export const config = Object.freeze({
   nodeEnv: process.env.NODE_ENV || 'development',
   host: process.env.HOST || '0.0.0.0',
   port: int('PORT', 8080, 1, 65535),
-  databaseUrl: isSportsbookRenderWorker ? optionalSecret('DATABASE_URL') : requiredSecret('DATABASE_URL', 12),
+  databaseUrl: requiredSecret('DATABASE_URL', 12),
   databaseSsl: bool('DATABASE_SSL', false),
   pgPoolMax: int('PG_POOL_MAX', 15, 2, 100),
-  redisUrl: isSportsbookRenderWorker ? optionalSecret('REDIS_URL') : requiredSecret('REDIS_URL', 12),
+  redisUrl: requiredSecret('REDIS_URL', 12),
   memberProxySecret: requiredSecret('MEMBER_PROXY_SECRET', 32),
   adminProxySecret: requiredSecret('ADMIN_PROXY_SECRET', 32),
   opsInternalSecret: requiredSecret('OPS_INTERNAL_SECRET', 32),
@@ -44,7 +58,8 @@ export const config = Object.freeze({
   sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
   sportsbookIngestMaxPayloadBytes: int('SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES', 6_291_456, 65_536, 8_388_608),
   sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 600),
-  sportsbookRenderMaxEvents: int('SPORTSBOOK_RENDER_MAX_EVENTS', 500, 1, 500),
+  sportsbookIngestRevisionKey: text('SPORTSBOOK_INGEST_REVISION_KEY', 'sportsbook:render-ingest-revision:counter'),
+  sportsbookRenderMaxEvents: int('SPORTSBOOK_RENDER_MAX_EVENTS', 5000, 1, 10000),
   sportsbookRenderMaxPages: int('SPORTSBOOK_RENDER_MAX_PAGES', 120, 12, 120),
   memberSessionTtl: int('MEMBER_SESSION_TTL_SECONDS', 43200, 900, 604800),
   ownerSessionTtl: int('OWNER_SESSION_TTL_SECONDS', 900, 900, 86400), // R6.94: 15-minute admin session (idle refresh)
@@ -115,15 +130,11 @@ export const config = Object.freeze({
   // Background feed/collector process is separate from settlement (feed-worker.js).
   sportsSourceBackgroundPollEnabled: bool('SPORTS_SOURCE_BACKGROUND_POLL_ENABLED', true),
   feedWorkerEnabled: bool('FEED_WORKER_ENABLED', true),
-  // Event dan payload tetap dibatasi; worker menghilangkan fixture utuh bila
-  // byte budget habis, bukan memangkas market/selection dari fixture tersimpan.
-  // Cache backend menyamai batas ingest 6MB untuk menyimpan snapshot lengkap.
-  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 500, 20, 500),
-  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000),
-  // Eviction agresif provider cache: entri lama langsung dibuang sebelum menumpuk di RAM.
-  sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 40, 1, 10000),
-  sportsProviderCacheMaxEntryBytes: int('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 1_048_576, 1024, 100_000_000),
-  sportsProviderCacheMaxTotalBytes: int('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000, 1024, 100_000_000),
+  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 5000, 20, 10000),
+  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 50_000_000, 262_144, 100_000_000),
+  sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 120, 1, 10000),
+  sportsProviderCacheMaxEntryBytes: int('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 3_145_728, 1024, 100_000_000),
+  sportsProviderCacheMaxTotalBytes: int('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 10_000_000, 1024, 100_000_000),
 
   // Provider credentials are read only by core and may be mounted as Docker secrets.
   apiSportsKey,
@@ -133,10 +144,13 @@ export const config = Object.freeze({
   apiSportsOddsPages: int('API_SPORTS_ODDS_PAGES', 2, 1, 20),
   apiSportsLiveRefreshSeconds: int('API_SPORTS_LIVE_REFRESH_SECONDS', 30, 15, 300),
   apiSportsPrematchRefreshSeconds: int('API_SPORTS_PREMATCH_REFRESH_SECONDS', 300, 60, 1800),
-  // The installed API-Football account was verified on the Free plan: 100/day.
-  // Never allow configuration to silently raise this budget into a paid tier.
-  apiSportsDailyQuota: int('API_SPORTS_DAILY_QUOTA', 100, 1, 100),
-  apiSportsMonthlyQuota: int('API_SPORTS_MONTHLY_QUOTA', 3100, 1, 3100),
+  // API-Sports free plan = 100 request/hari (divalidasi via GET /status:
+  // {"plan":"Free","requests":{"limit_day":100}}). Guard kuota di
+  // sportsbook-providers.js memecah angka ini menjadi jeda minimum per endpoint
+  // (live 75%, prematch 25%) sehingga loop refresh 30 detik tidak pernah
+  // meledakkan kuota. Naikkan ke 7500 bila upgrade Pro ($19/bln): floor otomatis
+  // jatuh di bawah TTL konfigurasi dan guard menjadi transparan.
+  apiSportsDailyQuota: int('API_SPORTS_DAILY_QUOTA', 100, 10, 200000),
   sharpApiKey,
   sharpApiBaseUrl: text('SHARP_API_BASE_URL', 'https://api.sharpapi.io'),
   sharpApiEnabled: pricedProviderEnabled('SHARP_API_ENABLED', sharpApiKey),
@@ -150,33 +164,78 @@ export const config = Object.freeze({
   sharpApiMaxPages: int('SHARP_API_MAX_PAGES', isProduction ? 5 : 3, 1, 10),
   sharpApiPageSize: int('SHARP_API_PAGE_SIZE', 200, 25, 200),
   sharpApiMainLinesOnly: bool('SHARP_API_MAIN_LINES_ONLY', false),
+  theOddsApiKey,
+  theOddsApiBaseUrl: text('THE_ODDS_API_BASE_URL', 'https://api.the-odds-api.com/v4'),
+  theOddsApiEnabled: pricedProviderEnabled('THE_ODDS_API_ENABLED', theOddsApiKey),
+  theOddsApiRegions: text('THE_ODDS_API_REGIONS', 'eu,uk'),
+  theOddsApiMarkets: text('THE_ODDS_API_MARKETS', 'h2h,spreads,totals'),
+  theOddsApiEventMarketsEnabled: bool('THE_ODDS_API_EVENT_MARKETS_ENABLED', false),
+  theOddsApiEventMarkets: text('THE_ODDS_API_EVENT_MARKETS', 'h2h_3_way_h1,spreads_h1,totals_h1,btts,btts_h1,double_chance,double_chance_h1,halftime_fulltime'),
+  theOddsApiEventMaxEventsPerSport: int('THE_ODDS_API_EVENT_MAX_EVENTS_PER_SPORT', 25, 0, 50),
+  theOddsApiEventMaxTotalEvents: int('THE_ODDS_API_EVENT_MAX_TOTAL_EVENTS', 120, 0, 120),
   // Keep the configured provider catalog intact; the feed-level event and Redis byte
   // limits remain the final resource guards for the consolidated snapshot.
+  theOddsApiMaxTotalEvents: int('THE_ODDS_API_MAX_TOTAL_EVENTS', 500, 0, 500),
+  theOddsApiRefreshSeconds: int('THE_ODDS_API_REFRESH_SECONDS', 300, 60, 1800),
+  theOddsApiEventRefreshSeconds: int('THE_ODDS_API_EVENT_REFRESH_SECONDS', 300, 60, 1800),
+  theOddsApiBookmakers: text('THE_ODDS_API_BOOKMAKERS'),
+  theOddsApiSportKeys: text('THE_ODDS_API_SPORT_KEYS', 'soccer_australia_aleague,soccer_austria_bundesliga,soccer_belgium_first_div,soccer_brazil_campeonato,soccer_china_superleague,soccer_conmebol_libertadores,soccer_conmebol_sudamericana,soccer_denmark_superliga,soccer_efl_champ,soccer_england_league1,soccer_england_league2,soccer_fa_cup,soccer_france_ligue_one,soccer_france_ligue_two,soccer_germany_bundesliga,soccer_germany_bundesliga2,soccer_germany_liga3,soccer_greece_super_league,soccer_italy_serie_a,soccer_italy_serie_b,soccer_japan_j_league,soccer_korea_kleague1,soccer_mexico_ligamx,soccer_netherlands_eredivisie,soccer_netherlands_eerste_divisie,soccer_norway_eliteserien,soccer_poland_ekstraklasa,soccer_portugal_primeira_liga,soccer_spain_la_liga,soccer_spain_segunda_division,soccer_sweden_allsvenskan,soccer_switzerland_superleague,soccer_turkey_super_league,soccer_usa_mls,soccer_uefa_champs_league,soccer_uefa_europa_league,soccer_uefa_europa_conference_league'),
+  oddsPapiKey,
+  oddsPapiEnabled: bool('ODDSPAPI_ENABLED', false),
+  oddsPapiBaseUrl: text('ODDSPAPI_BASE_URL', 'https://api.oddspapi.io'),
+  oddsPapiTournamentIds: text('ODDSPAPI_TOURNAMENT_IDS', '17'),
+  oddsPapiBookmaker: text('ODDSPAPI_BOOKMAKER', 'pinnacle'),
+  // Default 24 jam agar satu board refresh per hari muat dalam budget
+  // free-tier OddsPapi (maksimal 8 request/hari, 240/bulan). Setiap board
+  // refresh butuh fixtures(1) + odds-by-tournaments(>=1) + katalog(0-2, cached 7 hari).
+  // Dengan refresh 8 jam (3x/hari) risiko kelebihan kuota pada hari pertama.
+  oddsPapiRefreshSeconds: int('ODDSPAPI_REFRESH_SECONDS', 86400, 3600, 86400),
+  oddsPapiCatalogRefreshSeconds: int('ODDSPAPI_CATALOG_REFRESH_SECONDS', 604800, 3600, 2592000),
+  oddsPapiDailyRequestBudget: int('ODDSPAPI_DAILY_REQUEST_BUDGET', 8, 1, 8),
+  oddsPapiMonthlyRequestBudget: int('ODDSPAPI_MONTHLY_REQUEST_BUDGET', 240, 1, 240),
   theSportsDbKey,
   theSportsDbBaseUrl: text('THESPORTSDB_BASE_URL', 'https://www.thesportsdb.com/api'),
   theSportsDbEnabled: bool('THESPORTSDB_ENABLED', false),
   theSportsDbLeagueIds: text('THESPORTSDB_LEAGUE_IDS', '4328,4335,4332,4331,4334,4387'),
-  // Sportmonks is the sole sportsbook fixture and odds provider.
+  // Sportmonks is the primary fixture and settlement provider; SharpAPI and MoviOdds supplement odds.
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
   sportmonksKey,
-  sportmonksEnabled: bool('SPORTMONKS_ENABLED', isProduction && Boolean(sportmonksKey)),
+  sportmonksEnabled: bool('SPORTMONKS_ENABLED', false),
   sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 30, 0, 30),
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
-  oddsPapiEnabled: bool('ODDSPAPI_ENABLED', false),
-  oddsPapiKey,
-  oddsPapiBaseUrl: text('ODDSPAPI_BASE_URL', 'https://api.oddspapi.io'),
-  oddsPapiTournamentIds: text('ODDSPAPI_TOURNAMENT_IDS', '17'),
-  oddsPapiBookmaker: text('ODDSPAPI_BOOKMAKER', 'pinnacle'),
-  oddsPapiRefreshSeconds: int('ODDSPAPI_REFRESH_SECONDS', 28800, 3600, 86400),
-  oddsPapiCatalogRefreshSeconds: int('ODDSPAPI_CATALOG_REFRESH_SECONDS', 604800, 3600, 2592000),
-  oddsPapiDailyRequestBudget: int('ODDSPAPI_DAILY_REQUEST_BUDGET', 8, 1, 8),
-  oddsPapiMonthlyRequestBudget: int('ODDSPAPI_MONTHLY_REQUEST_BUDGET', 240, 1, 240),
   sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 180, 30, 1800),
-  sportmonksLiveRefreshSeconds: int('SPORTMONKS_LIVE_REFRESH_SECONDS', 30, 15, 300),
   sportmonksPriorityLeagues: text('SPORTMONKS_PRIORITY_LEAGUES', 'Premier League,La Liga,Serie A,Bundesliga,Ligue 1,UEFA Champions League,UEFA Europa League,UEFA Europa Conference League,Eredivisie,Primeira Liga,Major League Soccer'),
   // Cap per-provider normalized events independently from the larger aggregated feed.
   sportmonksMaxTotalEvents: boundedInt('SPORTMONKS_MAX_TOTAL_EVENTS', 500, 0, 500),
   sportmonksRequestDelayMs: int('SPORTMONKS_REQUEST_DELAY_MS', 0, 0, 60000),
+  sportmonksRequestBudgetPerHour: int('SPORTMONKS_REQUEST_BUDGET_PER_HOUR', 120, 1, 180),
+  movioddsEnabled: bool('MOVIODDS_ENABLED', false),
+  movioddsBaseUrl: text('MOVIODDS_BASE_URL', 'https://moviodds.com/odds'),
+  movioddsGroupIds: Object.freeze(
+    text('MOVIODDS_GROUP_IDS', '40')
+      .split(',')
+      .map(value => value.trim())
+      .filter(value => /^\d+$/.test(value) && !['1777', '4001'].includes(value))
+  ),
+  movioddsRequestedGroupIds: Object.freeze(
+    text('MOVIODDS_REQUEST_GROUP_IDS', '40')
+      .split(',')
+      .map(value => value.trim())
+      .filter(value => /^\d+$/.test(value) && !['1777', '4001'].includes(value))
+  ),
+  movioddsRefreshSeconds: int('MOVIODDS_REFRESH_SECONDS', 60, 30, 1800),
+  movioddsMaxStaleSeconds: int('MOVIODDS_MAX_STALE_SECONDS', 180, 60, 86400),
+  movioddsMaxResponseBytes: int('MOVIODDS_MAX_RESPONSE_BYTES', 25_165_824, 1_048_576, 100_000_000),
+  movioddsTotalsGroupPriority: Object.freeze(
+    text('MOVIODDS_TOTALS_GROUP_PRIORITY', '981,10202,10143,50139')
+      .split(',')
+      .map(value => value.trim())
+      .filter(value => /^\d+$/.test(value) && !['1777', '4001'].includes(value))
+  ),
+  movioddsMin1X2ImpliedProbability,
+  movioddsMax1X2ImpliedProbability,
+  movioddsVirtualLeaguePattern: text('MOVIODDS_VIRTUAL_LEAGUE_PATTERN', '(?:e-?soccer|esports?|virtual)'),
+  movioddsVirtualTeamPattern: text('MOVIODDS_VIRTUAL_TEAM_PATTERN', '\\((?!W\\)|U\\d{1,2}\\)|B\\)|II\\)|III\\))[^()]{2,}\\)$'),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
   sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
   // TheSportsDB publishes 123 as its current free V1 API key. Artwork is metadata-only and
@@ -190,23 +249,21 @@ export const config = Object.freeze({
   // R6.9.0.15: Gasterus-owned public market feed. No commercial odds-provider credential is required.
   // Upcoming fixtures + bookmaker anchor prices are collected from Football-Data's downloadable public CSV,
   // then normalized and expanded by Gasterus's own probability/market engine.
-  publicMarketEnabled: bool('PUBLIC_MARKET_ENABLED', true),
-  publicMarketOpenFootballEnabled: isProduction ? false : bool('PUBLIC_MARKET_OPENFOOTBALL_ENABLED', true),
+  publicMarketEnabled: bool('PUBLIC_MARKET_ENABLED', false),
+  publicMarketOpenFootballEnabled: bool('PUBLIC_MARKET_OPENFOOTBALL_ENABLED', false),
   publicMarketFixturesUrl: text('PUBLIC_MARKET_FIXTURES_URL', 'https://www.football-data.co.uk/fixtures.csv'),
   publicMarketExtraFixturesPageUrl: text('PUBLIC_MARKET_EXTRA_FIXTURES_PAGE_URL', 'https://www.football-data.co.uk/matches_new_leagues.php'),
   publicMarketLatestResultsUrl: text('PUBLIC_MARKET_LATEST_RESULTS_URL', 'https://www.football-data.co.uk/new/Latest_Results.csv'),
   publicMarketRefreshSeconds: int('PUBLIC_MARKET_REFRESH_SECONDS', 900, 300, 21600),
   publicMarketMaxStaleSeconds: int('PUBLIC_MARKET_MAX_STALE_SECONDS', 172800, 1800, 604800),
   publicMarketRequestTimeoutMs: int('PUBLIC_MARKET_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
-  publicMarketMaxEvents: int('PUBLIC_MARKET_MAX_EVENTS', 100, 10, 500),
+  publicMarketMaxEvents: int('PUBLIC_MARKET_MAX_EVENTS', 500, 10, 500),
   publicMarketDerivedMarketsEnabled: bool('PUBLIC_MARKET_DERIVED_MARKETS_ENABLED', !isProduction),
   publicMarketDerivedMarginBps: int('PUBLIC_MARKET_DERIVED_MARGIN_BPS', 450, 100, 1200),
   publicMarketPriceMaxAgeSeconds: int('PUBLIC_MARKET_PRICE_MAX_AGE_SECONDS', 604800, 900, 604800),
   sportsbookRiskRepricingEnabled: bool('SPORTSBOOK_RISK_REPRICING_ENABLED', true),
   sportsbookRiskRepricingMaxShadeBps: int('SPORTSBOOK_RISK_REPRICING_MAX_SHADE_BPS', 600, 0, 2000),
-  // Background poll diperlambat 30s -> 90s agar worker tidak request berturut-turut.
-  // Volume event TETAP penuh (500); yang dikurangi hanya frekuensi refresh.
-  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 90, 5, 300),
+  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 30, 5, 300),
   sportsFeedStaleSeconds: int('SPORTS_FEED_STALE_SECONDS', 180, 30, 3600),
   sportsbookFinishedEventRetentionSeconds: int('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600, 3600, 86400),
   sportsbookMemberHorizonDays: int('SPORTSBOOK_MEMBER_HORIZON_DAYS', 30, 1, 60),

@@ -1,14 +1,13 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { AppError, assert } from './errors.js';
 import { config } from './config.js';
-import { leagueKey, teamKey } from './sportsbook-providers.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
-const ALLOWED_PROVIDERS = new Set(['sportmonks', 'api-sports', 'sharpapi', 'oddspapi']);
+export const SPORTSBOOK_INGEST_LEASE_KEY = 'sportsbook:render-ingest-lease:v1';
+const ALLOWED_PROVIDERS = new Set(['sportmonks', 'moviodds', 'sharpapi', 'api-sports', 'the-odds-api', 'oddspapi']);
 const ALLOWED_STATUSES = new Set(['SCHEDULED', 'LIVE', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
-const MAX_PROVIDER_RESULTS = 4;
-const MAX_EVENTS = 500;
-const MAX_EVENT_RECORDS = MAX_EVENTS * MAX_PROVIDER_RESULTS;
+const MAX_PROVIDER_RESULTS = 6;
+const MAX_EVENTS = 1500;
 const MAX_MARKETS_PER_EVENT = 120;
 const MAX_SELECTIONS_PER_MARKET = 250;
 const MAX_FUTURE_SKEW_SECONDS = 30;
@@ -50,14 +49,13 @@ function validateTimestamp(timestamp, nowSeconds, maxAgeSeconds) {
   }
 }
 
-function verifySignature(rawBody, timestamp, signature, secret) {
+function verifySignature(rawBody, timestamp, signature, secret, ownerToken = '') {
   if (!/^[a-f0-9]{64}$/i.test(signature)) {
     throw new AppError(401, 'Signature ingestion tidak valid.', 'SPORTSBOOK_INGEST_SIGNATURE_INVALID');
   }
+  const signedPayload = [timestamp, ownerToken || '', rawBody];
   const expected = createHmac('sha256', secret)
-    .update(timestamp)
-    .update('.')
-    .update(rawBody)
+    .update(signedPayload.join('.'))
     .digest();
   const supplied = Buffer.from(signature, 'hex');
   if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
@@ -77,44 +75,24 @@ function validTimestamp(value) {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
 }
 
-function sameFixture(a, b) {
-  if (a.sport !== b.sport
-    || teamKey(a.home.name) !== teamKey(b.home.name)
-    || teamKey(a.away.name) !== teamKey(b.away.name)) return false;
-  const firstLeague = leagueKey(a.league);
-  if (!firstLeague || firstLeague !== leagueKey(b.league)) return false;
-  return Math.abs(Date.parse(a.startTime) - Date.parse(b.startTime)) <= 3 * 60 * 60 * 1000;
-}
-
-function countUniqueFixtures(providerResults) {
-  const fixtures = [];
-  for (const result of providerResults) {
-    for (const event of result.events) {
-      if (!fixtures.some(existing => sameFixture(existing, event))) fixtures.push(event);
-    }
-  }
-  return fixtures.length;
-}
-
 function validateEvent(event, provider) {
-  const problems = [];
-  if (!isRecord(event)) problems.push('not a record');
-  else {
-    if (!requiredString(event.id, 128)) problems.push(`id=${JSON.stringify(event?.id)}`);
-    if (!requiredString(event.sport, 40)) problems.push(`sport=${JSON.stringify(event?.sport)}`);
-    if (!requiredString(event.league, 120)) problems.push(`league=${JSON.stringify(event?.league)}`);
-    if (!(event.country === null || requiredString(event.country, 80))) problems.push(`country=${JSON.stringify(event?.country)}`);
-    if (!validTimestamp(event.startTime)) problems.push(`startTime=${JSON.stringify(event?.startTime)}`);
-    if (!ALLOWED_STATUSES.has(event.status)) problems.push(`status=${JSON.stringify(event?.status)}`);
-    if (typeof event.live !== 'boolean') problems.push(`live=${JSON.stringify(event?.live)}`);
-    if (!isRecord(event.home) || !requiredString(event.home.name, 120)) problems.push(`home=${JSON.stringify(event?.home)}`);
-    if (!isRecord(event.away) || !requiredString(event.away.name, 120)) problems.push(`away=${JSON.stringify(event?.away)}`);
-    if (!Array.isArray(event.markets) || event.markets.length > MAX_MARKETS_PER_EVENT) problems.push(`markets type/len=${JSON.stringify(event?.markets)?.slice?.(0, 60)}`);
-    if (!isRecord(event._refs) || !requiredString(event._refs[provider], 160)) problems.push(`refs=${JSON.stringify(event?._refs)}`);
-    if (!Array.isArray(event._sources) || !event._sources.includes(provider)) problems.push(`sources=${JSON.stringify(event?._sources)}`);
-  }
-  if (problems.length) {
-    invalid(`Event ${String(event?.id || '').slice(0, 40)} tidak memiliki struktur normalisasi yang valid (${provider}: ${problems.join(', ')}.`);
+  if (!isRecord(event)
+    || !requiredString(event.id, 128)
+    || !requiredString(event.sport, 40)
+    || !requiredString(event.league, 120)
+    || !(event.country === null || requiredString(event.country, 80))
+    || !validTimestamp(event.startTime)
+    || !ALLOWED_STATUSES.has(event.status)
+    || typeof event.live !== 'boolean'
+    || !isRecord(event.home) || !requiredString(event.home.name, 120)
+    || !isRecord(event.away) || !requiredString(event.away.name, 120)
+    || !Array.isArray(event.markets) || event.markets.length === 0 || event.markets.length > MAX_MARKETS_PER_EVENT
+    || !isRecord(event._refs) || !requiredString(event._refs[provider], 160)
+    || !Array.isArray(event._sources) || event._sources.length === 0
+    || event._sources.some(source => !ALLOWED_PROVIDERS.has(source))
+    || new Set(event._sources).size !== event._sources.length
+    || !event._sources.includes(provider)) {
+    invalid(`Event ${String(event?.id || '').slice(0, 40)} tidak memiliki struktur normalisasi yang valid.`);
   }
 
   if ((event.status === 'LIVE') !== event.live) {
@@ -126,7 +104,7 @@ function validateEvent(event, provider) {
       || !requiredString(market.id, 128)
       || !requiredString(market.type, 60)
       || !requiredString(market.period, 20)
-      || market.source !== provider
+      || !event._sources.includes(market.source)
       || typeof market.suspended !== 'boolean'
       || !Array.isArray(market.selections)
       || market.selections.length === 0
@@ -140,8 +118,8 @@ function validateEvent(event, provider) {
         || !Number.isFinite(selection.odds)
         || selection.odds <= 1
         || selection.odds > 10000
-        || typeof selection.suspended !== 'boolean'
-        || selection.source !== provider
+      || typeof selection.suspended !== 'boolean'
+      || !event._sources.includes(selection.source)
         || !(selection.updatedAt === null || validTimestamp(selection.updatedAt))) {
         invalid(`Selection pada event ${event.id} tidak valid.`);
       }
@@ -167,7 +145,7 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
   }
 
   const providers = new Set();
-  let totalEventRecords = 0;
+  let totalEvents = 0;
   for (const result of snapshot.providerResults) {
     if (!isRecord(result)
       || !ALLOWED_PROVIDERS.has(result.provider)
@@ -177,75 +155,18 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
       invalid('Hasil provider pada snapshot sportsbook tidak valid.');
     }
     providers.add(result.provider);
-    totalEventRecords += result.events.length;
-    if (totalEventRecords > MAX_EVENT_RECORDS) {
-      throw new AppError(413, 'Snapshot sportsbook melebihi batas record event.', 'SPORTSBOOK_INGEST_EVENT_LIMIT');
+    totalEvents += result.events.length;
+    if (totalEvents > MAX_EVENTS) {
+      throw new AppError(413, 'Snapshot sportsbook melebihi batas 1500 event-provider.', 'SPORTSBOOK_INGEST_EVENT_LIMIT');
     }
     for (const event of result.events) validateEvent(event, result.provider);
   }
 
-  const eventCount = countUniqueFixtures(snapshot.providerResults);
-  if (eventCount === 0) invalid('Snapshot sportsbook harus memuat setidaknya satu event.');
-  if (eventCount > MAX_EVENTS) {
-    throw new AppError(413, 'Snapshot sportsbook melebihi batas 500 fixture unik.', 'SPORTSBOOK_INGEST_EVENT_LIMIT');
-  }
-  if (snapshot.eventCount !== undefined && snapshot.eventCount !== eventCount) {
-    invalid('Jumlah event pada envelope snapshot sportsbook tidak konsisten.');
-  }
-  return { snapshot, eventCount, providers: [...providers] };
+  if (totalEvents === 0) invalid('Snapshot sportsbook harus memuat setidaknya satu event.');
+  return { snapshot, eventCount: totalEvents, providers: [...providers] };
 }
 
-export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(), maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds } = {}) {
-  const freshIncoming = incoming.providerResults.filter(result => result.transportOk !== false && result.stale !== true);
-  const incomingProviders = new Set(freshIncoming.map(result => result.provider));
-  const providerReceivedAt = {};
-  const providerResults = [];
-  const nowIso = new Date(now).toISOString();
-
-  for (const result of freshIncoming) {
-    providerResults.push(result);
-    providerReceivedAt[result.provider] = nowIso;
-  }
-
-  for (const result of previous?.snapshot?.providerResults || []) {
-    if (incomingProviders.has(result.provider)) continue;
-    const receivedAt = previous.snapshot.providerReceivedAt?.[result.provider]
-      || previous.snapshot.generatedAt;
-    const ageMs = now - Date.parse(receivedAt);
-    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > maxAgeSeconds * 1000) continue;
-    providerResults.push({ ...result, stale: true, transportOk: false });
-    providerReceivedAt[result.provider] = receivedAt;
-  }
-
-  const retainedGroups = [];
-  const retainedEvents = new Set();
-  for (const result of providerResults) {
-    for (const event of result.events) {
-      let group = retainedGroups.find(items => sameFixture(items[0], event));
-      if (!group) {
-        if (retainedGroups.length >= MAX_EVENTS) continue;
-        group = [];
-        retainedGroups.push(group);
-      }
-      group.push(event);
-      retainedEvents.add(event);
-    }
-  }
-
-  const boundedResults = providerResults.map(result => ({
-    ...result,
-    events: result.events.filter(event => retainedEvents.has(event))
-  }));
-  return {
-    ...incoming,
-    generatedAt: nowIso,
-    providerResults: boundedResults,
-    providerReceivedAt,
-    eventCount: retainedGroups.length
-  };
-}
-
-export function createStoredSportsbookSnapshot({ serializedSnapshot, timestamp, signature, receivedAt = Date.now() }) {
+export function createStoredSportsbookSnapshot({ serializedSnapshot, timestamp, signature, receivedAt = Date.now(), ingestRevision }) {
   const raw = Buffer.from(serializedSnapshot, 'utf8');
   return JSON.stringify({
     schemaVersion: 1,
@@ -253,60 +174,9 @@ export function createStoredSportsbookSnapshot({ serializedSnapshot, timestamp, 
     timestamp,
     signature,
     revision: createHash('sha256').update(raw).digest('hex'),
+    ingestRevision: ingestRevision || '',
     rawBody: serializedSnapshot
   });
-}
-
-export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
-  secret = config.sportsbookIngestHmacSecret,
-  maxPayloadBytes = config.sportsbookIngestMaxPayloadBytes,
-  maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds,
-  now = Date.now(),
-  ttlSeconds = 1800,
-  retries = 3
-} = {}) {
-  assert(redisClient?.isOpen && typeof redisClient.watch === 'function' && typeof redisClient.multi === 'function', 503,
-    'Penyimpanan snapshot sportsbook belum tersedia.', 'SPORTSBOOK_INGEST_STORAGE_UNAVAILABLE');
-  if (typeof secret !== 'string' || secret.length < 32) {
-    throw new AppError(503, 'Ingestion sportsbook belum dikonfigurasi.', 'SPORTSBOOK_INGEST_NOT_CONFIGURED');
-  }
-
-  for (let attempt = 0; attempt < retries; attempt += 1) {
-    await redisClient.watch(SPORTSBOOK_INGEST_REDIS_KEY);
-    try {
-      const previousRaw = await redisClient.get(SPORTSBOOK_INGEST_REDIS_KEY);
-      let previous = null;
-      if (previousRaw) {
-        try {
-          previous = verifyStoredSportsbookSnapshot(previousRaw, { secret, maxPayloadBytes, maxAgeSeconds, now });
-        } catch {
-          previous = null;
-        }
-      }
-
-      const merged = mergeSportsbookSnapshots(incoming, previous, { now, maxAgeSeconds });
-      validateSportsbookSnapshot(merged, { now, maxAgeSeconds });
-      const serializedSnapshot = JSON.stringify(merged);
-      const rawBody = Buffer.from(serializedSnapshot, 'utf8');
-      if (rawBody.length > maxPayloadBytes) {
-        throw new AppError(413, 'Snapshot gabungan sportsbook melebihi batas ukuran; snapshot lama dipertahankan.', 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE');
-      }
-      const timestamp = String(Math.floor(now / 1000));
-      const signature = createHmac('sha256', secret)
-        .update(timestamp)
-        .update('.')
-        .update(rawBody)
-        .digest('hex');
-      const stored = createStoredSportsbookSnapshot({ serializedSnapshot, timestamp, signature, receivedAt: now });
-      const transaction = redisClient.multi();
-      transaction.set(SPORTSBOOK_INGEST_REDIS_KEY, stored, { EX: ttlSeconds });
-      const committed = await transaction.exec();
-      if (committed !== null) return merged;
-    } finally {
-      await redisClient.unwatch().catch(() => {});
-    }
-  }
-  throw new AppError(503, 'Snapshot sportsbook berubah bersamaan; pembaruan tidak disimpan.', 'SPORTSBOOK_INGEST_WRITE_CONFLICT');
 }
 
 export function verifyStoredSportsbookSnapshot(stored, {
@@ -340,10 +210,11 @@ export function verifyStoredSportsbookSnapshot(stored, {
   }
 
   validateTimestamp(String(record.timestamp || ''), Math.floor(now / 1000), maxAgeSeconds);
-  const revision = createHash('sha256').update(rawBody).digest('hex');
-  if (!/^[a-f0-9]{64}$/i.test(String(record.revision || ''))
-    || !timingSafeEqual(Buffer.from(revision, 'hex'), Buffer.from(record.revision, 'hex'))) {
+  if (!/^[a-f0-9]{64}$/i.test(String(record.revision || ''))) {
     throw new AppError(400, 'Revision snapshot staging tidak valid.', 'SPORTSBOOK_INGEST_REVISION_INVALID');
+  }
+  if (record.ingestRevision !== undefined && record.ingestRevision !== '' && !/^\d+$/.test(String(record.ingestRevision))) {
+    throw new AppError(400, 'Revision ingest staging tidak valid.', 'SPORTSBOOK_INGEST_REVISION_INVALID');
   }
   verifySignature(rawBody, record.timestamp, record.signature, secret);
 
@@ -356,7 +227,8 @@ export function verifyStoredSportsbookSnapshot(stored, {
   const validated = validateSportsbookSnapshot(snapshot, { now, maxAgeSeconds });
   return {
     snapshot,
-    revision,
+    revision: record.revision,
+    ingestRevision: record.ingestRevision || '',
     receivedAt: new Date(receivedAt).toISOString(),
     providerResults: validated.providers
   };
@@ -380,9 +252,11 @@ export async function acceptSportsbookSnapshot(request, {
 
   const timestamp = String(request.headers['x-sportsbook-timestamp'] || '');
   const signature = String(request.headers['x-sportsbook-signature'] || '');
+  const revision = String(request.headers['x-sportsbook-revision'] || '');
+  const ownerToken = String(request.headers['x-sportsbook-owner-token'] || '');
   validateTimestamp(timestamp, Math.floor(now / 1000), maxAgeSeconds);
   const rawBody = await readRequestBytes(request, maxPayloadBytes);
-  verifySignature(rawBody, timestamp, signature, secret);
+  verifySignature(rawBody, timestamp, signature, secret, ownerToken);
 
   let snapshot;
   let serializedSnapshot;
@@ -396,12 +270,15 @@ export async function acceptSportsbookSnapshot(request, {
   await storeSnapshot(snapshot, serializedSnapshot, {
     timestamp,
     signature,
-    receivedAt: now
+    receivedAt: now,
+    revision,
+    ownerToken
   });
   return {
     accepted: true,
     generatedAt: snapshot.generatedAt,
     providerResults: validated.providers,
-    eventCount: validated.eventCount
+    eventCount: validated.eventCount,
+    revision
   };
 }

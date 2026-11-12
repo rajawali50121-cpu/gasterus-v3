@@ -73,32 +73,48 @@ export default defineRailway(() => {
       SPORTSBOOK_INGEST_URL: preserve(),
       SPORTSBOOK_RENDER_MAX_EVENTS: preserve(),
       SPORTMONKS_API_KEY: preserve(),
+      SPORTMONKS_BASE_URL: preserve(),
       SPORTMONKS_DAYS_AHEAD: preserve(),
       SPORTMONKS_ENABLED: preserve(),
       SPORTMONKS_MARKET_IDS: preserve(),
       SPORTMONKS_MAX_RESPONSE_BYTES: preserve(),
       SPORTMONKS_MAX_RETRIES: preserve(),
       SPORTMONKS_MAX_TOTAL_EVENTS: preserve(),
-      SPORTMONKS_LIVE_REFRESH_SECONDS: preserve(),
       SPORTMONKS_ODDS_REFRESH_SECONDS: preserve(),
       SPORTMONKS_PAGE_SIZE: preserve(),
+      SPORTMONKS_PRIORITY_LEAGUES: preserve(),
       SPORTMONKS_REQUEST_DELAY_MS: preserve(),
+      SPORTMONKS_REQUEST_BUDGET_PER_HOUR: preserve(),
+      MOVIODDS_ENABLED: preserve(),
+      SPORTMONKS_REFRESH_SECONDS: preserve(),
+      MOVIODDS_REFRESH_SECONDS: preserve(),
+      ODDSPAPI_API_KEY: preserve(),
+      ODDSPAPI_ENABLED: preserve(),
+      ODDSPAPI_BASE_URL: preserve(),
+      ODDSPAPI_TOURNAMENT_IDS: preserve(),
+      ODDSPAPI_BOOKMAKER: preserve(),
+      ODDSPAPI_REFRESH_SECONDS: preserve(),
+      ODDSPAPI_CATALOG_REFRESH_SECONDS: preserve(),
+      ODDSPAPI_DAILY_REQUEST_BUDGET: preserve(),
+      ODDSPAPI_MONTHLY_REQUEST_BUDGET: preserve(),
+      THE_ODDS_API_BASE_URL: preserve(),
+      THE_ODDS_API_ENABLED: preserve(),
+      THE_ODDS_API_EVENT_MARKETS_ENABLED: preserve(),
+      THE_ODDS_API_EVENT_MARKETS: preserve(),
+      THE_ODDS_API_KEY: preserve(),
+      THE_ODDS_API_MARKETS: preserve(),
+      THE_ODDS_API_MAX_TOTAL_EVENTS: preserve(),
+      THE_ODDS_API_REGIONS: preserve(),
+      THE_ODDS_API_SPORT_KEYS: preserve(),
+      THE_ODDS_API_REFRESH_SECONDS: preserve(),
       WORKER_HEAP_MB: preserve()
     }
   });
-  // Scraper odds berjalan sebagai service TERPISAH agar beban scrape tidak
-  // pernah menyentuh memori service web (anti-OOM). Pengaman:
+  // Scraper sportsbook berjalan sebagai service TERPISAH agar beban
+  // scrape tidak pernah menyentuh memori service web (anti-OOM). Pengaman:
   //   - heap V8 dikunci 224MB lewat NODE_OPTIONS (container ~512MB)
-  //   - Sportmonks SUMBER UTAMA cakupan luas: seluruh halaman dalam anggaran
-  //     120 x 20 discan round-robin per tanggal; snapshot tetap maks 500 event
-  //     setelah ranking, dan key diwariskan dari web.
-  //   - Live window Sportmonks di-refresh terpisah tiap 30 detik (non-paginated)
-  //     supaya event dan in-play odds cepat diperbarui tanpa mengulang katalog.
-  //   - Hanya provider yang di-wire oleh worker dipanggil; provider lain tidak
-  //     diaktifkan sebagai cadangan tersembunyi.
-  //   - provider dijalankan sekuensial (satu payload pada satu waktu); seluruh
-  //     market/selection ber-odds valid dipertahankan, fixture utuh berperingkat
-  //     rendah dibuang hanya bila anggaran snapshot 6MB tidak mencukupi.
+  //   - memakai Sportmonks sebagai sumber utama dan SharpAPI sebagai pelengkap
+  //   - snapshot dibatasi 500 fixture unik / 6MB
   const sportsbookRenderWorker = service("sportsbook-render-worker", {
     source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile.sportsbook-render-worker" },
@@ -110,35 +126,58 @@ export default defineRailway(() => {
     env: {
       NODE_ENV: "production",
       NODE_OPTIONS: "--max-old-space-size=224",
-      API_FOOTBALL_KEY: preserve(),
-      API_SPORTS_ENABLED: "true",
-      API_SPORTS_DAILY_QUOTA: "100",
-      API_SPORTS_MONTHLY_QUOTA: "3100",
-      DATABASE_URL: "${{web.DATABASE_URL}}",
       REDIS_URL: "${{web.REDIS_URL}}",
-      ODDSPAPI_ENABLED: "true",
-      ODDSPAPI_API_KEY: preserve(),
-      ODDSPAPI_BASE_URL: preserve(),
-      ODDSPAPI_TOURNAMENT_IDS: "17,8,35,34,9,5,6,244,238,148",
-      ODDSPAPI_BOOKMAKER: "pinnacle",
-      ODDSPAPI_DAILY_REQUEST_BUDGET: "8",
-      ODDSPAPI_MONTHLY_REQUEST_BUDGET: "240",
       SPORTSBOOK_INGEST_URL: "${{web.SPORTSBOOK_INGEST_URL}}",
       SPORTSBOOK_INGEST_HMAC_SECRET: "${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}",
-      SPORTSBOOK_RENDER_MAX_EVENTS: "500",
-      SPORTSBOOK_RENDER_MAX_PAGES: "120",
-      // Sportmonks primer (cakupan luas). Key & batas diwariskan/diset di
-      // worker yang sama — service web tetap bebas beban scrape Sportmonks.
-      SPORTMONKS_ENABLED: "true",
+      SPORTSBOOK_INGEST_MAX_AGE_SECONDS: "${{web.SPORTSBOOK_INGEST_MAX_AGE_SECONDS}}",
+      SPORTSBOOK_RENDER_MAX_EVENTS: "5000",
+      SPORTMONKS_ENABLED: "${{web.SPORTMONKS_ENABLED}}",
       SPORTMONKS_API_KEY: "${{web.SPORTMONKS_API_KEY}}",
-      SPORTMONKS_MAX_TOTAL_EVENTS: "500",
-      SPORTMONKS_REFRESH_SECONDS: "300",
-      SPORTMONKS_LIVE_REFRESH_SECONDS: "30",
-      SPORTMONKS_REQUEST_DELAY_MS: "0",
+      SPORTMONKS_BASE_URL: "${{web.SPORTMONKS_BASE_URL}}",
+      SPORTMONKS_DAYS_AHEAD: "${{web.SPORTMONKS_DAYS_AHEAD}}",
+      SPORTMONKS_MAX_TOTAL_EVENTS: "${{web.SPORTMONKS_MAX_TOTAL_EVENTS}}",
+      SPORTMONKS_PRIORITY_LEAGUES: "${{web.SPORTMONKS_PRIORITY_LEAGUES}}",
+      SPORTMONKS_REFRESH_SECONDS: "${{web.SPORTMONKS_REFRESH_SECONDS}}",
+      SPORTMONKS_ODDS_REFRESH_SECONDS: "${{web.SPORTMONKS_ODDS_REFRESH_SECONDS}}",
+      SPORTMONKS_REQUEST_DELAY_MS: "${{web.SPORTMONKS_REQUEST_DELAY_MS}}",
+      SPORTMONKS_REQUEST_BUDGET_PER_HOUR: "${{web.SPORTMONKS_REQUEST_BUDGET_PER_HOUR}}",
+      MOVIODDS_ENABLED: "${{web.MOVIODDS_ENABLED}}",
+      MOVIODDS_REFRESH_SECONDS: "${{web.MOVIODDS_REFRESH_SECONDS}}",
       SHARP_API_ENABLED: "${{web.SHARP_API_ENABLED}}",
       SHARP_API_KEY: "${{web.SHARP_API_KEY}}",
+      SHARP_API_BASE_URL: "${{web.SHARP_API_BASE_URL}}",
+      SHARP_API_SPORT: "${{web.SHARP_API_SPORT}}",
+      SHARP_API_MARKETS: "${{web.SHARP_API_MARKETS}}",
       SHARP_API_MAX_PAGES: "${{web.SHARP_API_MAX_PAGES}}",
-      SHARP_API_PAGE_SIZE: "${{web.SHARP_API_PAGE_SIZE}}"
+      SHARP_API_PAGE_SIZE: "${{web.SHARP_API_PAGE_SIZE}}",
+      SHARP_API_REFRESH_SECONDS: "${{web.SHARP_API_REFRESH_SECONDS}}",
+      API_SPORTS_ENABLED: "${{web.API_SPORTS_ENABLED}}",
+      API_SPORTS_KEY: "${{web.API_SPORTS_KEY}}",
+      API_SPORTS_BASE_URL: "${{web.API_SPORTS_BASE_URL}}",
+      API_SPORTS_DAYS_AHEAD: "${{web.API_SPORTS_DAYS_AHEAD}}",
+      API_SPORTS_ODDS_PAGES: "${{web.API_SPORTS_ODDS_PAGES}}",
+      API_SPORTS_LIVE_REFRESH_SECONDS: "${{web.API_SPORTS_LIVE_REFRESH_SECONDS}}",
+      API_SPORTS_PREMATCH_REFRESH_SECONDS: "${{web.API_SPORTS_PREMATCH_REFRESH_SECONDS}}",
+      API_SPORTS_DAILY_QUOTA: "${{web.API_SPORTS_DAILY_QUOTA}}",
+      ODDSPAPI_ENABLED: "${{web.ODDSPAPI_ENABLED}}",
+      ODDSPAPI_API_KEY: "${{web.ODDSPAPI_API_KEY}}",
+      ODDSPAPI_BASE_URL: "${{web.ODDSPAPI_BASE_URL}}",
+      ODDSPAPI_TOURNAMENT_IDS: "${{web.ODDSPAPI_TOURNAMENT_IDS}}",
+      ODDSPAPI_BOOKMAKER: "${{web.ODDSPAPI_BOOKMAKER}}",
+      ODDSPAPI_REFRESH_SECONDS: "${{web.ODDSPAPI_REFRESH_SECONDS}}",
+      ODDSPAPI_CATALOG_REFRESH_SECONDS: "${{web.ODDSPAPI_CATALOG_REFRESH_SECONDS}}",
+      ODDSPAPI_DAILY_REQUEST_BUDGET: "${{web.ODDSPAPI_DAILY_REQUEST_BUDGET}}",
+      ODDSPAPI_MONTHLY_REQUEST_BUDGET: "${{web.ODDSPAPI_MONTHLY_REQUEST_BUDGET}}",
+      THE_ODDS_API_ENABLED: "${{web.THE_ODDS_API_ENABLED}}",
+      THE_ODDS_API_KEY: "${{web.THE_ODDS_API_KEY}}",
+      THE_ODDS_API_BASE_URL: "${{web.THE_ODDS_API_BASE_URL}}",
+      THE_ODDS_API_REGIONS: "${{web.THE_ODDS_API_REGIONS}}",
+      THE_ODDS_API_MARKETS: "${{web.THE_ODDS_API_MARKETS}}",
+      THE_ODDS_API_REFRESH_SECONDS: "${{web.THE_ODDS_API_REFRESH_SECONDS}}",
+      THE_ODDS_API_MAX_TOTAL_EVENTS: "${{web.THE_ODDS_API_MAX_TOTAL_EVENTS}}",
+      THE_ODDS_API_SPORT_KEYS: "${{web.THE_ODDS_API_SPORT_KEYS}}",
+      THE_ODDS_API_EVENT_MARKETS: "${{web.THE_ODDS_API_EVENT_MARKETS}}",
+      THE_ODDS_API_EVENT_MARKETS_ENABLED: "${{web.THE_ODDS_API_EVENT_MARKETS_ENABLED}}"
     }
   });
 
