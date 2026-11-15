@@ -250,7 +250,8 @@ export async function fetchTheRundown({
   const maxPagesResolved = Number.isFinite(maxPages) && maxPages > 0 ? maxPages : Infinity;
   const eventLimit = maxEvents !== 0 ? maxEvents : Infinity;
 
-  const sportIds = config.thundownSportIds || [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 33, 34];
+  const sportIdsRaw = config.thundownSportIds || '10,11,12,13,14,15,16,17,18,19,33,34';
+  const sportIds = String(sportIdsRaw).split(',').map(s => Number(s.trim())).filter(n => Number.isFinite(n));
   const dates = [];
   const d0 = new Date(bounds.start);
   for (let i = 0; i <= 3; i += 1) {

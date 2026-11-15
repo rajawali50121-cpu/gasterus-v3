@@ -336,6 +336,13 @@ export async function buildSportsbookRenderSnapshot({
         console.warn('EVENT_DROP ' + JSON.stringify({ provider: result.provider, id: event?.id, reason: 'invalid-structure' }));
         return false;
       }
+      // Hanya prematch: event LIVE (status LIVE atau live=true) tidak boleh
+      // pernah masuk ke snapshot sportsbook, sehingga ingestion tidak akan
+      // gagal karena status LIVE dan member tidak melihat pertandingan live.
+      if (event.live === true || event.status === 'LIVE') {
+        console.warn('EVENT_DROP ' + JSON.stringify({ provider: result.provider, id: event.id, reason: 'live-event-excluded' }));
+        return false;
+      }
       return true;
     }).map(event => ({
       ...event,

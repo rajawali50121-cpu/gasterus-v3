@@ -6,8 +6,7 @@ import { leagueKey, teamKey } from './sportsbook-providers.js';
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
 const ALLOWED_PROVIDERS = new Set(['sportmonks', 'sharpapi', 'oddspapi', 'therundown']);
 const ALLOWED_STATUSES = new Set(['SCHEDULED', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
-const MAX_PROVIDER_RESULTS = 3;
-const MAX_EVENT_RECORDS = 10000;
+const MAX_PROVIDER_RESULTS = 10;
 const MAX_FUTURE_SKEW_SECONDS = 30;
 
 function invalid(message, code = 'SPORTSBOOK_INGEST_INVALID') {
@@ -174,11 +173,17 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
       invalid('Hasil provider pada snapshot sportsbook tidak valid.');
     }
     providers.add(result.provider);
-    totalEventRecords += result.events.length;
-    if (totalEventRecords > MAX_EVENT_RECORDS) {
-      throw new AppError(413, 'Snapshot sportsbook melebihi batas record event.', 'SPORTSBOOK_INGEST_EVENT_LIMIT');
+    const validEvents = [];
+    for (const event of result.events) {
+      try {
+        validateEvent(event, result.provider, now);
+        validEvents.push(event);
+      } catch (error) {
+        console.warn('INGEST_EVENT_DROP ' + JSON.stringify({ provider: result.provider, id: event?.id, reason: error.message }));
+      }
     }
-    for (const event of result.events) validateEvent(event, result.provider, now);
+    result.events = validEvents;
+    totalEventRecords += result.events.length;
   }
 
   const eventCount = countUniqueFixtures(snapshot.providerResults);
