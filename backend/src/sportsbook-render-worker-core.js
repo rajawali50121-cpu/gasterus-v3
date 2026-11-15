@@ -344,11 +344,33 @@ export async function buildSportsbookRenderSnapshot({
         return false;
       }
       return true;
-    }).map(event => ({
-      ...event,
-      _sources: [result.provider],
-      _refs: (event._refs && event._refs[result.provider]) ? { [result.provider]: event._refs[result.provider] } : event._refs
-    }))
+    }).map(event => {
+      const seen1x2 = new Set();
+      const order1x2 = { HOME: 0, DRAW: 1, AWAY: 2 };
+      const markets = [];
+      for (const m of (event.markets || [])) {
+        if (!m) continue;
+        if (!m.source) m.source = result.provider;
+        if (m.type === '1X2') {
+          const key = `${m.period || 'FT'}|${m.line ?? ''}`;
+          if (seen1x2.has(key)) continue;
+          seen1x2.add(key);
+          if (Array.isArray(m.selections)) {
+            m.selections = [...m.selections].sort((a, b) => (order1x2[a.label] || 99) - (order1x2[b.label] || 99));
+          }
+        }
+        for (const s of (m.selections || [])) {
+          if (!s.source) s.source = result.provider;
+        }
+        markets.push(m);
+      }
+      event.markets = markets;
+      return {
+        ...event,
+        _sources: [result.provider],
+        _refs: (event._refs && event._refs[result.provider]) ? { [result.provider]: event._refs[result.provider] } : event._refs
+      };
+    })
   }));
   const snapshot = {
     schemaVersion: 1,
