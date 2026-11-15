@@ -321,6 +321,17 @@ export const config = Object.freeze({
   rapidApiOddsRequestTimeoutMs: int('RAPIDAPI_ODDS_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
   rapidApiOddsMaxEvents: unboundedInt('RAPIDAPI_ODDS_MAX_EVENTS', 0, 0),
   rapidApiOddsMaxCacheBytes: unboundedInt('RAPIDAPI_ODDS_MAX_CACHE_BYTES', 0, 0),
+
+  // TheRundown V2 odds feed — additional soccer prematch source.
+  // Key from env only; never exposed to frontend or member-facing APIs.
+  thundownApiKey: optionalSecret('THERUNDOWN_API_KEY'),
+  thundownEnabled: bool('THERUNDOWN_ENABLED', true),
+  thundownBaseUrl: text('THERUNDOWN_BASE_URL', 'https://therundown.io/api/v2'),
+  thundownDaysAhead: int('THERUNDOWN_DAYS_AHEAD', 3, 1, 365),
+  thundownSportIds: text('THERUNDOWN_SPORT_IDS', '10,11,12,13,14,15,16,17,18,19,33,34'),
+  thundownMaxPages: unboundedInt('THERUNDOWN_MAX_PAGES', 0, 0),
+  thundownMaxEvents: unboundedInt('THERUNDOWN_MAX_EVENTS', 0, 0),
+  thundownRequestTimeoutMs: int('THERUNDOWN_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
   betnexApiKey,
   betnexCallbackKey,
   betnexProtocolVerified,

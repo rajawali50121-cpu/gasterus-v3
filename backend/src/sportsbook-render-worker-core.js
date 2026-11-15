@@ -226,6 +226,7 @@ export async function buildSportsbookRenderSnapshot({
   fetchSportmonks,
   fetchSharpApi,
   fetchOddsPapi,
+  fetchTheRundown,
   maxEvents = 0,
   maxPages = 0,
   teamKey,
@@ -243,6 +244,7 @@ export async function buildSportsbookRenderSnapshot({
     { provider: 'sportmonks', fetch: fetchSportmonks },
     { provider: 'sharpapi', fetch: fetchSharpApi },
     { provider: 'oddspapi', fetch: fetchOddsPapi },
+    { provider: 'therundown', fetch: fetchTheRundown },
   ];
   const providerResults = [];
   const failures = [];

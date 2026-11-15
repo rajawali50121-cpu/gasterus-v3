@@ -4,6 +4,7 @@ import { AppError } from './errors.js';
 import { redis } from './redis.js';
 import { logger } from './logger.js';
 import { fetchSportmonks, fetchSharpApi, fetchRapidApiOdds, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
+import { fetchTheRundown } from './sportsbook-therundown.js';
 import { resolveSportsbookProviderResults } from './sportsbook-feed-source.js';
 import { appendFeedRevision, readFeedRevision, paginateEvents, SPORTSBOOK_FEED_REVISIONS_KEY } from './sportsbook-feed-revisions.js';
 import { advanceProviderLifecycle, publicProviderLifecycle, shouldProbeProvider, transitionProviderLifecycle } from './sportsbook-provider-lifecycle.js';
@@ -406,6 +407,9 @@ function enabledProviders() {
   // Cloudflare (RAPIDAPI_ODDS_CACHE_URL + RAPIDAPI_ODDS_CACHE_TOKEN).
   if (config.rapidApiOddsEnabled && config.rapidApiOddsCacheUrl) {
     descriptors.push({ name: 'RapidAPI Tipsters', code: 'tipsters', enabled: true, fetcher: fetchRapidApiOdds });
+  }
+  if (config.thundownEnabled && config.thundownApiKey) {
+    descriptors.push({ name: 'TheRundown', code: 'therundown', enabled: true, fetcher: fetchTheRundown });
   }
   return descriptors;
 }
