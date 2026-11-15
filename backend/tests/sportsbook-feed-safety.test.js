@@ -661,11 +661,11 @@ test('Sportsbook feed is refreshed continuously by the isolated feed worker', ()
   assert.match(feed, /Number\(cached\.fetchedAt/);
 });
 
-test('failed Sportsbook background refresh immediately suspends cached odds and persists read-only state', () => {
+test('failed Sportsbook background refresh keeps cached odds unsuspended and persists read-only state', () => {
   const feedSource = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
   assert.match(feedSource, /async function markCachedFeedReadOnly/);
-  assert.match(feedSource, /const readOnlyEvents = suspendedEvents\(memory\.events\)/);
-  assert.match(feedSource, /events:\s*readOnlyEvents/);
+  assert.doesNotMatch(feedSource, /suspendedEvents\(memory\.events\)/);
+  assert.match(feedSource, /readOnlyEvents = memory\.events/);
   assert.match(feedSource, /readOnlySource:\s*true/);
   assert.match(feedSource, /await writeRedisCache\(memory\)/);
 });

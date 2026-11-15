@@ -362,30 +362,10 @@ function lifecycleOptions() {
   };
 }
 function assertSelectionFresh(event, market, selection, feedFetchedAt) {
-  const now = Date.now();
-  const feedAge = now - Number(feedFetchedAt || 0);
-  if (!Number.isFinite(feedAge) || feedAge < 0 || feedAge > STALE_MS) {
-    throw new AppError(409, 'Feed odds sudah kedaluwarsa. Tunggu pembaruan berikutnya.', 'SPORTS_FEED_STALE_AT_ACCEPTANCE');
-  }
-  const source = String(selection?.source || market?.source || '');
-  // public-market freshness is governed by its bounded collector cache. A successful
-  // aggregate observation is therefore the acceptance freshness clock; source file
-  // Last-Modified may legitimately be older without making the deterministic quote stale.
-  const freshnessTimestamp = source === 'public-market' ? new Date(Number(feedFetchedAt || 0)).toISOString() : (selection?.updatedAt || market?.updatedAt);
-  const updatedMs = Date.parse(freshnessTimestamp || '');
-  if (!Number.isFinite(updatedMs)) return;
-  const maxAgeSeconds = source === 'public-market'
-    ? config.publicMarketPriceMaxAgeSeconds
-    : event?.live ? config.sportsbookMaxLivePriceAgeSeconds : config.sportsbookMaxPrematchPriceAgeSeconds;
-  if (now - updatedMs > maxAgeSeconds * 1000) {
-    throw new AppError(409, 'Harga odds terlalu lama untuk diterima. Market ditahan sampai provider mengirim harga baru.', 'SPORTS_PRICE_STALE', {
-      eventId: event?.id || null,
-      marketId: market?.id || null,
-      selectionId: selection?.key || null,
-      priceUpdatedAt: selection?.updatedAt || market?.updatedAt || null,
-      maxAgeSeconds
-    });
-  }
+  // Tidak ada penolakan atau penangguhan karena data/harga basi di mana pun.
+  // Hanya kickoff lewat, event selesai/dibatalkan, dan market inactive/closed
+  // dari provider yang tetap ditolak (ditangani di enforceEventBettingWindow dan
+  // validasi struktur event/market).
 }
 function pricedMarketCount(events = []) {
   return events.reduce((total, event) => total + (event.markets || []).filter(market =>
@@ -804,13 +784,16 @@ function applyProviderLifecycleResult(result, lifecycle) {
   const events = (result.events || []).map(event => ({
     ...event,
     _settlementReadySources: settlementReady ? [result.provider] : [],
-    markets: lifecycle?.bettingAllowed
-      ? (event.markets || [])
-      : (event.markets || []).map(market => ({
-          ...market,
-          suspended: true,
-          selections: (market.selections || []).map(selection => ({ ...selection, suspended: true }))
-        }))
+    markets: (event.markets || []).map(market => ({
+      ...market,
+      // Market tidak ditangguhkan berdasarkan kesehatan provider/umur data.
+      // Hanya market yang provider tandai inactive/closed yang diperlakukan sebagai suspended.
+      suspended: market.suspended === true,
+      selections: (market.selections || []).map(selection => ({
+        ...selection,
+        suspended: selection.suspended === true
+      }))
+    }))
   }));
   return { ...result, events };
 }
@@ -1060,10 +1043,11 @@ function suspendedEvents(events = []) {
 async function markCachedFeedReadOnly(error, { reason = 'refresh-failed' } = {}) {
   if (!memory.events.length) return null;
   const now = Date.now();
-  const readOnlyEvents = suspendedEvents(memory.events);
-  const forcedSuspended = readOnlyEvents;
+  // Jangan memaksa-suspend semua market hanya karena refresh gagal/data basi.
+  // Pertanian yang sudah ada di cache tetap utuh; hanya tandai sumber sebagai read-only.
+  const readOnlyEvents = memory.events;
   const previousMarketLifecycle = await readMarketLifecycle();
-  const marketLifecycle = reconcileSportsbookMarketLifecycle(previousMarketLifecycle, forcedSuspended, {
+  const marketLifecycle = reconcileSportsbookMarketLifecycle(previousMarketLifecycle, readOnlyEvents, {
     reopenSuccesses: config.sportsbookMarketReopenSuccesses,
     reopenObservationSeconds: config.sportsbookMarketReopenObservationSeconds,
     retentionSeconds: config.sportsbookMarketLifecycleRetentionSeconds,
@@ -1072,20 +1056,22 @@ async function markCachedFeedReadOnly(error, { reason = 'refresh-failed' } = {})
   readOnlyEvents.splice(0, readOnlyEvents.length, ...marketLifecycle.events);
   await writeMarketLifecycle(marketLifecycle.state);
   const revision = stableFeedRevision(readOnlyEvents, memory.providerLifecycle || {});
+  const priced = pricedMarketCount(readOnlyEvents);
+  const bettable = bettableMarketCount(readOnlyEvents);
   memory = {
     ...memory,
     events: readOnlyEvents,
     marketLifecycleStats: marketLifecycle.stats,
     revision,
-    providers: (memory.providers || []).map(provider => provider.enabled ? { ...provider, healthy: false, bettingAllowed: false, bettableMarkets: 0 } : provider),
+    providers: (memory.providers || []).map(provider => provider.enabled ? { ...provider, healthy: false, bettingAllowed: false } : provider),
     expiresAt: now + REFRESH_MS,
     readOnlySource: true,
-    pricedMarkets: pricedMarketCount(readOnlyEvents),
-    bettableMarkets: 0,
+    pricedMarkets: priced,
+    bettableMarkets: bettable,
     error: { code: error?.code || 'SPORTS_REFRESH_FAILED', message: error?.message || 'Sportsbook live source refresh failed.' }
   };
   memory = await writeRedisCache(memory);
-  await recordSportsbookMarketTransitions(marketLifecycle.transitions, { reason, feedRevision: revision, pricedMarkets: memory.pricedMarkets, bettableMarkets: 0 });
+  await recordSportsbookMarketTransitions(marketLifecycle.transitions, { reason, feedRevision: revision, pricedMarkets: memory.pricedMarkets, bettableMarkets: memory.bettableMarkets });
   if (marketLifecycle.transitions.length) {
     logger.warn('Sportsbook market lifecycle transitions', {
       reason, feedRevision: revision, count: marketLifecycle.transitions.length,
@@ -1096,7 +1082,8 @@ async function markCachedFeedReadOnly(error, { reason = 'refresh-failed' } = {})
     reason,
     events: memory.events.length,
     code: memory.error.code,
-    error: memory.error.message
+    error: memory.error.message,
+    bettableMarkets: memory.bettableMarkets
   });
   return memory;
 }
