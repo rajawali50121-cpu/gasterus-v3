@@ -27,52 +27,73 @@ function isProviderEnabled() {
   return Boolean(config.rapidApiOddsEnabled);
 }
 
-function cacheUrl() {
-  return config.rapidApiOddsCacheUrl || '';
+function rapidApiKey() {
+  return config.rapidApiOddsKey || '';
 }
 
-function cacheToken() {
-  return config.rapidApiOddsCacheToken || null;
+function rapidApiHost() {
+  return new URL(config.rapidApiOddsBaseUrl || 'https://odds-feed.p.rapidapi.com').host;
 }
 
-function cacheHeaders() {
-  const headers = { Accept: 'application/json' };
-  const token = cacheToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
+function rapidApiHeaders() {
+  return {
+    'x-rapidapi-key': rapidApiKey(),
+    'x-rapidapi-host': rapidApiHost(),
+    accept: 'application/json',
+  };
 }
 
-async function fetchCacheJson(path) {
-  const base = cacheUrl();
-  if (!base) throw new Error('RAPIDAPI_ODDS_CACHE_URL not configured');
-  const token = cacheToken();
-  if (!token) throw new Error('RAPIDAPI_ODDS_CACHE_TOKEN not configured');
+async function fetchRapidApiJson(path) {
+  const key = rapidApiKey();
+  if (!key) throw new Error('RAPIDAPI_ODDS_KEY/RAPIDAPI_KEY not configured');
+  const base = config.rapidApiOddsBaseUrl || 'https://odds-feed.p.rapidapi.com';
   const url = new URL(path, base);
-  url.searchParams.set('token', token);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.rapidApiOddsRequestTimeoutMs || DEFAULT_TIMEOUT_MS);
   try {
     const response = await fetch(url.toString(), {
-      headers: cacheHeaders(),
+      headers: rapidApiHeaders(),
       signal: controller.signal,
     });
     clearTimeout(timeout);
     if (!response.ok) {
-      throw new Error(`Cache worker responded ${response.status}`);
+      throw new Error(`RapidAPI responded ${response.status}`);
     }
-    const payload = await response.json();
-    if (hasPayloadErrors(payload)) {
-      const detail = extractErrorDetail(payload);
-      const error = new Error(`RapidAPI cache response contains error${detail ? `: ${detail}` : ''}`);
-      error.status = 200;
-      error.payloadErrors = true;
-      throw error;
-    }
-    return payload;
+    return response.json();
   } catch (error) {
     clearTimeout(timeout);
     throw error;
   }
+}
+
+function wibBounds(daysAhead) {
+  const now = new Date();
+  const wibNow = new Date(now.getTime() + 7 * 3600 * 1000);
+  const start = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
+  const end = new Date(start.getTime() + daysAhead * 24 * 3600 * 1000 - 1);
+  return { start, end };
+}
+
+function isSoccerSport(raw) {
+  const name = String(raw.sport?.name || '').toLowerCase();
+  const slug = String(raw.sport?.slug || '').toLowerCase();
+  return name === 'football' || name === 'soccer' || slug === 'soccer' || slug === 'football';
+}
+
+function parseStartAt(raw) {
+  if (!raw || !raw.start_at) return null;
+  const s = new Date(String(raw.start_at).replace(' ', 'T') + 'Z');
+  return Number.isFinite(s.getTime()) ? s : null;
+}
+
+function isPrematchInWindow(raw, bounds) {
+  if (!isSoccerSport(raw)) return false;
+  const status = String(raw.status || '').toUpperCase();
+  if (/LIVE|IN.PLAY|INPLAY|1H|2H|HT|ET/.test(status)) return false;
+  if (/FINISH|FT|AET|PEN|ENDED|FINAL/.test(status)) return false;
+  const start = parseStartAt(raw);
+  if (!start) return false;
+  return start > bounds.start && start <= bounds.end;
 }
 
 function hasPayloadErrors(payload) {
@@ -252,7 +273,7 @@ function normalizeRapidApiRow(raw) {
 async function fetchRapidApiMarkets(eventId) {
   let data;
   try {
-    data = await fetchCacheJson(`/markets?event_id=${encodeURIComponent(String(eventId))}`);
+    data = await fetchRapidApiJson(`/api/v1/events/markets?event_id=${encodeURIComponent(String(eventId))}`);
   } catch (error) {
     logger.warn('Tipsters markets fetch failed', { eventId, error: error.message });
     return [];
@@ -269,7 +290,7 @@ async function fetchRapidApiMarkets(eventId) {
     const book = row.market_books?.[0]?.book || 'tipsters';
     const sourceSelectionId = `mb-${row.market_book_id || row.id}`;
 
-    // Skip 1X2 di sini: sudah tersedia dari main_outcome_0/1/2 pada event list.
+    // 1X2 sudah tersedia dari main_outcome_0/1/2 pada event list, lewati di sini.
     if (marketType === '1X2') continue;
 
     const marketKey = `${marketType}|${line}|${book}`;
@@ -278,19 +299,16 @@ async function fetchRapidApiMarkets(eventId) {
 
     const selections = [];
     if (marketType === 'HANDICAP') {
-      // Asian Handicap: outcome_0 = home, outcome_1 = away, line = value
       const hOdds = safeOdds(row.market_books?.[0]?.outcome_0);
       const aOdds = safeOdds(row.market_books?.[0]?.outcome_1);
       if (hOdds) selections.push(mapRapidApiSelection('HANDICAP', 'Home', hOdds, line, `${sourceSelectionId}-h`, !isOpen));
       if (aOdds) selections.push(mapRapidApiSelection('HANDICAP', 'Away', aOdds, line, `${sourceSelectionId}-a`, !isOpen));
     } else if (marketType === 'TOTALS') {
-      // Over/Under: outcome_0 = over, outcome_1 = under, line = value
       const oOdds = safeOdds(row.market_books?.[0]?.outcome_0);
       const uOdds = safeOdds(row.market_books?.[0]?.outcome_1);
       if (oOdds) selections.push(mapRapidApiSelection('TOTALS', 'Over', oOdds, line, `${sourceSelectionId}-o`, !isOpen));
       if (uOdds) selections.push(mapRapidApiSelection('TOTALS', 'Under', uOdds, line, `${sourceSelectionId}-u`, !isOpen));
     } else {
-      // Lainnya: gunakan outcome_0/outcome_1 sebagai pilihan generik
       const o0 = safeOdds(row.market_books?.[0]?.outcome_0);
       const o1 = safeOdds(row.market_books?.[0]?.outcome_1);
       if (o0) selections.push(mapRapidApiSelection(marketType, row.market_name, o0, null, `${sourceSelectionId}-0`, !isOpen));
@@ -327,9 +345,13 @@ export async function fetchRapidApiOdds({
     return { provider: PROVIDER, enabled: false, events: [], errors: ['Provider disabled: RAPIDAPI_ODDS_ENABLED=false'] };
   }
 
+  const bounds = wibBounds(config.rapidApiOddsDaysAhead || 3);
+  const maxPagesResolved = Number.isFinite(maxPages) && maxPages > 0 ? maxPages : Infinity;
+  const eventLimit = maxEvents !== 0 ? maxEvents : Infinity;
+
   let eventsData;
   try {
-    eventsData = await fetchCacheJson('/events');
+    eventsData = await fetchRapidApiJson(`/api/v1/events?page=1&per_page=100&placing=${placing}`);
   } catch (error) {
     logger.warn('Tipsters events fetch failed', { error: error.message });
     return {
@@ -346,56 +368,75 @@ export async function fetchRapidApiOdds({
   const seen = new Set();
   const errors = [];
 
-  const rows = Array.isArray(eventsData?.data) ? eventsData.data : [];
-  const eventLimit = maxEvents !== 0 ? maxEvents : Infinity;
-  for (const raw of rows) {
-    if (allEvents.length >= eventLimit) break;
-    const normalized = normalizeRapidApiRow(raw);
-    if (!normalized) continue;
-    const dedupeKey = `${normalized.home.name}|${normalized.away.name}|${normalized.startTime}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
+  let currentPage = 1;
+  let lastPage = Number(eventsData?.last_page) || 1;
+  let rows = Array.isArray(eventsData?.data) ? eventsData.data : [];
 
-    // Ambil market AH/O/U dari cache worker (1X2 sudah ada dari main_outcome).
-    let ahOuMarkets = [];
-    try {
-      ahOuMarkets = await fetchRapidApiMarkets(String(raw.id));
-    } catch (error) {
-      logger.warn('Tipsters markets fetch failed for event', { eventId: raw.id, error: error.message });
+  while (currentPage <= lastPage && currentPage <= maxPagesResolved) {
+    const pageRows = currentPage === 1 ? rows : (Array.isArray(eventsData?.data) ? eventsData.data : []);
+    for (const raw of pageRows) {
+      if (allEvents.length >= eventLimit) break;
+      if (!isPrematchInWindow(raw, bounds)) continue;
+      const normalized = normalizeRapidApiRow(raw);
+      if (!normalized) continue;
+      const dedupeKey = `${normalized.home.name}|${normalized.away.name}|${normalized.startTime}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+
+      // Ambil market AH/O/U dari RapidAPI langsung (1X2 sudah ada dari main_outcome).
+      let ahOuMarkets = [];
+      try {
+        ahOuMarkets = await fetchRapidApiMarkets(String(raw.id));
+      } catch (error) {
+        logger.warn('Tipsters markets fetch failed for event', { eventId: raw.id, error: error.message });
+      }
+      normalized.markets = [...normalized.markets, ...ahOuMarkets];
+
+      const event = normalizedEvent({
+        provider: PROVIDER,
+        providerId: normalized.providerId,
+        sport: normalized.sport,
+        league: normalized.league,
+        country: normalized.country,
+        startTime: normalized.startTime,
+        state: normalized.state,
+        providerStatus: normalized.providerStatus,
+        clock: normalized.clock,
+        home: normalized.home.name,
+        away: normalized.away.name,
+        homeScore: normalized.home.score,
+        awayScore: normalized.away.score,
+        homeLogo: normalized.home.logo,
+        awayLogo: normalized.away.logo,
+        leagueLogo: normalized.leagueLogo,
+        venue: normalized.venue,
+        periodScores: normalized.periodScores,
+        markets: normalized.markets,
+      });
+      if (event) {
+        event.fetchedAt = fetchedAt;
+        allEvents.push(event);
+      }
     }
-    normalized.markets = [...normalized.markets, ...ahOuMarkets];
-
-    const event = normalizedEvent({
-      provider: PROVIDER,
-      providerId: normalized.providerId,
-      sport: normalized.sport,
-      league: normalized.league,
-      country: normalized.country,
-      startTime: normalized.startTime,
-      state: normalized.state,
-      providerStatus: normalized.providerStatus,
-      clock: normalized.clock,
-      home: normalized.home.name,
-      away: normalized.away.name,
-      homeScore: normalized.home.score,
-      awayScore: normalized.away.score,
-      homeLogo: normalized.home.logo,
-      awayLogo: normalized.away.logo,
-      leagueLogo: normalized.leagueLogo,
-      venue: normalized.venue,
-      periodScores: normalized.periodScores,
-      markets: normalized.markets,
-    });
-    if (event) {
-      event.fetchedAt = fetchedAt;
-      allEvents.push(event);
+    if (allEvents.length >= eventLimit) break;
+    currentPage += 1;
+    if (currentPage > lastPage || currentPage > maxPagesResolved) break;
+    try {
+      eventsData = await fetchRapidApiJson(`/api/v1/events?page=${currentPage}&per_page=100&placing=${placing}`);
+      lastPage = Number(eventsData?.last_page) || currentPage;
+      rows = Array.isArray(eventsData?.data) ? eventsData.data : [];
+    } catch (error) {
+      errors.push(`page ${currentPage}: ${error.message}`);
+      break;
     }
   }
 
-  logger.info('Tipsters odds (cache worker) fetch complete', {
+  logger.info('Tipsters odds (RapidAPI direct) fetch complete', {
     provider: PROVIDER,
     events: allEvents.length,
+    pages: currentPage,
     errors: errors.length,
+    quotaRemaining: eventsData?.headers ? undefined : undefined,
   });
 
   return {

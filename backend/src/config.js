@@ -304,11 +304,11 @@ export const config = Object.freeze({
 
   // RapidAPI Tipsters Odds Feed — sportsbook event/market/odds source.
   // Key is read from env only; never exposed to frontend or member-facing APIs.
-  rapidApiOddsKey: optionalSecret('RAPIDAPI_ODDS_KEY'),
+  rapidApiOddsKey: optionalSecret('RAPIDAPI_ODDS_KEY') || optionalSecret('RAPIDAPI_KEY'),
   rapidApiOddsBaseUrl: text('RAPIDAPI_ODDS_BASE_URL', 'https://odds-feed.p.rapidapi.com'),
-  rapidApiOddsEnabled: bool('RAPIDAPI_ODDS_ENABLED', false),
-  // Backend Railway membaca event/market/hasil melalui cache worker Cloudflare
-  // (TIPSTERS_CACHE), JANGAN memanggil RapidAPI secara langsung.
+  rapidApiOddsEnabled: bool('RAPIDAPI_ODDS_ENABLED', true),
+  // Backend Railway memanggil RapidAPI odds-feed secara langsung
+  // (odds-feed.p.rapidapi.com), TIDAK melalui cache worker Cloudflare.
   rapidApiOddsCacheUrl: text('RAPIDAPI_ODDS_CACHE_URL', ''),
   rapidApiOddsCacheToken: optionalSecret('RAPIDAPI_ODDS_CACHE_TOKEN'),
   // Jendela prematch tipsters: start_at > now dan start_at <= now + DAYS_AHEAD (WIB).
