@@ -13,7 +13,7 @@ Object.assign(process.env, {
   MFA_ENCRYPTION_KEY_BASE64: process.env.MFA_ENCRYPTION_KEY_BASE64 || Buffer.alloc(32, 1).toString('base64')
 });
 
-const [{ buildSportsbookRenderSnapshot, fitSnapshotToPayloadBudget, sportsbookRenderIntervalSeconds }, { teamKey, mergeProviderEvents }, { validateSportsbookSnapshot }] = await Promise.all([
+const [{ buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }, { teamKey, mergeProviderEvents }, { validateSportsbookSnapshot }] = await Promise.all([
   import('../src/sportsbook-render-worker-core.js'),
   import('../src/sportsbook-providers.js'),
   import('../src/sportsbook-ingestion.js')
@@ -117,7 +117,7 @@ test('Worker snapshot signs and validates as a bounded ingestion payload', async
   assert.ok(signed.body.length < 6_291_456);
 });
 
-test('Worker signs and delivers a full 500-fixture snapshot within the payload budget', async () => {
+test('Worker signs and delivers a full 500-fixture snapshot', async () => {
   const bulk = Array.from({ length: 500 }, (_, index) => event('sharpapi', {
     id: `bulk-${index}`,
     league: index % 2 ? 'Premier League' : 'Regional League',
@@ -130,7 +130,6 @@ test('Worker signs and delivers a full 500-fixture snapshot within the payload b
       return { provider: 'sharpapi', enabled: true, events: bulk };
     },
     maxEvents: 500,
-    maxPayloadBytes: 6_291_456,
     teamKey,
     now: NOW
   });
@@ -140,7 +139,6 @@ test('Worker signs and delivers a full 500-fixture snapshot within the payload b
   assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sharpapi']);
 
   const signed = createSportsbookIngestRequest(snapshot, SECRET, { timestamp: Math.floor(NOW / 1000) });
-  assert.ok(signed.body.length < 6_291_456, `payload ${signed.body.length} bytes wajib di bawah 6MB`);
   assert.equal(signed.headers['x-sportsbook-signature'].length, 64);
   assert.equal(signed.headers['x-sportsbook-timestamp'], String(Math.floor(NOW / 1000)));
 
@@ -374,111 +372,6 @@ test('Worker prefers the priced copy when the same fixture arrives from two prov
   assert.equal(survivor.markets[0].source, 'sharpapi');
   assert.ok(survivor.markets[0].selections.every(selection => selection.source === survivor.markets[0].source));
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
-});
-
-test('Worker trims oversized snapshots by dropping whole fixtures, never partial markets', async () => {
-  const fat = Array.from({ length: 80 }, (_, index) => event('sportmonks', {
-    id: `fat-${index}`,
-    startTime: new Date(NOW + (index + 1) * 60000).toISOString()
-  }));
-  for (const item of fat) {
-    item.markets = Array.from({ length: 40 }, (_, marketIndex) => ({
-      ...item.markets[0],
-      id: `market-${item.id}-${marketIndex}`,
-      selections: Array.from({ length: 3 }, (_, selectionIndex) => ({
-        ...item.markets[0].selections[0],
-        key: `selection-${item.id}-${marketIndex}-${selectionIndex}`,
-        label: ['Home', 'Draw', 'Away'][selectionIndex],
-        odds: 1.5 + selectionIndex,
-        padding: 'x'.repeat(200)
-      }))
-    }));
-  }
-  const maxPayloadBytes = 300_000;
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: fat }),
-    fetchSharpApi: async () => { throw new Error('quota exhausted'); },
-    maxEvents: 100,
-    maxPayloadBytes,
-    teamKey,
-    now: NOW
-  });
-  const bytes = Buffer.byteLength(JSON.stringify(snapshot), 'utf8');
-  assert.ok(bytes <= maxPayloadBytes, `payload ${bytes} bytes wajib muat dalam ${maxPayloadBytes}`);
-  assert.ok(snapshot.eventCount > 0 && snapshot.eventCount < 80);
-  assert.equal(snapshot.providerResults[0].events[0].id, 'fat-0', 'event berperingkat terbaik dipertahankan utuh');
-  assert.ok(snapshot.providerResults[0].events.every(item => item.markets.length === 40),
-    'every retained event must keep its complete market list');
-  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, snapshot.eventCount);
-
-  // Anggaran terlalu kecil untuk satu event utuh must fail explicitly.
-  await assert.rejects(buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: fat }),
-    fetchSharpApi: async () => { throw new Error('quota exhausted'); },
-    maxEvents: 100,
-    maxPayloadBytes: 12_000,
-    teamKey,
-    now: NOW
-  }), /No complete sportsbook event fits the .* payload limit/i);
-});
-
-test('Payload trimming keeps provider ownership for every retained duplicate fixture', async () => {
-  const buildFatEvents = provider => Array.from({ length: 80 }, (_, index) => {
-    const item = event(provider, {
-      id: `${provider}-${index}`,
-      home: `Home ${index}`,
-      away: `Away ${index}`,
-      startTime: new Date(NOW + (index + 1) * 60000).toISOString()
-    });
-    item.markets = Array.from({ length: 40 }, (_, marketIndex) => ({
-      id: `${provider}-${index}-${marketIndex}`,
-      type: '1X2',
-      period: 'FT',
-      source: provider,
-      suspended: false,
-      selections: ['Home', 'Draw', 'Away'].map((label, selectionIndex) => ({
-        key: `${provider}-${index}-${marketIndex}-${selectionIndex}`,
-        label,
-        odds: 1.8 + selectionIndex / 10,
-        suspended: false,
-        source: provider,
-        updatedAt: null,
-        padding: 'x'.repeat(200)
-      }))
-    }));
-    return item;
-  });
-
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: buildFatEvents('sportmonks') }),
-    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: buildFatEvents('sharpapi') }),
-    maxEvents: 100,
-    maxPayloadBytes: 100_000,
-    teamKey,
-    now: NOW
-  });
-  const sportmonksEvents = snapshot.providerResults.find(result => result.provider === 'sportmonks').events;
-  const oddsEvents = snapshot.providerResults.find(result => result.provider === 'sharpapi').events;
-
-  assert.ok(snapshot.eventCount > 0 && snapshot.eventCount < 80);
-  assert.equal(sportmonksEvents.length, snapshot.eventCount);
-  assert.equal(oddsEvents.length, snapshot.eventCount);
-  assert.ok(sportmonksEvents.every(item => item.markets.length === 40));
-  assert.ok(oddsEvents.every(item => item.markets.length === 40));
-  assert.ok(sportmonksEvents.every(item => item._sources[0] === 'sportmonks'));
-  assert.ok(oddsEvents.every(item => item._sources[0] === 'sharpapi'));
-  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, snapshot.eventCount);
-});
-
-test('Payload fitting is a no-op when the snapshot already fits the budget', async () => {
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'small-1' })] }),
-    maxEvents: 100,
-    teamKey,
-    now: NOW
-  });
-  assert.equal(fitSnapshotToPayloadBudget(snapshot, 6_291_456), snapshot);
-  assert.equal(fitSnapshotToPayloadBudget(snapshot, null), snapshot);
 });
 
 test('Worker keeps publishing when Sportmonks fails (SharpAPI fallback survives)', async () => {

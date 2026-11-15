@@ -117,20 +117,11 @@ while (!shutdown.signal.aborted) {
       fetchOddsPapi: () => withTimeout(() => fetchOddsPapi({}), 20000, 'oddspapi'),
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
-      maxPayloadBytes: config.sportmonksPassthrough
-        ? config.sportmonksIngestMaxPayloadBytes
-        : config.sportsbookIngestMaxPayloadBytes,
       teamKey
     });
     const snapshotBuiltAt = Date.now();
     const accepted = await postSportsbookSnapshot(endpoint, snapshot, {
       secret: config.sportsbookIngestHmacSecret,
-      maxPayloadBytes: config.sportmonksPassthrough
-        ? config.sportmonksIngestMaxPayloadBytes
-        : config.sportsbookIngestMaxPayloadBytes,
-      limitEnv: config.sportmonksPassthrough
-        ? 'SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES'
-        : 'SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES'
     });
     const acceptedAt = Date.now();
     if (config.sportsbookDailyRefreshEnabled !== false) {

@@ -45,9 +45,6 @@ export async function loadRenderProviderSnapshot(redisClient, {
   logger,
   now = Date.now(),
   secret = config.sportsbookIngestHmacSecret,
-  maxPayloadBytes = config.sportmonksPassthrough
-    ? config.sportmonksIngestMaxPayloadBytes
-    : config.sportsbookIngestMaxPayloadBytes,
   maxAgeSeconds = config.sportsbookDailyRefreshEnabled ? (config.sportsbookStoredSnapshotMaxAgeSeconds || config.sportsbookIngestMaxAgeSeconds) : config.sportsbookIngestMaxAgeSeconds
 } = {}) {
   if (!redisClient?.isOpen) {
@@ -65,7 +62,7 @@ export async function loadRenderProviderSnapshot(redisClient, {
   if (!raw) return null;
 
   try {
-    const verified = verifyStoredSportsbookSnapshot(raw, { secret, maxPayloadBytes, maxAgeSeconds, now });
+    const verified = verifyStoredSportsbookSnapshot(raw, { secret, maxAgeSeconds, now });
     return {
       providerResults: verified.snapshot.providerResults.map(result => ({
         ...result,
@@ -90,16 +87,12 @@ export async function resolveSportsbookProviderResults(redisClient, {
   logger,
   now = Date.now(),
   secret = config.sportsbookIngestHmacSecret,
-  maxPayloadBytes = config.sportmonksPassthrough
-    ? config.sportmonksIngestMaxPayloadBytes
-    : config.sportsbookIngestMaxPayloadBytes,
   maxAgeSeconds = config.sportsbookDailyRefreshEnabled ? (config.sportsbookStoredSnapshotMaxAgeSeconds || config.sportsbookIngestMaxAgeSeconds) : config.sportsbookIngestMaxAgeSeconds
 } = {}) {
   const renderSnapshot = await loadRenderProviderSnapshot(redisClient, {
     logger,
     now,
     secret,
-    maxPayloadBytes,
     maxAgeSeconds
   });
   if (renderSnapshot) {

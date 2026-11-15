@@ -64,7 +64,6 @@ export const config = Object.freeze({
   apiKeyPepper: testSecret('API_KEY_PEPPER', 32, 'test-api-key-pepper-passphrase-1234'),
   mfaEncryptionKeyBase64: testSecret('MFA_ENCRYPTION_KEY_BASE64', 40, Buffer.alloc(32, 7).toString('base64')),
   sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
-  sportsbookIngestMaxPayloadBytes: int('SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES', 6_291_456, 65_536, 8_388_608),
   sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 600),
   // Stored/render snapshots may be up to ~1 day old (daily refresh). Read path uses this;
   // request signature freshness still uses sportsbookIngestMaxAgeSeconds.
@@ -191,15 +190,6 @@ export const config = Object.freeze({
     : legacySportmonksInt('SPORTMONKS_MAX_PAGES', 120, 1, 120, '0', 120),
   sportmonksMaxResponseBytes: sportmonksPassthrough
     ? naturalInt('SPORTMONKS_MAX_RESPONSE_BYTES', 50_000_000, 1)
-    : 8_388_608,
-  sportmonksIngestMaxPayloadBytes: sportmonksPassthrough
-    ? naturalInt('SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES', 100_000_000, 65_536)
-    : 6_291_456,
-  sportmonksFeedMaxCacheBytes: sportmonksPassthrough
-    ? naturalInt('SPORTMONKS_FEED_MAX_CACHE_BYTES', 100_000_000, 262_144)
-    : 6_291_456,
-  sportmonksRedisMaxPayloadBytes: sportmonksPassthrough
-    ? naturalInt('SPORTMONKS_REDIS_MAX_PAYLOAD_BYTES', 150_000_000, 65_536)
     : 8_388_608,
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
   oddsPapiEnabled: bool('ODDSPAPI_ENABLED', false),

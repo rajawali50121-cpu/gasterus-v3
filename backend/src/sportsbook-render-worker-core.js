@@ -223,68 +223,12 @@ function countSnapshotFixtures(events) {
 
 // Endpoint ingest menolak payload di atas anggaran byte; mempertahankan tiap
 // event utuh lebih penting daripada mengirim hanya sebagian pasarnya.
-export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
-  if (!Number.isFinite(maxBytes) || maxBytes <= 0) return snapshot;
-  if (snapshotBytes(snapshot) <= maxBytes) return snapshot;
-  const entries = snapshot.providerResults.flatMap(result =>
-    (result.events || []).map(event => ({ provider: result.provider, event }))
-  );
-  if (!entries.length) return snapshot;
-
-  // Buang fixture berperingkat terendah hanya dalam kelompok utuh; jangan
-  // memangkas market atau selection sehingga data odds parsial tampak lengkap.
-  const fixtureGroups = snapshotFixtureGroups(entries);
-  const isSportmonks = snapshot.providerResults.some(result => result.provider === 'sportmonks');
-  const limitEnv = isSportmonks ? 'SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES' : 'SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES';
-  let low = 1;
-  let high = fixtureGroups.length;
-  let best = null;
-  while (low <= high) {
-    const keep = Math.floor((low + high) / 2);
-    const candidateEntries = fixtureGroups.slice(0, keep).flat();
-    const candidate = rebuildSnapshot(snapshot, candidateEntries);
-    const omittedUniqueEvents = fixtureGroups.length - keep;
-    const omittedProviderEventRecords = entries.length - candidateEntries.length;
-    candidate.diagnostics = {
-      ...(snapshot.diagnostics || {}),
-      payloadLimit: {
-        code: 'SPORTSBOOK_PAYLOAD_LIMIT',
-        dataTruncated: true,
-        omittedUniqueEvents,
-        omittedProviderEventRecords,
-        maxPayloadBytes: maxBytes,
-        envToIncrease: limitEnv
-      }
-    };
-    if (snapshotBytes(candidate) <= maxBytes) {
-      best = candidate;
-      low = keep + 1;
-    } else {
-      high = keep - 1;
-    }
-  }
-  if (!best) {
-    const error = new Error(`No complete sportsbook event fits the ${maxBytes}-byte payload limit; all ${fixtureGroups.length} unique events were omitted. Increase ${limitEnv}.`);
-    error.diagnostics = {
-      code: 'SPORTSBOOK_PAYLOAD_LIMIT',
-      dataTruncated: true,
-      omittedUniqueEvents: fixtureGroups.length,
-      omittedProviderEventRecords: entries.length,
-      maxPayloadBytes: maxBytes,
-      envToIncrease: limitEnv
-    };
-    throw error;
-  }
-  return best;
-}
-
 export async function buildSportsbookRenderSnapshot({
   fetchSportmonks,
   fetchSharpApi,
   fetchOddsPapi,
   maxEvents = 500,
   maxPages = config.sportsbookRenderMaxPages,
-  maxPayloadBytes = null,
   teamKey,
   now
 }) {
@@ -424,19 +368,5 @@ export async function buildSportsbookRenderSnapshot({
         }
       : {})
   };
-  // Selaraskan dengan anggaran payload ingest (SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES)
-  // sebelum berangkat: lebih baik memotong deterministik daripada seluruh push
-  // ditolak 413 dan feed member nyangkut di snapshot lama.
-  const fitted = fitSnapshotToPayloadBudget(snapshot, maxPayloadBytes);
-  if (fitted !== snapshot) {
-    console.warn(JSON.stringify({
-      service: 'sportsbook-render-worker',
-      event: 'snapshot-payload-trimmed',
-      originalEvents: snapshot.eventCount,
-      fittedEvents: fitted?.eventCount ?? snapshot.eventCount,
-      maxPayloadBytes,
-      ...(fitted?.diagnostics?.payloadLimit || {})
-    }));
-  }
-  return fitted;
+  return snapshot;
 }

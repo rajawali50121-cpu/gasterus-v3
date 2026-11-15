@@ -54,28 +54,24 @@ test('render worker is not wired to The Odds API', () => {
   assert.doesNotMatch(envExample, /^THE_ODDS_API_/m);
 });
 
-test('render worker keeps provider/page/payload limits and Sportmonks coverage', () => {
+test('render worker keeps provider/page limits and Sportmonks coverage (no artificial payload cap)', () => {
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
   // Anggaran halaman penuh diteruskan ke fetchSportmonks agar snapshot ingest
   // mengambil cakupan luas (bukan terpotong ~17 match oleh pembagian statis).
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
   assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
-  // Snapshot payload uses the Sportmonks-specific technical byte budget only
-  // in passthrough mode.
-  assert.match(worker, /maxPayloadBytes: config\.sportmonksPassthrough\s*\? config\.sportmonksIngestMaxPayloadBytes/);
+  // Tidak ada batas ukuran buatan pada snapshot: sportmonks & sharpapi dikirim utuh.
   assert.match(worker, /fetchSportmonks/);
   assert.match(worker, /fetchSharpApi/);
   assert.doesNotMatch(worker, /fetchApiSports/);
 
-  // Sportmonks is passed through without an event/page cap; payload limits
-  // remain the separately configured technical safeguard.
+  // Sportmonks is passed through without an event/page cap.
   assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
   assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
   assert.match(workerServiceBlock, /SPORTMONKS_PASSTHROUGH:\s*preserve\(\)/);
   assert.match(workerServiceBlock, /SPORTMONKS_DAYS_AHEAD:\s*preserve\(\)/);
   assert.match(workerServiceBlock, /SPORTMONKS_MAX_TOTAL_EVENTS:\s*preserve\(\)/);
   assert.match(workerServiceBlock, /SPORTMONKS_MAX_PAGES:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES:\s*preserve\(\)/);
   assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '300');

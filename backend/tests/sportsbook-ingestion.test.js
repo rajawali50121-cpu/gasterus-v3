@@ -78,6 +78,69 @@ function signedRequest(payload, { timestamp = Math.floor(NOW / 1000), maxPayload
   return createSportsbookIngestRequest(payload, SECRET, { timestamp, maxPayloadBytes });
 }
 
+test('partial provider refresh preserves fresh provider data, expires old data, and re-signs the merged snapshot', async () => {
+  const previousPayload = snapshot();
+  const previousRequest = signedRequest(previousPayload);
+  let stored = (await import('../src/sportsbook-ingestion.js')).createStoredSportsbookSnapshot({
+    serializedSnapshot: previousRequest.body.toString('utf8'),
+    timestamp: previousRequest.headers['x-sportsbook-timestamp'],
+    signature: previousRequest.headers['x-sportsbook-signature'],
+    receivedAt: NOW
+  });
+  let pending;
+  const redisClient = {
+    isOpen: true,
+    async watch() {},
+    async get() { return stored; },
+    async unwatch() {},
+    multi() {
+      return {
+        set(_key, value) { pending = value; return this; },
+        async exec() { stored = pending; return ['OK']; }
+      };
+    }
+  };
+  const providerEvent = JSON.parse(JSON.stringify(previousPayload.providerResults[0].events[0]));
+  providerEvent.id = 'sharp-event';
+  providerEvent.home.name = 'Sharp Home';
+  providerEvent.away.name = 'Sharp Away';
+  providerEvent._refs = { sharpapi: 'sharp-provider-event' };
+  providerEvent._sources = ['sharpapi'];
+  for (const market of providerEvent.markets) {
+    market.source = 'sharpapi';
+    for (const selection of market.selections) selection.source = 'sharpapi';
+  }
+  const { mergeSportsbookSnapshots, storeMergedSportsbookSnapshot, verifyStoredSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
+  const incoming = {
+    schemaVersion: 1,
+    generatedAt: new Date(NOW + 60000).toISOString(),
+    providerResults: [
+      { provider: 'sharpapi', enabled: true, events: [providerEvent] },
+      { provider: 'sportmonks', enabled: true, events: [], transportOk: false }
+    ]
+  };
+  const merged = mergeSportsbookSnapshots(incoming, verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW }), {
+    now: NOW + 60000,
+    maxAgeSeconds: 180
+  });
+  assert.deepEqual(merged.providerResults.map(result => result.provider), ['sharpapi', 'sportmonks']);
+  assert.equal(merged.providerResults.find(result => result.provider === 'sportmonks').stale, true);
+  assert.equal(merged.providerResults.find(result => result.provider === 'sportmonks').transportOk, false);
+  assert.equal(merged.eventCount, 2);
+
+  await storeMergedSportsbookSnapshot(redisClient, incoming, { secret: SECRET, now: NOW + 60000, maxAgeSeconds: 180 });
+  const verified = verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW + 60000, maxAgeSeconds: 180 });
+  assert.deepEqual(verified.providerResults, ['sharpapi', 'sportmonks']);
+  assert.equal(verified.snapshot.eventCount, 2);
+
+  const laterIncoming = { ...incoming, generatedAt: new Date(NOW + 240000).toISOString() };
+  await storeMergedSportsbookSnapshot(redisClient, laterIncoming, { secret: SECRET, now: NOW + 240000, maxAgeSeconds: 180 });
+  const afterExpiry = verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW + 240000, maxAgeSeconds: 180 });
+  assert.deepEqual(afterExpiry.providerResults, ['sharpapi']);
+  assert.equal(afterExpiry.snapshot.eventCount, 1);
+});
+
+
 test('accepts a fresh HMAC-signed snapshot and stores only its verified JSON', async () => {
   const payload = snapshot();
   const signed = signedRequest(payload);
@@ -277,20 +340,6 @@ test('rejects stale snapshot data despite a fresh request signature', async () =
   assert.equal(stored, false);
 });
 
-test('rejects snapshots over the configured byte limit before reading the full body', async () => {
-  const signed = signedRequest(snapshot());
-  await assert.rejects(
-    acceptSportsbookSnapshot(requestFor(signed.body, signed.headers), {
-      secret: SECRET,
-      maxPayloadBytes: signed.body.length - 1,
-      now: NOW,
-      storeSnapshot: async () => assert.fail('oversized snapshot must not be stored')
-    }),
-    error => error.code === 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE'
-      && /eventRecordCount=unknown/.test(error.message)
-  );
-});
-
 test('rejects malformed normalized events but accepts more than 500 Sportmonks fixtures', async () => {
   const malformed = snapshot();
   malformed.providerResults[0].events[0].markets[0].selections[0].odds = Number.NaN;
@@ -377,98 +426,6 @@ test('accepts a fresh snapshot containing all three allowed providers', async ()
   assert.deepEqual(result.providerResults, ['sportmonks', 'sharpapi', 'oddspapi']);
   assert.equal(result.eventCount, 1);
   assert.equal(stored, true);
-});
-
-test('partial provider refresh preserves fresh provider data, expires old data, and re-signs the merged snapshot', async () => {
-  const previousPayload = snapshot();
-  const previousRequest = signedRequest(previousPayload);
-  let stored = (await import('../src/sportsbook-ingestion.js')).createStoredSportsbookSnapshot({
-    serializedSnapshot: previousRequest.body.toString('utf8'),
-    timestamp: previousRequest.headers['x-sportsbook-timestamp'],
-    signature: previousRequest.headers['x-sportsbook-signature'],
-    receivedAt: NOW
-  });
-  let pending;
-  const redisClient = {
-    isOpen: true,
-    async watch() {},
-    async get() { return stored; },
-    async unwatch() {},
-    multi() {
-      return {
-        set(_key, value) { pending = value; return this; },
-        async exec() { stored = pending; return ['OK']; }
-      };
-    }
-  };
-  const providerEvent = JSON.parse(JSON.stringify(previousPayload.providerResults[0].events[0]));
-  providerEvent.id = 'sharp-event';
-  providerEvent.home.name = 'Sharp Home';
-  providerEvent.away.name = 'Sharp Away';
-  providerEvent._refs = { sharpapi: 'sharp-provider-event' };
-  providerEvent._sources = ['sharpapi'];
-  for (const market of providerEvent.markets) {
-    market.source = 'sharpapi';
-    for (const selection of market.selections) selection.source = 'sharpapi';
-  }
-  const { mergeSportsbookSnapshots, storeMergedSportsbookSnapshot, verifyStoredSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
-  const incoming = {
-    schemaVersion: 1,
-    generatedAt: new Date(NOW + 60000).toISOString(),
-    providerResults: [
-      { provider: 'sharpapi', enabled: true, events: [providerEvent] },
-      { provider: 'sportmonks', enabled: true, events: [], transportOk: false }
-    ]
-  };
-  const merged = mergeSportsbookSnapshots(incoming, verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW }), {
-    now: NOW + 60000,
-    maxAgeSeconds: 180
-  });
-  assert.deepEqual(merged.providerResults.map(result => result.provider), ['sharpapi', 'sportmonks']);
-  assert.equal(merged.providerResults.find(result => result.provider === 'sportmonks').stale, true);
-  assert.equal(merged.providerResults.find(result => result.provider === 'sportmonks').transportOk, false);
-  assert.equal(merged.eventCount, 2);
-
-  await storeMergedSportsbookSnapshot(redisClient, incoming, { secret: SECRET, now: NOW + 60000, maxAgeSeconds: 180 });
-  const verified = verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW + 60000, maxAgeSeconds: 180 });
-  assert.deepEqual(verified.providerResults, ['sharpapi', 'sportmonks']);
-  assert.equal(verified.snapshot.eventCount, 2);
-
-  const laterIncoming = { ...incoming, generatedAt: new Date(NOW + 240000).toISOString() };
-  await storeMergedSportsbookSnapshot(redisClient, laterIncoming, { secret: SECRET, now: NOW + 240000, maxAgeSeconds: 180 });
-  const afterExpiry = verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW + 240000, maxAgeSeconds: 180 });
-  assert.deepEqual(afterExpiry.providerResults, ['sharpapi']);
-  assert.equal(afterExpiry.snapshot.eventCount, 1);
-});
-
-test('reports event records that do not fit the Sportmonks Redis payload limit', async () => {
-  const payload = snapshot();
-  const template = payload.providerResults[0].events[0];
-  payload.providerResults[0].events = Array.from({ length: 3 }, (_, index) => ({
-    ...JSON.parse(JSON.stringify(template)),
-    id: `oversized-event-${index}`,
-    payloadPadding: 'x'.repeat(30000)
-  }));
-  const { storeMergedSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
-  const redisClient = {
-    isOpen: true,
-    async watch() {},
-    async get() { return null; },
-    async unwatch() {},
-    multi() { assert.fail('oversized snapshot must not be stored'); }
-  };
-
-  await assert.rejects(
-    storeMergedSportsbookSnapshot(redisClient, payload, {
-      secret: SECRET,
-      now: NOW,
-      maxAgeSeconds: 180
-    }),
-    error => error.code === 'SPORTSBOOK_INGEST_REDIS_PAYLOAD_TOO_LARGE'
-      && /eventRecordsNotStored=3/.test(error.message)
-      && /sportmonksEventRecordsNotStored=3/.test(error.message)
-      && /SPORTMONKS_REDIS_MAX_PAYLOAD_BYTES/.test(error.message)
-  );
 });
 
 test('rejects a snapshot with an unallowed or fourth provider', async () => {

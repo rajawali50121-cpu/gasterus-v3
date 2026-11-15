@@ -15,7 +15,7 @@ Object.assign(process.env, {
   SPORTMONKS_FEED_MAX_CACHE_BYTES: '262144'
 });
 
-const [{ __sportsbookProviders, teamKey }, { __sportsbookFeed, validateAllHandicapOdds }, { combineSportsbookProviderResults, fitSnapshotToPayloadBudget }, { paginateEvents }] = await Promise.all([
+const [{ __sportsbookProviders, teamKey }, { __sportsbookFeed, validateAllHandicapOdds }, { combineSportsbookProviderResults }, { paginateEvents }] = await Promise.all([
   import('../src/sportsbook-providers.js'),
   import('../src/sportsbook-feed.js'),
   import('../src/sportsbook-render-worker-core.js'),
@@ -100,47 +100,6 @@ test('more than 500 Sportmonks events survive worker and feed selection and rema
     { maxEvents: 500, sportmonksMaxEvents: 500, teamKey }
   );
   assert.equal(explicitlyCapped.truncatedSportmonksEventCount, 1);
-});
-
-test('Sportmonks feed cache cap reports every omitted event and its configuration key', () => {
-  const value = {
-    events: Array.from({ length: 40 }, (_, index) => ({
-      ...normalizedEvent(`cache-${index}`),
-      statistics: [{ description: 'fixture detail', value: 'x'.repeat(12_000) }]
-    }))
-  };
-  const cached = __sportsbookFeed.cacheWithinLimit(value);
-
-  assert.ok(cached.events.length < value.events.length);
-  assert.deepEqual(cached.diagnostics.feedCacheLimit, {
-    dataTruncated: true,
-    omittedEvents: value.events.length - cached.events.length,
-    maxCacheBytes: 262144,
-    envToIncrease: 'SPORTMONKS_FEED_MAX_CACHE_BYTES'
-  });
-  assert.ok(Buffer.byteLength(JSON.stringify(cached), 'utf8') <= 262144);
-});
-
-test('technical payload cap reports exactly how many Sportmonks events did not fit', () => {
-  const events = Array.from({ length: 40 }, (_, index) => ({
-    ...normalizedEvent(`large-${index}`),
-    statistics: [{ description: 'provider payload', value: 'x'.repeat(300) }]
-  }));
-  const snapshot = {
-    schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
-    providerResults: [{ provider: 'sportmonks', enabled: true, events }],
-    eventCount: events.length
-  };
-  const cap = Math.floor(Buffer.byteLength(JSON.stringify(snapshot)) * 0.7);
-
-  const fitted = fitSnapshotToPayloadBudget(snapshot, cap);
-
-  assert.ok(fitted.eventCount < events.length);
-  assert.equal(fitted.diagnostics.payloadLimit.dataTruncated, true);
-  assert.equal(fitted.diagnostics.payloadLimit.omittedUniqueEvents, events.length - fitted.eventCount);
-  assert.equal(fitted.diagnostics.payloadLimit.envToIncrease, 'SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES');
-  assert.ok(Buffer.byteLength(JSON.stringify(fitted)) <= cap);
 });
 
 test('unparseable Sportmonks odds rows are counted and skipped without rejecting the event', () => {
