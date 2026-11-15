@@ -711,7 +711,10 @@ export async function fetchSharpApi() {
     const rows = [];
     let offset = 0;
     let pagesFetched = 0;
-    for (let page = 0; page < config.sharpApiMaxPages; page += 1) {
+    const maxPages = Number.isFinite(config.sharpApiMaxPages) && config.sharpApiMaxPages > 0
+      ? config.sharpApiMaxPages
+      : Infinity;
+    for (let page = 0; page < maxPages; page += 1) {
       const current = await sharpApiOddsPage(offset);
       pagesFetched += 1;
       const pageRows = Array.isArray(current?.data) ? current.data : [];
@@ -1746,6 +1749,15 @@ export function suspendStaleLiveMarkets(events = [], now = Date.now()) {
     return changed ? { ...event, markets } : event;
   });
 }
+function mergeSelectionsLowestOdds(a = [], b = []) {
+  const map = new Map();
+  for (const s of [...a, ...b]) {
+    const k = String(s.label || '') + '|' + String(s.line ?? '');
+    const cur = map.get(k);
+    if (!cur || (Number.isFinite(s.odds) && s.odds < cur.odds)) map.set(k, s);
+  }
+  return [...map.values()];
+}
 function mergeMarkets(target, incoming, live) {
   const map = new Map(target.map(item => [marketIdentity(item), item]));
   for (const candidate of incoming) {
@@ -1753,12 +1765,18 @@ function mergeMarkets(target, incoming, live) {
     const current = map.get(key);
     const candidateAvailable = marketBettingAvailable(candidate);
     const currentAvailable = marketBettingAvailable(current);
-    if (!current
-      || (candidateAvailable && !currentAvailable)
-      || (candidateAvailable === currentAvailable && sourcePriority(candidate.source, live) > sourcePriority(current.source, live))
-      || (candidateAvailable === currentAvailable && candidate.source === current.source && candidate.selections.length > current.selections.length)) {
+    if (!current) {
       map.set(key, candidate);
+      continue;
     }
+    const takeCandidate = (candidateAvailable && !currentAvailable)
+      || (candidateAvailable === currentAvailable && sourcePriority(candidate.source, live) > sourcePriority(current.source, live));
+    const base = takeCandidate ? candidate : current;
+    const other = takeCandidate ? current : candidate;
+    map.set(key, {
+      ...base,
+      selections: mergeSelectionsLowestOdds(base.selections, other.selections)
+    });
   }
   return [...map.values()].sort((a, b) => {
     const order = { '1X2': 1, HANDICAP: 2, TOTALS: 3, BTTS: 4, DOUBLE_CHANCE: 5, DRAW_NO_BET: 6, TEAM_TOTAL: 7, HT_FT: 8, ODD_EVEN: 9, CORRECT_SCORE: 10, CORNERS: 11, CARDS: 12, PLAYER_PROP: 13, BET_BUILDER: 14, OTHER: 99 };
