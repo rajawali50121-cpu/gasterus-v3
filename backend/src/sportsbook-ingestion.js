@@ -20,18 +20,12 @@ async function readRequestBytes(request, maxBytes) {
     if (!/^\d+$/.test(String(contentLength))) {
       throw new AppError(400, 'Content-Length tidak valid.', 'SPORTSBOOK_INGEST_CONTENT_LENGTH_INVALID');
     }
-    if (Number(contentLength) > maxBytes) {
-      throw new AppError(413, `Ukuran snapshot sportsbook melebihi batas. eventRecordCount=unknown`, 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE');
-    }
   }
 
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > maxBytes) {
-      throw new AppError(413, `Ukuran snapshot sportsbook melebihi batas. eventRecordCount=unknown`, 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE');
-    }
     chunks.push(chunk);
   }
   return Buffer.concat(chunks, size);
@@ -262,7 +256,6 @@ export function createStoredSportsbookSnapshot({ serializedSnapshot, timestamp, 
 
 export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
   secret = config.sportsbookIngestHmacSecret,
-  maxPayloadBytes = config.sportmonksRedisMaxPayloadBytes,
   maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds,
   now = Date.now(),
   ttlSeconds = 1800,
@@ -291,13 +284,6 @@ export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
       validateSportsbookSnapshot(merged, { now, maxAgeSeconds });
       const serializedSnapshot = JSON.stringify(merged);
       const rawBody = Buffer.from(serializedSnapshot, 'utf8');
-      const totalEventRecords = merged.providerResults.reduce((sum, result) => sum + result.events.length, 0);
-      const sportmonksEventRecords = merged.providerResults
-        .filter(result => result.provider === 'sportmonks')
-        .reduce((sum, result) => sum + result.events.length, 0);
-      if (rawBody.length > maxPayloadBytes) {
-        throw new AppError(413, `Snapshot sportsbook melebihi batas payload Redis (SPORTMONKS_REDIS_MAX_PAYLOAD_BYTES). eventRecordsNotStored=${totalEventRecords}, sportmonksEventRecordsNotStored=${sportmonksEventRecords}`, 'SPORTSBOOK_INGEST_REDIS_PAYLOAD_TOO_LARGE');
-      }
       const timestamp = String(Math.floor(now / 1000));
       const signature = createHmac('sha256', secret)
         .update(timestamp)
@@ -318,7 +304,6 @@ export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
 
 export function verifyStoredSportsbookSnapshot(stored, {
   secret = config.sportsbookIngestHmacSecret,
-  maxPayloadBytes = config.sportsbookIngestMaxPayloadBytes,
   maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds,
   now = Date.now()
 } = {}) {
@@ -342,10 +327,6 @@ export function verifyStoredSportsbookSnapshot(stored, {
   }
 
   const rawBody = Buffer.from(record.rawBody, 'utf8');
-  if (rawBody.length > maxPayloadBytes) {
-    throw new AppError(413, 'Snapshot staging sportsbook melebihi batas ukuran.', 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE');
-  }
-
   validateTimestamp(String(record.timestamp || ''), Math.floor(now / 1000), maxAgeSeconds);
   const revision = createHash('sha256').update(rawBody).digest('hex');
   if (!/^[a-f0-9]{64}$/i.test(String(record.revision || ''))
@@ -371,7 +352,6 @@ export function verifyStoredSportsbookSnapshot(stored, {
 
 export async function acceptSportsbookSnapshot(request, {
   secret = config.sportsbookIngestHmacSecret,
-  maxPayloadBytes = config.sportsbookIngestMaxPayloadBytes,
   maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds,
   now = Date.now(),
   storeSnapshot
@@ -388,7 +368,7 @@ export async function acceptSportsbookSnapshot(request, {
   const timestamp = String(request.headers['x-sportsbook-timestamp'] || '');
   const signature = String(request.headers['x-sportsbook-signature'] || '');
   validateTimestamp(timestamp, Math.floor(now / 1000), maxAgeSeconds);
-  const rawBody = await readRequestBytes(request, maxPayloadBytes);
+  const rawBody = await readRequestBytes(request);
   verifySignature(rawBody, timestamp, signature, secret);
 
   let snapshot;

@@ -103,7 +103,9 @@ function extractErrorDetail(payload) {
 }
 
 async function requestJson(url, label) {
-  const response = await fetchWithTimeout(url);
+  const response = await fetchWithTimeout(url, {
+    headers: { 'X-API-Key': SHARP_API_KEY }
+  });
   const text = await response.text();
   const bytes = Buffer.byteLength(text, 'utf8');
   console.log(`SHARPAPI_RESP_BYTES ${bytes} url=${url}`);
