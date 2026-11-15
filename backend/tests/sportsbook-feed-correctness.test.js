@@ -22,7 +22,7 @@ test('R6.9.0.22 feed suspends stale live markets fail-closed before bettable cou
 test('R6.9.0.22 member catalog removes closed results and has bounded horizon', () => {
   assert.match(feed,/function memberVisibleEvent/);
   assert.match(feed,/sportsbookMemberHorizonDays/);
-  assert.match(feed,/sportsbookMemberMaxEvents/);
+  assert.doesNotMatch(feed,/sportsbookMemberMaxEvents/);
   assert.match(feed,/\.filter\(event => memberVisibleEvent\(event, now\)\)/);
 });
 

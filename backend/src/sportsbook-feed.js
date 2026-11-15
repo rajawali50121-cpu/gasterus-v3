@@ -181,7 +181,6 @@ const TOP_LEAGUE_PATTERNS = [
   /\bmajor league soccer\b/i, /\bmls\b/i, /\bchampionship\b/i
 ];
 const MAX_FEED_EVENTS = config.sportsFeedMaxEvents;
-const MAX_CACHE_BYTES = config.sportsFeedMaxCacheBytes;
 let lastCacheLimitWarningAt = 0;
 const WIB_DAY_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Jakarta',
@@ -264,77 +263,10 @@ function boundedEvents(events = []) {
 
 function cacheWithinLimit(value) {
   const bounded = { ...value, events: boundedEvents(value?.events) };
-  const hasSportmonks = config.sportmonksPassthrough
-    && bounded.events.some(event => (event?._sources || []).includes('sportmonks'));
-  const maxCacheBytes = hasSportmonks ? config.sportmonksFeedMaxCacheBytes : MAX_CACHE_BYTES;
   if (!bounded.events.length) {
-    throw new AppError(503, 'Tidak ada event sportsbook yang muat dalam batas ukuran cache.', 'SPORTS_FEED_CACHE_LIMIT');
+    throw new AppError(503, 'Tidak ada event sportsbook yang tersedia dalam feed.', 'SPORTS_FEED_CACHE_LIMIT');
   }
-  const byteLength = candidate => Buffer.byteLength(JSON.stringify(candidate), 'utf8');
-  if (byteLength(bounded) <= maxCacheBytes) return bounded;
-
-  const emptyPayloadBytes = byteLength({ ...bounded, events: [] });
-  const events = [];
-  let retainedBytes = emptyPayloadBytes;
-  let skippedOversizedEvents = 0;
-  let largestEventBytes = 0;
-  for (const event of bounded.events) {
-    const eventBytes = byteLength(event);
-    largestEventBytes = Math.max(largestEventBytes, eventBytes);
-    const candidateBytes = retainedBytes + eventBytes + (events.length ? 1 : 0);
-    if (candidateBytes > maxCacheBytes) {
-      skippedOversizedEvents += 1;
-      continue;
-    }
-    events.push(event);
-    retainedBytes = candidateBytes;
-  }
-  const best = { ...bounded, events };
-  const bestCount = events.length;
-
-  const now = Date.now();
-  if (!bestCount) {
-    if (now - lastCacheLimitWarningAt >= 60000) {
-      logger.error('Sportsbook Redis cache cannot fit any event within the byte limit', {
-        originalEvents: bounded.events.length,
-        largestEventBytes,
-        maxBytes: maxCacheBytes,
-        envToIncrease: hasSportmonks ? 'SPORTMONKS_FEED_MAX_CACHE_BYTES' : 'SPORTS_FEED_MAX_CACHE_BYTES',
-        omittedEvents: bounded.events.length
-      });
-      lastCacheLimitWarningAt = now;
-    }
-    throw new AppError(
-      503,
-      `Tidak ada event sportsbook yang muat dalam batas ukuran cache (${maxCacheBytes} bytes). Naikkan ${hasSportmonks ? 'SPORTMONKS_FEED_MAX_CACHE_BYTES' : 'SPORTS_FEED_MAX_CACHE_BYTES'}.`,
-      'SPORTS_FEED_CACHE_LIMIT'
-    );
-  }
-  if (now - lastCacheLimitWarningAt >= 60000) {
-    logger.warn('Sportsbook Redis cache omitted events to fit byte limit', {
-      originalEvents: bounded.events.length,
-      cachedEvents: bestCount,
-      skippedOversizedEvents,
-      largestEventBytes,
-      maxBytes: maxCacheBytes,
-      omittedEvents: bounded.events.length - bestCount,
-      dataTruncated: true,
-      envToIncrease: hasSportmonks ? 'SPORTMONKS_FEED_MAX_CACHE_BYTES' : 'SPORTS_FEED_MAX_CACHE_BYTES'
-    });
-    lastCacheLimitWarningAt = now;
-  }
-  if (hasSportmonks) {
-    best.diagnostics = {
-      ...(value.diagnostics || {}),
-      feedCacheLimit: {
-        dataTruncated: true,
-        omittedEvents: bounded.events.length - bestCount,
-        maxCacheBytes,
-        envToIncrease: 'SPORTMONKS_FEED_MAX_CACHE_BYTES'
-      }
-    };
-  }
-  return best;
+  return bounded;
 }
 
 function eventBettingOpen(event, now = Date.now()) {
@@ -568,7 +500,6 @@ function buildHardFallbackEvents(now = Date.now()) {
   let fixtureIndex = 0;
   for (const league of HARD_FALLBACK_LEAGUES) {
     for (const [homeName, awayName] of league.fixtures) {
-      if (events.length >= HARD_FALLBACK_MIN_EVENTS) break;
       const live = fixtureIndex % 4 === 0;
       const profile = HARD_FALLBACK_ODDS_PROFILES[fixtureIndex % HARD_FALLBACK_ODDS_PROFILES.length];
       const eventId = `hf-${String(fixtureIndex + 1).padStart(3, '0')}`;
@@ -719,18 +650,6 @@ async function readRedisCache() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed.events) || !Array.isArray(parsed.providers)) return null;
-    const hasSportmonks = config.sportmonksPassthrough
-      && parsed.events.some(event => (event?._sources || []).includes('sportmonks'));
-    const maxCacheBytes = hasSportmonks ? config.sportmonksFeedMaxCacheBytes : MAX_CACHE_BYTES;
-    if (Buffer.byteLength(raw, 'utf8') > maxCacheBytes) {
-      logger.warn('Sportsbook Redis cache exceeds byte cap; ignoring cache', {
-        maxBytes: maxCacheBytes,
-        events: parsed.events.length,
-        dataTruncated: true,
-        envToIncrease: hasSportmonks ? 'SPORTMONKS_FEED_MAX_CACHE_BYTES' : 'SPORTS_FEED_MAX_CACHE_BYTES'
-      });
-      return null;
-    }
     if (parsed.hardFallback) {
       logger.warn('Discarding legacy synthetic sportsbook cache', { feedRevision: parsed.revision || null });
       await redis.del(CACHE_KEY);
@@ -1573,17 +1492,6 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
         const bStart = Date.parse(b.startTime || '') || Number.POSITIVE_INFINITY;
         return aStart - bStart || String(a.id).localeCompare(String(b.id));
       });
-    if (!config.sportmonksPassthrough) {
-      sourceEvents = sourceEvents.slice(0, Number(config.sportsbookMemberMaxEvents || MAX_FEED_EVENTS));
-    } else {
-      let nonSportmonksCount = 0;
-      sourceEvents = sourceEvents.filter(event => {
-        if ((event?._sources || []).includes('sportmonks')) return true;
-        if (nonSportmonksCount >= Number(config.sportsbookMemberMaxEvents || MAX_FEED_EVENTS)) return false;
-        nonSportmonksCount += 1;
-        return true;
-      });
-    }
   }
   const page = paginateEvents(sourceEvents, filters);
   sourceEvents = page.events;

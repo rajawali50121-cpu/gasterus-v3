@@ -205,10 +205,9 @@ test('Railway provider merge deduplicates the same cross-provider fixture before
   };
   const bounded = feed.__sportsbookFeed.cacheWithinLimit(feedValue);
   const bytes = Buffer.byteLength(JSON.stringify(bounded), 'utf8');
-  assert.ok(bounded.events.length <= 500);
-  assert.ok(bytes <= 300000, `serialized feed cache ${bytes} exceeds configured byte budget`);
-  assert.ok(bounded.events.length > 0, 'bounded cache preserves events where the byte cap allows');
+  // Tidak ada batas byte: semua event dan market lolos cacheWithinLimit.
+  assert.equal(bounded.events.length, 60, 'semua event harus lolos tanpa batas byte');
   assert.ok(bounded.events.every(event => event.markets.length === 10
     && event.markets.every(market => market.selections.length === 5)),
-  'cache byte fitting must not silently truncate markets or selections');
+  'cache harus menyimpan seluruh market dan seleksi tanpa potongan');
 });

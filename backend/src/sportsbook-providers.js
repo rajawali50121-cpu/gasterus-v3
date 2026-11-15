@@ -15,8 +15,6 @@ function utcDate(offsetDays = 0) {
 
 // No artificial event cap: API quota is the only real ceiling.
 const SPORTMONKS_PAGE_SIZE = 50;
-const SPORTMONKS_PAGE_MAX_BYTES = 8_388_608;
-const SPORTMONKS_CANDIDATE_MULTIPLIER = 1.2;
 const SPORTMONKS_FIXTURE_INCLUDES = 'state;participants;league.country;odds;odds.market;odds.bookmaker;scores;statistics.type;events.type';
 const SPORTMONKS_LIVE_INCLUDES = 'state;participants;league.country;inplayOdds;inplayOdds.market;inplayOdds.bookmaker;scores';
 const DEFAULT_SPORTMONKS_PRIORITY_LEAGUES = ['Premier League', 'La Liga', 'Serie A', 'Bundesliga', 'Ligue 1', 'UEFA Champions League', 'UEFA Europa League', 'UEFA Europa Conference League', 'Eredivisie', 'Primeira Liga', 'Major League Soccer'];
@@ -261,7 +259,7 @@ function normalizedEvent({ provider, providerId, sport, league, country = '', st
   };
 }
 
-async function requestJson(url, { headers = {}, label = 'sports provider', maxBytes = config.sportsProviderCacheMaxEntryBytes } = {}) {
+async function requestJson(url, { headers = {}, label = 'sports provider', maxBytes = 0 } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.sportsFeedRequestTimeoutMs);
   try {
@@ -1087,7 +1085,7 @@ async function fetchSportmonksPage(base, date, page) {
         label: config.sportmonksPassthrough
           ? `Sportmonks ${date} page ${page} (increase SPORTMONKS_MAX_RESPONSE_BYTES if needed)`
           : `Sportmonks ${date} page ${page}`,
-        maxBytes: config.sportmonksPassthrough ? config.sportmonksMaxResponseBytes : SPORTMONKS_PAGE_MAX_BYTES
+        maxBytes: config.sportmonksMaxResponseBytes
       });
       if (!Array.isArray(payload?.data)) {
         const detail = clean(payload?.message || payload?.error?.message, 200);
@@ -1150,7 +1148,7 @@ async function fetchSportmonksLiveWindow(base) {
           label: config.sportmonksPassthrough
             ? 'Sportmonks livescores (increase SPORTMONKS_MAX_RESPONSE_BYTES if needed)'
             : 'Sportmonks livescores',
-          maxBytes: config.sportmonksPassthrough ? config.sportmonksMaxResponseBytes : SPORTMONKS_PAGE_MAX_BYTES
+          maxBytes: config.sportmonksMaxResponseBytes
         });
         if (!Array.isArray(payload?.data)) {
           throw new Error('Sportmonks livescores returned an invalid data array.');
@@ -1236,7 +1234,7 @@ function suspendSportmonksLiveMarkets(events) {
   });
 }
 
-function mergeSportmonksLiveWindow(events, liveEvents, maxEvents, priorityLeagues) {
+function mergeSportmonksLiveWindow(events, liveEvents, priorityLeagues) {
   const identity = event => String(event?._refs?.sportmonks || event?.id || '');
   const updates = new Map(liveEvents.map(event => [identity(event), event]));
   const merged = [];
@@ -1260,7 +1258,6 @@ function mergeSportmonksLiveWindow(events, liveEvents, maxEvents, priorityLeague
     });
   }
   merged.push(...updates.values());
-  const eventLimit = config.sportmonksPassthrough && maxEvents === 0 ? Number.POSITIVE_INFINITY : maxEvents;
   return merged
     .map(event => ({
       event,
@@ -1268,15 +1265,14 @@ function mergeSportmonksLiveWindow(events, liveEvents, maxEvents, priorityLeague
       startTime: Date.parse(event.startTime) || Number.MAX_SAFE_INTEGER
     }))
     .sort(compareSportmonksEvents)
-    .slice(0, eventLimit)
     .map(candidate => candidate.event);
 }
 
-async function applySportmonksLiveWindow(events, base, maxEvents, priorityLeagues) {
+async function applySportmonksLiveWindow(events, base, priorityLeagues) {
   const liveWindow = await fetchSportmonksLiveWindow(base);
   const updatedEvents = liveWindow.failed
     ? suspendSportmonksLiveMarkets(events)
-    : mergeSportmonksLiveWindow(events, liveWindow.events, maxEvents, priorityLeagues);
+    : mergeSportmonksLiveWindow(events, liveWindow.events, priorityLeagues);
   return { events: updatedEvents, liveWindow };
 }
 
@@ -1298,8 +1294,8 @@ function compareSportmonksEvents(a, b) {
 }
 
 export async function fetchSportmonks({
-  maxEvents = config.sportmonksMaxTotalEvents,
-  maxPages = config.sportmonksMaxPages
+  maxEvents = 0,
+  maxPages = 0
 } = {}) {
   if (!config.sportmonksEnabled || !config.sportmonksKey) {
     logger.warn('Sportmonks disabled or missing API key');
@@ -1308,20 +1304,7 @@ export async function fetchSportmonks({
   
   const base = config.sportmonksBaseUrl.replace(/\/$/, '');
   const now = Date.now();
-  if (!Number.isInteger(maxEvents) || maxEvents < 0
-    || (!config.sportmonksPassthrough && maxEvents > config.sportmonksMaxTotalEvents)) {
-    throw new Error(config.sportmonksPassthrough
-      ? 'Sportmonks maxEvents must be a non-negative integer in passthrough mode.'
-      : `Sportmonks maxEvents must be an integer between 0 and ${config.sportmonksMaxTotalEvents}.`);
-  }
-  if (!Number.isInteger(maxPages) || maxPages < (config.sportmonksPassthrough ? 0 : 1)
-    || (!config.sportmonksPassthrough && maxPages > config.sportmonksMaxPages)) {
-    throw new Error(config.sportmonksPassthrough
-      ? 'Sportmonks maxPages must be a non-negative integer in passthrough mode.'
-      : `Sportmonks maxPages must be an integer between 1 and ${config.sportmonksMaxPages}.`);
-  }
-  if (maxEvents === 0 && !config.sportmonksPassthrough) return { provider: 'sportmonks', enabled: true, events: [], errors: [] };
-  const cacheKey = `sportmonks:all-events:${utcDate(0)}:${config.sportmonksDaysAhead}:${maxEvents}:${maxPages}`;
+  const cacheKey = `sportmonks:all-events:${utcDate(0)}:${config.sportmonksDaysAhead}`;
   const priorityLeagues = String(config.sportmonksPriorityLeagues || '')
     .split(',')
     .map(name => clean(name, 120).toLowerCase())
@@ -1334,7 +1317,6 @@ export async function fetchSportmonks({
     const { events, liveWindow } = await applySportmonksLiveWindow(
       cached?.events || [],
       base,
-      maxEvents,
       configuredPriorityLeagues
     );
     logger.info('Sportmonks: returning cached fixture catalog', {
@@ -1342,7 +1324,7 @@ export async function fetchSportmonks({
       events: events.length,
       liveWindowFailed: liveWindow.failed
     });
-    return { provider: 'sportmonks', enabled: true, events, transportOk: true, errors: liveWindow.errors, warnings: undefined };
+    return { provider: 'sportmonks', enabled: true, events, transportOk: true, errors: liveWindow.errors, warnings: undefined, diagnostics: { pagesFetched: 0, pageFailures: 0, responseByteLimitFailures: 0, dataTruncated: false, envToIncrease: null, rawFixtures: events.length, returnedEvents: events.length } };
   }
 
   // Check retry state cooldown
@@ -1351,7 +1333,6 @@ export async function fetchSportmonks({
     const { events, liveWindow } = await applySportmonksLiveWindow(
       cached?.events || [],
       base,
-      maxEvents,
       configuredPriorityLeagues
     );
     return {
@@ -1361,7 +1342,8 @@ export async function fetchSportmonks({
       stale: true,
       transportOk: false,
       errors: [retryState.message, ...liveWindow.errors],
-      warnings: undefined
+      warnings: undefined,
+      diagnostics: { pagesFetched: 0, pageFailures: 0, responseByteLimitFailures: 0, dataTruncated: false, envToIncrease: null, rawFixtures: events.length, returnedEvents: events.length }
     };
   }
   
@@ -1373,13 +1355,6 @@ export async function fetchSportmonks({
   const warnings = [];
   let hadPayloadError = false;
   let firstPageWarningLogged = false;
-  const eventLimit = config.sportmonksPassthrough && maxEvents === 0 ? Number.POSITIVE_INFINITY : maxEvents;
-  const candidateLimit = config.sportmonksPassthrough && eventLimit === Number.POSITIVE_INFINITY
-    ? Number.POSITIVE_INFINITY
-    : Math.min(
-      Math.ceil(maxEvents * SPORTMONKS_CANDIDATE_MULTIPLIER),
-      maxPages === 0 ? Number.POSITIVE_INFINITY : maxPages * SPORTMONKS_PAGE_SIZE
-    );
   const rankedEvents = [];
   const seen = new Set();
   const diagnostics = {
@@ -1404,19 +1379,14 @@ export async function fetchSportmonks({
     pageBudgetExhausted: false
   };
   let providerRetryAfterMs = 0;
-  // Scan round-robin across dates so a finite configured page budget does not
-  // strand later dates. A zero page budget follows every page until has_more
-  // is false; candidate ranking only applies when an event budget is set.
   const cursors = dates.map(date => ({ date, page: 1, exhausted: false }));
   let pagesFetched = 0;
   let permanentPageFailure = false;
   while (
-    (maxPages === 0 || pagesFetched < maxPages)
-    && cursors.some(cursor => !cursor.exhausted)
+    cursors.some(cursor => !cursor.exhausted)
   ) {
     for (const cursor of cursors) {
       if (cursor.exhausted) continue;
-      if (maxPages > 0 && pagesFetched >= maxPages) break;
       try {
         const { data, hasMore, warning } = await fetchSportmonksPage(base, cursor.date, cursor.page);
         if (warning && !firstPageWarningLogged) {
@@ -1472,10 +1442,6 @@ export async function fetchSportmonks({
             if (event.markets.length) diagnostics.fixturesWithMarkets += 1;
             rankedEvents.push(candidate);
             rankedEvents.sort(compareSportmonksEvents);
-            if (rankedEvents.length > candidateLimit) {
-              rankedEvents.pop();
-              diagnostics.candidateDiscarded += 1;
-            }
           } catch (error) {
             diagnostics.eventFailures += 1;
             errors.push(`Fixture ${fixture.id}: ${error.message}`);
@@ -1501,16 +1467,9 @@ export async function fetchSportmonks({
     }
   }
   diagnostics.pagesFetched = pagesFetched;
-  diagnostics.pageBudgetExhausted = maxPages > 0 && pagesFetched >= maxPages && cursors.some(cursor => !cursor.exhausted);
-  if (diagnostics.pageBudgetExhausted) {
-    errors.push(`Sportmonks page budget exhausted after ${pagesFetched} pages; remaining fixture pages were not fetched.`);
-  }
-  const fixtureEvents = rankedEvents.slice(0, eventLimit).map(candidate => candidate.event);
-  const eventLimitOmittedEvents = diagnostics.candidateDiscarded
-    + Math.max(0, rankedEvents.length - fixtureEvents.length);
-  diagnostics.eventLimitOmittedEvents = eventLimitOmittedEvents;
+  const fixtureEvents = rankedEvents.map(candidate => candidate.event);
   
-if (diagnostics.pageFailures > 0 || diagnostics.pageBudgetExhausted) {
+if (diagnostics.pageFailures > 0) {
     const attempts = (retryState?.attempts || 0) + 1;
     const backoffMs = permanentPageFailure
       ? 15 * 60_000
@@ -1562,7 +1521,6 @@ if (diagnostics.pageFailures > 0 || diagnostics.pageBudgetExhausted) {
       const { events, liveWindow } = await applySportmonksLiveWindow(
         partialEvents,
         base,
-        maxEvents,
         configuredPriorityLeagues
       );
       return {
@@ -1581,7 +1539,6 @@ if (diagnostics.pageFailures > 0 || diagnostics.pageBudgetExhausted) {
     const { events: currentEvents, liveWindow } = await applySportmonksLiveWindow(
       cached?.events || fixtureEvents,
       base,
-      maxEvents,
       configuredPriorityLeagues
     );
     return {
@@ -1614,7 +1571,6 @@ if (diagnostics.pageFailures > 0 || diagnostics.pageBudgetExhausted) {
   const { events, liveWindow } = await applySportmonksLiveWindow(
     fixtureEvents,
     base,
-    maxEvents,
     configuredPriorityLeagues
   );
   logSportmonksUnknownMarkets(diagnostics);
@@ -1635,31 +1591,23 @@ if (diagnostics.pageFailures > 0 || diagnostics.pageBudgetExhausted) {
     eventFailures: diagnostics.eventFailures,
     normalizedEvents: diagnostics.normalizedEvents,
     candidateDiscarded: diagnostics.candidateDiscarded,
-    eventLimitOmittedEvents,
     rankedCandidates: rankedEvents.length,
     returnedEvents: events.length,
     liveWindowEvents: liveWindow.events.length,
     liveWindowFailed: liveWindow.failed,
     pagesFetched,
     dates: dates.length,
-    candidateLimit,
     paginationComplete: diagnostics.pageFailures === 0 && cursors.every(cursor => cursor.exhausted),
     pageFailures: diagnostics.pageFailures,
-    pageBudgetExhausted: diagnostics.pageBudgetExhausted,
     responseByteLimitFailures: diagnostics.responseByteLimitFailures,
-    dataTruncated: eventLimitOmittedEvents > 0 || diagnostics.pageBudgetExhausted || diagnostics.pageFailures > 0,
-    envToIncrease: eventLimitOmittedEvents > 0
-      ? 'SPORTMONKS_MAX_TOTAL_EVENTS'
-      : diagnostics.pageBudgetExhausted
-        ? 'SPORTMONKS_MAX_PAGES'
-        : diagnostics.responseByteLimitFailures > 0
-          ? 'SPORTMONKS_MAX_RESPONSE_BYTES'
-          : null,
+    dataTruncated: diagnostics.pageFailures > 0,
+    envToIncrease: diagnostics.responseByteLimitFailures > 0
+      ? 'SPORTMONKS_MAX_RESPONSE_BYTES'
+      : null,
     skippedEvents: diagnostics.normalizedRejected + diagnostics.eventFailures,
     filteredFixtures: diagnostics.stateFiltered + diagnostics.pastKickoffFiltered,
     unknownMarketCount: diagnostics.unknownMarkets.size,
     retryCooldownActive: false,
-    maxEvents,
     errors: errors.length,
     errorSample: errors.slice(0, 3)
   });
@@ -1688,7 +1636,7 @@ export async function fetchSportmonksFixtureById(fixtureId) {
     label: config.sportmonksPassthrough
       ? `Sportmonks fixture ${id} (increase SPORTMONKS_MAX_RESPONSE_BYTES if needed)`
       : `Sportmonks fixture ${id}`,
-    maxBytes: config.sportmonksPassthrough ? config.sportmonksMaxResponseBytes : SPORTMONKS_PAGE_MAX_BYTES
+    maxBytes: config.sportmonksMaxResponseBytes
   });
   const raw = payload?.data || payload;
   if (!raw || !raw.id) throw new Error(`Sportmonks fixture ${id} not found.`);

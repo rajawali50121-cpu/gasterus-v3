@@ -145,16 +145,15 @@ export const config = Object.freeze({
   // Background feed/collector process is separate from settlement (feed-worker.js).
   sportsSourceBackgroundPollEnabled: bool('SPORTS_SOURCE_BACKGROUND_POLL_ENABLED', true),
   feedWorkerEnabled: bool('FEED_WORKER_ENABLED', true),
-  // Event dan payload tetap dibatasi; worker menghilangkan fixture utuh bila
-  // byte budget habis, bukan memangkas market/selection dari fixture tersimpan.
-  // Cache backend menyamai batas ingest 6MB untuk menyimpan snapshot lengkap.
-  // Zero = no cap; pagination is exhausted to the last API page.
+  // Event dan payload TIDAK dibatasi di sisi feed; semua event dari provider
+  // lewat tanpa potongan. Batas fisik (memori worker, Redis) tetap berlaku.
+  // Zero = no cap; pagination dihabiskan sampai halaman terakhir API.
   sportsFeedMaxEvents: unboundedInt('SPORTS_FEED_MAX_EVENTS', 0, 0),
-  sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000),
-  // Eviction agresif provider cache: entri lama langsung dibuang sebelum menumpuk di RAM.
-  sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 40, 1, 10000),
-  sportsProviderCacheMaxEntryBytes: int('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 1_048_576, 1024, 100_000_000),
-  sportsProviderCacheMaxTotalBytes: int('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000, 1024, 100_000_000),
+  sportsFeedMaxCacheBytes: unboundedInt('SPORTS_FEED_MAX_CACHE_BYTES', 0, 0),
+  // Provider cache tidak dibatasi jumlah entri atau byte; eviction diatur TTL saja.
+  sportsProviderCacheMaxEntries: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 0, 0),
+  sportsProviderCacheMaxEntryBytes: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 0, 0),
+  sportsProviderCacheMaxTotalBytes: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 0, 0),
 
   // Provider credentials are read only by core and may be mounted as Docker secrets.
   sharpApiKey,
@@ -167,7 +166,7 @@ export const config = Object.freeze({
   sharpApiSportsbook: text('SHARP_API_SPORTSBOOK', ''),
   sharpApiPreferredSportsbooks: text('SHARP_API_PREFERRED_SPORTSBOOKS', 'sbobet,pinnacle,bet365'),
   sharpApiRefreshSeconds: int('SHARP_API_REFRESH_SECONDS', isProduction ? 45 : 30, 15, 1800),
-  sharpApiMaxPages: int('SHARP_API_MAX_PAGES', isProduction ? 5 : 3, 1, 10),
+  sharpApiMaxPages: unboundedInt('SHARP_API_MAX_PAGES', 0, 0),
   sharpApiPageSize: int('SHARP_API_PAGE_SIZE', 200, 25, 200),
   sharpApiMainLinesOnly: bool('SHARP_API_MAIN_LINES_ONLY', false),
   // Keep the configured provider catalog intact; the feed-level event and Redis byte
@@ -185,12 +184,10 @@ export const config = Object.freeze({
   sportmonksDaysAhead: sportmonksPassthrough
     ? naturalInt('SPORTMONKS_DAYS_AHEAD', 365)
     : legacySportmonksInt('SPORTMONKS_DAYS_AHEAD', 30, 0, 30, '365', 30),
-  sportmonksMaxPages: sportmonksPassthrough
-    ? naturalInt('SPORTMONKS_MAX_PAGES', 0)
-    : legacySportmonksInt('SPORTMONKS_MAX_PAGES', 120, 1, 120, '0', 120),
+  sportmonksMaxPages: unboundedInt('SPORTMONKS_MAX_PAGES', 0, 0),
   sportmonksMaxResponseBytes: sportmonksPassthrough
-    ? naturalInt('SPORTMONKS_MAX_RESPONSE_BYTES', 50_000_000, 1)
-    : 8_388_608,
+    ? unboundedInt('SPORTMONKS_MAX_RESPONSE_BYTES', 0, 0)
+    : unboundedInt('SPORTMONKS_MAX_RESPONSE_BYTES', 0, 0),
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
   oddsPapiEnabled: bool('ODDSPAPI_ENABLED', false),
   oddsPapiKey,
@@ -204,9 +201,7 @@ export const config = Object.freeze({
   sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 180, 30, 1800),
   sportmonksLiveRefreshSeconds: int('SPORTMONKS_LIVE_REFRESH_SECONDS', 30, 15, 300),
   sportmonksPriorityLeagues: text('SPORTMONKS_PRIORITY_LEAGUES', 'Premier League,La Liga,Serie A,Bundesliga,Ligue 1,UEFA Champions League,UEFA Europa League,UEFA Europa Conference League,Eredivisie,Primeira Liga,Major League Soccer'),
-  sportmonksMaxTotalEvents: sportmonksPassthrough
-    ? naturalInt('SPORTMONKS_MAX_TOTAL_EVENTS', 0)
-    : legacySportmonksBoundedInt('SPORTMONKS_MAX_TOTAL_EVENTS', 500, 0, 500, '0', 500),
+  sportmonksMaxTotalEvents: unboundedInt('SPORTMONKS_MAX_TOTAL_EVENTS', 0),
   sportmonksRequestDelayMs: int('SPORTMONKS_REQUEST_DELAY_MS', 0, 0, 60000),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
   sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
@@ -229,7 +224,7 @@ export const config = Object.freeze({
   publicMarketRefreshSeconds: int('PUBLIC_MARKET_REFRESH_SECONDS', 900, 300, 21600),
   publicMarketMaxStaleSeconds: int('PUBLIC_MARKET_MAX_STALE_SECONDS', 172800, 1800, 604800),
   publicMarketRequestTimeoutMs: int('PUBLIC_MARKET_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
-  publicMarketMaxEvents: int('PUBLIC_MARKET_MAX_EVENTS', 100, 10, 500),
+  publicMarketMaxEvents: unboundedInt('PUBLIC_MARKET_MAX_EVENTS', 0, 0),
   publicMarketDerivedMarketsEnabled: bool('PUBLIC_MARKET_DERIVED_MARKETS_ENABLED', !isProduction),
   publicMarketDerivedMarginBps: int('PUBLIC_MARKET_DERIVED_MARGIN_BPS', 450, 100, 1200),
   publicMarketPriceMaxAgeSeconds: int('PUBLIC_MARKET_PRICE_MAX_AGE_SECONDS', 604800, 900, 604800),
@@ -241,7 +236,7 @@ export const config = Object.freeze({
   sportsFeedStaleSeconds: int('SPORTS_FEED_STALE_SECONDS', 180, 30, 3600),
   sportsbookFinishedEventRetentionSeconds: int('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600, 3600, 86400),
   sportsbookMemberHorizonDays: int('SPORTSBOOK_MEMBER_HORIZON_DAYS', 30, 1, 60),
-  sportsbookMemberMaxEvents: int('SPORTSBOOK_MEMBER_MAX_EVENTS', 500, 20, 500),
+  sportsbookMemberMaxEvents: unboundedInt('SPORTSBOOK_MEMBER_MAX_EVENTS', 0, 0),
   sportsFeedRequestTimeoutMs: int('SPORTS_FEED_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
   sportsbookProviderFailureThreshold: int('SPORTSBOOK_PROVIDER_FAILURE_THRESHOLD', 3, 1, 20),
   sportsbookProviderRecoverySuccesses: int('SPORTSBOOK_PROVIDER_RECOVERY_SUCCESSES', 2, 1, 20),
@@ -322,10 +317,10 @@ export const config = Object.freeze({
   rapidApiOddsRefreshSeconds: int('RAPIDAPI_ODDS_REFRESH_SECONDS', 60, 15, 1800),
   rapidApiOddsPrematchRefreshSeconds: int('RAPIDAPI_ODDS_PREMATCH_REFRESH_SECONDS', 300, 60, 3600),
   rapidApiOddsLiveRefreshSeconds: int('RAPIDAPI_ODDS_LIVE_REFRESH_SECONDS', 30, 15, 600),
-  rapidApiOddsMaxPages: int('RAPIDAPI_ODDS_MAX_PAGES', 5, 1, 20),
+  rapidApiOddsMaxPages: unboundedInt('RAPIDAPI_ODDS_MAX_PAGES', 0, 0),
   rapidApiOddsRequestTimeoutMs: int('RAPIDAPI_ODDS_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
-  rapidApiOddsMaxEvents: int('RAPIDAPI_ODDS_MAX_EVENTS', 500, 20, 500),
-  rapidApiOddsMaxCacheBytes: int('RAPIDAPI_ODDS_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000),
+  rapidApiOddsMaxEvents: unboundedInt('RAPIDAPI_ODDS_MAX_EVENTS', 0, 0),
+  rapidApiOddsMaxCacheBytes: unboundedInt('RAPIDAPI_ODDS_MAX_CACHE_BYTES', 0, 0),
   betnexApiKey,
   betnexCallbackKey,
   betnexProtocolVerified,

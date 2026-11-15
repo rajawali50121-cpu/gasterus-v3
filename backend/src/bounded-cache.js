@@ -9,7 +9,8 @@ export function pruneExpiredCacheEntries(cache, now = Date.now()) {
 }
 
 export function ensureBoundedCacheCapacity(cache, key, maxEntries) {
-  while (!cache.has(key) && cache.size >= maxEntries) {
+  const limited = Number.isFinite(maxEntries) && maxEntries > 0;
+  while (limited && !cache.has(key) && cache.size >= maxEntries) {
     let oldestKey = null;
     let oldestFetchedAt = Number.POSITIVE_INFINITY;
     for (const [entryKey, entry] of cache) {
@@ -37,10 +38,12 @@ export function setBoundedCacheEntry(cache, key, value, {
   const serialized = JSON.stringify(value);
   if (serialized === undefined) throw new Error('Cache value is not JSON-serializable');
   const sizeBytes = Buffer.byteLength(serialized, 'utf8');
-  if (sizeBytes > maxEntryBytes) {
+  const limitedEntry = Number.isFinite(maxEntryBytes) && maxEntryBytes > 0;
+  const limitedTotal = Number.isFinite(maxTotalBytes) && maxTotalBytes > 0;
+  if (limitedEntry && sizeBytes > maxEntryBytes) {
     throw new Error(`Provider response exceeds cache entry limit (${sizeBytes} > ${maxEntryBytes} bytes)`);
   }
-  if (sizeBytes > maxTotalBytes) {
+  if (limitedTotal && sizeBytes > maxTotalBytes) {
     throw new Error(`Provider response exceeds total cache limit (${sizeBytes} > ${maxTotalBytes} bytes)`);
   }
 
@@ -63,12 +66,12 @@ export function setBoundedCacheEntry(cache, key, value, {
   }
   oldestFirst.sort((a, b) => a[2] - b[2]);
 
-  while (totalBytes + sizeBytes > maxTotalBytes && oldestFirst.length) {
+  while (limitedTotal && totalBytes + sizeBytes > maxTotalBytes && oldestFirst.length) {
     const [oldestCache, oldestKey, , entrySize] = oldestFirst.shift();
     oldestCache.delete(oldestKey);
     totalBytes -= entrySize;
   }
-  if (totalBytes + sizeBytes > maxTotalBytes) {
+  if (limitedTotal && totalBytes + sizeBytes > maxTotalBytes) {
     throw new Error('Provider response cannot fit within total cache limit');
   }
 

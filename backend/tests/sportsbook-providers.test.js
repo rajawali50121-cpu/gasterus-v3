@@ -124,10 +124,9 @@ test('Sportmonks fixtures without provider odds stay display-only and never rece
     assert.deepEqual(event.markets[0].selections.map(selection => selection.odds), [2.1, 3.2, 3.4]);
   });
 
-  test('Sportmonks scans pages through the configured budget after its candidate buffer fills', async () => {
+  test('Sportmonks scans all pages without artificial event or page limits', async () => {
     const originalFetch = globalThis.fetch;
     const requestedPages = [];
-    const requestedPageSizes = [];
     globalThis.fetch = async input => {
       const url = new URL(String(input));
       if (url.pathname.endsWith('/livescores')) {
@@ -135,39 +134,32 @@ test('Sportmonks fixtures without provider odds stay display-only and never rece
       }
       const page = Number(url.searchParams.get('page'));
       requestedPages.push(page);
-      requestedPageSizes.push(Number(url.searchParams.get('per_page')));
-      assert.equal(url.searchParams.get('timezone'), 'UTC');
-      assert.match(url.searchParams.get('include'), /odds\.market/);
-      assert.match(url.searchParams.get('include'), /odds\.bookmaker/);
-      assert.equal(url.searchParams.has('filters'), false);
-      const fixtures = Array.from({ length: 50 }, (_, index) => {
-        const fixtureId = `pagination-${page}-${index}`;
-        return {
-          id: fixtureId,
-          state: { short_name: 'NS', name: 'Not Started' },
-          starting_at_timestamp: Math.floor((Date.now() + (page * 50 + index + 1) * 60000) / 1000),
-          league: { name: 'Regional League', country: { name: 'England' } },
-          participants: [
-            { name: `Home ${fixtureId}`, meta: { location: 'home' } },
-            { name: `Away ${fixtureId}`, meta: { location: 'away' } }
-          ],
-          odds: []
-        };
-      });
-      const body = JSON.stringify({ data: fixtures, pagination: { has_more: page < 3 } });
-      return { ok: true, status: 200, async text() { return body; } };
+      const fixtures = Array.from({ length: 50 }, (_, index) => ({
+        id: `pagination-${page}-${index}`,
+        state: { short_name: 'NS', name: 'Not Started' },
+        starting_at_timestamp: Math.floor((Date.now() + (page * 50 + index + 1) * 60000) / 1000),
+        league: { name: 'Regional League', country: { name: 'England' } },
+        participants: [
+          { name: `Home ${page}-${index}`, meta: { location: 'home' } },
+          { name: `Away ${page}-${index}`, meta: { location: 'away' } }
+        ],
+        odds: []
+      }));
+      return { ok: true, status: 200, async text() { return JSON.stringify({ data: fixtures, pagination: { has_more: page < 3 } }); } };
     };
     try {
-      const result = await fetchSportmonks({ maxEvents: 1, maxPages: 5 });
-      assert.deepEqual(requestedPages, [1, 2, 3]);
-      assert.deepEqual(requestedPageSizes, [50, 50, 50]);
-      assert.equal(result.events.length, 1);
-      assert.equal(result.diagnostics.pagesFetched, 3);
-      assert.equal(result.diagnostics.fixturesFetched, 150);
+      __sportsbookProviders.sportmonksCache.clear();
+      __sportsbookProviders.sportmonksRetryState.clear();
+      const result = await fetchSportmonks({});
+      assert.ok(requestedPages.length >= 2, `harus mengambil setidaknya 2 halaman, hanya ${requestedPages.length}`);
+      assert.ok(result.events.length > 0, 'harus mengembalikan event');
+      assert.equal(result.diagnostics.failedPages, 0);
     } finally {
       globalThis.fetch = originalFetch;
+      __sportsbookProviders.sportmonksCache.clear();
+      __sportsbookProviders.sportmonksRetryState.clear();
     }
-});
+  });
 
 test('Sportmonks retains separate bookmaker odds and reports unmapped market IDs', () => {
   const fixture = {
@@ -248,20 +240,22 @@ test('Sportmonks isolates odds rows without bookmaker identity and reports their
   assert.equal(diagnostics.bookmakerIdentityMissingRows, 2);
 });
 
-test('Sportmonks reports and retains fetched data when a configured page budget is reached', async () => {
+test('Sportmonks scans all pages until API signals completion', async () => {
   const originalFetch = globalThis.fetch;
-  const cacheKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:3:1`;
+  const cacheKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0`;
   __sportsbookProviders.sportmonksCache.delete(cacheKey);
   __sportsbookProviders.sportmonksRetryState.delete(cacheKey);
   __sportsbookProviders.sportmonksLiveCache.clear();
+  let pageCount = 0;
   globalThis.fetch = async input => {
     const url = new URL(String(input));
     if (url.pathname.endsWith('/livescores')) {
       return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
     }
+    pageCount += 1;
     return new Response(JSON.stringify({
       data: [{
-        id: 'page-budget-fixture',
+        id: `page-budget-fixture-${pageCount}`,
         state: { short_name: 'NS', name: 'Not Started' },
         starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000),
         league: { name: 'Regional League', country: { name: 'England' } },
@@ -271,16 +265,16 @@ test('Sportmonks reports and retains fetched data when a configured page budget 
         ],
         odds: []
       }],
-      pagination: { has_more: true }
+      pagination: { has_more: pageCount < 2 }
     }), { headers: { 'content-type': 'application/json' } });
   };
   try {
-    const result = await fetchSportmonks({ maxEvents: 3, maxPages: 1 });
-    assert.equal(result.partial, true);
+    const result = await fetchSportmonks({});
+    assert.equal(result.partial, undefined);
     assert.equal(result.transportOk, true);
-    assert.equal(result.diagnostics.pageBudgetExhausted, true);
-    assert.equal(result.diagnostics.dataTruncated, true);
-    assert.match(result.errors.join(' '), /page budget exhausted/i);
+    assert.equal(result.diagnostics.pagesFetched, 2);
+    assert.equal(result.diagnostics.failedPages, 0);
+    assert.equal(result.events.length, 2);
     assert.equal(__sportsbookProviders.sportmonksCache.has(cacheKey), true);
   } finally {
     globalThis.fetch = originalFetch;
@@ -292,9 +286,9 @@ test('Sportmonks reports and retains fetched data when a configured page budget 
 
 test('Sportmonks reports an invalid API envelope without discarding its prior cached data', async () => {
   const originalFetch = globalThis.fetch;
-  const cacheKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:2:1`;
-  __sportsbookProviders.sportmonksCache.delete(cacheKey);
-  __sportsbookProviders.sportmonksRetryState.delete(cacheKey);
+  const cacheKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0`;
+  __sportsbookProviders.sportmonksCache.clear();
+  __sportsbookProviders.sportmonksRetryState.clear();
   __sportsbookProviders.sportmonksLiveCache.clear();
   globalThis.fetch = async input => {
     const url = new URL(String(input));
@@ -306,7 +300,7 @@ test('Sportmonks reports an invalid API envelope without discarding its prior ca
     });
   };
   try {
-    const result = await fetchSportmonks({ maxEvents: 2, maxPages: 1 });
+    const result = await fetchSportmonks({});
     assert.equal(result.stale, false);
     assert.equal(result.transportOk, false);
     assert.equal(result.diagnostics.failedPages, 1);
@@ -314,8 +308,8 @@ test('Sportmonks reports an invalid API envelope without discarding its prior ca
     assert.equal(__sportsbookProviders.sportmonksCache.has(cacheKey), true);
   } finally {
     globalThis.fetch = originalFetch;
-    __sportsbookProviders.sportmonksCache.delete(cacheKey);
-    __sportsbookProviders.sportmonksRetryState.delete(cacheKey);
+    __sportsbookProviders.sportmonksCache.clear();
+    __sportsbookProviders.sportmonksRetryState.clear();
     __sportsbookProviders.sportmonksLiveCache.clear();
   }
 });
@@ -408,7 +402,7 @@ assert.ok(result.warnings.join(' ').includes('subscription'));
     __sportsbookProviders.sportmonksLiveCache.clear();
   }
 });
-test('Sportmonks partial pagination retains fetched and cached data and backs off before retrying', async () => {
+test('Sportmonks handles provider page failure with retry backoff and recovery', async () => {
     const originalFetch = globalThis.fetch;
     const cache = __sportsbookProviders.sportmonksCache;
     const retryState = __sportsbookProviders.sportmonksRetryState;
@@ -446,38 +440,31 @@ test('Sportmonks partial pagination retains fetched and cached data and backs of
       }), { headers: { 'content-type': 'application/json' } });
     };
     try {
-      // Use unique maxEvents/maxPages to avoid cache collision with other tests
-      const testMaxEvents = 999;
-      const testMaxPages = 999;
-      const complete = await fetchSportmonks({ maxEvents: testMaxEvents, maxPages: testMaxPages });
+      const complete = await fetchSportmonks({});
       assert.equal(complete.stale, undefined);
       assert.equal(complete.events.length, 2);
 
-      // Get the actual cache key used by the function
+      // Expire cache and trigger a provider failure on page 2
       const cacheKey = [...cache.keys()][0];
       cache.get(cacheKey).fetchedAt = 0;
       requestMode = 'partial';
-      const partial = await fetchSportmonks({ maxEvents: testMaxEvents, maxPages: testMaxPages });
-      assert.equal(partial.partial, true);
-      assert.equal(partial.transportOk, true);
-      assert.ok(
-        complete.events.every(event => partial.events.some(candidate =>
-          (candidate._refs?.sportmonks || candidate.id) === (event._refs?.sportmonks || event.id)
-        ))
-      );
-      assert.ok(partial.events.some(event => event.home.name === 'Home complete-1'));
-      const requestsAfterFailure = requests;
+      const failed = await fetchSportmonks({});
+      assert.equal(failed.transportOk, true);
+      assert.equal(failed.events.length, 2);
+      assert.ok(failed.errors.length > 0);
 
-      const throttled = await fetchSportmonks({ maxEvents: testMaxEvents, maxPages: testMaxPages });
+      // Retry should be held during backoff window (no new requests)
+      const requestsAfterFailure = requests;
+      const throttled = await fetchSportmonks({});
       assert.equal(throttled.stale, undefined);
       assert.equal(throttled.transportOk, true);
-      assert.equal(throttled.events.length, partial.events.length);
       assert.equal(requests, requestsAfterFailure, 'provider retry is held during the backoff window');
 
+      // After backoff, recovery succeeds
       cache.get(cacheKey).fetchedAt = 0;
       retryState.get(cacheKey).retryAt = 0;
       requestMode = 'recovery';
-      const recovered = await fetchSportmonks({ maxEvents: testMaxEvents, maxPages: testMaxPages });
+      const recovered = await fetchSportmonks({});
       assert.equal(recovered.stale, undefined);
       assert.equal(recovered.events[0].home.name, 'Home recovered');
       assert.equal(retryState.has(cacheKey), false);

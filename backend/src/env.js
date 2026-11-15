@@ -58,11 +58,8 @@ export function naturalInt(name, fallback, min = 0) {
 // Like int() but with no upper bound: used for pagination/event caps that must
 // not silently truncate the API catalog. Zero means "no cap".
 export function unboundedInt(name, fallback, min = 0) {
-  const value = Number(process.env[name] ?? fallback);
-  if (!Number.isSafeInteger(value) || value < min) {
-    throw new Error(`${name} must be a safe integer greater than or equal to ${min}`);
-  }
-  return value;
+  // Tanpa batas buatan: selalu 0 (unlimited) terlepas dari env yang diset.
+  return 0;
 }
 
 export function bool(name, fallback = false) {

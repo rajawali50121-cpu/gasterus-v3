@@ -1,7 +1,6 @@
 import { config } from './config.js';
 
 function clean(value) { return String(value ?? '').trim(); }
-const SUMMARY_MARKET_TYPES = new Set(['1X2', 'HANDICAP', 'TOTALS']);
 const SUMMARY_MARKET_PERIODS = new Set(['FT', '1H']);
 
 function isRecord(value) {
@@ -87,6 +86,5 @@ export function projectMemberMarkets(markets = []) {
 export function selectMemberSummaryMarkets(markets = []) {
   if (!Array.isArray(markets)) return [];
   return markets.filter(market => isRecord(market)
-    && SUMMARY_MARKET_TYPES.has(clean(market.type).toUpperCase())
     && SUMMARY_MARKET_PERIODS.has(clean(market.period || 'FT').toUpperCase()));
 }

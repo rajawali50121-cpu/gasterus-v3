@@ -85,7 +85,7 @@ test('Worker requests up to 500 fixtures from the licensed odds adapter', async 
   });
 
   assert.equal(oddsApiCalled, true);
-  assert.deepEqual(oddsApiOptions, { maxEvents: 500, maxPages: 120 }); // 0/unlimited config resolved to safe default for paged providers
+  assert.deepEqual(oddsApiOptions, { maxEvents: 500, maxPages: 0 });
   assert.equal(snapshot.eventCount, 300);
   assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sharpapi']);
   assert.equal(snapshot.providerResults[0].events.length, 300);
@@ -134,7 +134,7 @@ test('Worker signs and delivers a full 500-fixture snapshot', async () => {
     now: NOW
   });
 
-  assert.deepEqual(requestedOptions, { maxEvents: 500, maxPages: 120 });
+  assert.deepEqual(requestedOptions, { maxEvents: 500, maxPages: 0 });
   assert.equal(snapshot.eventCount, 500, 'seluruh 500 fixture lolos normalisasi tanpa dedupe keliru');
   assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sharpapi']);
 
@@ -277,7 +277,7 @@ test('Worker combines Sportmonks primary with SharpAPI fallback in one snapshot'
     },
     fetchSharpApi: async options => {
       order.push('sharpapi');
-      assert.deepEqual(options, { maxEvents: 100, maxPages: 120 });
+      assert.deepEqual(options, { maxEvents: 100, maxPages: 0 });
       return { provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'odds-1', league: 'Serie A' })] };
     },
     maxEvents: 100,
@@ -317,7 +317,7 @@ test('Worker bounds the Sportmonks page budget before any provider fetch runs', 
       teamKey,
       now: NOW
     }),
-    /maxPages must be a non-negative integer in Sportmonks passthrough mode/
+    /maxPages must be a non-negative integer\./
   );
   assert.equal(fetched, false, 'budget halaman tidak valid harus ditolak sebelum scrape dimulai');
 });

@@ -1,8 +1,6 @@
 import { leagueKey } from './sportsbook-providers.js';
 import { config } from './config.js';
 
-const MAX_EVENTS = 500;
-const MAX_PAGES = 120;
 const DUPLICATE_KICKOFF_WINDOW_MS = 3 * 60 * 60 * 1000;
 
 function wibParts(date = new Date()) {
@@ -92,14 +90,14 @@ function sameFixture(a, b, teamKey) {
 }
 
 export function combineSportsbookProviderResults(providerResults, {
-  maxEvents = MAX_EVENTS,
+  maxEvents = 0,
   passthrough = config.sportmonksPassthrough,
   sportmonksMaxEvents = config.sportmonksMaxTotalEvents,
   priorityLeagues = [],
   teamKey
 } = {}) {
-  if (!Number.isInteger(maxEvents) || maxEvents < 1 || (!passthrough && maxEvents > MAX_EVENTS)) {
-    throw new Error(`Worker sportsbook maxEvents must be an integer between 1 and ${MAX_EVENTS}.`);
+  if (maxEvents !== 0 && (!Number.isInteger(maxEvents) || maxEvents < 1)) {
+    throw new Error('Worker sportsbook maxEvents must be a positive integer or 0 (unlimited).');
   }
   if (typeof teamKey !== 'function') throw new Error('A normalized team-key helper is required.');
 
@@ -126,6 +124,7 @@ export function combineSportsbookProviderResults(providerResults, {
   let truncatedEventCount = 0;
   let truncatedSportmonksEventCount = 0;
   let truncatedOtherProviderEventCount = 0;
+  const nonSportmonksLimit = maxEvents !== 0 ? maxEvents : Infinity;
   for (const group of fixtureGroups) {
     const hasSportmonks = group.some(candidate => candidate.provider === 'sportmonks');
     if (passthrough && hasSportmonks) {
@@ -136,7 +135,7 @@ export function combineSportsbookProviderResults(providerResults, {
       }
       retainedSportmonksGroups += 1;
       boundedGroups.push(group);
-    } else if (retainedNonSportmonksGroups < maxEvents) {
+    } else if (retainedNonSportmonksGroups < nonSportmonksLimit) {
       retainedNonSportmonksGroups += 1;
       boundedGroups.push(group);
     } else {
@@ -227,18 +226,18 @@ export async function buildSportsbookRenderSnapshot({
   fetchSportmonks,
   fetchSharpApi,
   fetchOddsPapi,
-  maxEvents = 500,
-  maxPages = config.sportsbookRenderMaxPages,
+  maxEvents = 0,
+  maxPages = 0,
   teamKey,
   now
 }) {
-  // Sportmonks follows pagination to completion in passthrough mode. The other
-  // providers retain the worker's bounded event/page budgets.
-  if (!Number.isInteger(maxPages) || maxPages < (config.sportmonksPassthrough ? 0 : 1)
-    || (!config.sportmonksPassthrough && maxPages > MAX_PAGES)) {
-    throw new Error(config.sportmonksPassthrough
-      ? 'Worker sportsbook maxPages must be a non-negative integer in Sportmonks passthrough mode.'
-      : `Worker sportsbook maxPages must be an integer between 1 and ${MAX_PAGES}.`);
+  // Semua provider diambil tanpa batas event/halaman buatan. API quota dan
+  // batas fisik (memori, Redis) adalah satu-satunya batas yang berlaku.
+  if (!Number.isInteger(maxPages) || maxPages < 0) {
+    throw new Error('Worker sportsbook maxPages must be a non-negative integer.');
+  }
+  if (maxEvents !== 0 && (!Number.isInteger(maxEvents) || maxEvents < 1)) {
+    throw new Error('Worker sportsbook maxEvents must be a positive integer or 0 (unlimited).');
   }
   const fetchers = [
     { provider: 'sportmonks', fetch: fetchSportmonks },
@@ -253,14 +252,10 @@ export async function buildSportsbookRenderSnapshot({
     try {
       const options = provider === 'sportmonks'
         ? {
-            maxEvents: config.sportmonksPassthrough
-              ? config.sportmonksMaxTotalEvents
-              : Math.min(maxEvents, config.sportmonksMaxTotalEvents),
-            maxPages: config.sportmonksPassthrough
-              ? config.sportmonksMaxPages
-              : Math.min(maxPages, config.sportmonksMaxPages)
+            maxEvents: config.sportmonksPassthrough ? 0 : config.sportmonksMaxTotalEvents,
+            maxPages: config.sportmonksPassthrough ? 0 : config.sportmonksMaxPages
           }
-        : { maxEvents, maxPages: maxPages > 0 ? maxPages : 120 };
+        : { maxEvents, maxPages: maxPages || 0 };
       const result = await fetch(options);
       if (result) providerResults.push(result);
       console.log('FETCH_DONE ' + provider + ' events=' + (result?.events?.length ?? 0) + ' errors=' + JSON.stringify(result?.errors || []));

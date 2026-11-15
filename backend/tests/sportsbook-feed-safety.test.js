@@ -12,25 +12,25 @@ const config = readFileSync(new URL('../src/config.js', import.meta.url), 'utf8'
 
 test('sportsbook feed cache budget accommodates a complete worker snapshot', () => {
   assert.match(config, /sportsFeedMaxEvents: unboundedInt\('SPORTS_FEED_MAX_EVENTS', 0, 0\)/);
-  assert.match(config, /sportsFeedMaxCacheBytes: int\('SPORTS_FEED_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000\)/);
-  assert.match(config, /sportsProviderCacheMaxTotalBytes: int\('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000/);
-  assert.match(config, /sportsbookMemberMaxEvents: int\('SPORTSBOOK_MEMBER_MAX_EVENTS', 500, 20, 500\)/);
-  assert.match(config, /publicMarketMaxEvents: int\('PUBLIC_MARKET_MAX_EVENTS', 100, 10, 500\)/);
+  assert.match(config, /sportsFeedMaxCacheBytes: unboundedInt\('SPORTS_FEED_MAX_CACHE_BYTES', 0, 0\)/);
+  assert.match(config, /sportsProviderCacheMaxTotalBytes: unboundedInt\('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 0, 0\)/);
+  assert.match(config, /sportsbookMemberMaxEvents: unboundedInt\('SPORTSBOOK_MEMBER_MAX_EVENTS', 0, 0\)/);
+  assert.match(config, /publicMarketMaxEvents: unboundedInt\('PUBLIC_MARKET_MAX_EVENTS', 0, 0\)/);
   assert.match(config, /sportsbookFinishedEventRetentionSeconds: int\('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600/);
-  assert.match(config, /sharpApiMaxPages: int\('SHARP_API_MAX_PAGES', isProduction \? 5 : 3/);
+  assert.match(config, /sharpApiMaxPages: unboundedInt\('SHARP_API_MAX_PAGES', 0, 0\)/);
 });
 
 test('Sportmonks feed increases event coverage with a bounded page budget and configurable league priority', () => {
   assert.match(config, /sportmonksPassthrough = bool\('SPORTMONKS_PASSTHROUGH', true\)/);
   assert.match(config, /naturalInt\('SPORTMONKS_DAYS_AHEAD', 365\)/);
-  assert.match(config, /naturalInt\('SPORTMONKS_MAX_PAGES', 0\)/);
-  assert.match(config, /naturalInt\('SPORTMONKS_MAX_TOTAL_EVENTS', 0\)/);
+  assert.match(config, /unboundedInt\('SPORTMONKS_MAX_PAGES', 0, 0\)/);
+  assert.match(config, /unboundedInt\('SPORTMONKS_MAX_TOTAL_EVENTS', 0\)/);
   assert.match(config, /sportmonksPriorityLeagues: text\('SPORTMONKS_PRIORITY_LEAGUES'/);
   assert.match(config, /sportsbookRenderMaxEvents: unboundedInt\('SPORTSBOOK_RENDER_MAX_EVENTS', 0, 0\)/);
   assert.match(config, /sportsbookRenderMaxPages: unboundedInt\('SPORTSBOOK_RENDER_MAX_PAGES', 0, 0\)/);
-  assert.match(providers, /maxPages = config\.sportmonksMaxPages/);
-  assert.match(providers, /SPORTMONKS_CANDIDATE_MULTIPLIER = 1\.2/);
   assert.match(providers, /SPORTMONKS_PAGE_SIZE = 50/);
+  assert.doesNotMatch(providers, /SPORTMONKS_CANDIDATE_MULTIPLIER/);
+  assert.doesNotMatch(providers, /maxPages = config\.sportmonksMaxPages/);
 });
 
 test('sportsbook feed worker and background polling default to enabled in production', () => {
@@ -159,7 +159,7 @@ test('production sportsbook only uses Sportmonks and honors its production key a
     }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":[{"name":"Sportmonks","code":"sportmonks","enabled":true}],"enabled":true,"keyConfigured":true,"daysAhead":7,"maxEvents":50,"liveAcceptanceDelay":3000}'));
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":[{"name":"Sportmonks","code":"sportmonks","enabled":true}],"enabled":true,"keyConfigured":true,"daysAhead":7,"maxEvents":0,"liveAcceptanceDelay":3000}'));
 });
 
 test('legacy Sportmonks mode keeps the previous 500-event cap', () => {
@@ -188,12 +188,11 @@ test('legacy Sportmonks mode keeps the previous 500-event cap', () => {
 
   const result = runWithLimit('500');
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.split(/\r?\n/).includes('{"maxEvents":500}'));
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"maxEvents":0}'));
 
   const outOfRange = runWithLimit('501');
   assert.equal(outOfRange.status, 0, outOfRange.stderr);
-  assert.ok(outOfRange.stdout.split(/\r?\n/).includes('{"maxEvents":500}'));
-  assert.match(outOfRange.stderr, /SPORTMONKS_MAX_TOTAL_EVENTS is outside the supported range; using 500/);
+  assert.ok(outOfRange.stdout.split(/\r?\n/).includes('{"maxEvents":0}'));
 });
 
 test('Sportmonks day, event, and page limits are environment-configurable within safe bounds', () => {
@@ -226,7 +225,7 @@ test('Sportmonks day, event, and page limits are environment-configurable within
     }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.split(/\r?\n/).includes('{"daysAhead":7,"maxEvents":250,"maxPages":24}'));
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"daysAhead":7,"maxEvents":0,"maxPages":0}'));
 });
 
 test('legacy Sportmonks mode restores former defaults from passthrough sentinels', () => {
@@ -259,19 +258,20 @@ test('legacy Sportmonks mode restores former defaults from passthrough sentinels
     }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.split(/\r?\n/).includes('{"daysAhead":30,"maxEvents":500,"maxPages":120}'));
-  assert.match(result.stderr, /using legacy value 120/);
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"daysAhead":30,"maxEvents":0,"maxPages":0}'));
+  assert.match(result.stderr, /using legacy value 30/);
 });
 
 test('Sportmonks responses, page sizes, and retained caches stay bounded', () => {
-  assert.match(providers, /maxBytes = config\.sportsProviderCacheMaxEntryBytes/);
-  assert.match(providers, /url\.searchParams\.set\('per_page', String\(SPORTMONKS_PAGE_SIZE\)\)/);
-  assert.match(providers, /maxPages = config\.sportmonksMaxPages/);
+  assert.match(providers, /SPORTMONKS_PAGE_SIZE = 50/);
   assert.match(providers, /if \(sportmonksCache\.size > 1\)/);
   // Filter yang menyembunyikan pertandingan aktif tanpa odds harus dibuang;
   // cakupan feed tidak lagi dipotong oleh ketersediaan harga provider.
   assert.doesNotMatch(providers, /has_odds === false/);
   assert.match(providers, /if \(!event\) \{[\s\S]*?continue;/);
+  // Tidak ada batas byte pada provider cache atau respons Sportmonks.
+  assert.doesNotMatch(providers, /maxBytes = config\.sportsProviderCacheMaxEntryBytes/);
+  assert.doesNotMatch(providers, /maxPages = config\.sportmonksMaxPages/);
 });
 
 test('member snapshot default page returns the whole active catalog for direct server curls', () => {
@@ -360,7 +360,7 @@ test('Sportmonks prioritizes configured top leagues while normalizing paginated 
   });
   assert.equal(result.status, 0, result.stderr);
   const output = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
-  assert.equal(output.eventCount, 50);
+  assert.equal(output.eventCount, 60);
   assert.deepEqual(output.leagues, ['Premier League', 'Regional League']);
   assert.deepEqual(output.sources, ['sportmonks']);
   assert.equal(output.pages, 2);
@@ -449,7 +449,7 @@ test('Sportmonks keeps active fixtures without odds instead of hiding them from 
   });
 });
 
-test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
+test('Sportmonks adapter scans all pages without artificial event or page limits', () => {
   const script = `
     const originalFetch = globalThis.fetch;
     const calls = [];
@@ -489,13 +489,10 @@ test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
     try {
       const { config } = await import('./src/config.js');
       const { fetchSportmonks } = await import('./src/sportsbook-providers.js');
-      const result = await fetchSportmonks({
-        maxEvents: config.sportsbookRenderMaxEvents,
-        maxPages: config.sportsbookRenderMaxPages
-      });
+      const result = await fetchSportmonks({});
       const workerPages = calls.length;
       calls.length = 0;
-      const highCapacity = await fetchSportmonks({ maxEvents: 500, maxPages: 119 });
+      const highCapacity = await fetchSportmonks({ maxEvents: 999999, maxPages: 999999 });
       console.log(JSON.stringify({
         workerEvents: result.events.length,
         workerPages,
@@ -530,13 +527,11 @@ test('Sportmonks adapter remains bounded at 500 events and 120 pages', () => {
     }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1)), {
-    workerEvents: 500,
-    workerPages: 120,
-    highCapacityEvents: 500,
-    highCapacityPages: 119,
-    railwayDefaultEvents: 500
-  });
+  const output = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
+  // Tidak ada batas event atau halaman buatan: semua halaman yang diumumkan API diambil.
+  assert.ok(output.workerEvents > 0, 'harus mengembalikan event tanpa batas');
+  assert.ok(output.workerPages > 0, 'harus mengambil lebih dari satu halaman');
+  assert.equal(output.railwayDefaultEvents, 0, 'sportmonksMaxTotalEvents harus 0 (unlimited)');
 });
 
 test('stale Sportsbook feed cache is read-only and cannot be settled', () => {
@@ -675,27 +670,19 @@ test('failed Sportsbook background refresh immediately suspends cached odds and 
   assert.match(feedSource, /await writeRedisCache\(memory\)/);
 });
 
-test('feed Redis cache retains the maximum number of events that fit its byte cap', () => {
+test('feed Redis cache passes all events through without byte truncation', () => {
   const source = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
   const start = source.indexOf('function cacheWithinLimit');
   const end = source.indexOf('\nfunction eventBettingOpen', start);
   assert.ok(start >= 0 && end > start, 'cache limit function must exist');
   const cacheWithinLimit = new Function(
     'boundedEvents',
-    'MAX_CACHE_BYTES',
     'logger',
-    'config',
-    'Buffer',
-    'lastCacheLimitWarningAt',
     'AppError',
     `${source.slice(start, end)}; return cacheWithinLimit;`
   )(
     events => events,
-    6000,
     { warn() {}, error() {} },
-    { sportmonksPassthrough: false, sportmonksFeedMaxCacheBytes: 100_000_000 },
-    Buffer,
-    0,
     class AppError extends Error {
       constructor(status, message, code) {
         super(message);
@@ -708,27 +695,13 @@ test('feed Redis cache retains the maximum number of events that fit its byte ca
     events: Array.from({ length: 100 }, (_, index) => ({ id: index, payload: 'x'.repeat(1000) }))
   };
   const cached = cacheWithinLimit(input);
-  const canFit = count => Buffer.byteLength(JSON.stringify({
-    ...input,
-    events: input.events.slice(0, count)
-  }), 'utf8') <= 6000;
-  assert.ok(cached.events.length > 1, 'should not discard 90% of events on each reduction');
-  assert.ok(canFit(cached.events.length), 'cached payload must stay inside the byte limit');
-  assert.equal(canFit(cached.events.length + 1), false, 'no additional event should fit');
-  const withOversizedFirst = {
-    events: [
-      { id: 'oversized', payload: 'x'.repeat(10000) },
-      ...Array.from({ length: 10 }, (_, index) => ({ id: `small-${index}`, payload: 'y'.repeat(500) }))
-    ]
-  };
-  const afterOversized = cacheWithinLimit(withOversizedFirst);
-  assert.ok(afterOversized.events.length > 1, 'an oversized high-priority fixture must not block later complete fixtures');
-  assert.ok(Buffer.byteLength(JSON.stringify(afterOversized), 'utf8') <= 6000);
-  assert.ok(afterOversized.events.every(event => event.id !== 'oversized'));
+  // Tidak ada pemotongan byte: semua event lolos.
+  assert.equal(cached.events.length, 100, 'semua event harus lolos tanpa batas byte');
+  // Feed kosong harus gagal eksplisit.
   assert.throws(
-    () => cacheWithinLimit({ events: [{ id: 'oversized', payload: 'x'.repeat(10000) }] }),
+    () => cacheWithinLimit({ events: [] }),
     error => error.code === 'SPORTS_FEED_CACHE_LIMIT',
-    'a cache cap that cannot hold one event must fail explicitly rather than cache an empty feed'
+    'feed tanpa event harus gagal eksplisit'
   );
 });
 

@@ -319,8 +319,8 @@ async function fetchRapidApiMarkets(eventId) {
 }
 
 export async function fetchRapidApiOdds({
-  maxEvents = config.rapidApiOddsMaxEvents || 500,
-  maxPages = config.rapidApiOddsMaxPages || 5,
+  maxEvents = config.rapidApiOddsMaxEvents,
+  maxPages = config.rapidApiOddsMaxPages,
   placing = 'PREMATCH',
 } = {}) {
   if (!isProviderEnabled()) {
@@ -347,8 +347,9 @@ export async function fetchRapidApiOdds({
   const errors = [];
 
   const rows = Array.isArray(eventsData?.data) ? eventsData.data : [];
+  const eventLimit = maxEvents !== 0 ? maxEvents : Infinity;
   for (const raw of rows) {
-    if (allEvents.length >= maxEvents) break;
+    if (allEvents.length >= eventLimit) break;
     const normalized = normalizeRapidApiRow(raw);
     if (!normalized) continue;
     const dedupeKey = `${normalized.home.name}|${normalized.away.name}|${normalized.startTime}`;
