@@ -4,9 +4,10 @@ const env = { DATABASE_URL: 'postgresql://user:pass@localhost/db', REDIS_URL: 'r
 Object.assign(process.env, env);
 const casino = await import('../src/casino-rapidapi.js');
 test('normalizeProviders maps games array to coded categories', () => {
-  const out = casino.normalizeProviders({ success: true, games: ['PGSOFT', 'EVOLUTIONLIVE', 'CMDSPORTS', 'AVIATOR', 'pgsoft', '  '] });
-  assert.deepEqual(out.map((p) => p.code), ['AVIATOR', 'CMDSPORTS', 'EVOLUTIONLIVE', 'PGSOFT']);
+  const out = casino.normalizeProviders({ success: true, games: ['PGSOFT', 'EVOLUTIONLIVE', 'CMDSPORTS', 'AVIATOR', 'SLOTGAMES', 'pgsoft', '  '] });
+  assert.deepEqual(out.map((p) => p.code), ['AVIATOR', 'CMDSPORTS', 'EVOLUTIONLIVE', 'PGSOFT', 'SLOTGAMES']);
   assert.equal(out.find((p) => p.code === 'PGSOFT').category, 'SLOTS');
+  assert.equal(out.find((p) => p.code === 'SLOTGAMES').category, 'SLOTS');
   assert.equal(out.find((p) => p.code === 'EVOLUTIONLIVE').category, 'LIVE_CASINO');
   assert.equal(out.find((p) => p.code === 'CMDSPORTS').category, 'SPORTSBOOK');
   assert.equal(out.find((p) => p.code === 'AVIATOR').category, 'CRASH_ARCADE');
