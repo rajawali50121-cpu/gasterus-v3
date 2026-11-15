@@ -489,34 +489,6 @@ test('Sportmonks partial pagination retains fetched and cached data and backs of
     }
   });
 
-test('API-Sports settlement authority unlocks merged FT prices', () => {
-  const sharpEvent = __sportsbookProviders.normalizeSharpApiRows([
-    { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-h', market_type: 'moneyline', market_segment: 'full_game', selection: 'Liverpool', selection_type: 'home', odds_decimal: 1.7, line: null },
-    { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-d', market_type: 'moneyline', market_segment: 'full_game', selection: 'Draw', selection_type: 'draw', odds_decimal: 3.8, line: null },
-    { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-a', market_type: 'moneyline', market_segment: 'full_game', selection: 'Everton', selection_type: 'away', odds_decimal: 5.1, line: null }
-  ], { maxEvents: 1 })[0];
-  const apiEvent = {
-    id: 'api-authority',
-    sport: 'Football',
-    league: 'Premier League',
-    country: 'England',
-    startTime: '2026-08-07T12:00:00Z',
-    status: 'SCHEDULED',
-    providerStatus: 'NS',
-    live: false,
-    home: { name: 'Liverpool', score: null, logo: null },
-    away: { name: 'Everton', score: null, logo: null },
-    periodScores: {},
-    markets: [],
-    _refs: { 'api-sports': 'api-9911' },
-    _sources: ['api-sports'],
-    _settlementReadySources: ['api-sports']
-  };
-  const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharpEvent] }, { events: [apiEvent] }]);
-  assert.ok(merged._sources.includes('api-sports'));
-  assert.ok(merged.markets.some(market => market.period === 'FT' && !market.suspended));
-});
-
 test('Sportmonks halftime authority keeps valid FT and 1H odds active while non-authority HT remains suspended', () => {
   const fixture = {
     id: 'sportmonks-ht-authority',
@@ -613,70 +585,6 @@ test('SharpAPI prices remain visible but suspended without result authority', ()
   const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharpEvent] }]);
   assert.ok(merged.markets.length > 0);
   assert.ok(merged.markets.every(market => market.suspended));
-});
-
-test('API-Sports authority unlocks matching SharpAPI FT and HT prices', () => {
-  const base = { event_id: 'sharp-3', sport: 'soccer', league: 'epl', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-15T20:00:00Z', sportsbook: 'book-a', is_main_line: true, is_active: true };
-  const sharpRows = [
-    { ...base, market_type: 'moneyline', market_segment: 'full_game', selection: 'Liverpool', selection_type: 'home', odds_decimal: 1.7 },
-    { ...base, market_type: 'moneyline', market_segment: 'full_game', selection: 'Draw', selection_type: 'draw', odds_decimal: 3.8 },
-    { ...base, market_type: 'moneyline', market_segment: 'full_game', selection: 'Everton', selection_type: 'away', odds_decimal: 5.1 },
-    { ...base, market_type: '1st_half', market_segment: '1st_half', selection: 'Liverpool', selection_type: 'home', odds_decimal: 2.2 },
-    { ...base, market_type: '1st_half', market_segment: '1st_half', selection: 'Draw', selection_type: 'draw', odds_decimal: 2.0 },
-    { ...base, market_type: '1st_half', market_segment: '1st_half', selection: 'Everton', selection_type: 'away', odds_decimal: 4.0 }
-  ];
-  const [sharpEvent] = __sportsbookProviders.normalizeSharpApiRows(sharpRows);
-  const apiEvent = {
-    id: 'api-3',
-    sport: 'Football',
-    league: 'epl',
-    country: 'England',
-    startTime: '2026-08-15T20:00:00Z',
-    status: 'SCHEDULED',
-    providerStatus: 'NS',
-    live: false,
-    home: { name: 'Liverpool', score: null, logo: null },
-    away: { name: 'Everton', score: null, logo: null },
-    periodScores: {},
-    markets: [],
-    _refs: { 'api-sports': 'api-20260815' },
-    _sources: ['api-sports'],
-    _settlementReadySources: ['api-sports']
-  };
-  const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharpEvent] }, { events: [apiEvent] }]);
-  assert.ok(merged._sources.includes('sharpapi'));
-  assert.ok(merged._sources.includes('api-sports'));
-  assert.ok(merged.markets.some(market => market.period === 'FT' && !market.suspended));
-  assert.ok(merged.markets.some(market => market.period === '1H' && !market.suspended));
-});
-
-
-test('API-Sports provider status remains authoritative after SharpAPI merge', () => {
-  const sharp = __sportsbookProviders.normalizeSharpApiRows([
-    { event_id:'sharp-status', sport:'soccer', league:'epl', home_team:'Arsenal', away_team:'Chelsea', event_start_time:'2026-08-14T19:00:00Z', sportsbook:'book-a', market_type:'moneyline', selection:'Arsenal', selection_type:'home', odds_decimal:1.9, is_main_line:true, is_active:true },
-    { event_id:'sharp-status', sport:'soccer', league:'epl', home_team:'Arsenal', away_team:'Chelsea', event_start_time:'2026-08-14T19:00:00Z', sportsbook:'book-a', market_type:'moneyline', selection:'Draw', selection_type:'draw', odds_decimal:3.4, is_main_line:true, is_active:true },
-    { event_id:'sharp-status', sport:'soccer', league:'epl', home_team:'Arsenal', away_team:'Chelsea', event_start_time:'2026-08-14T19:00:00Z', sportsbook:'book-a', market_type:'moneyline', selection:'Chelsea', selection_type:'away', odds_decimal:4.0, is_main_line:true, is_active:true }
-  ])[0];
-  const api = {
-    id: 'api-status',
-    sport: 'Football',
-    league: 'Premier League',
-    country: 'England',
-    startTime: '2026-08-14T19:00:00Z',
-    status: 'LIVE',
-    providerStatus: 'HT',
-    live: true,
-    home: { name: 'Arsenal', score: 1, logo: null },
-    away: { name: 'Chelsea', score: 0, logo: null },
-    periodScores: { '1H': { home: 1, away: 0 } },
-    markets: [],
-    _refs: { 'api-sports': 'api-55' },
-    _sources: ['api-sports'],
-    _settlementReadySources: ['api-sports']
-  };
-  const [merged] = __sportsbookProviders.mergeProviderEvents([{events:[sharp]},{events:[api]}]);
-  assert.equal(merged.providerStatus, 'HT');
-  assert.deepEqual(merged.periodScores['1H'], {home:1,away:0});
 });
 
 test('SharpAPI price version changes only when tradable terms change, not timestamp heartbeat', () => {

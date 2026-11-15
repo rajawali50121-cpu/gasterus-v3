@@ -150,8 +150,6 @@ test('production sportsbook only uses Sportmonks and honors its production key a
       SESSION_HMAC_KEY: 's'.repeat(48),
       API_KEY_PEPPER: 'p'.repeat(48),
       MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
-      API_SPORTS_ENABLED: 'true',
-      API_SPORTS_KEY: 'unused-api-sports-key',
       FOOTBALLDATA_IO_ENABLED: 'true',
       FOOTBALLDATA_IO_KEY: 'unused-football-data-key',
       SPORTMONKS_DAYS_AHEAD: '7',

@@ -31,13 +31,13 @@ test('normalizer carries first-half markets and halftime settlement score', () =
     away: { name: 'Chelsea', score: 1, logo: null },
     periodScores: { '1H': { home: 1, away: 1 } },
     markets: [
-      { id: 'm1', type: '1X2', period: 'FT', source: 'api-sports', suspended: false, selections: [{ key: 'k1', label: 'Home', odds: 1.8, suspended: false, source: 'api-sports', updatedAt: null }] },
-      { id: 'm2', type: '1X2', period: '1H', source: 'api-sports', suspended: false, selections: [{ key: 'k2', label: 'Home', odds: 2.2, suspended: false, source: 'api-sports', updatedAt: null }] },
-      { id: 'm3', type: 'TOTALS', period: '1H', source: 'api-sports', suspended: false, selections: [{ key: 'k3', label: 'Over 1.0', odds: 1.88, suspended: false, source: 'api-sports', updatedAt: null }] }
+      { id: 'm1', type: '1X2', period: 'FT', source: 'sportmonks', suspended: false, selections: [{ key: 'k1', label: 'Home', odds: 1.8, suspended: false, source: 'sportmonks', updatedAt: null }] },
+      { id: 'm2', type: '1X2', period: '1H', source: 'sportmonks', suspended: false, selections: [{ key: 'k2', label: 'Home', odds: 2.2, suspended: false, source: 'sportmonks', updatedAt: null }] },
+      { id: 'm3', type: 'TOTALS', period: '1H', source: 'sportmonks', suspended: false, selections: [{ key: 'k3', label: 'Over 1.0', odds: 1.88, suspended: false, source: 'sportmonks', updatedAt: null }] }
     ],
-    _refs: { 'api-sports': 'api-9911' },
-    _sources: ['api-sports'],
-    _settlementReadySources: ['api-sports']
+    _refs: { 'sportmonks': 'api-9911' },
+    _sources: ['sportmonks'],
+    _settlementReadySources: ['sportmonks']
   };
   assert.ok(event.markets.some(market => market.type === '1X2' && market.period === '1H'));
   assert.ok(event.markets.some(market => market.type === 'TOTALS' && market.period === '1H'));
@@ -51,38 +51,6 @@ test('live odds extractor accepts top-level bets payload', () => {
   assert.equal(map.get('123')[0].name, 'First Half Winner');
 });
 
-
-test('provider merger keeps HT priced market bettable only when API-Sports result source is attached', () => {
-  const oddsEvent = {
-    id: 'odds-safety', sport: 'Football', league: 'Premier League', country: 'England', startTime: '2026-08-11T12:00:00Z', status: 'SCHEDULED', live: false,
-    home: { name: 'Arsenal', score: null, logo: null }, away: { name: 'Chelsea', score: null, logo: null },
-    markets: [{ id: 'm', type: '1X2', period: '1H', source: 'book-a', suspended: false, selections: [{ key: 'k', label: 'Home', odds: 2.2, suspended: false, source: 'book-a', updatedAt: null }] }],
-    _refs: {}, _sources: ['sharpapi']
-  };
-  const withoutScoreProvider = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }]);
-  assert.equal(withoutScoreProvider[0].markets[0].suspended, true);
-
-  const apiEvent = {
-    id: 'api-score',
-    sport: 'Football',
-    league: 'Premier League',
-    country: 'England',
-    startTime: '2026-08-11T12:00:00Z',
-    status: 'SCHEDULED',
-    providerStatus: 'NS',
-    live: false,
-    home: { name: 'Arsenal', score: null, logo: null },
-    away: { name: 'Chelsea', score: null, logo: null },
-    periodScores: {},
-    markets: [],
-    _refs: { 'api-sports': 'api-9911' },
-    _sources: ['api-sports'],
-    _settlementReadySources: ['api-sports']
-  };
-  const withScoreProvider = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }, { events: [apiEvent] }]);
-  assert.equal(withScoreProvider[0].markets[0].suspended, false);
-  assert.ok(withScoreProvider[0]._sources.includes('api-sports'));
-});
 
 test('auto settlement evaluates HT market from halftime score and FT market from final score', () => {
   const event = { status: 'FINISHED', home: { score: 3 }, away: { score: 1 }, periodScores: { '1H': { home: 1, away: 1 } } };

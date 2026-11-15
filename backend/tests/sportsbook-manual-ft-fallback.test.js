@@ -70,38 +70,6 @@ test('R6.9.0.12 manual FT fallback never unlocks SharpAPI-only live betting', ()
   assert.equal(authority.ht, false);
 });
 
-test('R6.9.0.12 automatic authority takes precedence over manual fallback', () => {
-  const sharp = healthySharpEvent();
-  const api = {
-    id: 'api-auto',
-    sport: 'Football',
-    league: 'epl',
-    country: 'England',
-    startTime: '2026-08-18T19:00:00Z',
-    status: 'SCHEDULED',
-    providerStatus: 'NS',
-    live: false,
-    home: { name: 'Arsenal', score: null, logo: null },
-    away: { name: 'Chelsea', score: null, logo: null },
-    periodScores: {},
-    markets: [],
-    _refs: { 'api-sports': 'api-20260818' },
-    _sources: ['api-sports'],
-    _settlementReadySources: ['api-sports']
-  };
-  const [event] = __sportsbookProviders.mergeProviderEvents(
-    [{provider:'sharpapi',events:[sharp]},{provider:'api-sports',events:[api]}],
-    { enabled: true }
-  );
-  assert.ok(!event._settlementReadySources.includes('manual-ops'));
-  assert.ok(event.markets.some(market => market.period === 'FT' && !market.suspended));
-  assert.ok(event.markets.some(market => market.period === '1H' && !market.suspended));
-  const authority = eventSettlementAuthority(event);
-  assert.equal(authority.automaticFt, true);
-  assert.equal(authority.manualFt, false);
-  assert.equal(authority.mode, 'AUTOMATIC');
-});
-
 test('R6.9.0.12 manual guarantee cannot fabricate an automatic score/result', () => {
   const event = {
     id:'manual-result-guard', status:'SCHEDULED', providerStatus:'NS', live:false,
@@ -115,7 +83,7 @@ test('R6.9.0.12 manual guarantee cannot fabricate an automatic score/result', ()
 test('R6.9.0.12 settlement summary distinguishes automatic and manual FT authority', () => {
   const summary = settlementAuthoritySummary([
     {_settlementReadySources:['sharpapi','manual-ops']},
-    {_settlementReadySources:['api-sports']},
+    {_settlementReadySources:['public-market']},
     {_settlementReadySources:['sharpapi']}
   ]);
   assert.equal(summary.ftEvents, 2);

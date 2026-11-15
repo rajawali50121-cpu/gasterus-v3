@@ -398,23 +398,6 @@ async function cachedRequest(key, ttlMs, fetcher) {
   providerRequestCache.set(key, { value: cached?.value, fetchedAt: cached?.fetchedAt || 0, sizeBytes: cached?.sizeBytes || 0, inFlight });
   return inFlight;
 }
-// ---------------------------------------------------------------------------
-// API-Sports daily quota guard (free plan: 100 req/hari, divalidasi via
-// GET /status -> {"requests":{"limit_day":100}}). Cache hit gratis; yang harus
-// dijaga hanya seberapa sering HTTP benar-benar dikirim ke provider.
-//
-// Tiap bucket (live/prematch) diberi jatah harian dari API_SPORTS_DAILY_QUOTA,
-// lalu jatah itu diubah menjadi jeda minimum per endpoint:
-//     floorDetik = 86400 * jumlahEndpointBucket / jatahHarian
-// TTL efektif = max(TTL konfigurasi, floor), sehingga walaupun loop refresh
-// berjalan tiap 30 detik, provider tidak pernah dipanggil lebih cepat dari
-// jatahnya. Dua bucket terpisah supaya prematch (banyak endpoint) tidak pernah
-// melahap jatah live. Upgrade ke Pro? cukup naikkan API_SPORTS_DAILY_QUOTA
-// (7500) — floor jatuh di bawah TTL konfigurasi dan guard jadi transparan.
-//
-// Jika provider tetap membalas 429 (race lintas proses/restart), payload cache
-// terakhir disajikan tanpa dihitung sebagai gangguan transport, dan retry tidak
-// dipaksa tiap 30 detik.
 function commaList(value) {
   return clean(value, 4000).split(',').map(item => item.trim()).filter(Boolean);
 }
@@ -1772,7 +1755,6 @@ function marketIdentity(market) {
 }
 function sourcePriority(source, live) {
   if (live) {
-    if (source === 'api-sports') return 30;
     if (source === 'sportmonks') return 10;
     return 0;
   }
@@ -1782,7 +1764,7 @@ function sourcePriority(source, live) {
   if (source === 'public-market') return 40;
   if (source === 'oddspapi') return 5;
 
-  return source === 'api-sports' ? 20 : 10;
+  return 10;
 }
 
 function marketBettingAvailable(market) {
@@ -1836,7 +1818,7 @@ function mergeMarkets(target, incoming, live) {
   });
 }
 function mergeEvent(target, incoming) {
-  const scoreAuthorities = new Set(['api-sports', 'sportmonks', 'public-market', 'footballdata-io']);
+  const scoreAuthorities = new Set(['sportmonks', 'public-market', 'footballdata-io']);
   const targetPriority = target._sources.some(s => scoreAuthorities.has(s)) ? 4 : target._sources.includes('sharpapi') ? 3 : 1;
   const incomingPriority = incoming._sources.some(s => scoreAuthorities.has(s)) ? 4 : incoming._sources.includes('sharpapi') ? 3 : 1;
   if (incomingPriority >= targetPriority) {
@@ -1869,7 +1851,7 @@ function applyManualFtSettlementFallback(event, { enabled = config.sportsbookMan
   const readySources = new Set(Array.isArray(event._settlementReadySources) ? event._settlementReadySources : []);
   // Automatic authority always wins. The fallback is only a settlement guarantee for
   // healthy prematch SharpAPI pricing; it is not a score/result source.
-  if (readySources.has('api-sports') || readySources.has('public-market') || readySources.has('footballdata-io')) return event;
+  if (readySources.has('public-market') || readySources.has('footballdata-io')) return event;
   const fallbackPricingSource = eventSources.has('sharpapi') && readySources.has('sharpapi')
     ? 'sharpapi'
     : eventSources.has('public-market') && readySources.has('public-market')

@@ -4,13 +4,10 @@ import { config } from './config.js';
 import { leagueKey, teamKey } from './sportsbook-providers.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
-const ALLOWED_PROVIDERS = new Set(['sportmonks', 'api-sports', 'sharpapi', 'oddspapi']);
-const ALLOWED_STATUSES = new Set(['SCHEDULED', 'LIVE', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
-const MAX_PROVIDER_RESULTS = 4;
-const MAX_EVENTS = 500;
-const MAX_EVENT_RECORDS = MAX_EVENTS * MAX_PROVIDER_RESULTS;
-const MAX_MARKETS_PER_EVENT = 120;
-const MAX_SELECTIONS_PER_MARKET = 250;
+const ALLOWED_PROVIDERS = new Set(['sportmonks', 'sharpapi', 'oddspapi']);
+const ALLOWED_STATUSES = new Set(['SCHEDULED', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
+const MAX_PROVIDER_RESULTS = 3;
+const MAX_EVENT_RECORDS = 10000;
 const MAX_FUTURE_SKEW_SECONDS = 30;
 
 function invalid(message, code = 'SPORTSBOOK_INGEST_INVALID') {
@@ -24,7 +21,7 @@ async function readRequestBytes(request, maxBytes) {
       throw new AppError(400, 'Content-Length tidak valid.', 'SPORTSBOOK_INGEST_CONTENT_LENGTH_INVALID');
     }
     if (Number(contentLength) > maxBytes) {
-      throw new AppError(413, 'Ukuran snapshot sportsbook melebihi batas.', 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE');
+      throw new AppError(413, `Ukuran snapshot sportsbook melebihi batas. eventRecordCount=unknown`, 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE');
     }
   }
 
@@ -33,7 +30,7 @@ async function readRequestBytes(request, maxBytes) {
   for await (const chunk of request) {
     size += chunk.length;
     if (size > maxBytes) {
-      throw new AppError(413, 'Ukuran snapshot sportsbook melebihi batas.', 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE');
+      throw new AppError(413, `Ukuran snapshot sportsbook melebihi batas. eventRecordCount=unknown`, 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE');
     }
     chunks.push(chunk);
   }
@@ -96,7 +93,7 @@ function countUniqueFixtures(providerResults) {
   return fixtures.length;
 }
 
-function validateEvent(event, provider) {
+function validateEvent(event, provider, now = Date.now()) {
   const problems = [];
   if (!isRecord(event)) problems.push('not a record');
   else {
@@ -109,7 +106,7 @@ function validateEvent(event, provider) {
     if (typeof event.live !== 'boolean') problems.push(`live=${JSON.stringify(event?.live)}`);
     if (!isRecord(event.home) || !requiredString(event.home.name, 120)) problems.push(`home=${JSON.stringify(event?.home)}`);
     if (!isRecord(event.away) || !requiredString(event.away.name, 120)) problems.push(`away=${JSON.stringify(event?.away)}`);
-    if (!Array.isArray(event.markets) || event.markets.length > MAX_MARKETS_PER_EVENT) problems.push(`markets type/len=${JSON.stringify(event?.markets)?.slice?.(0, 60)}`);
+    if (!Array.isArray(event.markets)) problems.push(`markets type/len=${JSON.stringify(event?.markets)?.slice?.(0, 60)}`);
     if (!isRecord(event._refs) || !requiredString(event._refs[provider], 160)) problems.push(`refs=${JSON.stringify(event?._refs)}`);
     if (!Array.isArray(event._sources) || !event._sources.includes(provider)) problems.push(`sources=${JSON.stringify(event?._sources)}`);
   }
@@ -117,8 +114,15 @@ function validateEvent(event, provider) {
     invalid(`Event ${String(event?.id || '').slice(0, 40)} tidak memiliki struktur normalisasi yang valid (${provider}: ${problems.join(', ')}.`);
   }
 
-  if ((event.status === 'LIVE') !== event.live) {
-    invalid(`Status live event ${event.id} tidak konsisten.`);
+  if (event.live !== false) {
+    invalid(`Event ${event.id} harus prematch (live=false).`);
+  }
+
+  const wibNow = new Date(now + 7 * 3600 * 1000);
+  const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
+  const maxStartTime = new Date(wibToday.getTime() + 4 * 24 * 3600 * 1000).toISOString();
+  if (event.startTime > maxStartTime) {
+    invalid(`Event ${event.id} di luar rentang tanggal (hari ini + 3 hari WIB).`);
   }
 
   for (const market of event.markets) {
@@ -129,8 +133,7 @@ function validateEvent(event, provider) {
       || market.source !== provider
       || typeof market.suspended !== 'boolean'
       || !Array.isArray(market.selections)
-      || market.selections.length === 0
-      || market.selections.length > MAX_SELECTIONS_PER_MARKET) {
+      || market.selections.length === 0) {
       invalid(`Market pada event ${event.id} tidak valid.`);
     }
     for (const selection of market.selections) {
@@ -181,14 +184,11 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
     if (totalEventRecords > MAX_EVENT_RECORDS) {
       throw new AppError(413, 'Snapshot sportsbook melebihi batas record event.', 'SPORTSBOOK_INGEST_EVENT_LIMIT');
     }
-    for (const event of result.events) validateEvent(event, result.provider);
+    for (const event of result.events) validateEvent(event, result.provider, now);
   }
 
   const eventCount = countUniqueFixtures(snapshot.providerResults);
   if (eventCount === 0) invalid('Snapshot sportsbook harus memuat setidaknya satu event.');
-  if (eventCount > MAX_EVENTS) {
-    throw new AppError(413, 'Snapshot sportsbook melebihi batas 500 fixture unik.', 'SPORTSBOOK_INGEST_EVENT_LIMIT');
-  }
   if (snapshot.eventCount !== undefined && snapshot.eventCount !== eventCount) {
     invalid('Jumlah event pada envelope snapshot sportsbook tidak konsisten.');
   }
@@ -201,6 +201,9 @@ export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(),
   const providerReceivedAt = {};
   const providerResults = [];
   const nowIso = new Date(now).toISOString();
+  const wibNow = new Date(now + 7 * 3600 * 1000);
+  const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
+  const maxStartTime = new Date(wibToday.getTime() + 4 * 24 * 3600 * 1000).toISOString();
 
   for (const result of freshIncoming) {
     providerResults.push(result);
@@ -221,9 +224,9 @@ export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(),
   const retainedEvents = new Set();
   for (const result of providerResults) {
     for (const event of result.events) {
+      if (event.startTime > maxStartTime) continue;
       let group = retainedGroups.find(items => sameFixture(items[0], event));
       if (!group) {
-        if (retainedGroups.length >= MAX_EVENTS) continue;
         group = [];
         retainedGroups.push(group);
       }
@@ -259,7 +262,7 @@ export function createStoredSportsbookSnapshot({ serializedSnapshot, timestamp, 
 
 export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
   secret = config.sportsbookIngestHmacSecret,
-  maxPayloadBytes = config.sportsbookIngestMaxPayloadBytes,
+  maxPayloadBytes = config.sportmonksRedisMaxPayloadBytes,
   maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds,
   now = Date.now(),
   ttlSeconds = 1800,
@@ -288,8 +291,12 @@ export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
       validateSportsbookSnapshot(merged, { now, maxAgeSeconds });
       const serializedSnapshot = JSON.stringify(merged);
       const rawBody = Buffer.from(serializedSnapshot, 'utf8');
+      const totalEventRecords = merged.providerResults.reduce((sum, result) => sum + result.events.length, 0);
+      const sportmonksEventRecords = merged.providerResults
+        .filter(result => result.provider === 'sportmonks')
+        .reduce((sum, result) => sum + result.events.length, 0);
       if (rawBody.length > maxPayloadBytes) {
-        throw new AppError(413, 'Snapshot gabungan sportsbook melebihi batas ukuran; snapshot lama dipertahankan.', 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE');
+        throw new AppError(413, `Snapshot sportsbook melebihi batas payload Redis (SPORTMONKS_REDIS_MAX_PAYLOAD_BYTES). eventRecordsNotStored=${totalEventRecords}, sportmonksEventRecordsNotStored=${sportmonksEventRecords}`, 'SPORTSBOOK_INGEST_REDIS_PAYLOAD_TOO_LARGE');
       }
       const timestamp = String(Math.floor(now / 1000));
       const signature = createHmac('sha256', secret)
