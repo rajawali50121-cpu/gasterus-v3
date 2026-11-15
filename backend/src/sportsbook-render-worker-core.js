@@ -354,7 +354,7 @@ export async function buildSportsbookRenderSnapshot({
     schemaVersion: 1,
     generatedAt: new Date(now ?? Date.now()).toISOString(),
     providerResults: normalizedResults,
-    eventCount: combined.eventCount,
+    eventCount: normalizedResults.reduce((sum, r) => sum + (r.events ? r.events.length : 0), 0),
     ...(combined.truncatedEventCount > 0
       ? {
           diagnostics: {
