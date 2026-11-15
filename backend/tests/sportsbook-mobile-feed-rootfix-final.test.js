@@ -28,10 +28,10 @@ test('member snapshot projection retains every market line and FT/1H variation',
 });
 
 
-test('member event list and event detail both preserve all available markets',()=>{
+test('Sportmonks member event list and detail preserve all provider markets',()=>{
   const feed=readFileSync(new URL('../src/sportsbook-feed.js',import.meta.url),'utf8');
-  assert.match(feed,/function memberPublicEvent\(event\)[\s\S]*memberEventShape\(item, item\.markets \|\| \[\]\)/);
-  assert.match(feed,/function memberPublicEventDetail\(event\)[\s\S]*memberEventShape\(item, item\.markets \|\| \[\]\)/);
+  assert.match(feed,/function memberPublicEvent\(event\)[\s\S]*isSportmonks[\s\S]*\? item\.markets[\s\S]*memberEventShape\(item, markets/);
+  assert.match(feed,/function memberPublicEventDetail\(event\)[\s\S]*item\.markets \|\| \[\][\s\S]*includeProviderFields/);
   assert.match(feed,/event: applySportsbookTradingControls\(\[memberPublicEventDetail\(current\)\]/);
 });
 

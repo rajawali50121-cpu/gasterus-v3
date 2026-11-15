@@ -10,6 +10,77 @@ import {
   normalizedSelection
 } from './sportsbook-providers.js';
 
+function hasPayloadErrors(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+
+  // errors array: hanya error jika tidak kosong
+  if (Array.isArray(payload.errors)) {
+    if (payload.errors.length === 0) return false;
+    return payload.errors.some(e => e !== null && e !== undefined && e !== '');
+  }
+
+  // errors object: hanya error jika punya key
+  if (payload.errors && typeof payload.errors === 'object') {
+    return Object.keys(payload.errors).length > 0;
+  }
+
+  // error field: null, "", {} bukan error
+  if (payload.error !== undefined) {
+    if (payload.error === null || payload.error === '') return false;
+    if (typeof payload.error === 'object') return Object.keys(payload.error).length > 0;
+    if (typeof payload.error === 'string' && payload.error.trim()) return true;
+    return false;
+  }
+
+  // message field: hanya error jika TIDAK ada data usable
+  const hasUsableData = (Array.isArray(payload.data) && payload.data.length > 0)
+    || (Array.isArray(payload.response) && payload.response.length > 0)
+    || (Array.isArray(payload.fixtures) && payload.fixtures.length > 0)
+    || (Array.isArray(payload.events) && payload.events.length > 0)
+    || (payload.data && typeof payload.data === 'object' && Object.keys(payload.data).length > 0)
+    || (payload.response && typeof payload.response === 'object' && Object.keys(payload.response).length > 0)
+    || (payload.fixtures && typeof payload.fixtures === 'object' && Object.keys(payload.fixtures).length > 0)
+    || (payload.events && typeof payload.events === 'object' && Object.keys(payload.events).length > 0);
+  if (payload.message && typeof payload.message === 'string') {
+    const msg = payload.message.toLowerCase();
+    if (/no result|don't have access|subscription/i.test(msg)) return false;
+    if (hasUsableData) return false;
+    if (/error|invalid|unauthorized|forbidden|rate.limit|quota|exceeded/i.test(msg)) return true;
+  }
+
+  if (payload.success === false) return true;
+  if (payload.status && typeof payload.status === 'string' && /error|fail|invalid/i.test(payload.status)) return true;
+
+  return false;
+}
+
+function extractErrorDetail(payload) {
+  if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+    return payload.errors.map(e => typeof e === 'string' ? e : JSON.stringify(e)).filter(Boolean).join('; ');
+  }
+  if (payload.errors && typeof payload.errors === 'object' && Object.keys(payload.errors).length > 0) {
+    return JSON.stringify(payload.errors);
+  }
+  if (payload.error !== null && payload.error !== undefined && payload.error !== '') {
+    if (typeof payload.error === 'object' && Object.keys(payload.error).length > 0) return JSON.stringify(payload.error);
+    if (typeof payload.error === 'string') return payload.error;
+  }
+  if (payload.message && typeof payload.message === 'string') {
+    const msg = payload.message.toLowerCase();
+    if (/no result|don't have access|subscription/i.test(msg)) return `warning: ${payload.message}`;
+const hasUsableData = (Array.isArray(payload.data) && payload.data.length > 0)
+    || (Array.isArray(payload.response) && payload.response.length > 0)
+    || (Array.isArray(payload.fixtures) && payload.fixtures.length > 0)
+    || (Array.isArray(payload.events) && payload.events.length > 0)
+    || (payload.data && typeof payload.data === 'object' && Object.keys(payload.data).length > 0)
+    || (payload.response && typeof payload.response === 'object' && Object.keys(payload.response).length > 0)
+    || (payload.fixtures && typeof payload.fixtures === 'object' && Object.keys(payload.fixtures).length > 0)
+    || (payload.events && typeof payload.events === 'object' && Object.keys(payload.events).length > 0);
+    if (!hasUsableData) return payload.message;
+  }
+  return null;
+}
+
 const PROVIDER = 'oddspapi';
 const SOCCER_SPORT_ID = 10;
 const MAX_TOURNAMENTS_PER_REQUEST = 2;
@@ -166,7 +237,15 @@ async function requestJson(path, params, {
     try {
       const text = await readBoundedResponseText(response, 'OddsPapi', MAX_RESPONSE_BYTES);
       console.log('ODDSPAPI_RESP_BYTES ' + Buffer.byteLength(text, 'utf8') + ' path=' + path);
-      return JSON.parse(text);
+      const payload = JSON.parse(text);
+      if (hasPayloadErrors(payload)) {
+        const detail = extractErrorDetail(payload);
+        const error = new Error(`OddsPapi response contains error${detail ? `: ${detail}` : ''}`);
+        error.status = 200;
+        error.payloadErrors = true;
+        throw error;
+      }
+      return payload;
     } catch (error) {
       if (error instanceof SyntaxError) throw new Error('OddsPapi returned invalid JSON');
       throw error;
@@ -538,4 +617,4 @@ export async function fetchOddsPapi({
 
 const defaultState = createOddsPapiState({ store: createPostgresOddsPapiStore() });
 
-export { normalizeOddsPapiEvent };
+export { normalizeOddsPapiEvent, hasPayloadErrors, extractErrorDetail };

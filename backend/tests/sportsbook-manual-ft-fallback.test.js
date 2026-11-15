@@ -70,14 +70,25 @@ test('R6.9.0.12 manual FT fallback never unlocks SharpAPI-only live betting', ()
   assert.equal(authority.ht, false);
 });
 
-test('R6.9.0.12 API-Sports automatic authority takes precedence over manual fallback', () => {
+test('R6.9.0.12 automatic authority takes precedence over manual fallback', () => {
   const sharp = healthySharpEvent();
-  const api = __sportsbookProviders.normalizeApiSportsFixture({
-    fixture:{ id:20260818, date:'2026-08-18T19:00:00Z', status:{short:'NS'} },
-    league:{name:'epl',country:'England'}, teams:{home:{name:'Arsenal'},away:{name:'Chelsea'}},
-    goals:{home:null,away:null}, score:{halftime:{home:null,away:null},fulltime:{home:null,away:null}}
-  });
-  api._settlementReadySources = ['api-sports'];
+  const api = {
+    id: 'api-auto',
+    sport: 'Football',
+    league: 'epl',
+    country: 'England',
+    startTime: '2026-08-18T19:00:00Z',
+    status: 'SCHEDULED',
+    providerStatus: 'NS',
+    live: false,
+    home: { name: 'Arsenal', score: null, logo: null },
+    away: { name: 'Chelsea', score: null, logo: null },
+    periodScores: {},
+    markets: [],
+    _refs: { 'api-sports': 'api-20260818' },
+    _sources: ['api-sports'],
+    _settlementReadySources: ['api-sports']
+  };
   const [event] = __sportsbookProviders.mergeProviderEvents(
     [{provider:'sharpapi',events:[sharp]},{provider:'api-sports',events:[api]}],
     { enabled: true }

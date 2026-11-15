@@ -8,7 +8,9 @@ export function availableMarketPeriods(event) {
     if (!market || typeof market !== 'object' || market.suspended || !Array.isArray(market.selections)) continue;
     if (!market.selections.some(selection => {
       const odds = Number(selection?.odds);
-      return !selection?.suspended && Number.isFinite(odds) && odds > 1;
+      return !selection?.suspended
+        && Number.isFinite(odds)
+        && (odds > 1 || market.source === 'sportmonks');
     })) continue;
     periods.add(String(market.period || 'FT').toUpperCase());
   }

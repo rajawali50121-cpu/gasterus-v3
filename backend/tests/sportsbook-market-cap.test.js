@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 Object.assign(process.env, {
   NODE_ENV: 'test',
@@ -13,27 +14,43 @@ Object.assign(process.env, {
   MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
 });
 
-const { __sportsbookFeed } = await import('../src/sportsbook-feed.js');
+const feedSource = await readFile(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
+const { mergeProviderEvents } = await import('../src/sportsbook-providers.js');
 
-test('caps feed markets at 24 while retaining every FT and 1H core market type', () => {
-  const core = ['1X2:FT', '1X2:1H', 'HANDICAP:FT', 'HANDICAP:1H', 'TOTALS:FT', 'TOTALS:1H'];
+test('feed and provider merge retain every market instead of truncating market lists', () => {
+  assert.doesNotMatch(feedSource, /capMarketsPerEvent|MAX_MARKETS_PER_EVENT/);
   const event = {
     id: 'event-1',
-    markets: [
-      ...Array.from({ length: 30 }, (_, index) => ({ id: `extra-${index}`, type: 'OTHER', period: 'FT' })),
-      ...core.map((key, index) => {
-        const [type, period] = key.split(':');
-        return { id: `core-${index}`, type, period };
-      })
-    ]
+    sport: 'Football',
+    league: 'Regional League',
+    country: 'England',
+    startTime: new Date(Date.now() + 3600000).toISOString(),
+    status: 'SCHEDULED',
+    live: false,
+    home: { name: 'Home', score: null, logo: null },
+    away: { name: 'Away', score: null, logo: null },
+    markets: Array.from({ length: 40 }, (_, index) => ({
+      id: `market-${index}`,
+      type: 'OTHER',
+      period: 'FT',
+      label: `Market ${index}`,
+      line: null,
+      source: 'sportmonks',
+      suspended: false,
+      selections: [{
+        key: `selection-${index}`,
+        label: 'Yes',
+        odds: 2,
+        line: null,
+        suspended: false,
+        source: 'sportmonks'
+      }]
+    })),
+    _refs: { sportmonks: 'fixture-1' },
+    _sources: ['sportmonks']
   };
 
-  const [capped] = __sportsbookFeed.capMarketsPerEvent([event]);
+  const [merged] = mergeProviderEvents([{ provider: 'sportmonks', events: [event] }]);
 
-  assert.equal(capped.markets.length, 24);
-  assert.deepEqual(
-    core.filter(key => capped.markets.some(market => `${market.type}:${market.period}` === key)),
-    core
-  );
-  assert.equal(capped.id, event.id);
+  assert.equal(merged.markets.length, 40);
 });

@@ -23,9 +23,9 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
 
   // Secret diwariskan dari service web — tidak diduplikasi manual.
   assert.match(workerServiceBlock, /API_FOOTBALL_KEY:\s*preserve\(\)/);
-  assert.equal(railwayWorkerEnv('API_SPORTS_ENABLED'), 'true');
-  assert.equal(railwayWorkerEnv('API_SPORTS_DAILY_QUOTA'), '100');
-  assert.equal(railwayWorkerEnv('API_SPORTS_MONTHLY_QUOTA'), '3100');
+  assert.equal(railwayWorkerEnv('API_SPORTS_ENABLED'), undefined);
+  assert.equal(railwayWorkerEnv('API_SPORTS_DAILY_QUOTA'), undefined);
+  assert.equal(railwayWorkerEnv('API_SPORTS_MONTHLY_QUOTA'), undefined);
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_HMAC_SECRET'), '${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
   assert.equal(railwayWorkerEnv('DATABASE_URL'), '${{web.DATABASE_URL}}');
@@ -60,18 +60,24 @@ test('render worker keeps provider/page/payload limits and Sportmonks coverage',
   // mengambil cakupan luas (bukan terpotong ~17 match oleh pembagian statis).
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
   assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
-  // Snapshot besar wajib selaras dengan anggaran payload ingest SEBELUM berangkat
-  // (trim deterministik, bukan gagal 413 diam-diam yang membekukan feed).
-  assert.match(worker, /maxPayloadBytes: config\.sportsbookIngestMaxPayloadBytes/);
+  // Snapshot payload uses the Sportmonks-specific technical byte budget only
+  // in passthrough mode.
+  assert.match(worker, /maxPayloadBytes: config\.sportmonksPassthrough\s*\? config\.sportmonksIngestMaxPayloadBytes/);
   assert.match(worker, /fetchSportmonks/);
   assert.match(worker, /fetchSharpApi/);
-  assert.match(worker, /fetchApiSports/);
+  assert.doesNotMatch(worker, /fetchApiSports/);
 
-  // Sportmonks primer di worker yang sama: key diwariskan dari web (tanpa
-  // service/platform baru) dan dibatasi 500 event agar heap 224MB aman.
+  // Sportmonks is passed through without an event/page cap; payload limits
+  // remain the separately configured technical safeguard.
   assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
   assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), '500');
+  assert.match(workerServiceBlock, /SPORTMONKS_PASSTHROUGH:\s*preserve\(\)/);
+  assert.match(workerServiceBlock, /SPORTMONKS_DAYS_AHEAD:\s*preserve\(\)/);
+  assert.match(workerServiceBlock, /SPORTMONKS_MAX_TOTAL_EVENTS:\s*preserve\(\)/);
+  assert.match(workerServiceBlock, /SPORTMONKS_MAX_PAGES:\s*preserve\(\)/);
+  assert.match(workerServiceBlock, /SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES:\s*preserve\(\)/);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), undefined);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '300');
   assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '0');
   assert.match(worker, /fetchSportmonks/);

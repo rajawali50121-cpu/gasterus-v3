@@ -120,7 +120,7 @@ test('HF6 Phase 3 HT/FT auto settlement requires explicit result authority when 
   assert.equal(evaluateSportsbookLeg(ftLeg, { ...base, settlementAuthority:{ft:false,ht:false,sources:[]} }), null);
   assert.equal(evaluateSportsbookLeg(htLeg, { ...base, settlementAuthority:{ft:true,ht:false,sources:['sportmonks']} }), null);
   assert.equal(evaluateSportsbookLeg(ftLeg, { ...base, settlementAuthority:{ft:true,ht:false,sources:['sportmonks']} }).status, 'WON');
-  assert.equal(evaluateSportsbookLeg(htLeg, { ...base, settlementAuthority:{ft:true,ht:true,sources:['api-sports']} }).status, 'WON');
+  assert.equal(evaluateSportsbookLeg(htLeg, { ...base, settlementAuthority:{ft:true,ht:true,sources:['oddspapi']} }).status, 'WON');
 });
 
 test('HF6 Phase 3 settlement revisions, rollback/cancel routes, pending-funds gate and odds policy are wired before money movement', () => {

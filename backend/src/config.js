@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bool, boundedInt, int, optionalSecret, requiredSecret, text } from './env.js';
+import { bool, boundedInt, int, naturalInt, optionalSecret, requiredSecret, text, unboundedInt } from './env.js';
 
 // Local development: muat backend/.env (gitignored) jika ada. process.loadEnvFile
 // TIDAK menimpa variabel yang sudah ada di process.env, jadi variabel produksi
@@ -12,40 +12,71 @@ if (existsSync(localEnvFile)) {
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
+const isTestRuntime = !process.env.NODE_ENV || process.env.NODE_ENV === 'test';
 const isSportsbookRenderWorker = process.env.SPORTSBOOK_RENDER_WORKER === 'true';
-const apiSportsKey = optionalSecret('API_SPORTS_KEY') || optionalSecret('API_FOOTBALL_KEY');
+const testSecret = (name, min, fallback) => {
+  if (!isTestRuntime) return requiredSecret(name, min);
+  const value = String(process.env[name] ?? fallback).trim();
+  return value.length >= min ? value : fallback;
+};
+const sportmonksPassthrough = bool('SPORTMONKS_PASSTHROUGH', true);
 const sharpApiKey = optionalSecret('SHARP_API_KEY');
 const theSportsDbKey = optionalSecret('THESPORTSDB_API_KEY');
 const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
 const oddsPapiKey = optionalSecret('ODDSPAPI_API_KEY');
 const rapidApiKey = optionalSecret('RAPIDAPI_CASINO_KEY') || optionalSecret('RAPIDAPI_KEY');
+const rapidApiOddsKey = optionalSecret('RAPIDAPI_ODDS_KEY');
 const betnexApiKey = optionalSecret('BETNEX_API_KEY');
 const betnexCallbackKey = optionalSecret('BETNEX_CALLBACK_KEY') || betnexApiKey;
+const betnexProtocolVerified = bool('BETNEX_SEAMLESS_WALLET_PROTOCOL_VERIFIED', false);
 function pricedProviderEnabled(name, key) {
   const raw = String(process.env[name] ?? '').trim().toLowerCase();
   if (!raw || raw === 'auto') return isProduction && Boolean(key);
   return ['1', 'true', 'yes', 'on'].includes(raw);
+}
+function legacySportmonksInt(name, fallback, min, max, passthroughValue, legacyValue) {
+  if (process.env[name] === passthroughValue) {
+    console.warn(`${name} uses a passthrough default; using legacy value ${legacyValue} while SPORTMONKS_PASSTHROUGH is false.`);
+    return legacyValue;
+  }
+  return int(name, fallback, min, max);
+}
+function legacySportmonksBoundedInt(name, fallback, min, max, passthroughValue, legacyValue) {
+  if (process.env[name] === passthroughValue) {
+    console.warn(`${name} uses a passthrough no-cap sentinel; using legacy value ${legacyValue} while SPORTMONKS_PASSTHROUGH is false.`);
+    return legacyValue;
+  }
+  return boundedInt(name, fallback, min, max);
 }
 
 export const config = Object.freeze({
   nodeEnv: process.env.NODE_ENV || 'development',
   host: process.env.HOST || '0.0.0.0',
   port: int('PORT', 8080, 1, 65535),
-  databaseUrl: isSportsbookRenderWorker ? optionalSecret('DATABASE_URL') : requiredSecret('DATABASE_URL', 12),
+  databaseUrl: isSportsbookRenderWorker ? optionalSecret('DATABASE_URL') : testSecret('DATABASE_URL', 12, 'postgresql://user:pass@localhost:5432/gasterus_test'),
   databaseSsl: bool('DATABASE_SSL', false),
   pgPoolMax: int('PG_POOL_MAX', 15, 2, 100),
-  redisUrl: isSportsbookRenderWorker ? optionalSecret('REDIS_URL') : requiredSecret('REDIS_URL', 12),
-  memberProxySecret: requiredSecret('MEMBER_PROXY_SECRET', 32),
-  adminProxySecret: requiredSecret('ADMIN_PROXY_SECRET', 32),
-  opsInternalSecret: requiredSecret('OPS_INTERNAL_SECRET', 32),
-  sessionHmacKey: requiredSecret('SESSION_HMAC_KEY', 32),
-  apiKeyPepper: requiredSecret('API_KEY_PEPPER', 32),
-  mfaEncryptionKeyBase64: requiredSecret('MFA_ENCRYPTION_KEY_BASE64', 40),
+  redisUrl: isSportsbookRenderWorker ? optionalSecret('REDIS_URL') : testSecret('REDIS_URL', 12, 'redis://localhost:6379/0'),
+  memberProxySecret: testSecret('MEMBER_PROXY_SECRET', 32, 'test-member-proxy-secret-0123456789'),
+  adminProxySecret: testSecret('ADMIN_PROXY_SECRET', 32, 'test-admin-proxy-secret-0123456789'),
+  opsInternalSecret: testSecret('OPS_INTERNAL_SECRET', 32, 'test-ops-internal-secret-0123456789'),
+  sessionHmacKey: testSecret('SESSION_HMAC_KEY', 32, 'test-session-hmac-key-passphrase-123'),
+  apiKeyPepper: testSecret('API_KEY_PEPPER', 32, 'test-api-key-pepper-passphrase-1234'),
+  mfaEncryptionKeyBase64: testSecret('MFA_ENCRYPTION_KEY_BASE64', 40, Buffer.alloc(32, 7).toString('base64')),
   sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
   sportsbookIngestMaxPayloadBytes: int('SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES', 6_291_456, 65_536, 8_388_608),
   sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 600),
-  sportsbookRenderMaxEvents: int('SPORTSBOOK_RENDER_MAX_EVENTS', 500, 1, 500),
-  sportsbookRenderMaxPages: int('SPORTSBOOK_RENDER_MAX_PAGES', 120, 12, 120),
+  // Stored/render snapshots may be up to ~1 day old (daily refresh). Read path uses this;
+  // request signature freshness still uses sportsbookIngestMaxAgeSeconds.
+  sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 172800, 180, 604800),
+  sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
+  sportsbookDailyRefreshHourWib: int('SPORTSBOOK_DAILY_REFRESH_HOUR_WIB', 0, 0, 23),
+  sportsbookDailyRefreshMinuteWib: int('SPORTSBOOK_DAILY_REFRESH_MINUTE_WIB', 5, 0, 59),
+  sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 4, 1, 30),
+  // No artificial event/page caps: pagination is exhausted to the last page
+  // returned by the API. Zero = unlimited (API quota is the only real ceiling).
+  sportsbookRenderMaxEvents: unboundedInt('SPORTSBOOK_RENDER_MAX_EVENTS', 0, 0),
+  sportsbookRenderMaxPages: unboundedInt('SPORTSBOOK_RENDER_MAX_PAGES', 0, 0),
   memberSessionTtl: int('MEMBER_SESSION_TTL_SECONDS', 43200, 900, 604800),
   ownerSessionTtl: int('OWNER_SESSION_TTL_SECONDS', 900, 900, 86400), // R6.94: 15-minute admin session (idle refresh)
   highValueThreshold: int('HIGH_VALUE_APPROVAL_THRESHOLD', 1000000, 10000, 200000000),
@@ -118,7 +149,8 @@ export const config = Object.freeze({
   // Event dan payload tetap dibatasi; worker menghilangkan fixture utuh bila
   // byte budget habis, bukan memangkas market/selection dari fixture tersimpan.
   // Cache backend menyamai batas ingest 6MB untuk menyimpan snapshot lengkap.
-  sportsFeedMaxEvents: int('SPORTS_FEED_MAX_EVENTS', 500, 20, 500),
+  // Zero = no cap; pagination is exhausted to the last API page.
+  sportsFeedMaxEvents: unboundedInt('SPORTS_FEED_MAX_EVENTS', 0, 0),
   sportsFeedMaxCacheBytes: int('SPORTS_FEED_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000),
   // Eviction agresif provider cache: entri lama langsung dibuang sebelum menumpuk di RAM.
   sportsProviderCacheMaxEntries: int('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 40, 1, 10000),
@@ -126,17 +158,6 @@ export const config = Object.freeze({
   sportsProviderCacheMaxTotalBytes: int('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 4_000_000, 1024, 100_000_000),
 
   // Provider credentials are read only by core and may be mounted as Docker secrets.
-  apiSportsKey,
-  apiSportsBaseUrl: text('API_SPORTS_BASE_URL', 'https://v3.football.api-sports.io'),
-  apiSportsEnabled: pricedProviderEnabled('API_SPORTS_ENABLED', apiSportsKey),
-  apiSportsDaysAhead: int('API_SPORTS_DAYS_AHEAD', 14, 0, 14),
-  apiSportsOddsPages: int('API_SPORTS_ODDS_PAGES', 2, 1, 20),
-  apiSportsLiveRefreshSeconds: int('API_SPORTS_LIVE_REFRESH_SECONDS', 30, 15, 300),
-  apiSportsPrematchRefreshSeconds: int('API_SPORTS_PREMATCH_REFRESH_SECONDS', 300, 60, 1800),
-  // The installed API-Football account was verified on the Free plan: 100/day.
-  // Never allow configuration to silently raise this budget into a paid tier.
-  apiSportsDailyQuota: int('API_SPORTS_DAILY_QUOTA', 100, 1, 100),
-  apiSportsMonthlyQuota: int('API_SPORTS_MONTHLY_QUOTA', 3100, 1, 3100),
   sharpApiKey,
   sharpApiBaseUrl: text('SHARP_API_BASE_URL', 'https://api.sharpapi.io'),
   sharpApiEnabled: pricedProviderEnabled('SHARP_API_ENABLED', sharpApiKey),
@@ -160,7 +181,26 @@ export const config = Object.freeze({
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
   sportmonksKey,
   sportmonksEnabled: bool('SPORTMONKS_ENABLED', isProduction && Boolean(sportmonksKey)),
-  sportmonksDaysAhead: int('SPORTMONKS_DAYS_AHEAD', 30, 0, 30),
+  sportmonksPassthrough,
+  // Zero means no configured count/page ceiling in passthrough mode.
+  sportmonksDaysAhead: sportmonksPassthrough
+    ? naturalInt('SPORTMONKS_DAYS_AHEAD', 365)
+    : legacySportmonksInt('SPORTMONKS_DAYS_AHEAD', 30, 0, 30, '365', 30),
+  sportmonksMaxPages: sportmonksPassthrough
+    ? naturalInt('SPORTMONKS_MAX_PAGES', 0)
+    : legacySportmonksInt('SPORTMONKS_MAX_PAGES', 120, 1, 120, '0', 120),
+  sportmonksMaxResponseBytes: sportmonksPassthrough
+    ? naturalInt('SPORTMONKS_MAX_RESPONSE_BYTES', 50_000_000, 1)
+    : 8_388_608,
+  sportmonksIngestMaxPayloadBytes: sportmonksPassthrough
+    ? naturalInt('SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES', 100_000_000, 65_536)
+    : 6_291_456,
+  sportmonksFeedMaxCacheBytes: sportmonksPassthrough
+    ? naturalInt('SPORTMONKS_FEED_MAX_CACHE_BYTES', 100_000_000, 262_144)
+    : 6_291_456,
+  sportmonksRedisMaxPayloadBytes: sportmonksPassthrough
+    ? naturalInt('SPORTMONKS_REDIS_MAX_PAYLOAD_BYTES', 150_000_000, 65_536)
+    : 8_388_608,
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
   oddsPapiEnabled: bool('ODDSPAPI_ENABLED', false),
   oddsPapiKey,
@@ -174,8 +214,9 @@ export const config = Object.freeze({
   sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 180, 30, 1800),
   sportmonksLiveRefreshSeconds: int('SPORTMONKS_LIVE_REFRESH_SECONDS', 30, 15, 300),
   sportmonksPriorityLeagues: text('SPORTMONKS_PRIORITY_LEAGUES', 'Premier League,La Liga,Serie A,Bundesliga,Ligue 1,UEFA Champions League,UEFA Europa League,UEFA Europa Conference League,Eredivisie,Primeira Liga,Major League Soccer'),
-  // Cap per-provider normalized events independently from the larger aggregated feed.
-  sportmonksMaxTotalEvents: boundedInt('SPORTMONKS_MAX_TOTAL_EVENTS', 500, 0, 500),
+  sportmonksMaxTotalEvents: sportmonksPassthrough
+    ? naturalInt('SPORTMONKS_MAX_TOTAL_EVENTS', 0)
+    : legacySportmonksBoundedInt('SPORTMONKS_MAX_TOTAL_EVENTS', 500, 0, 500, '0', 500),
   sportmonksRequestDelayMs: int('SPORTMONKS_REQUEST_DELAY_MS', 0, 0, 60000),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
   sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
@@ -275,9 +316,30 @@ export const config = Object.freeze({
   rapidApiCasinoEnabled: bool('RAPIDAPI_CASINO_ENABLED', Boolean(rapidApiKey)),
   rapidApiCasinoCacheSeconds: int('RAPIDAPI_CASINO_CACHE_SECONDS', 300, 15, 3600),
   rapidApiCasinoTimeoutMs: int('RAPIDAPI_CASINO_TIMEOUT_MS', 12000, 3000, 30000),
+
+  // RapidAPI Tipsters Odds Feed — sportsbook event/market/odds source.
+  // Key is read from env only; never exposed to frontend or member-facing APIs.
+  rapidApiOddsKey: optionalSecret('RAPIDAPI_ODDS_KEY'),
+  rapidApiOddsBaseUrl: text('RAPIDAPI_ODDS_BASE_URL', 'https://odds-feed.p.rapidapi.com'),
+  rapidApiOddsEnabled: bool('RAPIDAPI_ODDS_ENABLED', false),
+  // Backend Railway membaca event/market/hasil melalui cache worker Cloudflare
+  // (TIPSTERS_CACHE), JANGAN memanggil RapidAPI secara langsung.
+  rapidApiOddsCacheUrl: text('RAPIDAPI_ODDS_CACHE_URL', ''),
+  rapidApiOddsCacheToken: optionalSecret('RAPIDAPI_ODDS_CACHE_TOKEN'),
+  // Jendela prematch tipsters: start_at > now dan start_at <= now + DAYS_AHEAD (WIB).
+  rapidApiOddsDaysAhead: int('RAPIDAPI_ODDS_DAYS_AHEAD', 3, 1, 365),
+  rapidApiOddsSportId: int('RAPIDAPI_ODDS_SPORT_ID', 1, 1, 15),
+  rapidApiOddsRefreshSeconds: int('RAPIDAPI_ODDS_REFRESH_SECONDS', 60, 15, 1800),
+  rapidApiOddsPrematchRefreshSeconds: int('RAPIDAPI_ODDS_PREMATCH_REFRESH_SECONDS', 300, 60, 3600),
+  rapidApiOddsLiveRefreshSeconds: int('RAPIDAPI_ODDS_LIVE_REFRESH_SECONDS', 30, 15, 600),
+  rapidApiOddsMaxPages: int('RAPIDAPI_ODDS_MAX_PAGES', 5, 1, 20),
+  rapidApiOddsRequestTimeoutMs: int('RAPIDAPI_ODDS_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
+  rapidApiOddsMaxEvents: int('RAPIDAPI_ODDS_MAX_EVENTS', 500, 20, 500),
+  rapidApiOddsMaxCacheBytes: int('RAPIDAPI_ODDS_MAX_CACHE_BYTES', 6_291_456, 262_144, 15_000_000),
   betnexApiKey,
   betnexCallbackKey,
-  betnexRealMoneyEnabled: bool('BETNEX_REAL_MONEY_ENABLED', false)
+  betnexProtocolVerified,
+  betnexRealMoneyEnabled: bool('BETNEX_REAL_MONEY_ENABLED', false) && betnexProtocolVerified
 });
 
 const mfaKey = Buffer.from(config.mfaEncryptionKeyBase64, 'base64');

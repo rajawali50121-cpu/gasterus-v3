@@ -11,7 +11,8 @@ Object.assign(process.env, {
   OPS_INTERNAL_SECRET: 'o'.repeat(48),
   SESSION_HMAC_KEY: 's'.repeat(48),
   API_KEY_PEPPER: 'p'.repeat(48),
-  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
+  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
+  SPORTMONKS_PASSTHROUGH: 'false'
 });
 
 const {
@@ -51,7 +52,7 @@ test('provider circuit breaker fails closed and requires confirmed recovery stre
 
 test('transport can recover without making a metadata-only provider a pricing authority', () => {
   const state = advanceProviderLifecycle(null, {
-    code: 'api-sports', enabled: true, transportHealthy: true, pricingReady: false
+    code: 'oddspapi', enabled: true, transportHealthy: true, pricingReady: false
   }, policy, 1000);
   assert.equal(state.state, PROVIDER_LIFECYCLE_STATES.HEALTHY);
   assert.equal(state.transportHealthy, true);
@@ -82,18 +83,18 @@ function event(source, marketValue, settlementReady = []) {
 
 test('active lower-priority provider wins over a quarantined higher-priority price during failover', () => {
   const sharp = event('sharpapi', market('sharpapi', true), []);
-  const api = event('api-sports', market('api-sports', false), ['api-sports']);
+  const api = event('sportmonks', market('sportmonks', false), ['sportmonks']);
   const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharp] }, { events: [api] }]);
   assert.equal(merged.markets.length, 1);
-  assert.equal(merged.markets[0].source, 'api-sports');
+  assert.equal(merged.markets[0].source, 'sportmonks');
   assert.equal(merged.markets[0].suspended, false);
 });
 
 test('recovering score authority cannot silently unlock another providers prices', () => {
   const sharp = event('sharpapi', market('sharpapi', false), []);
-  const recoveringApiSports = event('api-sports', null, []);
+  const recoveringApiSports = event('sportmonks', null, []);
   const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharp] }, { events: [recoveringApiSports] }]);
-  assert.ok(merged._sources.includes('api-sports'));
+  assert.ok(merged._sources.includes('sportmonks'));
   assert.deepEqual(merged._settlementReadySources, []);
   assert.ok(merged.markets.every(item => item.suspended));
 });

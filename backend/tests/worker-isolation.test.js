@@ -67,5 +67,6 @@ test('sportsbook feed and Redis cache have hard event and byte caps', () => {
   assert.match(feed, /MAX_FEED_EVENTS/);
   assert.match(feed, /MAX_CACHE_BYTES/);
   assert.match(feed, /cacheWithinLimit/);
-  assert.match(feed, /Buffer\.byteLength\(raw, 'utf8'\) > MAX_CACHE_BYTES/);
+  assert.match(feed, /Buffer\.byteLength\(raw, 'utf8'\) > maxCacheBytes/);
+  assert.match(feed, /hasSportmonks \? config\.sportmonksFeedMaxCacheBytes : MAX_CACHE_BYTES/);
 });

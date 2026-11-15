@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "rapidapiBetnex": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.rapidapi.com",
+        "--header",
+        "x-api-host: live-casino-slots-evolution-jili-and-50-plus-provider.p.rapidapi.com",
+        "--header",
+        "x-api-key: ${RAPIDAPI_KEY}"
+      ]
+    }
+  }
+}

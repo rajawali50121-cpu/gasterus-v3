@@ -10,24 +10,27 @@ const validationBlock = feedSource
   .slice(validationStart, validationEnd)
   .replace('export function validateAllHandicapOdds', 'function validateAllHandicapOdds');
 const validationLogs = [];
+const validationConfig = { sportmonksPassthrough: false };
 const validationLogger = {
   info: (...args) => validationLogs.push(args),
   warn: (...args) => validationLogs.push(args)
 };
 const validateAllHandicapOdds = new Function(
   'logger',
+  'config',
   `${validationBlock}; return validateAllHandicapOdds;`
-)(validationLogger);
+)(validationLogger, validationConfig);
 
 function eventWithMarket(market) {
   return { id: 'event-1', markets: [market] };
 }
 
-function market(type, line, selectionLines, odds) {
+function market(type, line, selectionLines, odds, bookmaker = null) {
   return {
     id: `${type}-${line}`,
     type,
     line,
+    bookmaker,
     selections: odds.map((price, index) => ({
       key: `${index}`,
       line: selectionLines?.[index] ?? null,
@@ -89,6 +92,27 @@ test('accepts 1X2 overround 1.05 and quarantines overrounds outside 1.00-1.25', 
   }
 });
 
+test('validates 1X2 and handicap overrounds independently for each bookmaker', () => {
+  const markets = [
+    market('1X2', null, null, [2.4, 3.2, 3.0], 'Book A'),
+    market('1X2', null, null, [2.1, 3.4, 3.3], 'Book B'),
+    market('HANDICAP', -0.5, [-0.5, 0.5], [1.9, 1.9], 'Book A'),
+    market('HANDICAP', -0.5, [-0.5, 0.5], [2.0, 2.0], 'Book B')
+  ];
+  const events = [{ id: 'two-bookmakers', markets }];
+  const logsBefore = validationLogs.length;
+
+  validateAllHandicapOdds(events);
+
+  assert.equal(events[0].markets.length, 4);
+  assert.deepEqual(
+    events[0].markets.map(item => [item.type, item.bookmaker, item.selections.map(selection => selection.odds)]),
+    markets.map(item => [item.type, item.bookmaker, item.selections.map(selection => selection.odds)])
+  );
+  assert.equal(validationLogs.length - logsBefore, 1);
+  assert.equal(validationLogs.at(-1)[1].total, 0);
+});
+
 test('quarantines handicap prices that form an implausible underround', () => {
   const events = [eventWithMarket(market('HANDICAP', -0.5, [-0.5, 0.5], [11.76, 1.25]))];
   validateAllHandicapOdds(events);
@@ -146,4 +170,19 @@ test('suspended selections do not quarantine a market for their odds', () => {
   validateAllHandicapOdds(events);
 
   assert.strictEqual(events[0].markets[0], suspendedMarket);
+});
+
+test('Sportmonks markets with unusual overround are retained and annotated', () => {
+  validationConfig.sportmonksPassthrough = true;
+  const event = {
+    id: 'sportmonks-overround',
+    _sources: ['sportmonks'],
+    markets: [market('1X2', null, null, [2.5, 3, 5])]
+  };
+  event.markets[0].source = 'sportmonks';
+
+  validateAllHandicapOdds([event]);
+
+  assert.equal(event.markets.length, 1);
+  assert.ok(event.markets[0].validationWarnings.includes('OVERROUND_1X2'));
 });

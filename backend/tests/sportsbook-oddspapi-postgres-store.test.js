@@ -185,7 +185,7 @@ test('PostgreSQL transactions atomically cap concurrent daily reservations acros
 test('provider quota store supports a separately bounded API-Sports free allowance', async () => {
   const db = createMemoryPostgres();
   const store = createStore(db, createMemoryRedis(), {
-    providerCode: 'api-sports',
+    providerCode: 'oddspapi',
     maxDailyLimit: 100,
     maxMonthlyLimit: 3100
   });

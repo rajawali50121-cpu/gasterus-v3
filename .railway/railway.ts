@@ -19,14 +19,6 @@ export default defineRailway(() => {
       ADMIN_PASSWORD: preserve(),
       ADMIN_PROXY_SECRET: preserve(),
       API_KEY_PEPPER: preserve(),
-      API_SPORTS_BASE_URL: preserve(),
-      API_SPORTS_DAILY_QUOTA: preserve(),
-      API_SPORTS_DAYS_AHEAD: preserve(),
-      API_SPORTS_ENABLED: preserve(),
-      API_SPORTS_KEY: preserve(),
-      API_SPORTS_LIVE_REFRESH_SECONDS: preserve(),
-      API_SPORTS_ODDS_PAGES: preserve(),
-      API_SPORTS_PREMATCH_REFRESH_SECONDS: preserve(),
       APP_URL: preserve(),
       CORS_ORIGIN: preserve(),
       CORE_HEAP_MB: preserve(),
@@ -73,11 +65,13 @@ export default defineRailway(() => {
       SPORTSBOOK_INGEST_URL: preserve(),
       SPORTSBOOK_RENDER_MAX_EVENTS: preserve(),
       SPORTMONKS_API_KEY: preserve(),
+      SPORTMONKS_PASSTHROUGH: preserve(),
       SPORTMONKS_DAYS_AHEAD: preserve(),
       SPORTMONKS_ENABLED: preserve(),
       SPORTMONKS_MARKET_IDS: preserve(),
       SPORTMONKS_MAX_RESPONSE_BYTES: preserve(),
       SPORTMONKS_MAX_RETRIES: preserve(),
+      SPORTMONKS_MAX_PAGES: preserve(),
       SPORTMONKS_MAX_TOTAL_EVENTS: preserve(),
       SPORTMONKS_LIVE_REFRESH_SECONDS: preserve(),
       SPORTMONKS_ODDS_REFRESH_SECONDS: preserve(),
@@ -89,16 +83,14 @@ export default defineRailway(() => {
   // Scraper odds berjalan sebagai service TERPISAH agar beban scrape tidak
   // pernah menyentuh memori service web (anti-OOM). Pengaman:
   //   - heap V8 dikunci 224MB lewat NODE_OPTIONS (container ~512MB)
-  //   - Sportmonks SUMBER UTAMA cakupan luas: seluruh halaman dalam anggaran
-  //     120 x 20 discan round-robin per tanggal; snapshot tetap maks 500 event
-  //     setelah ranking, dan key diwariskan dari web.
+  //   - Sportmonks SUMBER UTAMA: seluruh halaman tersedia diikuti sampai
+  //     has_more=false; batas teknis payload/memori tetap dikonfigurasi terpisah.
   //   - Live window Sportmonks di-refresh terpisah tiap 30 detik (non-paginated)
   //     supaya event dan in-play odds cepat diperbarui tanpa mengulang katalog.
   //   - Hanya provider yang di-wire oleh worker dipanggil; provider lain tidak
   //     diaktifkan sebagai cadangan tersembunyi.
-  //   - provider dijalankan sekuensial (satu payload pada satu waktu); seluruh
-  //     market/selection ber-odds valid dipertahankan, fixture utuh berperingkat
-  //     rendah dibuang hanya bila anggaran snapshot 6MB tidak mencukupi.
+  //   - provider dijalankan sekuensial (satu payload pada satu waktu); data
+  //     Sportmonks tidak dibatasi oleh event count, validasi atau quarantine.
   const sportsbookRenderWorker = service("sportsbook-render-worker", {
     source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile.sportsbook-render-worker" },
@@ -111,9 +103,6 @@ export default defineRailway(() => {
       NODE_ENV: "production",
       NODE_OPTIONS: "--max-old-space-size=224",
       API_FOOTBALL_KEY: preserve(),
-      API_SPORTS_ENABLED: "true",
-      API_SPORTS_DAILY_QUOTA: "100",
-      API_SPORTS_MONTHLY_QUOTA: "3100",
       DATABASE_URL: "${{web.DATABASE_URL}}",
       REDIS_URL: "${{web.REDIS_URL}}",
       ODDSPAPI_ENABLED: "true",
@@ -131,7 +120,14 @@ export default defineRailway(() => {
       // worker yang sama — service web tetap bebas beban scrape Sportmonks.
       SPORTMONKS_ENABLED: "true",
       SPORTMONKS_API_KEY: "${{web.SPORTMONKS_API_KEY}}",
-      SPORTMONKS_MAX_TOTAL_EVENTS: "500",
+      SPORTMONKS_PASSTHROUGH: preserve(),
+      SPORTMONKS_DAYS_AHEAD: preserve(),
+      SPORTMONKS_MAX_TOTAL_EVENTS: preserve(),
+      SPORTMONKS_MAX_PAGES: preserve(),
+      SPORTMONKS_MAX_RESPONSE_BYTES: preserve(),
+      SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES: preserve(),
+      SPORTMONKS_FEED_MAX_CACHE_BYTES: preserve(),
+      SPORTMONKS_REDIS_MAX_PAYLOAD_BYTES: preserve(),
       SPORTMONKS_REFRESH_SECONDS: "300",
       SPORTMONKS_LIVE_REFRESH_SECONDS: "30",
       SPORTMONKS_REQUEST_DELAY_MS: "0",

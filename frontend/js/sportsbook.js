@@ -1563,8 +1563,12 @@ function renderOddCell(e, m, s, lineOverride) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
   }
   const decOdds = Number(s.odds);
-  if (!Number.isFinite(decOdds) || decOdds <= 1) {
+  const sportmonksPrice = m.source === 'sportmonks' || s.source === 'sportmonks';
+  if (!Number.isFinite(decOdds) || (decOdds <= 1 && !sportmonksPrice)) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Belum tersedia</span></div>`;
+  }
+  if (decOdds <= 1) {
+    return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">${escapeHtml(formatOdds(decOdds, oddsFormat))}</span></div>`;
   }
   const key = selKey(e.id, m.id, s.key);
   const isChosen = selected.has(key);
@@ -1746,7 +1750,10 @@ function renderMatch(e) {
 }
 
 function renderAllEventMarkets(event) {
-  const markets = (event.markets || []).filter(market => Array.isArray(market.selections) && market.selections.length);
+  const markets = (event.markets || []).filter(market =>
+    Array.isArray(market.selections)
+      && (market.selections.length || market.source === 'sportmonks')
+  );
   if (!markets.length) return '<div class="sb-detail-markets-status">Belum ada pasar odds untuk pertandingan ini.</div>';
   const types = [...new Set(markets.map(market => String(market.type || 'OTHER').toUpperCase()))];
   const periods = [...new Set(markets.map(market => String(market.period || 'FT').toUpperCase()))];
@@ -1807,12 +1814,12 @@ function renderAllEventMarkets(event) {
         <span>${escapeHtml(periodLabel(String(market.period || 'FT').toUpperCase()))}${market.line !== null && market.line !== undefined ? ` · ${escapeHtml(String(market.line))}` : ''}</span>
       </h4>
       <div class="sb-accordion-grid">
-        ${market.selections.map(selection => `
+        ${market.selections.length ? market.selections.map(selection => `
           <div class="sb-detail-market-selection">
             <span>${escapeHtml(selection.label || selection.key || 'Pilihan')}</span>
             ${renderOddCell(event, market, selection)}
           </div>
-        `).join('')}
+        `).join('') : '<div class="sb-detail-markets-status">Odds tidak tersedia.</div>'}
       </div>
     </section>
   `).join('')}</div>

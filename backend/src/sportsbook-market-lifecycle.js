@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { config } from './config.js';
 
 export const MARKET_LIFECYCLE_STATES = Object.freeze({
   ACTIVE: 'ACTIVE',
@@ -207,6 +208,7 @@ export function reconcileSportsbookMarketLifecycle(previousState = {}, events = 
   const outputEvents = (events || []).map(event => ({
     ...event,
     markets: (event.markets || []).map(market => {
+      if (config.sportmonksPassthrough && market.source === 'sportmonks') return market;
       const key = sportsbookMarketLifecycleKey(event.id, market.id);
       observedKeys.add(key);
       const { next, transition } = resolveObservedMarket(previousState[key], event, market, { reopenSuccesses, reopenObservationSeconds, now });

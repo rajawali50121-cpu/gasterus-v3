@@ -11,6 +11,7 @@ Object.assign(process.env, {
   SESSION_HMAC_KEY: process.env.SESSION_HMAC_KEY || 's'.repeat(48),
   API_KEY_PEPPER: process.env.API_KEY_PEPPER || 'p'.repeat(48),
   MFA_ENCRYPTION_KEY_BASE64: process.env.MFA_ENCRYPTION_KEY_BASE64 || Buffer.alloc(32, 1).toString('base64'),
+  SPORTMONKS_PASSTHROUGH: 'false',
   SPORTS_FEED_MAX_CACHE_BYTES: '300000'
 });
 
@@ -48,7 +49,7 @@ function normalizedEvent(provider, { id, kickoff = Date.now() + 3600000, home = 
       selections: [{
         key: `selection-${provider}`,
         label: 'Home',
-        odds: provider === 'api-sports' ? 1.9 : 2.0,
+        odds: 2.0,
         suspended: false,
         source: provider,
         updatedAt: startTime
@@ -75,7 +76,7 @@ function snapshot(now) {
     generatedAt: new Date(now).toISOString(),
     providerResults: [
       { provider: 'sportmonks', enabled: true, events: [normalizedEvent('sportmonks', { id: 'sm-event', kickoff: now + 3600000 })] },
-      { provider: 'api-sports', enabled: true, events: [normalizedEvent('api-sports', { id: 'api-event', kickoff: now + 3660000, home: 'Arsenal', away: 'Chelsea' })] }
+      { provider: 'sharpapi', enabled: true, events: [normalizedEvent('sharpapi', { id: 'sharp-event', kickoff: now + 3660000, home: 'Arsenal', away: 'Chelsea' })] }
     ]
   };
 }
@@ -95,15 +96,16 @@ test('aggregator loads only a fresh staging snapshot with a valid HMAC and revis
   assert.equal(result.receivedAt, new Date(now).toISOString());
 });
 
-test('aggregator rejects stale or altered staging data so caller can fall back to local providers', async () => {
+test('aggregator rejects expired or altered staging data so caller can fall back to local providers', async () => {
   const now = Date.now();
-  const oldSnapshot = snapshot(now - 181000);
-  const staleRecord = signedStagingRecord(oldSnapshot, now - 181000);
-  const stale = await loadRenderProviderSnapshot(
-    { isOpen: true, async get() { return staleRecord; } },
+  // Daily stored mode keeps snapshots readable for retention window; only truly expired/altered rejected.
+  const oldSnapshot = snapshot(now - 172801000);
+  const expiredRecord = signedStagingRecord(oldSnapshot, now - 172801000);
+  const expired = await loadRenderProviderSnapshot(
+    { isOpen: true, async get() { return expiredRecord; } },
     { secret: SECRET, now }
   );
-  assert.equal(stale, null);
+  assert.equal(expired, null);
 
   const tampered = JSON.parse(signedStagingRecord(snapshot(now), now));
   tampered.rawBody = tampered.rawBody.replace('sm-event', 'xx-event');
@@ -116,10 +118,26 @@ test('aggregator rejects stale or altered staging data so caller can fall back t
 
 test('aggregator selects local fetching when staging is absent or invalid', async () => {
   const now = Date.now();
-  const staleRecord = signedStagingRecord(snapshot(now - 181000), now - 181000);
+  // Valid stored snapshot within retention is served directly (no provider fetch on read/restart).
+  const validStored = signedStagingRecord(snapshot(now - 3600000), now - 3600000);
   let fallbackCalls = 0;
+  const fromStored = await resolveSportsbookProviderResults(
+    { isOpen: true, async get() { return validStored; } },
+    {
+      secret: SECRET,
+      now,
+      fetchLocalProviders: async () => {
+        fallbackCalls += 1;
+        return [{ result: { provider: 'sportmonks', enabled: true, events: [] }, elapsedMs: 12 }];
+      }
+    }
+  );
+  assert.equal(fromStored.source, 'render');
+  assert.equal(fallbackCalls, 0);
+
+  fallbackCalls = 0;
   const resolved = await resolveSportsbookProviderResults(
-    { isOpen: true, async get() { return staleRecord; } },
+    { isOpen: true, async get() { return null; } },
     {
       secret: SECRET,
       now,
@@ -143,12 +161,12 @@ test('Railway provider merge deduplicates the same cross-provider fixture before
   );
   const events = providers.mergeProviderEvents(loaded.providerResults);
   assert.equal(events.length, 1);
-  assert.deepEqual(new Set(events[0]._sources), new Set(['sportmonks', 'api-sports']));
+  assert.deepEqual(new Set(events[0]._sources), new Set(['sportmonks', 'sharpapi']));
   assert.equal(events[0]._refs.sportmonks, 'provider-sportmonks');
-  assert.equal(events[0]._refs['api-sports'], 'provider-api-sports');
+  assert.equal(events[0]._refs.sharpapi, 'provider-sharpapi');
 
   const authorityPayload = snapshot(now);
-  authorityPayload.providerResults[0].events[0]._settlementReadySources = ['api-sports'];
+  authorityPayload.providerResults[0].events[0]._settlementReadySources = ['sharpapi'];
   authorityPayload.providerResults[0].events[0]._settlementMode = 'UNTRUSTED_WORKER_OVERRIDE';
   authorityPayload.providerResults[0].events[0].markets[0].lifecycleState = 'ACTIVE';
   authorityPayload.providerResults[0].events[0].markets[0].selections[0].priceVersion = 'untrusted-version';

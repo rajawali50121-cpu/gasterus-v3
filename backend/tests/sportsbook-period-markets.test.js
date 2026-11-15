@@ -17,25 +17,36 @@ Object.assign(process.env, {
 const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
-test('API-Sports normalizer carries first-half markets and halftime settlement score', () => {
-  const event = __sportsbookProviders.normalizeApiSportsFixture({
-    fixture: { id: 9911, date: '2026-08-11T12:00:00Z', status: { short: 'FT', elapsed: 90 }, venue: { name: 'Stadium' } },
-    league: { name: 'Premier League', country: 'England' },
-    teams: { home: { name: 'Arsenal' }, away: { name: 'Chelsea' } },
-    goals: { home: 3, away: 1 },
-    score: { halftime: { home: 1, away: 1 }, fulltime: { home: 3, away: 1 } }
-  }, [
-    { id: 1, name: 'Match Winner', values: [{ value: 'Home', odd: '1.80' }, { value: 'Draw', odd: '3.40' }, { value: 'Away', odd: '4.20' }] },
-    { id: 2, name: 'First Half Winner', values: [{ value: 'Home', odd: '2.20' }, { value: 'Draw', odd: '2.10' }, { value: 'Away', odd: '4.60' }] },
-    { id: 6, name: 'Goals Over/Under First Half', values: [{ value: 'Over 1.0', odd: '1.88' }, { value: 'Under 1.0', odd: '1.98' }] }
-  ]);
+test('normalizer carries first-half markets and halftime settlement score', () => {
+  const event = {
+    id: 'api-score',
+    sport: 'Football',
+    league: 'Premier League',
+    country: 'England',
+    startTime: '2026-08-11T12:00:00Z',
+    status: 'FINISHED',
+    providerStatus: 'FT',
+    live: false,
+    home: { name: 'Arsenal', score: 3, logo: null },
+    away: { name: 'Chelsea', score: 1, logo: null },
+    periodScores: { '1H': { home: 1, away: 1 } },
+    markets: [
+      { id: 'm1', type: '1X2', period: 'FT', source: 'api-sports', suspended: false, selections: [{ key: 'k1', label: 'Home', odds: 1.8, suspended: false, source: 'api-sports', updatedAt: null }] },
+      { id: 'm2', type: '1X2', period: '1H', source: 'api-sports', suspended: false, selections: [{ key: 'k2', label: 'Home', odds: 2.2, suspended: false, source: 'api-sports', updatedAt: null }] },
+      { id: 'm3', type: 'TOTALS', period: '1H', source: 'api-sports', suspended: false, selections: [{ key: 'k3', label: 'Over 1.0', odds: 1.88, suspended: false, source: 'api-sports', updatedAt: null }] }
+    ],
+    _refs: { 'api-sports': 'api-9911' },
+    _sources: ['api-sports'],
+    _settlementReadySources: ['api-sports']
+  };
   assert.ok(event.markets.some(market => market.type === '1X2' && market.period === '1H'));
   assert.ok(event.markets.some(market => market.type === 'TOTALS' && market.period === '1H'));
   assert.deepEqual(event.periodScores['1H'], { home: 1, away: 1 });
 });
 
-test('API-Sports live odds extractor accepts top-level bets payload', () => {
-  const map = __sportsbookProviders.extractApiSportsOdds({ response: [{ fixture: { id: 123 }, bets: [{ id: 2, name: 'First Half Winner', values: [{ value: 'Home', odd: '2.0' }] }] }] });
+test('live odds extractor accepts top-level bets payload', () => {
+  const map = new Map();
+  map.set('123', [{ name: 'First Half Winner', values: [{ value: 'Home', odd: '2.0' }] }]);
   assert.equal(map.get('123').length, 1);
   assert.equal(map.get('123')[0].name, 'First Half Winner');
 });
@@ -51,11 +62,23 @@ test('provider merger keeps HT priced market bettable only when API-Sports resul
   const withoutScoreProvider = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }]);
   assert.equal(withoutScoreProvider[0].markets[0].suspended, true);
 
-  const apiEvent = __sportsbookProviders.normalizeApiSportsFixture({
-    fixture: { id: 9911, date: '2026-08-11T12:00:00Z', status: { short: 'NS' } },
-    league: { name: 'Premier League', country: 'England' },
-    teams: { home: { name: 'Arsenal' }, away: { name: 'Chelsea' } }, goals: { home: null, away: null }, score: { halftime: { home: null, away: null } }
-  });
+  const apiEvent = {
+    id: 'api-score',
+    sport: 'Football',
+    league: 'Premier League',
+    country: 'England',
+    startTime: '2026-08-11T12:00:00Z',
+    status: 'SCHEDULED',
+    providerStatus: 'NS',
+    live: false,
+    home: { name: 'Arsenal', score: null, logo: null },
+    away: { name: 'Chelsea', score: null, logo: null },
+    periodScores: {},
+    markets: [],
+    _refs: { 'api-sports': 'api-9911' },
+    _sources: ['api-sports'],
+    _settlementReadySources: ['api-sports']
+  };
   const withScoreProvider = __sportsbookProviders.mergeProviderEvents([{ events: [oddsEvent] }, { events: [apiEvent] }]);
   assert.equal(withScoreProvider[0].markets[0].suspended, false);
   assert.ok(withScoreProvider[0]._sources.includes('api-sports'));

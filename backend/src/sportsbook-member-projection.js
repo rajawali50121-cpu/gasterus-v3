@@ -1,3 +1,5 @@
+import { config } from './config.js';
+
 function clean(value) { return String(value ?? '').trim(); }
 const SUMMARY_MARKET_TYPES = new Set(['1X2', 'HANDICAP', 'TOTALS']);
 const SUMMARY_MARKET_PERIODS = new Set(['FT', '1H']);
@@ -28,24 +30,34 @@ export function projectMemberMarkets(markets = []) {
 
   for (const market of markets) {
     if (!isRecord(market)) continue;
+    const sportmonksPassthrough = config.sportmonksPassthrough && market.source === 'sportmonks';
     const identity = marketIdentity(market);
-    if (seenMarkets.has(identity)) continue;
-    seenMarkets.add(identity);
+    if (!sportmonksPassthrough) {
+      if (seenMarkets.has(identity)) continue;
+      seenMarkets.add(identity);
+    }
 
     const seenSelections = new Set();
     const selections = [];
     for (const selection of Array.isArray(market.selections) ? market.selections : []) {
       if (!isRecord(selection)) continue;
       const selectionIdentity = `${clean(selection.key || selection.label)}|${clean(selection.line ?? market.line)}`;
-      if (seenSelections.has(selectionIdentity)) continue;
-      seenSelections.add(selectionIdentity);
+      if (!sportmonksPassthrough) {
+        if (seenSelections.has(selectionIdentity)) continue;
+        seenSelections.add(selectionIdentity);
+      }
       selections.push({
         key: selection.key,
         label: selection.label,
         odds: selection.odds,
         line: selection.line,
         suspended: selection.suspended,
-        priceVersion: selection.priceVersion
+        priceVersion: selection.priceVersion,
+        ...(sportmonksPassthrough ? {
+          source: selection.source || market.source || null,
+          sourceSelectionId: selection.sourceSelectionId || null,
+          updatedAt: selection.updatedAt || null
+        } : {})
       });
     }
 
@@ -58,6 +70,12 @@ export function projectMemberMarkets(markets = []) {
       suspended: market.suspended,
       mainLine: market.mainLine ?? null,
       bookmaker: market.bookmaker || null,
+      ...(sportmonksPassthrough ? {
+        source: market.source || null,
+        sourceMarketId: market.sourceMarketId || null,
+        updatedAt: market.updatedAt || null,
+        validationWarnings: Array.isArray(market.validationWarnings) ? market.validationWarnings : []
+      } : {}),
       sourceLabel: MEMBER_MARKET_SOURCE_LABELS[clean(market.source).toLowerCase()] || null,
       selections
     });

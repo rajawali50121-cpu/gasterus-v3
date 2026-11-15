@@ -43,6 +43,19 @@ test('member REST snapshot projection retains valid FT and HT markets without du
   assert.equal(result.find(item => item.id === 'ht-main').selections.some(item => item.key === 'HOME'), true);
 });
 
+test('Sportmonks finite odds outside the bettable range remain visible but disabled', () => {
+  const periods = availableMarketPeriods({
+    markets: [{
+      source: 'sportmonks',
+      period: 'FT',
+      selections: [{ odds: 1, source: 'sportmonks', suspended: false }]
+    }]
+  });
+  assert.deepEqual(periods, ['FT']);
+  assert.match(frontend, /sportmonksPrice[\s\S]*decOdds <= 1[\s\S]*formatOdds\(decOdds, oddsFormat\)/);
+  assert.match(frontend, /market\.selections\.length \|\| market\.source === 'sportmonks'/);
+});
+
 test('detailed event projection preserves every supplied market and selection line', () => {
   const markets = Array.from({ length: 14 }, (_, index) => ({
     id: `market-${index}`,
@@ -63,9 +76,9 @@ test('detailed event projection preserves every supplied market and selection li
     feed.indexOf('function memberPublicEventDetail(event)'),
     feed.indexOf('export async function sportsbookSnapshot')
   );
-  assert.match(detailProjection, /memberEventShape\(item, item\.markets \|\| \[\]\)/);
+  assert.match(detailProjection, /memberEventShape\(item, item\.markets \|\| \[\], \{/);
   const refresh = feed.slice(feed.indexOf('async function performRefresh'));
-  assert.match(refresh, /events = capMarketsPerEvent\(events\)/);
+  assert.doesNotMatch(refresh, /capMarketsPerEvent/);
 });
 
 test('the SSE broadcaster sends the same member snapshot projection, including FT and HT updates', () => {
@@ -140,8 +153,8 @@ test('member sportsbook lazy-loads complete event market details and retains all
   assert.match(frontend, /const FEED_DETAIL_URL = \(id\) => `\/api\/member\/sportsbook\/events\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(frontend, /await api\.get\(FEED_DETAIL_URL\(eventId\)\)/);
   assert.match(frontend, /function renderAllEventMarkets\(event\)[\s\S]*event\.markets[\s\S]*market\.selections\.map/);
-  assert.match(feed, /function memberPublicEvent\(event\)[\s\S]*selectMemberSummaryMarkets\(item\.markets\)[\s\S]*memberEventShape\(item, markets\)/);
-  assert.match(feed, /function memberPublicEventDetail\(event\)[\s\S]*memberEventShape\(item, item\.markets \|\| \[\]\)/);
+  assert.match(feed, /function memberPublicEvent\(event\)[\s\S]*const isSportmonks[\s\S]*const markets = isSportmonks[\s\S]*item\.markets[\s\S]*selectMemberSummaryMarkets\(item\.markets\)[\s\S]*memberEventShape\(item, markets/);
+  assert.match(feed, /function memberPublicEventDetail\(event\)[\s\S]*item\.markets \|\| \[\], \{[\s\S]*includeProviderFields/);
 });
 
 test('detailed markets are refreshed by feed revision and stale odds cannot place a bet during refresh', () => {

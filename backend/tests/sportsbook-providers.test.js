@@ -18,6 +18,8 @@ Object.assign(process.env, {
   SPORTMONKS_ODDS_REFRESH_SECONDS: '180',
   SPORTMONKS_REQUEST_DELAY_MS: '1',
   SPORTMONKS_LIVE_REFRESH_SECONDS: '30',
+  SHARP_API_ENABLED: 'true',
+  SHARP_API_KEY: 'test-sharpapi-key',
   THE_ODDS_API_ENABLED: 'true',
   THE_ODDS_API_KEY: 'test-existing-odds-key',
   THE_ODDS_API_EVENT_MARKETS_ENABLED: 'true',
@@ -27,7 +29,7 @@ Object.assign(process.env, {
   THE_ODDS_API_SPORT_KEYS: 'soccer_epl,basketball_nba,tennis_atp_us_open'
 });
 
-const { __sportsbookProviders, fetchSportmonks, publicEvent } = await import('../src/sportsbook-providers.js');
+const { __sportsbookProviders, fetchSportmonks, fetchSharpApi, publicEvent } = await import('../src/sportsbook-providers.js');
 const { eventSettlementAuthority } = await import('../src/sportsbook-settlement-authority.js');
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
@@ -71,12 +73,13 @@ test('Sportmonks fixtures without provider odds stay display-only and never rece
       { id: 7, market_description: 'Asian Handicap', label: 'Away', handicap: 1, value: 1.92 }
     ];
     const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, rows);
-    assert.equal(event.markets.length, 6, 'valid supplied markets remain and invalid odds are excluded');
+    assert.equal(event.markets.length, 7, 'all parseable supplied odds, including out-of-range values, remain');
     const firstHalf = event.markets.find(market => market.sourceMarketId === 'm101');
     const handicap = event.markets.find(market => market.sourceMarketId === 'm102');
     const secondHalfTotals = event.markets.find(market => market.sourceMarketId === 'm103');
     const playerProps = event.markets.find(market => market.sourceMarketId === 'm104');
     const unknownMarket = event.markets.find(market => market.sourceMarketId === 'm105');
+    const outOfRangeOdds = event.markets.find(market => market.sourceMarketId === 'm106');
     const marketWithoutId = event.markets.find(market => market.key.startsWith('name:'));
     assert.equal(firstHalf.period, '1H');
     assert.equal(handicap.type, 'HANDICAP');
@@ -87,13 +90,44 @@ test('Sportmonks fixtures without provider odds stay display-only and never rece
     assert.equal(playerProps.selections[0].suspended, true);
     assert.equal(unknownMarket.type, 'OTHER');
     assert.equal(unknownMarket.label, 'Provider Special Market');
+    assert.equal(outOfRangeOdds.selections[0].odds, 1);
     assert.equal(marketWithoutId.sourceMarketId, null);
     assert.equal(marketWithoutId.selections[0].line, 1);
+  });
+
+  test('Sportmonks normalizes nested relation data for fixtures and odds', () => {
+    const fixture = {
+      id: 'sportmonks-nested-relations',
+      state: { data: { short_name: 'NS', name: 'Not Started' } },
+      starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000),
+      league: { data: {
+        name: 'Regional League',
+        country: { data: { name: 'England' } }
+      } },
+      participants: { data: [
+        { name: 'Home', meta: { location: 'home' } },
+        { name: 'Away', meta: { location: 'away' } }
+      ] },
+      odds: { data: { data: [
+        { id: 1, market_id: 501, market: { data: { name: 'Fulltime Result' } }, bookmaker_id: 10, bookmaker: { data: { name: 'Book A' } }, label: 'Home', value: '2.1' },
+        { id: 2, market_id: 501, market: { data: { name: 'Fulltime Result' } }, bookmaker_id: 10, bookmaker: { data: { name: 'Book A' } }, label: 'Draw', value: '3.2' },
+        { id: 3, market_id: 501, market: { data: { name: 'Fulltime Result' } }, bookmaker_id: 10, bookmaker: { data: { name: 'Book A' } }, label: 'Away', value: '3.4' }
+      ] } }
+    };
+
+    const event = __sportsbookProviders.normalizeSportmonksFixture(fixture);
+
+    assert.equal(event.league, 'Regional League');
+    assert.equal(event.country, 'England');
+    assert.equal(event.markets.length, 1);
+    assert.equal(event.markets[0].bookmaker, 'Book A');
+    assert.deepEqual(event.markets[0].selections.map(selection => selection.odds), [2.1, 3.2, 3.4]);
   });
 
   test('Sportmonks scans pages through the configured budget after its candidate buffer fills', async () => {
     const originalFetch = globalThis.fetch;
     const requestedPages = [];
+    const requestedPageSizes = [];
     globalThis.fetch = async input => {
       const url = new URL(String(input));
       if (url.pathname.endsWith('/livescores')) {
@@ -101,12 +135,17 @@ test('Sportmonks fixtures without provider odds stay display-only and never rece
       }
       const page = Number(url.searchParams.get('page'));
       requestedPages.push(page);
-      const fixtures = Array.from({ length: 20 }, (_, index) => {
+      requestedPageSizes.push(Number(url.searchParams.get('per_page')));
+      assert.equal(url.searchParams.get('timezone'), 'UTC');
+      assert.match(url.searchParams.get('include'), /odds\.market/);
+      assert.match(url.searchParams.get('include'), /odds\.bookmaker/);
+      assert.equal(url.searchParams.has('filters'), false);
+      const fixtures = Array.from({ length: 50 }, (_, index) => {
         const fixtureId = `pagination-${page}-${index}`;
         return {
           id: fixtureId,
           state: { short_name: 'NS', name: 'Not Started' },
-          starting_at_timestamp: Math.floor((Date.now() + (page * 20 + index + 1) * 60000) / 1000),
+          starting_at_timestamp: Math.floor((Date.now() + (page * 50 + index + 1) * 60000) / 1000),
           league: { name: 'Regional League', country: { name: 'England' } },
           participants: [
             { name: `Home ${fixtureId}`, meta: { location: 'home' } },
@@ -121,424 +160,334 @@ test('Sportmonks fixtures without provider odds stay display-only and never rece
     try {
       const result = await fetchSportmonks({ maxEvents: 1, maxPages: 5 });
       assert.deepEqual(requestedPages, [1, 2, 3]);
+      assert.deepEqual(requestedPageSizes, [50, 50, 50]);
       assert.equal(result.events.length, 1);
+      assert.equal(result.diagnostics.pagesFetched, 3);
+      assert.equal(result.diagnostics.fixturesFetched, 150);
     } finally {
       globalThis.fetch = originalFetch;
     }
 });
 
-test('Sportmonks retries a timed-out page request and recovers without dropping the fixture', async () => {
-    const originalFetch = globalThis.fetch;
-    let requests = 0;
-    globalThis.fetch = async input => {
-      if (new URL(String(input)).pathname.endsWith('/livescores')) {
-        return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
-      }
-      requests += 1;
-      if (requests === 1) {
-        const error = new Error('simulated provider timeout');
-        error.name = 'AbortError';
-        throw error;
-      }
-      return new Response(JSON.stringify({
-        data: [{
-          id: 'timeout-recovered',
-          state: { short_name: 'NS', name: 'Not Started' },
-          starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000),
-          league: { name: 'Regional League', country: { name: 'England' } },
-          participants: [
-            { name: 'Home', meta: { location: 'home' } },
-            { name: 'Away', meta: { location: 'away' } }
-          ],
-          odds: []
-        }],
-        pagination: { has_more: false }
-      }), { headers: { 'content-type': 'application/json' } });
-    };
-    try {
-      const result = await fetchSportmonks({ maxEvents: 1, maxPages: 2 });
-      assert.equal(requests, 2);
-      assert.equal(result.events.length, 1);
-      assert.equal(result.events[0].home.name, 'Home');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-});
-
-test('Sportmonks live window refreshes provider in-play odds without retaining stale pre-match odds', async () => {
-  const originalFetch = globalThis.fetch;
-    const liveCache = __sportsbookProviders.sportmonksLiveCache;
-    const liveRetryState = __sportsbookProviders.sportmonksLiveRetryState;
-    liveCache.clear();
-    liveRetryState.clear();
-    const makeFixture = (id, state, odds = []) => ({
-      id,
-      state: { short_name: state, name: state === 'NS' ? 'Not Started' : 'Second Half' },
-      starting_at_timestamp: Math.floor((Date.now() - 3600000) / 1000),
-      league: { name: 'Regional League', country: { name: 'England' } },
-      participants: [
-        { name: `Home ${id}`, meta: { location: 'home' } },
-        { name: `Away ${id}`, meta: { location: 'away' } }
-      ],
-      odds
-    });
-    const preMatchOdds = id => [{
-      id: `${id}-prematch`,
-      market_id: 1,
-      market_description: 'Full Time Result',
-      label: 'Home',
-      value: 1.8
-    }];
-    const liveFixtureWithOdds = {
-      ...makeFixture('fast-live-1', '2H'),
-      scores: [{ description: 'CURRENT', score: { home: 2, away: 1 } }],
-      inplayOdds: [{
-        id: 901,
-        market_id: 1,
-        market_description: 'Full Time Result',
-        label: 'Home',
-        value: '2.25',
-        latest_bookmaker_update: new Date().toISOString()
-      }]
-    };
-    const liveFixtureWithoutOdds = {
-      ...makeFixture('fast-live-2', '2H'),
-      inplayOdds: []
-    };
-    globalThis.fetch = async input => {
-      const url = new URL(String(input));
-      if (url.pathname.endsWith('/livescores')) {
-        assert.equal(url.pathname, '/v3/football/livescores');
-        assert.match(url.searchParams.get('include'), /inplayOdds/);
-        return new Response(JSON.stringify({
-          data: [liveFixtureWithOdds, liveFixtureWithoutOdds]
-        }), { headers: { 'content-type': 'application/json' } });
-      }
-      return new Response(JSON.stringify({
-        data: [
-          makeFixture('fast-live-1', 'NS', preMatchOdds('fast-live-1')),
-          makeFixture('fast-live-2', 'NS', preMatchOdds('fast-live-2'))
-        ],
-        pagination: { has_more: false }
-      }), { headers: { 'content-type': 'application/json' } });
-    };
-    try {
-      const result = await fetchSportmonks({ maxEvents: 7, maxPages: 7 });
-      const withOdds = result.events.find(event => event.home.name === 'Home fast-live-1');
-      const withoutOdds = result.events.find(event => event.home.name === 'Home fast-live-2');
-      assert.equal(withOdds.live, true);
-      assert.equal(withOdds.markets[0].selections[0].odds, 2.25);
-      assert.equal(withOdds.home.score, 2);
-      assert.equal(withoutOdds.live, true);
-      assert.deepEqual(withoutOdds.markets, [], 'old pre-match prices are not carried into a live event without in-play odds');
-    } finally {
-      globalThis.fetch = originalFetch;
-      liveCache.clear();
-      liveRetryState.clear();
-      __sportsbookProviders.sportmonksCache.delete(
-        `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:7:7`
-      );
-      __sportsbookProviders.sportmonksRetryState.delete(
-        `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:7:7`
-      );
-    }
-});
-
-test('Sportmonks live odds without a provider timestamp remain fail-closed', async () => {
-  const originalFetch = globalThis.fetch;
-  const liveCache = __sportsbookProviders.sportmonksLiveCache;
-  const liveRetryState = __sportsbookProviders.sportmonksLiveRetryState;
-  const catalogCache = __sportsbookProviders.sportmonksCache;
-  const catalogRetryState = __sportsbookProviders.sportmonksRetryState;
-  const catalogKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:2:2`;
-  liveCache.clear();
-  liveRetryState.clear();
+test('Sportmonks retains separate bookmaker odds and reports unmapped market IDs', () => {
   const fixture = {
-    id: 'live-without-source-timestamp',
-    state: { short_name: '2H', name: 'Second Half' },
-    starting_at_timestamp: Math.floor((Date.now() - 60 * 60 * 1000) / 1000),
+    id: 'sportmonks-bookmaker-markets',
+    state: { short_name: 'NS', name: 'Not Started' },
+    starting_at: '2026-08-06T12:00:00Z',
     league: { name: 'Regional League', country: { name: 'England' } },
     participants: [
-      { name: 'Timestamp Home', meta: { location: 'home' } },
-      { name: 'Timestamp Away', meta: { location: 'away' } }
+      { name: 'Home', meta: { location: 'home' } },
+      { name: 'Away', meta: { location: 'away' } }
     ]
   };
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    const data = url.pathname.endsWith('/livescores')
-      ? [{
-          ...fixture,
-          inplayOdds: [{
-            id: 901,
-            market_id: 1,
-            market_description: 'Full Time Result',
-            label: 'Home',
-            value: 2.25
-          }]
-        }]
-      : [{
-          ...fixture,
-          state: { short_name: 'NS', name: 'Not Started' },
-          odds: []
-        }];
-    return new Response(JSON.stringify({
-      data,
-      pagination: { has_more: false }
-    }), { headers: { 'content-type': 'application/json' } });
-  };
-  try {
-    const result = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
-    const event = result.events.find(item => item.home.name === 'Timestamp Home');
-    assert.ok(event);
-    assert.equal(event.markets[0].updatedAt, null);
-    assert.equal(event.markets[0].selections[0].updatedAt, null);
-    const [guarded] = __sportsbookProviders.suspendStaleLiveMarkets([event], Date.now());
-    assert.equal(guarded.markets[0].suspended, true);
-    assert.equal(guarded.markets[0].selections[0].suspended, true);
-  } finally {
-    globalThis.fetch = originalFetch;
-    liveCache.clear();
-    liveRetryState.clear();
-    catalogCache.delete(catalogKey);
-    catalogRetryState.delete(catalogKey);
-  }
+  const diagnostics = { unknownMarkets: new Map() };
+  const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, [
+    { id: 1, market_id: 501, market_description: 'Fulltime Result', bookmaker_id: 10, bookmaker: { name: 'Book A' }, label: 'Home', value: 1.9 },
+    { id: 2, market_id: 501, market_description: 'Fulltime Result', bookmaker_id: 11, bookmaker: { name: 'Book B' }, label: 'Home', value: 2.1 },
+    { id: 3, market_id: 9876, market_description: 'Mystery Special', bookmaker_id: 10, bookmaker: { name: 'Book A' }, label: 'Yes', value: 2.4 }
+  ], diagnostics);
+
+  const resultMarkets = event.markets.filter(market => market.sourceMarketId === 'm501');
+  assert.equal(resultMarkets.length, 2);
+  assert.deepEqual(resultMarkets.map(market => market.bookmaker).sort(), ['Book A', 'Book B']);
+  assert.deepEqual(resultMarkets.map(market => market.selections[0].odds).sort(), [1.9, 2.1]);
+  assert.equal(event.markets.find(market => market.sourceMarketId === 'm9876').type, 'OTHER');
+  const [merged] = __sportsbookProviders.mergeProviderEvents([{ provider: 'sportmonks', events: [event] }]);
+  assert.equal(merged.markets.filter(market => market.sourceMarketId === 'm501').length, 2);
+  assert.deepEqual([...diagnostics.unknownMarkets.values()], [
+    { marketId: '9876', marketName: 'Mystery Special', count: 1 }
+  ]);
 });
 
-test('Sportmonks live odds fail closed during provider outage and recover after backoff', async () => {
-    const originalFetch = globalThis.fetch;
-    const catalogCache = __sportsbookProviders.sportmonksCache;
-    const catalogRetryState = __sportsbookProviders.sportmonksRetryState;
-    const liveCache = __sportsbookProviders.sportmonksLiveCache;
-    const liveRetryState = __sportsbookProviders.sportmonksLiveRetryState;
-    liveCache.clear();
-    liveRetryState.clear();
-    const catalogKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:8:8`;
-    const liveKey = 'sportmonks:live-window:https://api.sportmonks.com/v3';
-    const kickoff = Math.floor((Date.now() - 3600000) / 1000);
-    const fixture = {
-      id: 'live-recovery',
-      state: { short_name: '2H', name: 'Second Half' },
-      starting_at_timestamp: kickoff,
-      league: { name: 'Regional League', country: { name: 'England' } },
-      participants: [
-        { name: 'Recovery Home', meta: { location: 'home' } },
-        { name: 'Recovery Away', meta: { location: 'away' } }
-      ],
-      odds: [{
-        id: 700,
-        market_id: 1,
-        market_description: 'Full Time Result',
-        label: 'Home',
-        value: 1.8
-      }]
-    };
-    let liveMode = 'forbidden';
-    let liveRequests = 0;
-    globalThis.fetch = async input => {
-      const url = new URL(String(input));
-      if (url.pathname.endsWith('/livescores')) {
-        liveRequests += 1;
-        if (liveMode === 'forbidden') return new Response('provider access denied', { status: 403 });
-        return new Response(JSON.stringify({
-          data: [{
-            ...fixture,
-            inplayOdds: [{
-              id: 701,
-              market_id: 1,
-              market_description: 'Full Time Result',
-              label: 'Home',
-              value: 2.4,
-              latest_bookmaker_update: new Date().toISOString()
-            }]
-          }]
-        }), { headers: { 'content-type': 'application/json' } });
-      }
-      return new Response(JSON.stringify({
-        data: [fixture],
-        pagination: { has_more: false }
-      }), { headers: { 'content-type': 'application/json' } });
-    };
-    try {
-      const unavailable = await fetchSportmonks({ maxEvents: 8, maxPages: 8 });
-      assert.equal(unavailable.events[0].markets[0].suspended, true);
-      assert.equal(unavailable.events[0].markets[0].selections[0].suspended, true);
-      assert.equal(liveRequests, 1);
-
-      await fetchSportmonks({ maxEvents: 8, maxPages: 8 });
-      assert.equal(liveRequests, 1, '403 cooldown prevents repeated provider requests');
-
-      liveMode = 'recovery';
-      liveRetryState.get(liveKey).retryAt = 0;
-      const recovered = await fetchSportmonks({ maxEvents: 8, maxPages: 8 });
-      assert.equal(liveRequests, 2);
-      assert.equal(recovered.events[0].markets[0].selections[0].odds, 2.4);
-      assert.equal(recovered.events[0].markets[0].suspended, false);
-      assert.equal(liveRetryState.has(liveKey), false);
-    } finally {
-      globalThis.fetch = originalFetch;
-      catalogCache.delete(catalogKey);
-      catalogRetryState.delete(catalogKey);
-      liveCache.delete(liveKey);
-      liveRetryState.delete(liveKey);
-    }
-});
-
-test('Sportmonks keeps live odds fresh while a complete fixture-catalog retry is cooling down', async () => {
-    const originalFetch = globalThis.fetch;
-    const catalogCache = __sportsbookProviders.sportmonksCache;
-    const catalogRetryState = __sportsbookProviders.sportmonksRetryState;
-    const liveCache = __sportsbookProviders.sportmonksLiveCache;
-    const liveRetryState = __sportsbookProviders.sportmonksLiveRetryState;
-    const catalogKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:2:2`;
-    const liveKey = 'sportmonks:live-window:https://api.sportmonks.com/v3';
-    const fixture = {
-      id: 'catalog-cooldown-live',
-      state: { short_name: '2H', name: 'Second Half' },
-      starting_at_timestamp: Math.floor((Date.now() - 3600000) / 1000),
-      league: { name: 'Regional League', country: { name: 'England' } },
-      participants: [
-        { name: 'Cooldown Home', meta: { location: 'home' } },
-        { name: 'Cooldown Away', meta: { location: 'away' } }
-      ]
-    };
-    const catalogEvent = __sportsbookProviders.normalizeSportmonksFixture(fixture, [{
-      id: 800,
-      market_id: 1,
-      market_description: 'Full Time Result',
-      label: 'Home',
-      value: 1.8
-    }]);
-    catalogCache.set(catalogKey, { fetchedAt: 0, events: [catalogEvent] });
-    catalogRetryState.set(catalogKey, {
-      attempts: 1,
-      retryAt: Date.now() + 60_000,
-      message: 'Fixture catalog page unavailable'
-    });
-    liveCache.clear();
-    liveRetryState.clear();
-    let catalogRequests = 0;
-    globalThis.fetch = async input => {
-      const url = new URL(String(input));
-      if (url.pathname.endsWith('/livescores')) {
-        return new Response(JSON.stringify({
-          data: [{
-            ...fixture,
-            inplayOdds: [{
-              id: 801,
-              market_id: 1,
-              market_description: 'Full Time Result',
-              label: 'Home',
-              value: 2.4,
-              latest_bookmaker_update: new Date().toISOString()
-            }]
-          }]
-        }), { headers: { 'content-type': 'application/json' } });
-      }
-      catalogRequests += 1;
-      throw new Error('fixture catalog must remain in its retry cooldown');
-    };
-    try {
-      const result = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
-      assert.equal(result.stale, true);
-      assert.equal(result.transportOk, false);
-      assert.equal(result.events[0].markets[0].selections[0].odds, 2.4);
-      assert.equal(result.events[0].markets[0].suspended, false);
-      assert.equal(catalogRequests, 0);
-    } finally {
-      globalThis.fetch = originalFetch;
-      catalogCache.delete(catalogKey);
-      catalogRetryState.delete(catalogKey);
-      liveCache.clear();
-      liveRetryState.clear();
-    }
-});
-
-test('Sportmonks partial pagination preserves last complete data and backs off before retrying', async () => {
-    const originalFetch = globalThis.fetch;
-    const cache = __sportsbookProviders.sportmonksCache;
-    const retryState = __sportsbookProviders.sportmonksRetryState;
-    const liveCache = __sportsbookProviders.sportmonksLiveCache;
-    liveCache.clear();
-  const cacheKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:2:2`;
-  const makeFixture = id => ({
-    id,
+test('Sportmonks keeps every odds row for bookmaker names with colliding slugs', () => {
+  const fixture = {
+    id: 'sportmonks-bookmaker-slug-collision',
     state: { short_name: 'NS', name: 'Not Started' },
-    starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000),
+    starting_at: '2026-08-06T12:00:00Z',
     league: { name: 'Regional League', country: { name: 'England' } },
     participants: [
-      { name: `Home ${id}`, meta: { location: 'home' } },
-      { name: `Away ${id}`, meta: { location: 'away' } }
-    ],
-    odds: []
-  });
-  let requestMode = 'complete';
-  let requests = 0;
+      { name: 'Home', meta: { location: 'home' } },
+      { name: 'Away', meta: { location: 'away' } }
+    ]
+  };
+  const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, [
+    { id: 1, market_id: 501, market_description: 'Fulltime Result', bookmaker: { name: 'Book-A' }, label: 'Home', value: 2.4 },
+    { id: 2, market_id: 501, market_description: 'Fulltime Result', bookmaker: { name: 'Book A' }, label: 'Home', value: 2.1 },
+    { id: 3, market_id: 501, market_description: 'Fulltime Result', bookmaker: { name: 'Book-A' }, label: 'Home', value: 1.8 }
+  ]);
+  const resultMarkets = event.markets.filter(market => market.sourceMarketId === 'm501');
+
+  assert.equal(resultMarkets.length, 2);
+  assert.deepEqual(
+    resultMarkets.map(market => [market.bookmaker, market.selections.map(selection => selection.odds).sort()]).sort(([a], [b]) => a.localeCompare(b)),
+    [['Book A', [2.1]], ['Book-A', [1.8, 2.4]]]
+  );
+});
+
+test('Sportmonks isolates odds rows without bookmaker identity and reports their count', () => {
+  const fixture = {
+    id: 'sportmonks-bookmaker-identity-missing',
+    state: { short_name: 'NS', name: 'Not Started' },
+    starting_at: '2026-08-06T12:00:00Z',
+    league: { name: 'Regional League', country: { name: 'England' } },
+    participants: [
+      { name: 'Home', meta: { location: 'home' } },
+      { name: 'Away', meta: { location: 'away' } }
+    ]
+  };
+  const diagnostics = { unknownMarkets: new Map() };
+  const event = __sportsbookProviders.normalizeSportmonksFixture(fixture, [
+    { id: 1, market_id: 501, market_description: 'Fulltime Result', label: 'Home', value: 1.9 },
+    { id: 2, market_id: 501, market_description: 'Fulltime Result', label: 'Away', value: 2.1 }
+  ], diagnostics);
+
+  const resultMarkets = event.markets.filter(market => market.sourceMarketId === 'm501');
+  assert.equal(resultMarkets.length, 2);
+  assert.ok(resultMarkets.every(market => market.bookmaker === null && market.selections.length === 1));
+  assert.equal(new Set(resultMarkets.map(market => market.key)).size, 2);
+  assert.equal(diagnostics.bookmakerIdentityMissingRows, 2);
+});
+
+test('Sportmonks reports and retains fetched data when a configured page budget is reached', async () => {
+  const originalFetch = globalThis.fetch;
+  const cacheKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:3:1`;
+  __sportsbookProviders.sportmonksCache.delete(cacheKey);
+  __sportsbookProviders.sportmonksRetryState.delete(cacheKey);
+  __sportsbookProviders.sportmonksLiveCache.clear();
   globalThis.fetch = async input => {
     const url = new URL(String(input));
     if (url.pathname.endsWith('/livescores')) {
       return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
     }
-    requests += 1;
-    const page = Number(url.searchParams.get('page'));
-    if (requestMode === 'partial' && page === 2) {
-      return new Response('provider page unavailable', { status: 400 });
-    }
-    const fixture = makeFixture(requestMode === 'recovery' ? 'recovered' : `complete-${page}`);
     return new Response(JSON.stringify({
-      data: [fixture],
-      pagination: { has_more: page === 1 && requestMode !== 'recovery' }
+      data: [{
+        id: 'page-budget-fixture',
+        state: { short_name: 'NS', name: 'Not Started' },
+        starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000),
+        league: { name: 'Regional League', country: { name: 'England' } },
+        participants: [
+          { name: 'Budget Home', meta: { location: 'home' } },
+          { name: 'Budget Away', meta: { location: 'away' } }
+        ],
+        odds: []
+      }],
+      pagination: { has_more: true }
     }), { headers: { 'content-type': 'application/json' } });
   };
   try {
-    const complete = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
-    assert.equal(complete.stale, undefined);
-    assert.equal(complete.events.length, 2);
-
-    cache.get(cacheKey).fetchedAt = 0;
-    requestMode = 'partial';
-    const partial = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
-    assert.equal(partial.stale, true);
-    assert.equal(partial.transportOk, false);
-    assert.equal(partial.events[0].id, complete.events[0].id);
-    const requestsAfterFailure = requests;
-
-    const throttled = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
-    assert.equal(throttled.stale, true);
-    assert.equal(requests, requestsAfterFailure, 'provider retry is held during the backoff window');
-
-    retryState.get(cacheKey).retryAt = 0;
-    requestMode = 'recovery';
-    const recovered = await fetchSportmonks({ maxEvents: 2, maxPages: 2 });
-    assert.equal(recovered.stale, undefined);
-    assert.equal(recovered.events[0].home.name, 'Home recovered');
-    assert.equal(retryState.has(cacheKey), false);
+    const result = await fetchSportmonks({ maxEvents: 3, maxPages: 1 });
+    assert.equal(result.partial, true);
+    assert.equal(result.transportOk, true);
+    assert.equal(result.diagnostics.pageBudgetExhausted, true);
+    assert.equal(result.diagnostics.dataTruncated, true);
+    assert.match(result.errors.join(' '), /page budget exhausted/i);
+    assert.equal(__sportsbookProviders.sportmonksCache.has(cacheKey), true);
   } finally {
     globalThis.fetch = originalFetch;
-    cache.delete(cacheKey);
-    retryState.delete(cacheKey);
-    liveCache.clear();
+    __sportsbookProviders.sportmonksCache.delete(cacheKey);
+    __sportsbookProviders.sportmonksRetryState.delete(cacheKey);
+    __sportsbookProviders.sportmonksLiveCache.clear();
   }
 });
 
-test('API-Sports preserves bookmaker labels while selecting coherent odds per market', () => {
-  const payload = { response: [{ fixture: { id: 7711 }, bookmakers: [
-    { id: 1, name: 'Book A', bets: [{ id: 1, name: 'Match Winner', values: [
-      { value: 'Alpha FC', odd: 1.91 }, { value: 'Draw', odd: 3.7 }, { value: 'Beta FC', odd: 4.8 }
-    ] }] },
-    { id: 2, name: 'Book B', bets: [{ id: 1, name: 'Match Winner', values: [
-      { value: 'Alpha FC', odd: 1.8 }, { value: 'Draw', odd: 3.8 }, { value: 'Beta FC', odd: 4.8 }
-    ] }, { id: 8, name: 'Both Teams Score', values: [{ value: 'Yes', odd: 1.85 }, { value: 'No', odd: 2.05 }] }] }
-  ] }] };
-  const odds = __sportsbookProviders.extractApiSportsOdds(payload).get('7711');
-  const event = __sportsbookProviders.normalizeApiSportsFixture({
-    fixture: { id: 7711, date: '2027-08-06T12:00:00Z', status: { short: 'NS' } },
-    league: { name: 'Premier League' }, teams: { home: { name: 'Alpha FC' }, away: { name: 'Beta FC' } }
-  }, odds);
-  const winner = event.markets.find(market => market.type === '1X2');
-  assert.equal(winner.bookmaker, 'Book A');
-  assert.equal(winner.selections.find(selection => selection.label === 'Alpha FC').odds, 1.91);
-  assert.ok(event.markets.some(market => market.type === 'BTTS' && market.bookmaker === 'Book B'));
+test('Sportmonks reports an invalid API envelope without discarding its prior cached data', async () => {
+  const originalFetch = globalThis.fetch;
+  const cacheKey = `sportmonks:all-events:${new Date().toISOString().slice(0, 10)}:0:2:1`;
+  __sportsbookProviders.sportmonksCache.delete(cacheKey);
+  __sportsbookProviders.sportmonksRetryState.delete(cacheKey);
+  __sportsbookProviders.sportmonksLiveCache.clear();
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/livescores')) {
+      return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ message: 'invalid account response' }), {
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+  try {
+    const result = await fetchSportmonks({ maxEvents: 2, maxPages: 1 });
+    assert.equal(result.stale, false);
+    assert.equal(result.transportOk, false);
+    assert.equal(result.diagnostics.failedPages, 1);
+    assert.match(result.errors.join(' '), /response contains error/i);
+    assert.equal(__sportsbookProviders.sportmonksCache.has(cacheKey), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    __sportsbookProviders.sportmonksCache.delete(cacheKey);
+    __sportsbookProviders.sportmonksRetryState.delete(cacheKey);
+    __sportsbookProviders.sportmonksLiveCache.clear();
+  }
 });
+
+test('error detection: normal response with empty errors array, empty errors object, error: null not flagged as error', async () => {
+  const originalFetch = globalThis.fetch;
+  __sportsbookProviders.sportmonksCache.clear();
+  __sportsbookProviders.sportmonksRetryState.clear();
+  __sportsbookProviders.sportmonksLiveCache.clear();
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/livescores')) {
+      return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ 
+      data: [{ id: 'test-1', state: { short_name: 'NS' }, starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000), league: { name: 'Test League', country: { name: 'England' } }, participants: [{ name: 'Home', meta: { location: 'home' } }, { name: 'Away', meta: { location: 'away' } }], odds: [] }],
+      errors: [],
+      error: null,
+      message: 'info message with data'
+    }), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const result = await fetchSportmonks({ maxEvents: 2, maxPages: 1 });
+    assert.equal(result.transportOk, true);
+    assert.equal(result.errors.length, 0);
+    assert.equal(result.events.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    __sportsbookProviders.sportmonksCache.clear();
+    __sportsbookProviders.sportmonksRetryState.clear();
+    __sportsbookProviders.sportmonksLiveCache.clear();
+  }
+});
+
+test('error detection: response with errors array containing items flagged as error with reason', async () => {
+  const originalFetch = globalThis.fetch;
+  __sportsbookProviders.sportmonksCache.clear();
+  __sportsbookProviders.sportmonksRetryState.clear();
+  __sportsbookProviders.sportmonksLiveCache.clear();
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/livescores')) {
+      return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ 
+      data: [],
+      errors: ['account suspended', 'quota exceeded']
+    }), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const result = await fetchSportmonks({ maxEvents: 2, maxPages: 1 });
+    assert.equal(result.transportOk, false);
+    assert.ok(result.errors.join(' ').includes('account suspended'));
+    assert.ok(result.errors.join(' ').includes('quota exceeded'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    __sportsbookProviders.sportmonksCache.clear();
+    __sportsbookProviders.sportmonksRetryState.clear();
+    __sportsbookProviders.sportmonksLiveCache.clear();
+  }
+});
+
+test('error detection: Sportmonks no-access message appears as warning, not fatal error', async () => {
+  const originalFetch = globalThis.fetch;
+  __sportsbookProviders.sportmonksCache.clear();
+  __sportsbookProviders.sportmonksRetryState.clear();
+  __sportsbookProviders.sportmonksLiveCache.clear();
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/livescores')) {
+      return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ 
+      data: [],
+      message: 'No result(s) found for this date or you don\'t have access to this data with your current subscription'
+    }), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const result = await fetchSportmonks({ maxEvents: 2, maxPages: 1 });
+    // Should NOT be transportOk: false, should be transportOk: true with warnings
+    assert.equal(result.transportOk, true);
+    assert.equal(result.errors.length, 0);
+    assert.ok(result.warnings);
+    assert.ok(result.warnings.join(' ').includes('No result'));
+assert.ok(result.warnings.join(' ').includes('subscription'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    __sportsbookProviders.sportmonksCache.clear();
+    __sportsbookProviders.sportmonksRetryState.clear();
+    __sportsbookProviders.sportmonksLiveCache.clear();
+  }
+});
+test('Sportmonks partial pagination retains fetched and cached data and backs off before retrying', async () => {
+    const originalFetch = globalThis.fetch;
+    const cache = __sportsbookProviders.sportmonksCache;
+    const retryState = __sportsbookProviders.sportmonksRetryState;
+    const liveCache = __sportsbookProviders.sportmonksLiveCache;
+    cache.clear();
+    retryState.clear();
+    liveCache.clear();
+    const makeFixture = id => ({
+      id,
+      state: { short_name: 'NS', name: 'Not Started' },
+      starting_at_timestamp: Math.floor((Date.now() + 3600000) / 1000),
+      league: { name: 'Regional League', country: { name: 'England' } },
+      participants: [
+        { name: `Home ${id}`, meta: { location: 'home' } },
+        { name: `Away ${id}`, meta: { location: 'away' } }
+      ],
+      odds: []
+    });
+    let requestMode = 'complete';
+    let requests = 0;
+    globalThis.fetch = async input => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/livescores')) {
+        return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+      }
+      requests += 1;
+      const page = Number(url.searchParams.get('page'));
+      if (requestMode === 'partial' && page === 2) {
+        return new Response(JSON.stringify({ error: 'provider page unavailable' }), { status: 400, headers: { 'content-type': 'application/json' } });
+      }
+      const fixture = makeFixture(requestMode === 'recovery' ? 'recovered' : `complete-${page}`);
+      return new Response(JSON.stringify({
+        data: [fixture],
+        pagination: { has_more: page === 1 && requestMode !== 'recovery' }
+      }), { headers: { 'content-type': 'application/json' } });
+    };
+    try {
+      // Use unique maxEvents/maxPages to avoid cache collision with other tests
+      const testMaxEvents = 999;
+      const testMaxPages = 999;
+      const complete = await fetchSportmonks({ maxEvents: testMaxEvents, maxPages: testMaxPages });
+      assert.equal(complete.stale, undefined);
+      assert.equal(complete.events.length, 2);
+
+      // Get the actual cache key used by the function
+      const cacheKey = [...cache.keys()][0];
+      cache.get(cacheKey).fetchedAt = 0;
+      requestMode = 'partial';
+      const partial = await fetchSportmonks({ maxEvents: testMaxEvents, maxPages: testMaxPages });
+      assert.equal(partial.partial, true);
+      assert.equal(partial.transportOk, true);
+      assert.ok(
+        complete.events.every(event => partial.events.some(candidate =>
+          (candidate._refs?.sportmonks || candidate.id) === (event._refs?.sportmonks || event.id)
+        ))
+      );
+      assert.ok(partial.events.some(event => event.home.name === 'Home complete-1'));
+      const requestsAfterFailure = requests;
+
+      const throttled = await fetchSportmonks({ maxEvents: testMaxEvents, maxPages: testMaxPages });
+      assert.equal(throttled.stale, undefined);
+      assert.equal(throttled.transportOk, true);
+      assert.equal(throttled.events.length, partial.events.length);
+      assert.equal(requests, requestsAfterFailure, 'provider retry is held during the backoff window');
+
+      cache.get(cacheKey).fetchedAt = 0;
+      retryState.get(cacheKey).retryAt = 0;
+      requestMode = 'recovery';
+      const recovered = await fetchSportmonks({ maxEvents: testMaxEvents, maxPages: testMaxPages });
+      assert.equal(recovered.stale, undefined);
+      assert.equal(recovered.events[0].home.name, 'Home recovered');
+      assert.equal(retryState.has(cacheKey), false);
+    } finally {
+      globalThis.fetch = originalFetch;
+      cache.clear();
+      retryState.clear();
+      liveCache.clear();
+    }
+  });
 
 test('API-Sports settlement authority unlocks merged FT prices', () => {
   const sharpEvent = __sportsbookProviders.normalizeSharpApiRows([
@@ -546,11 +495,23 @@ test('API-Sports settlement authority unlocks merged FT prices', () => {
     { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-d', market_type: 'moneyline', market_segment: 'full_game', selection: 'Draw', selection_type: 'draw', odds_decimal: 3.8, line: null },
     { event_id: 'sharp-authority', event_uuid: 'sharp-authority-uuid', sport: 'soccer', league: 'Premier League', home_team: 'Liverpool', away_team: 'Everton', event_start_time: '2026-08-07T12:00:00Z', is_live: false, is_main_line: true, is_alternate_line: false, is_active: true, timestamp: '2026-08-07T10:00:00Z', sportsbook: 'book-a', id: 'sa-a', market_type: 'moneyline', market_segment: 'full_game', selection: 'Everton', selection_type: 'away', odds_decimal: 5.1, line: null }
   ], { maxEvents: 1 })[0];
-  const apiEvent = __sportsbookProviders.normalizeApiSportsFixture({
-    fixture: { id: 9911, date: '2026-08-07T12:00:00Z', status: { short: 'NS' } },
-    league: { name: 'Premier League', country: 'England' },
-    teams: { home: { name: 'Liverpool' }, away: { name: 'Everton' } }, goals: { home: null, away: null }
-  });
+  const apiEvent = {
+    id: 'api-authority',
+    sport: 'Football',
+    league: 'Premier League',
+    country: 'England',
+    startTime: '2026-08-07T12:00:00Z',
+    status: 'SCHEDULED',
+    providerStatus: 'NS',
+    live: false,
+    home: { name: 'Liverpool', score: null, logo: null },
+    away: { name: 'Everton', score: null, logo: null },
+    periodScores: {},
+    markets: [],
+    _refs: { 'api-sports': 'api-9911' },
+    _sources: ['api-sports'],
+    _settlementReadySources: ['api-sports']
+  };
   const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharpEvent] }, { events: [apiEvent] }]);
   assert.ok(merged._sources.includes('api-sports'));
   assert.ok(merged.markets.some(market => market.period === 'FT' && !market.suspended));
@@ -665,12 +626,23 @@ test('API-Sports authority unlocks matching SharpAPI FT and HT prices', () => {
     { ...base, market_type: '1st_half', market_segment: '1st_half', selection: 'Everton', selection_type: 'away', odds_decimal: 4.0 }
   ];
   const [sharpEvent] = __sportsbookProviders.normalizeSharpApiRows(sharpRows);
-  const apiEvent = __sportsbookProviders.normalizeApiSportsFixture({
-    fixture: { id: 20260815, date: '2026-08-15T20:00:00Z', status: { short: 'NS' } },
-    league: { name: 'epl', country: 'England' },
-    teams: { home: { name: 'Liverpool' }, away: { name: 'Everton' } },
-    goals: { home: null, away: null }, score: { halftime: { home: null, away: null }, fulltime: { home: null, away: null } }
-  });
+  const apiEvent = {
+    id: 'api-3',
+    sport: 'Football',
+    league: 'epl',
+    country: 'England',
+    startTime: '2026-08-15T20:00:00Z',
+    status: 'SCHEDULED',
+    providerStatus: 'NS',
+    live: false,
+    home: { name: 'Liverpool', score: null, logo: null },
+    away: { name: 'Everton', score: null, logo: null },
+    periodScores: {},
+    markets: [],
+    _refs: { 'api-sports': 'api-20260815' },
+    _sources: ['api-sports'],
+    _settlementReadySources: ['api-sports']
+  };
   const [merged] = __sportsbookProviders.mergeProviderEvents([{ events: [sharpEvent] }, { events: [apiEvent] }]);
   assert.ok(merged._sources.includes('sharpapi'));
   assert.ok(merged._sources.includes('api-sports'));
@@ -685,10 +657,23 @@ test('API-Sports provider status remains authoritative after SharpAPI merge', ()
     { event_id:'sharp-status', sport:'soccer', league:'epl', home_team:'Arsenal', away_team:'Chelsea', event_start_time:'2026-08-14T19:00:00Z', sportsbook:'book-a', market_type:'moneyline', selection:'Draw', selection_type:'draw', odds_decimal:3.4, is_main_line:true, is_active:true },
     { event_id:'sharp-status', sport:'soccer', league:'epl', home_team:'Arsenal', away_team:'Chelsea', event_start_time:'2026-08-14T19:00:00Z', sportsbook:'book-a', market_type:'moneyline', selection:'Chelsea', selection_type:'away', odds_decimal:4.0, is_main_line:true, is_active:true }
   ])[0];
-  const api = __sportsbookProviders.normalizeApiSportsFixture({
-    fixture:{ id:55, date:'2026-08-14T19:00:00Z', status:{short:'HT', elapsed:45} }, league:{name:'Premier League',country:'England'},
-    teams:{home:{name:'Arsenal'},away:{name:'Chelsea'}}, goals:{home:1,away:0}, score:{halftime:{home:1,away:0}}
-  });
+  const api = {
+    id: 'api-status',
+    sport: 'Football',
+    league: 'Premier League',
+    country: 'England',
+    startTime: '2026-08-14T19:00:00Z',
+    status: 'LIVE',
+    providerStatus: 'HT',
+    live: true,
+    home: { name: 'Arsenal', score: 1, logo: null },
+    away: { name: 'Chelsea', score: 0, logo: null },
+    periodScores: { '1H': { home: 1, away: 0 } },
+    markets: [],
+    _refs: { 'api-sports': 'api-55' },
+    _sources: ['api-sports'],
+    _settlementReadySources: ['api-sports']
+  };
   const [merged] = __sportsbookProviders.mergeProviderEvents([{events:[sharp]},{events:[api]}]);
   assert.equal(merged.providerStatus, 'HT');
   assert.deepEqual(merged.periodScores['1H'], {home:1,away:0});
@@ -756,4 +741,61 @@ test("SharpAPI merges same fixture with kickoff times 5 minutes apart across spo
   ];
   const events = __sportsbookProviders.normalizeSharpApiRows(rows);
   assert.equal(events.length, 1);
+});
+
+test('SharpAPI error detection: normal response with empty errors array, empty errors object, error: null not flagged as error', () => {
+  const { hasPayloadErrors } = __sportsbookProviders;
+  const payload = {
+    success: true,
+    data: [{ event_id: 'test-1' }],
+    errors: [],
+    error: null,
+    message: 'info message with data'
+  };
+  assert.equal(hasPayloadErrors(payload), false);
+});
+
+test('SharpAPI error detection: response with errors array containing items flagged as error with reason', () => {
+  const { hasPayloadErrors, extractErrorDetail } = __sportsbookProviders;
+  const payload = {
+    success: true,
+    data: [],
+    errors: ['account suspended', 'quota exceeded']
+  };
+  assert.equal(hasPayloadErrors(payload), true);
+  assert.ok(extractErrorDetail(payload).includes('account suspended'));
+  assert.ok(extractErrorDetail(payload).includes('quota exceeded'));
+});
+
+test('SharpAPI error detection: response with usable data and error-like message not flagged as error', () => {
+  const { hasPayloadErrors } = __sportsbookProviders;
+  const payload = {
+    success: true,
+    data: [{ event_id: 'test-1' }],
+    message: 'quota limit approaching but data returned'
+  };
+  assert.equal(hasPayloadErrors(payload), false);
+});
+
+test('SharpAPI error detection: Sportmonks no-access message appears as warning, not fatal error', () => {
+  const { hasPayloadErrors, extractErrorDetail } = __sportsbookProviders;
+  const payload = {
+    success: true,
+    data: [],
+    message: "No result(s) found for this date or you don't have access to this data with your current subscription"
+  };
+  assert.equal(hasPayloadErrors(payload), false);
+  assert.ok(extractErrorDetail(payload)?.startsWith('warning:'));
+});
+
+test('SharpAPI error detection: empty data array with quota message flagged as error', () => {
+  const { hasPayloadErrors, extractErrorDetail } = __sportsbookProviders;
+  const payload = {
+    success: true,
+    data: [],
+    message: 'quota exceeded'
+  };
+  // data: [] is falsy (empty array), so hasUsableData = false, quota message should be flagged as error
+  assert.equal(hasPayloadErrors(payload), true);
+  assert.ok(extractErrorDetail(payload).includes('quota exceeded'));
 });

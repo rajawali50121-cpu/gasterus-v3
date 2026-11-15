@@ -45,8 +45,10 @@ export async function loadRenderProviderSnapshot(redisClient, {
   logger,
   now = Date.now(),
   secret = config.sportsbookIngestHmacSecret,
-  maxPayloadBytes = config.sportsbookIngestMaxPayloadBytes,
-  maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds
+  maxPayloadBytes = config.sportmonksPassthrough
+    ? config.sportmonksIngestMaxPayloadBytes
+    : config.sportsbookIngestMaxPayloadBytes,
+  maxAgeSeconds = config.sportsbookDailyRefreshEnabled ? (config.sportsbookStoredSnapshotMaxAgeSeconds || config.sportsbookIngestMaxAgeSeconds) : config.sportsbookIngestMaxAgeSeconds
 } = {}) {
   if (!redisClient?.isOpen) {
     logger?.warn('Sportsbook worker snapshot unavailable; Redis is not connected, using local provider fetch');
@@ -71,7 +73,8 @@ export async function loadRenderProviderSnapshot(redisClient, {
       })),
       generatedAt: verified.snapshot.generatedAt,
       receivedAt: verified.receivedAt,
-      revision: verified.revision
+      revision: verified.revision,
+      diagnostics: verified.snapshot.diagnostics || null
     };
   } catch (error) {
     logger?.warn('Sportsbook worker snapshot rejected; using local provider fetch', {
@@ -87,8 +90,10 @@ export async function resolveSportsbookProviderResults(redisClient, {
   logger,
   now = Date.now(),
   secret = config.sportsbookIngestHmacSecret,
-  maxPayloadBytes = config.sportsbookIngestMaxPayloadBytes,
-  maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds
+  maxPayloadBytes = config.sportmonksPassthrough
+    ? config.sportmonksIngestMaxPayloadBytes
+    : config.sportsbookIngestMaxPayloadBytes,
+  maxAgeSeconds = config.sportsbookDailyRefreshEnabled ? (config.sportsbookStoredSnapshotMaxAgeSeconds || config.sportsbookIngestMaxAgeSeconds) : config.sportsbookIngestMaxAgeSeconds
 } = {}) {
   const renderSnapshot = await loadRenderProviderSnapshot(redisClient, {
     logger,

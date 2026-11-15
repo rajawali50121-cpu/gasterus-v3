@@ -21,6 +21,8 @@ const [{ config }, oddspapi, providers, oddspapiStore] = await Promise.all([
   import('../src/sportsbook-oddspapi-store.js')
 ]);
 
+const { hasPayloadErrors, extractErrorDetail } = await import('../src/sportsbook-oddspapi.js');
+
 const NOW = Date.UTC(2026, 10, 3, 12, 0, 0);
 const TEST_KEY = 'mock-only-oddspapi-key';
 
@@ -708,4 +710,51 @@ test('OddsPapi enriches absent markets but cannot replace a valid existing provi
   ]);
   assert.equal(merged.markets.find(market => market.type === '1X2').source, 'sportmonks');
   assert.equal(merged.markets.find(market => market.type === 'TOTALS').source, 'oddspapi');
+});
+
+test('OddsPapi error detection: normal response with empty errors array, empty errors object, error: null not flagged as error', () => {
+  const payload = {
+    data: [{ id: 'test-1' }],
+    errors: [],
+    error: null,
+    message: 'info message with data'
+  };
+  assert.equal(hasPayloadErrors(payload), false);
+});
+
+test('OddsPapi error detection: response with errors array containing items flagged as error with reason', () => {
+  const payload = {
+    data: [],
+    errors: ['account suspended', 'quota exceeded']
+  };
+  assert.equal(hasPayloadErrors(payload), true);
+  assert.ok(extractErrorDetail(payload).includes('account suspended'));
+  assert.ok(extractErrorDetail(payload).includes('quota exceeded'));
+});
+
+test('OddsPapi error detection: response with usable data and error-like message not flagged as error', () => {
+  const payload = {
+    data: [{ id: 'test-1' }],
+    message: 'quota limit approaching but data returned'
+  };
+  assert.equal(hasPayloadErrors(payload), false);
+});
+
+test('OddsPapi error detection: Sportmonks no-access message appears as warning, not fatal error', () => {
+  const payload = {
+    data: [],
+    message: "No result(s) found for this date or you don't have access to this data with your current subscription"
+  };
+  assert.equal(hasPayloadErrors(payload), false);
+  assert.ok(extractErrorDetail(payload)?.startsWith('warning:'));
+});
+
+test('OddsPapi error detection: empty data array with quota message flagged as error', () => {
+  const payload = {
+    data: [],
+    message: 'quota exceeded'
+  };
+  // data: [] is falsy (empty array), so hasUsableData = false, quota message should be flagged as error
+  assert.equal(hasPayloadErrors(payload), true);
+  assert.ok(extractErrorDetail(payload).includes('quota exceeded'));
 });

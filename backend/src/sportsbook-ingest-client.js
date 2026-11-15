@@ -2,14 +2,15 @@ import { createHmac } from 'node:crypto';
 
 export function createSportsbookIngestRequest(snapshot, secret, {
   timestamp = Math.floor(Date.now() / 1000),
-  maxPayloadBytes = 6_291_456
+  maxPayloadBytes = 6_291_456,
+  limitEnv = 'SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES'
 } = {}) {
   if (typeof secret !== 'string' || secret.length < 32) {
     throw new Error('SPORTSBOOK_INGEST_HMAC_SECRET must contain at least 32 characters.');
   }
   const rawBody = Buffer.from(JSON.stringify(snapshot));
   if (rawBody.length > maxPayloadBytes) {
-    throw new Error(`Sportsbook snapshot exceeds the ${maxPayloadBytes}-byte payload limit.`);
+    throw new Error(`Sportsbook snapshot exceeds the ${maxPayloadBytes}-byte payload limit. Increase ${limitEnv}.`);
   }
   const timestampHeader = String(timestamp);
   const signature = createHmac('sha256', secret)
@@ -32,11 +33,12 @@ export async function postSportsbookSnapshot(endpoint, snapshot, {
   secret,
   fetchImpl = fetch,
   timeoutMs = 15000,
-  maxPayloadBytes = 6_291_456
+  maxPayloadBytes = 6_291_456,
+  limitEnv = 'SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES'
 } = {}) {
   const url = new URL(endpoint);
   if (url.protocol !== 'https:') throw new Error('Sportsbook ingestion endpoint must use HTTPS.');
-  const request = createSportsbookIngestRequest(snapshot, secret, { maxPayloadBytes });
+  const request = createSportsbookIngestRequest(snapshot, secret, { maxPayloadBytes, limitEnv });
   const response = await fetchImpl(url, {
     method: 'POST',
     headers: request.headers,

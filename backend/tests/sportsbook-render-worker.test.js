@@ -85,7 +85,7 @@ test('Worker requests up to 500 fixtures from the licensed odds adapter', async 
   });
 
   assert.equal(oddsApiCalled, true);
-  assert.deepEqual(oddsApiOptions, { maxEvents: 500, maxPages: 120 });
+  assert.deepEqual(oddsApiOptions, { maxEvents: 500, maxPages: 120 }); // 0/unlimited config resolved to safe default for paged providers
   assert.equal(snapshot.eventCount, 300);
   assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sharpapi']);
   assert.equal(snapshot.providerResults[0].events.length, 300);
@@ -210,13 +210,13 @@ test('Worker republishes cached snapshots before their ingestion freshness windo
   // Only explicitly selected provider adapters are connected to the worker.
   assert.match(workerSource, /fetchSportmonks/);
   assert.match(workerSource, /fetchSharpApi/);
-  assert.match(workerSource, /fetchApiSports/);
+  assert.doesNotMatch(workerSource, /fetchApiSports/);
   assert.match(workerSource, /fetchOddsPapi/);
 });
 
-test('API-Sports quota storage failure does not block the providers already serving the feed', async () => {
+test('OddsPapi quota storage failure does not block the providers already serving the feed', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchApiSports: async () => { throw new Error('quota storage unavailable'); },
+    fetchOddsPapi: async () => { throw new Error('quota storage unavailable'); },
     fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'existing' })] }),
     maxEvents: 500,
     teamKey,
@@ -227,8 +227,10 @@ test('API-Sports quota storage failure does not block the providers already serv
   assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks']);
 });
 
-test('Worker cadence follows the fastest enabled provider without exceeding ingest freshness', () => {
+test('Worker cadence follows the fastest enabled provider without exceeding ingest freshness (legacy mode) and supports daily schedule mode', () => {
+  const legacy = { sportsbookDailyRefreshEnabled: false };
   assert.equal(sportsbookRenderIntervalSeconds({
+    ...legacy,
     sportsbookIngestMaxAgeSeconds: 180,
     sportmonksEnabled: true,
     sportmonksRefreshSeconds: 300,
@@ -239,6 +241,7 @@ test('Worker cadence follows the fastest enabled provider without exceeding inge
     oddsPapiRefreshSeconds: 720
   }), 45);
   assert.equal(sportsbookRenderIntervalSeconds({
+    ...legacy,
     sportsbookIngestMaxAgeSeconds: 180,
     sportmonksEnabled: true,
     sportmonksRefreshSeconds: 300,
@@ -247,12 +250,14 @@ test('Worker cadence follows the fastest enabled provider without exceeding inge
     oddsPapiRefreshSeconds: 720
   }), 90);
   assert.equal(sportsbookRenderIntervalSeconds({
+    ...legacy,
     sportsbookIngestMaxAgeSeconds: 120,
     sharpApiEnabled: false,
     sportmonksEnabled: false,
     oddsPapiEnabled: false
   }), 60);
   assert.equal(sportsbookRenderIntervalSeconds({
+    ...legacy,
     sportsbookIngestMaxAgeSeconds: 180,
     sportmonksEnabled: true,
     sportmonksRefreshSeconds: 300,
@@ -260,6 +265,8 @@ test('Worker cadence follows the fastest enabled provider without exceeding inge
     sportmonksLiveRefreshSeconds: 30,
     oddsPapiEnabled: false
   }), 30);
+  // Daily mode polls on bounded interval to hit WIB slot without provider calls when not due.
+  assert.equal(sportsbookRenderIntervalSeconds({ sportsbookDailyRefreshEnabled: true }), 60);
 });
 
 test('Worker combines Sportmonks primary with SharpAPI fallback in one snapshot', async () => {
@@ -267,7 +274,7 @@ test('Worker combines Sportmonks primary with SharpAPI fallback in one snapshot'
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportmonks: async options => {
       order.push('sportmonks');
-      assert.deepEqual(options, { maxEvents: 100, maxPages: 120 });
+      assert.deepEqual(options, { maxEvents: 0, maxPages: 0 });
       return { provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'sm-1', league: 'Premier League' })] };
     },
     fetchSharpApi: async options => {
@@ -308,11 +315,11 @@ test('Worker bounds the Sportmonks page budget before any provider fetch runs', 
       fetchSportmonks: async () => { fetched = true; return { provider: 'sportmonks', enabled: true, events: [] }; },
       fetchSharpApi: async () => { fetched = true; return { provider: 'sharpapi', enabled: true, events: [] }; },
       maxEvents: 100,
-      maxPages: 0,
+      maxPages: -1,
       teamKey,
       now: NOW
     }),
-    /maxPages must be an integer between 1 and 120/
+    /maxPages must be a non-negative integer in Sportmonks passthrough mode/
   );
   assert.equal(fetched, false, 'budget halaman tidak valid harus ditolak sebelum scrape dimulai');
 });
@@ -412,7 +419,7 @@ test('Worker trims oversized snapshots by dropping whole fixtures, never partial
     maxPayloadBytes: 12_000,
     teamKey,
     now: NOW
-  }), /single complete sportsbook event exceeds the ingest payload budget/i);
+  }), /No complete sportsbook event fits the .* payload limit/i);
 });
 
 test('Payload trimming keeps provider ownership for every retained duplicate fixture', async () => {

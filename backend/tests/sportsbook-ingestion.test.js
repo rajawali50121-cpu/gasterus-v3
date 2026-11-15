@@ -10,11 +10,24 @@ process.env.OPS_INTERNAL_SECRET ||= 'o'.repeat(48);
 process.env.SESSION_HMAC_KEY ||= 's'.repeat(48);
 process.env.API_KEY_PEPPER ||= 'p'.repeat(48);
 process.env.MFA_ENCRYPTION_KEY_BASE64 ||= Buffer.alloc(32, 1).toString('base64');
+process.env.SPORTMONKS_REDIS_MAX_PAYLOAD_BYTES = '65536';
 
-const { acceptSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
+const { acceptSportsbookSnapshot, createStoredSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
 const { createSportsbookIngestRequest } = await import('../src/sportsbook-ingest-client.js');
+const { loadRenderProviderSnapshot } = await import('../src/sportsbook-feed-source.js');
+const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
 const SECRET = 'ingest-secret-for-test-only-'.padEnd(48, 'x');
 const NOW = Date.UTC(2025, 0, 2, 12, 0, 0);
+
+function signedStagingRecord(snapshot, now) {
+  const request = createSportsbookIngestRequest(snapshot, SECRET, { timestamp: Math.floor(now / 1000) });
+  return createStoredSportsbookSnapshot({
+    serializedSnapshot: request.body.toString('utf8'),
+    timestamp: request.headers['x-sportsbook-timestamp'],
+    signature: request.headers['x-sportsbook-signature'],
+    receivedAt: now
+  });
+}
 
 function snapshot() {
   return {
@@ -87,6 +100,40 @@ test('accepts a fresh HMAC-signed snapshot and stores only its verified JSON', a
   });
   assert.deepEqual(stored, payload);
   assert.equal(storedBytes, signed.body.toString());
+});
+
+test('accepts a complete event with more than the former market and selection caps', async () => {
+  const payload = snapshot();
+  const event = payload.providerResults[0].events[0];
+  event.markets = Array.from({ length: 121 }, (_, marketIndex) => ({
+    id: `market-${marketIndex}`,
+    type: 'OTHER',
+    period: 'FT',
+    source: 'sportmonks',
+    suspended: false,
+    selections: Array.from({ length: marketIndex === 0 ? 251 : 1 }, (_, selectionIndex) => ({
+      key: `selection-${marketIndex}-${selectionIndex}`,
+      label: `Selection ${selectionIndex}`,
+      odds: 2,
+      suspended: false,
+      source: 'sportmonks',
+      updatedAt: null
+    }))
+  }));
+  const signed = signedRequest(payload);
+  let stored;
+  const accepted = await acceptSportsbookSnapshot(
+    requestFor(signed.body, signed.headers),
+    {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async value => { stored = value; }
+    }
+  );
+
+  assert.equal(accepted.accepted, true);
+  assert.equal(stored.providerResults[0].events[0].markets.length, 121);
+  assert.equal(stored.providerResults[0].events[0].markets[0].selections.length, 251);
 });
 
 test('accepts OddsPapi as an additional provider without changing event source ownership', async () => {
@@ -240,12 +287,13 @@ test('rejects snapshots over the configured byte limit before reading the full b
       storeSnapshot: async () => assert.fail('oversized snapshot must not be stored')
     }),
     error => error.code === 'SPORTSBOOK_INGEST_PAYLOAD_TOO_LARGE'
+      && /eventRecordCount=unknown/.test(error.message)
   );
 });
 
-test('rejects malformed normalized events and snapshots above 500 events', async () => {
+test('rejects malformed normalized events but accepts more than 500 Sportmonks fixtures', async () => {
   const malformed = snapshot();
-  malformed.providerResults[0].events[0].markets[0].selections[0].odds = 1;
+  malformed.providerResults[0].events[0].markets[0].selections[0].odds = Number.NaN;
   const malformedSigned = signedRequest(malformed);
   await assert.rejects(
     acceptSportsbookSnapshot(requestFor(malformedSigned.body, malformedSigned.headers), {
@@ -271,14 +319,17 @@ test('rejects malformed normalized events and snapshots above 500 events', async
     _refs: { sportmonks: `provider-event-${index}` }
   }));
   const oversizedSigned = signedRequest(oversized);
-  await assert.rejects(
-    acceptSportsbookSnapshot(requestFor(oversizedSigned.body, oversizedSigned.headers), {
+  let stored;
+  const accepted = await acceptSportsbookSnapshot(
+    requestFor(oversizedSigned.body, oversizedSigned.headers),
+    {
       secret: SECRET,
       now: NOW,
-      storeSnapshot: async () => assert.fail('over-limit snapshot must not be stored')
-    }),
-    error => error.code === 'SPORTSBOOK_INGEST_EVENT_LIMIT'
+      storeSnapshot: async value => { stored = value; }
+    }
   );
+  assert.equal(accepted.eventCount, 501);
+  assert.equal(stored.providerResults[0].events.length, 501);
 });
 
 function threeProviderSnapshot() {
@@ -390,15 +441,45 @@ test('partial provider refresh preserves fresh provider data, expires old data, 
   assert.equal(afterExpiry.snapshot.eventCount, 1);
 });
 
+test('reports event records that do not fit the Sportmonks Redis payload limit', async () => {
+  const payload = snapshot();
+  const template = payload.providerResults[0].events[0];
+  payload.providerResults[0].events = Array.from({ length: 3 }, (_, index) => ({
+    ...JSON.parse(JSON.stringify(template)),
+    id: `oversized-event-${index}`,
+    payloadPadding: 'x'.repeat(30000)
+  }));
+  const { storeMergedSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
+  const redisClient = {
+    isOpen: true,
+    async watch() {},
+    async get() { return null; },
+    async unwatch() {},
+    multi() { assert.fail('oversized snapshot must not be stored'); }
+  };
+
+  await assert.rejects(
+    storeMergedSportsbookSnapshot(redisClient, payload, {
+      secret: SECRET,
+      now: NOW,
+      maxAgeSeconds: 180
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_REDIS_PAYLOAD_TOO_LARGE'
+      && /eventRecordsNotStored=3/.test(error.message)
+      && /sportmonksEventRecordsNotStored=3/.test(error.message)
+      && /SPORTMONKS_REDIS_MAX_PAYLOAD_BYTES/.test(error.message)
+  );
+});
+
 test('rejects a snapshot with an unallowed or fourth provider', async () => {
   const tooMany = threeProviderSnapshot();
   tooMany.providerResults.push({
-    provider: 'api-sports',
+    provider: 'oddspapi',
     enabled: true,
     events: [JSON.parse(JSON.stringify(tooMany.providerResults[0].events[0]))]
   });
-  tooMany.providerResults[3]._refs = { 'api-sports': 'provider-event-api' };
-  tooMany.providerResults[3]._sources = ['api-sports'];
+  tooMany.providerResults[3]._refs = { 'oddspapi': 'provider-event-api' };
+  tooMany.providerResults[3]._sources = ['oddspapi'];
   const tooManySigned = signedRequest(tooMany);
   await assert.rejects(
     acceptSportsbookSnapshot(requestFor(tooManySigned.body, tooManySigned.headers), {
@@ -431,4 +512,45 @@ test('client signs the raw JSON bytes and refuses non-HTTPS endpoints', async ()
     ),
     /must use HTTPS/
   );
+});
+
+test('legacy api-sports data in snapshot merges with new snapshot without rejection', async () => {
+  const legacySnapshot = {
+    schemaVersion: 1,
+    generatedAt: new Date(NOW - 1000).toISOString(),
+    providerResults: [
+      { provider: 'api-sports', enabled: true, events: [{ id: 'api-legacy', sport: 'Football', league: 'Premier League', country: 'England', startTime: new Date(NOW + 3600000).toISOString(), status: 'SCHEDULED', providerStatus: 'NS', live: false, home: { name: 'Arsenal', score: null, logo: null }, away: { name: 'Chelsea', score: null, logo: null }, periodScores: {}, markets: [{ id: 'm1', key: '1X2', type: '1X2', label: '1X2', period: 'FT', line: null, suspended: false, updatedAt: new Date().toISOString(), source: 'api-sports', selections: [{ key: 's1', label: 'Home', odds: 2.0, suspended: false, source: 'api-sports', updatedAt: new Date().toISOString() }] }], _refs: { 'api-sports': 'api-legacy' }, _sources: ['api-sports'] }] },
+      { provider: 'sportmonks', enabled: true, events: [{ id: 'sm-legacy', sport: 'Football', league: 'Premier League', country: 'England', startTime: new Date(NOW + 3600000).toISOString(), status: 'SCHEDULED', providerStatus: 'NS', live: false, home: { name: 'Liverpool', score: null, logo: null }, away: { name: 'Everton', score: null, logo: null }, periodScores: {}, markets: [], _refs: { 'sportmonks': 'sm-legacy' }, _sources: ['sportmonks'] }] }
+    ]
+  };
+  const newSnapshot = {
+    schemaVersion: 1,
+    generatedAt: new Date(NOW).toISOString(),
+    providerResults: [
+      { provider: 'sportmonks', enabled: true, events: [{ id: 'sm-new', sport: 'Football', league: 'Premier League', country: 'England', startTime: new Date(NOW + 3600000).toISOString(), status: 'SCHEDULED', providerStatus: 'NS', live: false, home: { name: 'Liverpool', score: null, logo: null }, away: { name: 'Everton', score: null, logo: null }, periodScores: {}, markets: [{ id: 'm2', key: '1X2', type: '1X2', label: '1X2', period: 'FT', line: null, suspended: false, updatedAt: new Date().toISOString(), source: 'sportmonks', selections: [{ key: 's2', label: 'Home', odds: 2.1, suspended: false, source: 'sportmonks', updatedAt: new Date().toISOString() }] }], _refs: { 'sportmonks': 'sm-new' }, _sources: ['sportmonks'] }] },
+      { provider: 'sharpapi', enabled: true, events: [{ id: 'sharp-new', sport: 'Football', league: 'Premier League', country: 'England', startTime: new Date(NOW + 3600000).toISOString(), status: 'SCHEDULED', providerStatus: 'NS', live: false, home: { name: 'Arsenal', score: null, logo: null }, away: { name: 'Chelsea', score: null, logo: null }, periodScores: {}, markets: [{ id: 'm3', key: '1X2', type: '1X2', label: '1X2', period: 'FT', line: null, suspended: false, updatedAt: new Date().toISOString(), source: 'sharpapi', selections: [{ key: 's3', label: 'Home', odds: 1.9, suspended: false, source: 'sharpapi', updatedAt: new Date().toISOString() }] }], _refs: { 'sharpapi': 'sharp-new' }, _sources: ['sharpapi'] }] }
+    ]
+  };
+  const legacySigned = signedRequest(legacySnapshot);
+  const legacyStored = signedStagingRecord(legacySnapshot, NOW - 1000);
+  const legacyResult = await loadRenderProviderSnapshot(
+    { isOpen: true, async get() { return legacyStored; } },
+    { secret: SECRET, now: NOW }
+  );
+  assert.ok(legacyResult);
+  assert.equal(legacyResult.providerResults.length, 2);
+
+  const newSigned = signedRequest(newSnapshot);
+  const newStored = signedStagingRecord(newSnapshot, NOW);
+  const newResult = await loadRenderProviderSnapshot(
+    { isOpen: true, async get() { return newStored; } },
+    { secret: SECRET, now: NOW }
+  );
+  assert.ok(newResult);
+  assert.equal(newResult.providerResults.length, 2);
+
+  const mergedEvents = __sportsbookProviders.mergeProviderEvents(newResult.providerResults);
+  assert.ok(mergedEvents.some(e => e._sources.includes('sportmonks')));
+  assert.ok(mergedEvents.some(e => e._sources.includes('sharpapi')));
+  assert.ok(!mergedEvents.some(e => e._sources.includes('api-sports')), 'api-sports not in new snapshot');
 });

@@ -131,8 +131,16 @@ async function resolveLeg(input) {
 }
 async function revalidateResolvedLegs(legs) {
   const fresh = [];
+  const now = Date.now();
   for (const leg of legs) {
     const latest = await sportsbookSelectionSnapshot({ eventId: leg.event.id, marketId: leg.market.id, selectionId: leg.selection.key });
+    // Kickoff guard (waktu SERVER, bukan klien): setiap leg prematch harus belum
+    // kick-off saat tiket dibeli. Leg yang sudah kick-off ditolak 409.
+    const kickoff = Date.parse(latest.event.startTime || '');
+    const isPrematch = (latest.market && latest.market.period) === 'FT';
+    if (Number.isFinite(kickoff) && kickoff <= now && isPrematch) {
+      throw new AppError(409, 'Pertandingan sudah dimulai. Taruhan prematch untuk leg ini ditutup.', 'SPORTSBOOK_LEG_KICKOFF_CLOSED');
+    }
     if (latest.event.live && !leg.event.live) {
       throw new AppError(409, 'Pertandingan baru dimulai. Tinjau quote live sebelum memasang taruhan.', 'SPORTSBOOK_EVENT_BECAME_LIVE');
     }

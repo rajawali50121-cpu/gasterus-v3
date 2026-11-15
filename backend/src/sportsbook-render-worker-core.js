@@ -1,10 +1,36 @@
 import { leagueKey } from './sportsbook-providers.js';
+import { config } from './config.js';
 
 const MAX_EVENTS = 500;
 const MAX_PAGES = 120;
 const DUPLICATE_KICKOFF_WINDOW_MS = 3 * 60 * 60 * 1000;
 
+function wibParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return { year: map.year, month: map.month, day: map.day, hour: Number(map.hour || 0), minute: Number(map.minute || 0) };
+}
+
+export function nextSportsbookDailyRefreshMs(settings, now = Date.now()) {
+  const hour = Number(settings?.sportsbookDailyRefreshHourWib ?? 0);
+  const minute = Number(settings?.sportsbookDailyRefreshMinuteWib ?? 5);
+  // Compute next target in WIB by comparing local WIB clock; schedule daily.
+  const current = wibParts(new Date(now));
+  const currentMinutes = current.hour * 60 + current.minute;
+  const targetMinutes = hour * 60 + minute;
+  let deltaMinutes = targetMinutes - currentMinutes;
+  if (deltaMinutes <= 0) deltaMinutes += 24 * 60;
+  return deltaMinutes * 60 * 1000;
+}
+
 export function sportsbookRenderIntervalSeconds(settings) {
+  if (settings?.sportsbookDailyRefreshEnabled === true) {
+    // Bounded poll interval to hit daily WIB schedule without API calls when not due.
+    return 60;
+  }
   const freshnessInterval = Math.floor(Number(settings?.sportsbookIngestMaxAgeSeconds) / 2);
   const providerIntervals = [];
   if (settings?.sportmonksEnabled) {
@@ -37,7 +63,7 @@ function leaguePriority(event, priorities) {
 }
 
 function providerPriority(provider, live) {
-  if (live) return provider === 'api-sports' ? 2 : 1;
+  if (live) return 1;
   return provider === 'sportmonks' ? 2 : 1;
 }
 
@@ -67,10 +93,12 @@ function sameFixture(a, b, teamKey) {
 
 export function combineSportsbookProviderResults(providerResults, {
   maxEvents = MAX_EVENTS,
+  passthrough = config.sportmonksPassthrough,
+  sportmonksMaxEvents = config.sportmonksMaxTotalEvents,
   priorityLeagues = [],
   teamKey
 } = {}) {
-  if (!Number.isInteger(maxEvents) || maxEvents < 1 || maxEvents > MAX_EVENTS) {
+  if (!Number.isInteger(maxEvents) || maxEvents < 1 || (!passthrough && maxEvents > MAX_EVENTS)) {
     throw new Error(`Worker sportsbook maxEvents must be an integer between 1 and ${MAX_EVENTS}.`);
   }
   if (typeof teamKey !== 'function') throw new Error('A normalized team-key helper is required.');
@@ -92,8 +120,30 @@ export function combineSportsbookProviderResults(providerResults, {
     group.push(candidate);
   }
   fixtureGroups.sort((a, b) => compareCandidates(a[0], b[0], priorityLeagues));
-  const boundedGroups = fixtureGroups.slice(0, maxEvents);
-  const truncatedEventCount = fixtureGroups.length - boundedGroups.length;
+  const boundedGroups = [];
+  let retainedNonSportmonksGroups = 0;
+  let retainedSportmonksGroups = 0;
+  let truncatedEventCount = 0;
+  let truncatedSportmonksEventCount = 0;
+  let truncatedOtherProviderEventCount = 0;
+  for (const group of fixtureGroups) {
+    const hasSportmonks = group.some(candidate => candidate.provider === 'sportmonks');
+    if (passthrough && hasSportmonks) {
+      if (sportmonksMaxEvents > 0 && retainedSportmonksGroups >= sportmonksMaxEvents) {
+        truncatedEventCount += 1;
+        truncatedSportmonksEventCount += 1;
+        continue;
+      }
+      retainedSportmonksGroups += 1;
+      boundedGroups.push(group);
+    } else if (retainedNonSportmonksGroups < maxEvents) {
+      retainedNonSportmonksGroups += 1;
+      boundedGroups.push(group);
+    } else {
+      truncatedEventCount += 1;
+      truncatedOtherProviderEventCount += 1;
+    }
+  }
 
   const selectedByProvider = new Map();
   for (const group of boundedGroups) {
@@ -111,7 +161,9 @@ export function combineSportsbookProviderResults(providerResults, {
   return {
     providerResults: combinedResults,
     eventCount: boundedGroups.length,
-    truncatedEventCount
+    truncatedEventCount,
+    truncatedSportmonksEventCount,
+    truncatedOtherProviderEventCount
   };
 }
 
@@ -182,6 +234,8 @@ export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
   // Buang fixture berperingkat terendah hanya dalam kelompok utuh; jangan
   // memangkas market atau selection sehingga data odds parsial tampak lengkap.
   const fixtureGroups = snapshotFixtureGroups(entries);
+  const isSportmonks = snapshot.providerResults.some(result => result.provider === 'sportmonks');
+  const limitEnv = isSportmonks ? 'SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES' : 'SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES';
   let low = 1;
   let high = fixtureGroups.length;
   let best = null;
@@ -189,6 +243,19 @@ export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
     const keep = Math.floor((low + high) / 2);
     const candidateEntries = fixtureGroups.slice(0, keep).flat();
     const candidate = rebuildSnapshot(snapshot, candidateEntries);
+    const omittedUniqueEvents = fixtureGroups.length - keep;
+    const omittedProviderEventRecords = entries.length - candidateEntries.length;
+    candidate.diagnostics = {
+      ...(snapshot.diagnostics || {}),
+      payloadLimit: {
+        code: 'SPORTSBOOK_PAYLOAD_LIMIT',
+        dataTruncated: true,
+        omittedUniqueEvents,
+        omittedProviderEventRecords,
+        maxPayloadBytes: maxBytes,
+        envToIncrease: limitEnv
+      }
+    };
     if (snapshotBytes(candidate) <= maxBytes) {
       best = candidate;
       low = keep + 1;
@@ -197,34 +264,41 @@ export function fitSnapshotToPayloadBudget(snapshot, maxBytes) {
     }
   }
   if (!best) {
-    throw new Error('A single complete sportsbook event exceeds the ingest payload budget.');
+    const error = new Error(`No complete sportsbook event fits the ${maxBytes}-byte payload limit; all ${fixtureGroups.length} unique events were omitted. Increase ${limitEnv}.`);
+    error.diagnostics = {
+      code: 'SPORTSBOOK_PAYLOAD_LIMIT',
+      dataTruncated: true,
+      omittedUniqueEvents: fixtureGroups.length,
+      omittedProviderEventRecords: entries.length,
+      maxPayloadBytes: maxBytes,
+      envToIncrease: limitEnv
+    };
+    throw error;
   }
   return best;
 }
 
 export async function buildSportsbookRenderSnapshot({
-  fetchApiSports,
   fetchSportmonks,
   fetchSharpApi,
   fetchOddsPapi,
   maxEvents = 500,
-  maxPages = MAX_PAGES,
+  maxPages = config.sportsbookRenderMaxPages,
   maxPayloadBytes = null,
   teamKey,
   now
 }) {
-  // Sportmonks adalah sumber utama cakupan luas: anggaran halaman dihabiskan
-  // round-robin per tanggal (maks 120 halaman x 20 = 2.400 kandidat), lalu
-  // dibatasi maxEvents. Fetcher dijalankan SEKUENSIAL dan tiap kegagalan
-  // diisolasi: hanya satu payload provider yang hidup pada satu waktu, sehingga
-  // heap worker 224MB tetap dapat diprediksi (anti-OOM).
-  if (!Number.isInteger(maxPages) || maxPages < 1 || maxPages > MAX_PAGES) {
-    throw new Error(`Worker sportsbook maxPages must be an integer between 1 and ${MAX_PAGES}.`);
+  // Sportmonks follows pagination to completion in passthrough mode. The other
+  // providers retain the worker's bounded event/page budgets.
+  if (!Number.isInteger(maxPages) || maxPages < (config.sportmonksPassthrough ? 0 : 1)
+    || (!config.sportmonksPassthrough && maxPages > MAX_PAGES)) {
+    throw new Error(config.sportmonksPassthrough
+      ? 'Worker sportsbook maxPages must be a non-negative integer in Sportmonks passthrough mode.'
+      : `Worker sportsbook maxPages must be an integer between 1 and ${MAX_PAGES}.`);
   }
   const fetchers = [
     { provider: 'sportmonks', fetch: fetchSportmonks },
     { provider: 'sharpapi', fetch: fetchSharpApi },
-    { provider: 'api-sports', fetch: fetchApiSports },
     { provider: 'oddspapi', fetch: fetchOddsPapi },
   ];
   const providerResults = [];
@@ -233,7 +307,17 @@ export async function buildSportsbookRenderSnapshot({
     if (typeof fetch !== 'function') continue;
     console.log('FETCH_START ' + provider);
     try {
-      const result = await fetch({ maxEvents, maxPages });
+      const options = provider === 'sportmonks'
+        ? {
+            maxEvents: config.sportmonksPassthrough
+              ? config.sportmonksMaxTotalEvents
+              : Math.min(maxEvents, config.sportmonksMaxTotalEvents),
+            maxPages: config.sportmonksPassthrough
+              ? config.sportmonksMaxPages
+              : Math.min(maxPages, config.sportmonksMaxPages)
+          }
+        : { maxEvents, maxPages: maxPages > 0 ? maxPages : 120 };
+      const result = await fetch(options);
       if (result) providerResults.push(result);
       console.log('FETCH_DONE ' + provider + ' events=' + (result?.events?.length ?? 0) + ' errors=' + JSON.stringify(result?.errors || []));
     } catch (error) {
@@ -247,6 +331,8 @@ export async function buildSportsbookRenderSnapshot({
 
   const combined = combineSportsbookProviderResults(providerResults, {
     maxEvents,
+    passthrough: config.sportmonksPassthrough,
+    sportmonksMaxEvents: config.sportmonksMaxTotalEvents,
     teamKey
   });
   console.info(JSON.stringify({
@@ -274,7 +360,9 @@ export async function buildSportsbookRenderSnapshot({
     if (typeof e.sport !== 'string' || !e.sport.trim()) return false;
     if (typeof e.league !== 'string' || !e.league.trim()) return false;
     if (e.country !== null && (typeof e.country !== 'string' || !e.country.trim())) return false;
-    if (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime))) return false;
+    if (provider === 'sportmonks' && config.sportmonksPassthrough) {
+      if (e.startTime !== null && (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime)))) return false;
+    } else if (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime))) return false;
     if (!['SCHEDULED','LIVE','FINISHED','SUSPENDED','CANCELLED','CANCELED','ABANDONED','POSTPONED','VOID'].includes(e.status)) return false;
     if (typeof e.live !== 'boolean') return false;
     if (!e.home || typeof e.home.name !== 'string' || !e.home.name.trim()) return false;
@@ -288,11 +376,11 @@ export async function buildSportsbookRenderSnapshot({
       if (typeof m.period !== 'string' || !m.period.trim()) return false;
       if (m.source !== provider) return false;
       if (typeof m.suspended !== 'boolean') return false;
-      if (!Array.isArray(m.selections) || m.selections.length === 0) return false;
+      if (!Array.isArray(m.selections) || (!m.selections.length && provider !== 'sportmonks')) return false;
       for (const sel of m.selections) {
         if (!sel || typeof sel.key !== 'string' || !sel.key.trim()) return false;
-        if (typeof sel.label !== 'string' || !sel.label.trim()) return false;
-        if (!Number.isFinite(sel.odds) || sel.odds <= 1) return false;
+        if (typeof sel.label !== 'string' || (provider !== 'sportmonks' && !sel.label.trim())) return false;
+        if (!Number.isFinite(sel.odds) || (provider !== 'sportmonks' && sel.odds <= 1)) return false;
         if (typeof sel.suspended !== 'boolean') return false;
         if (sel.source !== provider) return false;
       }
@@ -318,7 +406,23 @@ export async function buildSportsbookRenderSnapshot({
     schemaVersion: 1,
     generatedAt: new Date(now ?? Date.now()).toISOString(),
     providerResults: normalizedResults,
-    eventCount: combined.eventCount
+    eventCount: combined.eventCount,
+    ...(combined.truncatedEventCount > 0
+      ? {
+          diagnostics: {
+            eventLimit: {
+              dataTruncated: true,
+              omittedUniqueEvents: combined.truncatedEventCount,
+              omittedSportmonksEvents: combined.truncatedSportmonksEventCount,
+              omittedOtherProviderEvents: combined.truncatedOtherProviderEventCount,
+              envsToIncrease: [
+                ...(combined.truncatedSportmonksEventCount > 0 ? ['SPORTMONKS_MAX_TOTAL_EVENTS'] : []),
+                ...(combined.truncatedOtherProviderEventCount > 0 ? ['SPORTSBOOK_RENDER_MAX_EVENTS'] : [])
+              ]
+            }
+          }
+        }
+      : {})
   };
   // Selaraskan dengan anggaran payload ingest (SPORTSBOOK_INGEST_MAX_PAYLOAD_BYTES)
   // sebelum berangkat: lebih baik memotong deterministik daripada seluruh push
@@ -330,7 +434,8 @@ export async function buildSportsbookRenderSnapshot({
       event: 'snapshot-payload-trimmed',
       originalEvents: snapshot.eventCount,
       fittedEvents: fitted?.eventCount ?? snapshot.eventCount,
-      maxPayloadBytes
+      maxPayloadBytes,
+      ...(fitted?.diagnostics?.payloadLimit || {})
     }));
   }
   return fitted;
