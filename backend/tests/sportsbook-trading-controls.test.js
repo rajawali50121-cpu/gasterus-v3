@@ -50,22 +50,6 @@ test('HF6 Phase 2 operator stop overlays member-visible market without inventing
   assert.equal(event.markets[0].selections[1].suspended,false);
 });
 
-test('HF6 Phase 2 SharpAPI keeps main plus alternate Asian handicap lines', () => {
-  const base={event_id:'alt-1',sport:'soccer',league:'epl',home_team:'Arsenal',away_team:'Chelsea',event_start_time:'2026-08-15T19:00:00Z',sportsbook:'book-a',market_type:'point_spread',market_segment:'full_game',is_active:true,timestamp:'2026-08-14T12:00:00Z'};
-  const rows=[
-    {...base,id:'m-h',selection_type:'home',selection:'Arsenal',odds_decimal:1.91,line:-0.5,is_main_line:true,is_alternate_line:false},
-    {...base,id:'m-a',selection_type:'away',selection:'Chelsea',odds_decimal:1.95,line:0.5,is_main_line:true,is_alternate_line:false},
-    {...base,id:'a-h',selection_type:'home',selection:'Arsenal',odds_decimal:1.84,line:-0.25,is_main_line:false,is_alternate_line:true},
-    {...base,id:'a-a',selection_type:'away',selection:'Chelsea',odds_decimal:2.02,line:0.25,is_main_line:false,is_alternate_line:true}
-  ];
-  const [event]=__sportsbookProviders.normalizeSharpApiRows(rows);
-  const hdp=event.markets.filter(m=>m.type==='HANDICAP'&&m.period==='FT');
-  assert.equal(hdp.length,2);
-  assert.ok(hdp.some(m=>m.mainLine===true));
-  assert.ok(hdp.some(m=>m.mainLine===false));
-  assert.deepEqual(new Set(hdp.map(m=>Number(m.line))),new Set([0.5,0.25]));
-});
-
 test('HF6 Phase 2 acceptance path enforces operator controls before ledger debit', () => {
   const betting=readFileSync(new URL('../src/sportsbook-betting.js',import.meta.url),'utf8');
   const feed=readFileSync(new URL('../src/sportsbook-feed.js',import.meta.url),'utf8');

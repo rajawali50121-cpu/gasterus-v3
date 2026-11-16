@@ -5,8 +5,10 @@ import { normalizedEvent, normalizedMarket, normalizedSelection, safeOdds, numbe
 const PROVIDER = 'sportradar';
 const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en';
 const SOCCER_SPORT_ID = 'sr:sport:1';
+// Hanya market waktu penuh (FT) yang diizinkan, tanpa babak pertama (B1).
 const ACCEPTED_MARKET_TYPES = new Set(['1x2', 'total', 'handicap']);
-const SKIPPED_STATUSES = new Set(['cancelled', 'postponed']);
+// Hanya event yang belum dimulai (prematch) menurut dokumentasi Sportradar.
+const PREMATCH_STATUSES = new Set(['not_started']);
 
 function isProviderEnabled() {
   return Boolean(config.sportradarEnabled);
@@ -119,13 +121,10 @@ function competitorRole(competitor) {
   return String(competitor.qualifier || '').toLowerCase();
 }
 
-function extractCompetitorId(competitor) {
-  if (!competitor || typeof competitor !== 'object') return null;
-  return String(competitor.id || competitor.sport_event_competitor_id || '').trim() || null;
-}
-
+// Normalize satu sport_event dari jadwal harian (tanpa odds).
 function normalizeScheduleEvent(raw, now) {
   if (!raw || !raw.id) return null;
+  // replaced_by: "Match has been replaced with another match" (dokumentasi Sportradar).
   if (raw.replaced_by) return null;
 
   const competitors = Array.isArray(raw.competitors) ? raw.competitors : [];
@@ -142,7 +141,8 @@ function normalizeScheduleEvent(raw, now) {
 
   const start = parseDateUTC(raw.start_time || raw.start_date || raw.scheduled);
   if (!start) return null;
-  if (SKIPPED_STATUSES.has(String(raw.status || '').toLowerCase())) return null;
+  // Hanya prematch: status 'not_started' menurut contoh dokumentasi.
+  if (!PREMATCH_STATUSES.has(String(raw.status || '').toLowerCase())) return null;
 
   const eventId = String(raw.id).replace(/^sr:sport_event:/, '');
   return {
@@ -171,6 +171,8 @@ function americanOddsToDecimal(oddsDecimal) {
   return v;
 }
 
+// Bangun seleksi 1X2 dari outcomes bookmaker. Setiap outcome independent;
+// tidak mengharuskan tepat 3 seleksi (tidak ada di dokumentasi Sportradar).
 function buildOneX2Selections(market, sourceSelectionPrefix) {
   const selections = [];
   for (const outcome of (market.outcomes || [])) {
@@ -188,17 +190,18 @@ function buildOneX2Selections(market, sourceSelectionPrefix) {
       label,
       odds,
       line: null,
-      suspended: Boolean(outcome.closed),
+      suspended: false,
       source: PROVIDER,
       sourceSelectionId: String(outcome.id || `${sourceSelectionPrefix}-${label}`),
       updatedAt: iso(outcome.updated_at || new Date()),
       priceVersion: hash('price', PROVIDER, '1x2', label, odds),
     });
   }
-  if (selections.length !== 3) return null;
+  if (selections.length === 0) return null;
   return selections;
 }
 
+// Bangun seleksi Total (Over/Under). Line dari outcome.total (dokumentasi Sportradar).
 function buildTotalsSelections(market, sourceSelectionPrefix) {
   const selections = [];
   for (const outcome of (market.outcomes || [])) {
@@ -217,17 +220,18 @@ function buildTotalsSelections(market, sourceSelectionPrefix) {
       label,
       odds,
       line,
-      suspended: Boolean(outcome.closed),
+      suspended: false,
       source: PROVIDER,
       sourceSelectionId: String(outcome.id || `${sourceSelectionPrefix}-${label}`),
       updatedAt: iso(outcome.updated_at || new Date()),
       priceVersion: hash('price', PROVIDER, 'totals', label, line, odds),
     });
   }
-  if (selections.length !== 2) return null;
+  if (selections.length === 0) return null;
   return selections;
 }
 
+// Bangun seleksi Handicap (Home/Away). Line dari outcome.handicap.
 function buildHandicapSelections(market, sourceSelectionPrefix) {
   const selections = [];
   for (const outcome of (market.outcomes || [])) {
@@ -246,22 +250,24 @@ function buildHandicapSelections(market, sourceSelectionPrefix) {
       label,
       odds,
       line,
-      suspended: Boolean(outcome.closed),
+      suspended: false,
       source: PROVIDER,
       sourceSelectionId: String(outcome.id || `${sourceSelectionPrefix}-${label}`),
       updatedAt: iso(outcome.updated_at || new Date()),
       priceVersion: hash('price', PROVIDER, 'handicap', label, line, odds),
     });
   }
-  if (selections.length !== 2) return null;
+  if (selections.length === 0) return null;
   return selections;
 }
 
-function selectBookmaker(marketsForType) {
-  if (!Array.isArray(marketsForType) || marketsForType.length === 0) return null;
-  const valid = marketsForType.filter(m => m.removed !== true);
+// Pilih bookmaker: konsensus dulu, kalau tidak ada bookmaker pertama yang valid.
+// Skip book yang removed === true.
+function selectBookmaker(books) {
+  if (!Array.isArray(books) || books.length === 0) return null;
+  const valid = books.filter(b => b && b.removed !== true);
   if (valid.length === 0) return null;
-  const consensus = valid.find(m => String(m.bookmaker || '').toLowerCase() === 'consensus');
+  const consensus = valid.find(b => String(b.name || '').toLowerCase() === 'consensus');
   if (consensus) return consensus;
   return valid[0];
 }
@@ -270,7 +276,7 @@ function normalizeOddsEvent(raw) {
   if (!raw || !raw.sport_event || !Array.isArray(raw.markets)) return null;
   const eventId = String(raw.sport_event.id).replace(/^sr:sport_event:/, '');
 
-  // Collect all books per market type, skipping removed books and is_live markets.
+  // Kumpulkan semua books per tipe market, skip book removed dan market is_live.
   const booksByType = new Map();
   for (const market of raw.markets) {
     if (!market || !market.name || market.is_live === true) continue;
@@ -336,6 +342,7 @@ export async function fetchSportradar({
   const errors = [];
   let calls = 0;
   let replacedBySkipped = 0;
+  let nonPrematchSkipped = 0;
 
   const dates = [];
   const d0 = new Date(bounds.start);
@@ -388,6 +395,11 @@ export async function fetchSportradar({
           replacedBySkipped += 1;
           continue;
         }
+        // Skip event yang bukan prematch (status bukan not_started).
+        if (!PREMATCH_STATUSES.has(String(item.sport_event.status || '').toLowerCase())) {
+          nonPrematchSkipped += 1;
+          continue;
+        }
         const parsed = normalizeScheduleEvent(item.sport_event, now);
         if (!parsed) continue;
         if (seenIds.has(parsed.providerId)) continue;
@@ -407,6 +419,7 @@ export async function fetchSportradar({
     dates: dates.length,
     calls,
     replacedBySkipped,
+    nonPrematchSkipped,
     errors: errors.length,
   });
 

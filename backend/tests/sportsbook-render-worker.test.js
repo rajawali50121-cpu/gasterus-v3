@@ -218,18 +218,21 @@ test('Worker cadence follows Sportradar refresh without exceeding ingest freshne
   assert.equal(sportsbookRenderIntervalSeconds({
     ...legacy,
     sportsbookIngestMaxAgeSeconds: 180,
-    sportradarRefreshMinutes: 120
-  }), 60);
+    sportradarEnabled: true,
+    sportradarRefreshMinutes: 60
+  }), 3600);
   assert.equal(sportsbookRenderIntervalSeconds({
     ...legacy,
     sportsbookIngestMaxAgeSeconds: 120,
+    sportradarEnabled: true,
     sportradarRefreshMinutes: 30
-  }), 30);
+  }), 1800);
   assert.equal(sportsbookRenderIntervalSeconds({
     ...legacy,
     sportsbookIngestMaxAgeSeconds: 180,
-    sportradarRefreshMinutes: 60
-  }), 60);
+    sportradarEnabled: true,
+    sportradarRefreshMinutes: 1
+  }), 90);
   // Daily mode polls on bounded interval to hit WIB slot without provider calls when not due.
   assert.equal(sportsbookRenderIntervalSeconds({ sportsbookDailyRefreshEnabled: true }), 60);
 });

@@ -57,33 +57,19 @@ export default defineRailway(() => {
       SPORTSBOOK_INGEST_HMAC_SECRET: preserve(),
       SPORTSBOOK_INGEST_URL: preserve(),
       SPORTSBOOK_RENDER_MAX_EVENTS: preserve(),
-      SPORTMONKS_API_KEY: preserve(),
-      SPORTMONKS_PASSTHROUGH: preserve(),
-      SPORTMONKS_DAYS_AHEAD: preserve(),
-      SPORTMONKS_ENABLED: preserve(),
-      SPORTMONKS_MARKET_IDS: preserve(),
-      SPORTMONKS_MAX_RESPONSE_BYTES: preserve(),
-      SPORTMONKS_MAX_RETRIES: preserve(),
-      SPORTMONKS_MAX_PAGES: preserve(),
-      SPORTMONKS_MAX_TOTAL_EVENTS: preserve(),
-      SPORTMONKS_LIVE_REFRESH_SECONDS: preserve(),
-      SPORTMONKS_ODDS_REFRESH_SECONDS: preserve(),
-      SPORTMONKS_PAGE_SIZE: preserve(),
-      SPORTMONKS_REQUEST_DELAY_MS: preserve(),
       WORKER_HEAP_MB: preserve()
     }
   });
   // Scraper odds berjalan sebagai service TERPISAH agar beban scrape tidak
   // pernah menyentuh memori service web (anti-OOM). Pengaman:
   //   - heap V8 dikunci 224MB lewat NODE_OPTIONS (container ~512MB)
-  //   - Sportmonks SUMBER UTAMA: seluruh halaman tersedia diikuti sampai
-  //     has_more=false; batas teknis payload/memori tetap dikonfigurasi terpisah.
-  //   - Live window Sportmonks di-refresh terpisah tiap 30 detik (non-paginated)
-  //     supaya event dan in-play odds cepat diperbarui tanpa mengulang katalog.
+  //   - Sportradar Odds Comparison Prematch V2 SUMBER UTAMA odds prematch:
+  //     jadwal harian (schedules/{date}/sport_event_markets.json) diikuti
+  //     semua halaman sampai has_more=false, lalu odds per sport_event.
   //   - Hanya provider yang di-wire oleh worker dipanggil; provider lain tidak
   //     diaktifkan sebagai cadangan tersembunyi.
   //   - provider dijalankan sekuensial (satu payload pada satu waktu); data
-  //     Sportmonks tidak dibatasi oleh event count, validasi atau quarantine.
+  //     Sportradar tidak dibatasi oleh event count, validasi atau quarantine.
   const sportsbookRenderWorker = service("sportsbook-render-worker", {
     source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile.sportsbook-render-worker" },
