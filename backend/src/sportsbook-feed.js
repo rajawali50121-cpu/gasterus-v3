@@ -1358,7 +1358,7 @@ function leagueFacets(events = []) {
   return [...leagues.values()].sort((a, b) => {
     const aTop = TOP_LEAGUE_PATTERNS.some(pattern => pattern.test(`${a.country} ${a.league}`));
     const bTop = TOP_LEAGUE_PATTERNS.some(pattern => pattern.test(`${b.country} ${b.league}`));
-    return Number(bTop) - Number(aTop) || a.country.localeCompare(b.country) || a.league.localeCompare(b.league);
+    return Number(bTop) - Number(aTop) || String(a.country ?? '').localeCompare(String(b.country ?? '')) || String(a.league ?? '').localeCompare(String(b.league ?? ''));
   });
 }
 
