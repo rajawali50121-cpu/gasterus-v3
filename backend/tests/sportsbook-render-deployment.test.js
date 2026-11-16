@@ -30,12 +30,7 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
   assert.equal(railwayWorkerEnv('DATABASE_URL'), '${{web.DATABASE_URL}}');
   assert.equal(railwayWorkerEnv('REDIS_URL'), '${{web.REDIS_URL}}');
-  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), 'true');
-  assert.match(workerServiceBlock, /ODDSPAPI_API_KEY:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /ODDSPAPI_BASE_URL:\s*preserve\(\)/);
-  assert.equal(railwayWorkerEnv('ODDSPAPI_DAILY_REQUEST_BUDGET'), '8');
-  assert.equal(railwayWorkerEnv('ODDSPAPI_MONTHLY_REQUEST_BUDGET'), '240');
-  assert.doesNotMatch(worker, /127\.0\.0\.1:1|localhost/);
+  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), undefined);
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), undefined);
 
   // Image includes only production backend dependencies, not frontend assets.
@@ -54,18 +49,19 @@ test('render worker is not wired to The Odds API', () => {
   assert.doesNotMatch(envExample, /^THE_ODDS_API_/m);
 });
 
-test('render worker uses only TheRundown provider (no Sportmonks/SharpAPI/OddsPapi)', () => {
+test('render worker uses only Betexplorer scraper (no Sportmonks/SharpAPI/OddsPapi/RapidAPI/TheRundown)', () => {
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
   assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
-  // Hanya TheRundown yang terhubung ke worker.
-  assert.match(worker, /fetchTheRundown/);
+  // Hanya Betexplorer yang terhubung ke worker.
+  assert.match(worker, /fetchBetexplorer/);
   assert.doesNotMatch(worker, /fetchSportmonks/);
   assert.doesNotMatch(worker, /fetchSharpApi/);
   assert.doesNotMatch(worker, /fetchOddsPapi/);
   assert.doesNotMatch(worker, /fetchApiSports/);
+  assert.doesNotMatch(worker, /fetchTheRundown/);
 
-  // Sportmonks, SharpAPI, OddsPapi tidak diaktifkan di worker.
+  // Sportmonks, SharpAPI, OddsPapi, RapidAPI, TheRundown tidak diaktifkan di worker.
   assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_PASSTHROUGH'), undefined);
@@ -77,10 +73,12 @@ test('render worker uses only TheRundown provider (no Sportmonks/SharpAPI/OddsPa
   assert.equal(railwayWorkerEnv('RAPIDAPI_ODDS_ENABLED'), undefined);
   assert.equal(railwayWorkerEnv('RAPIDAPI_ODDS_CACHE_URL'), undefined);
   assert.equal(railwayWorkerEnv('RAPIDAPI_ODDS_CACHE_TOKEN'), undefined);
+  assert.equal(railwayWorkerEnv('THERUNDOWN_ENABLED'), undefined);
+  assert.equal(railwayWorkerEnv('THERUNDOWN_API_KEY'), undefined);
 
-  // TheRundown diaktifkan.
-  assert.equal(railwayWorkerEnv('THERUNDOWN_ENABLED'), 'true');
-  assert.match(workerServiceBlock, /THERUNDOWN_API_KEY:\s*preserve\(\)/);
+  // Betexplorer diaktifkan, tidak butuh API key.
+  assert.equal(railwayWorkerEnv('BETEXPLORER_ENABLED'), 'true');
+  assert.match(workerServiceBlock, /BETEXPLORER_ENABLED:\s*"true"/);
 });
 
 test('ingest URL, env example, both proxies and backend route stay aligned', () => {

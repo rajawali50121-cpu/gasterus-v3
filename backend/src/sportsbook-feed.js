@@ -5,6 +5,7 @@ import { redis } from './redis.js';
 import { logger } from './logger.js';
 import { fetchSportmonks, fetchSharpApi, fetchRapidApiOdds, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
 import { fetchTheRundown } from './sportsbook-therundown.js';
+import { fetchBetexplorer } from './sportsbook-betexplorer.js';
 import { resolveSportsbookProviderResults } from './sportsbook-feed-source.js';
 import { appendFeedRevision, readFeedRevision, paginateEvents, SPORTSBOOK_FEED_REVISIONS_KEY } from './sportsbook-feed-revisions.js';
 import { advanceProviderLifecycle, publicProviderLifecycle, shouldProbeProvider, transitionProviderLifecycle } from './sportsbook-provider-lifecycle.js';
@@ -394,20 +395,11 @@ function providerHasPricedMarkets(result) {
 // sportsbook-render-worker-core.js; it is not constrained by this list.
 function enabledProviders() {
   const descriptors = [];
-  if (config.sportmonksEnabled && config.sportmonksKey) {
-    descriptors.push({ name: 'Sportmonks', code: 'sportmonks', enabled: true, fetcher: fetchSportmonks });
-  }
-  if (config.sharpApiEnabled && config.sharpApiKey) {
-    descriptors.push({ name: 'SharpAPI', code: 'sharpapi', enabled: true, fetcher: fetchSharpApi });
-  }
-  if (config.oddsPapiEnabled && config.oddsPapiKey) {
-    descriptors.push({ name: 'OddsPapi', code: 'oddspapi', enabled: true, fetcher: null });
-  }
-  if (config.rapidApiOddsEnabled && config.rapidApiOddsCacheUrl) {
-    descriptors.push({ name: 'RapidAPI Tipsters', code: 'tipsters', enabled: true, fetcher: fetchRapidApiOdds });
-  }
-  if (config.thundownEnabled && config.thundownApiKey) {
-    descriptors.push({ name: 'TheRundown', code: 'therundown', enabled: true, fetcher: fetchTheRundown });
+  // Hanya Betexplorer scraper sebagai sumber odds prematch tunggal.
+  // Sportmonks, SharpAPI, OddsPapi, RapidAPI, dan TheRundown dimatikan
+  // sesuai keputusan: sumber scraping tunggal tanpa API berbayar.
+  if (config.betexplorerEnabled) {
+    descriptors.push({ name: 'Betexplorer', code: 'betexplorer', enabled: true, fetcher: fetchBetexplorer });
   }
   return descriptors;
 }

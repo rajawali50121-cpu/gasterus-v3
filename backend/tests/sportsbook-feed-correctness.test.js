@@ -60,9 +60,10 @@ test('R6.9.0.22 member quote and ticket responses omit provider telemetry', () =
   assert.equal(quoteReturn.includes('tradingControlVersions,'), false);
 });
 
-test('Sportmonks is the primary sportsbook refresh descriptor', () => {
-  assert.match(feed,/code: 'sportmonks', enabled: true, fetcher: fetchSportmonks/);
-  assert.match(feed,/code: 'sharpapi', enabled: true, fetcher: fetchSharpApi/);
+test('Betexplorer is the single sportsbook refresh descriptor', () => {
+  assert.match(feed,/code: 'betexplorer', enabled: true, fetcher: fetchBetexplorer/);
+  assert.doesNotMatch(feed,/code: 'sportmonks'/);
+  assert.doesNotMatch(feed,/code: 'sharpapi'/);
   assert.doesNotMatch(feed,/code: '(?:public-market|the-odds-api|footballdata-io|api-sports)'/);
 });
 

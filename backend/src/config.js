@@ -332,6 +332,15 @@ export const config = Object.freeze({
   thundownMaxPages: unboundedInt('THERUNDOWN_MAX_PAGES', 0, 0),
   thundownMaxEvents: unboundedInt('THERUNDOWN_MAX_EVENTS', 0, 0),
   thundownRequestTimeoutMs: int('THERUNDOWN_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
+  // Betexplorer odds scraper — free soccer prematch odds source (no API key required).
+  // Data diambil langsung dari halaman liga betexplorer.com via scraping HTML.
+  betexplorerEnabled: bool('BETEXPLORER_ENABLED', true),
+  betexplorerBaseUrl: text('BETEXPLORER_BASE_URL', 'https://www.betexplorer.com'),
+  betexplorerDaysAhead: int('BETEXPLORER_DAYS_AHEAD', 14, 1, 365),
+  betexplorerMaxPages: unboundedInt('BETEXPLORER_MAX_PAGES', 0, 0),
+  betexplorerMaxEvents: unboundedInt('BETEXPLORER_MAX_EVENTS', 0, 0),
+  betexplorerRequestTimeoutMs: int('BETEXPLORER_REQUEST_TIMEOUT_MS', 15000, 5000, 60000),
+
   betnexApiKey,
   betnexCallbackKey,
   betnexProtocolVerified,

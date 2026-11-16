@@ -110,9 +110,8 @@ export default defineRailway(() => {
       SPORTSBOOK_INGEST_HMAC_SECRET: "${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}",
       SPORTSBOOK_RENDER_MAX_EVENTS: "500",
       SPORTSBOOK_RENDER_MAX_PAGES: "120",
-      // Hanya TheRundown sebagai sumber odds prematch.
-      THERUNDOWN_ENABLED: "true",
-      THERUNDOWN_API_KEY: preserve(),
+      // Hanya Betexplorer scraper sebagai sumber odds prematch tunggal.
+      BETEXPLORER_ENABLED: "true",
     }
   });
 
