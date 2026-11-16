@@ -1,0 +1,256 @@
+{
+  "sport_schedule_sport_event_markets": [
+    {
+      "sport_event": {
+        "id": "sr:sport_event:TEST1",
+        "start_time": "2026-11-21T14:00:00+00:00",
+        "start_time_confirmed": true,
+        "status": "not_started",
+        "competitors": [
+          {
+            "id": "sr:competitor:1",
+            "name": "Home Team",
+            "qualifier": "home"
+          },
+          {
+            "id": "sr:competitor:2",
+            "name": "Away Team",
+            "qualifier": "away"
+          }
+        ]
+      },
+      "markets": [
+        {
+          "id": "sr:market:1",
+          "name": "1x2",
+          "is_live": false,
+          "books": [
+            {
+              "id": "sr:book:1",
+              "name": "consensus",
+              "removed": false,
+              "outcomes": [
+                {
+                  "id": "sr:outcome:1",
+                  "type": "home",
+                  "odds_decimal": "2.000",
+                  "removed": false
+                },
+                {
+                  "id": "sr:outcome:2",
+                  "type": "draw",
+                  "odds_decimal": "3.000",
+                  "removed": false
+                },
+                {
+                  "id": "sr:outcome:3",
+                  "type": "away",
+                  "odds_decimal": "4.000",
+                  "removed": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sr:market:2",
+          "name": "handicap",
+          "is_live": false,
+          "books": [
+            {
+              "id": "sr:book:1",
+              "name": "consensus",
+              "removed": false,
+              "outcomes": [
+                {
+                  "id": "sr:outcome:4",
+                  "type": "home",
+                  "odds_decimal": "1.900",
+                  "removed": false,
+                  "handicap": "-0.5"
+                },
+                {
+                  "id": "sr:outcome:5",
+                  "type": "away",
+                  "odds_decimal": "1.900",
+                  "removed": false,
+                  "handicap": "0.5"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sr:market:3",
+          "name": "total",
+          "is_live": false,
+          "books": [
+            {
+              "id": "sr:book:1",
+              "name": "consensus",
+              "removed": false,
+              "outcomes": [
+                {
+                  "id": "sr:outcome:6",
+                  "type": "over",
+                  "odds_decimal": "1.850",
+                  "removed": false,
+                  "total": "2.5"
+                },
+                {
+                  "id": "sr:outcome:7",
+                  "type": "under",
+                  "odds_decimal": "1.950",
+                  "removed": false,
+                  "total": "2.5"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sr:market:4",
+          "name": "draw no bet",
+          "is_live": false,
+          "books": [
+            {
+              "id": "sr:book:1",
+              "name": "consensus",
+              "removed": false,
+              "outcomes": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sport_event": {
+        "id": "sr:sport_event:TEST2",
+        "start_time": "2026-11-21T15:00:00+00:00",
+        "start_time_confirmed": true,
+        "status": "not_started",
+        "replaced_by": "sr:sport_event:TEST2_REPLACED",
+        "competitors": [
+          {
+            "id": "sr:competitor:3",
+            "name": "Replaced Home",
+            "qualifier": "home"
+          },
+          {
+            "id": "sr:competitor:4",
+            "name": "Replaced Away",
+            "qualifier": "away"
+          }
+        ]
+      },
+      "markets": []
+    },
+    {
+      "sport_event": {
+        "id": "sr:sport_event:TEST3",
+        "start_time": "2026-11-21T16:00:00+00:00",
+        "start_time_confirmed": true,
+        "status": "cancelled",
+        "competitors": [
+          {
+            "id": "sr:competitor:5",
+            "name": "Cancelled Home",
+            "qualifier": "home"
+          },
+          {
+            "id": "sr:competitor:6",
+            "name": "Cancelled Away",
+            "qualifier": "away"
+          }
+        ]
+      },
+      "markets": []
+    },
+    {
+      "sport_event": {
+        "id": "sr:sport_event:TEST4",
+        "start_time": "2026-11-21T17:00:00+00:00",
+        "start_time_confirmed": true,
+        "status": "not_started",
+        "competitors": [
+          {
+            "id": "sr:competitor:7",
+            "name": "Removed Outcome Home",
+            "qualifier": "away"
+          },
+          {
+            "id": "sr:competitor:8",
+            "name": "Removed Outcome Away",
+            "qualifier": "home"
+          }
+        ]
+      },
+      "markets": [
+        {
+          "id": "sr:market:5",
+          "name": "1x2",
+          "is_live": false,
+          "books": [
+            {
+              "id": "sr:book:1",
+              "name": "consensus",
+              "removed": false,
+              "outcomes": [
+                {
+                  "id": "sr:outcome:8",
+                  "type": "home",
+                  "odds_decimal": "2.000",
+                  "removed": true
+                },
+                {
+                  "id": "sr:outcome:9",
+                  "type": "draw",
+                  "odds_decimal": "3.000",
+                  "removed": false
+                },
+                {
+                  "id": "sr:outcome:10",
+                  "type": "away",
+                  "odds_decimal": "4.000",
+                  "removed": true
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sr:market:6",
+          "name": "1x2",
+          "is_live": true,
+          "books": [
+            {
+              "id": "sr:book:1",
+              "name": "consensus",
+              "removed": false,
+              "outcomes": [
+                {
+                  "id": "sr:outcome:11",
+                  "type": "home",
+                  "odds_decimal": "2.000",
+                  "removed": false
+                },
+                {
+                  "id": "sr:outcome:12",
+                  "type": "draw",
+                  "odds_decimal": "3.000",
+                  "removed": false
+                },
+                {
+                  "id": "sr:outcome:13",
+                  "type": "away",
+                  "odds_decimal": "4.000",
+                  "removed": false
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

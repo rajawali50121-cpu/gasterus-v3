@@ -3,13 +3,10 @@ import { logger } from './logger.js';
 import { normalizedEvent, normalizedMarket, normalizedSelection, safeOdds, number, clean, iso, hash } from './sportsbook-providers.js';
 
 const PROVIDER = 'sportradar';
-// Odds Comparison Prematch v2 (trial) — sr:sport:1 = soccer.
 const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en';
 const SOCCER_SPORT_ID = 'sr:sport:1';
-
-// Market types Sportradar exposes that we accept. "draw no bet" and
-// "handicap {hcp}" variants are skipped per decision.
 const ACCEPTED_MARKET_TYPES = new Set(['1x2', 'total', 'handicap']);
+const SKIPPED_STATUSES = new Set(['cancelled', 'postponed']);
 
 function isProviderEnabled() {
   return Boolean(config.sportradarEnabled);
@@ -29,7 +26,6 @@ function headers() {
   return { 'x-api-key': key, accept: 'application/json' };
 }
 
-// Rate-limit state shared across calls within this process.
 const callState = {
   lastCallAt: 0,
   hourStart: 0,
@@ -118,23 +114,35 @@ function extractCompetitorName(competitor) {
   return clean(String(competitor.name || competitor.display_name || ''), 120) || null;
 }
 
+function competitorRole(competitor) {
+  if (!competitor || typeof competitor !== 'object') return null;
+  return String(competitor.qualifier || '').toLowerCase();
+}
+
 function extractCompetitorId(competitor) {
   if (!competitor || typeof competitor !== 'object') return null;
   return String(competitor.id || competitor.sport_event_competitor_id || '').trim() || null;
 }
 
-// Normalize a single Sportradar schedule sport_event into normalized event input (no odds yet).
 function normalizeScheduleEvent(raw, now) {
-  if (!raw || !raw.id || !raw.competitors) return null;
-  const competitors = Array.isArray(raw.competitors) ? raw.competitors : [];
-  if (competitors.length < 2) return null;
+  if (!raw || !raw.id) return null;
+  if (raw.replaced_by) return null;
 
-  const home = extractCompetitorName(competitors[0]);
-  const away = extractCompetitorName(competitors[1]);
+  const competitors = Array.isArray(raw.competitors) ? raw.competitors : [];
+  let home = null;
+  let away = null;
+  for (const competitor of competitors) {
+    const role = competitorRole(competitor);
+    const name = extractCompetitorName(competitor);
+    if (!name) continue;
+    if (role === 'home') home = name;
+    else if (role === 'away') away = name;
+  }
   if (!home || !away) return null;
 
   const start = parseDateUTC(raw.start_time || raw.start_date || raw.scheduled);
   if (!start) return null;
+  if (SKIPPED_STATUSES.has(String(raw.status || '').toLowerCase())) return null;
 
   const eventId = String(raw.id).replace(/^sr:sport_event:/, '');
   return {
@@ -163,12 +171,10 @@ function americanOddsToDecimal(oddsDecimal) {
   return v;
 }
 
-// Build selections for a 1x2 market from Sportradar outcomes.
 function buildOneX2Selections(market, sourceSelectionPrefix) {
   const selections = [];
-  // Outcomes typically named "home", "draw", "away".
   for (const outcome of (market.outcomes || [])) {
-    if (!outcome || !outcome.type) continue;
+    if (!outcome || outcome.removed === true || !outcome.type) continue;
     const type = String(outcome.type).toLowerCase();
     let label = null;
     if (type === 'home') label = 'HOME';
@@ -193,13 +199,10 @@ function buildOneX2Selections(market, sourceSelectionPrefix) {
   return selections;
 }
 
-// Build selections for a totals (over/under) market.
 function buildTotalsSelections(market, sourceSelectionPrefix) {
   const selections = [];
-  const line = number(market.handicap ?? market.line ?? null);
-  if (line === null) return null;
   for (const outcome of (market.outcomes || [])) {
-    if (!outcome || !outcome.type) continue;
+    if (!outcome || outcome.removed === true || !outcome.type) continue;
     const type = String(outcome.type).toLowerCase();
     let label = null;
     if (type === 'over') label = 'Over';
@@ -207,6 +210,8 @@ function buildTotalsSelections(market, sourceSelectionPrefix) {
     if (!label) continue;
     const odds = americanOddsToDecimal(outcome.odds_decimal);
     if (!odds) continue;
+    const line = number(outcome.total ?? null);
+    if (line === null) continue;
     selections.push({
       key: hash('selection', PROVIDER, 'totals', label, line),
       label,
@@ -223,13 +228,10 @@ function buildTotalsSelections(market, sourceSelectionPrefix) {
   return selections;
 }
 
-// Build selections for a handicap market.
 function buildHandicapSelections(market, sourceSelectionPrefix) {
   const selections = [];
-  const line = number(market.handicap ?? market.line ?? null);
-  if (line === null) return null;
   for (const outcome of (market.outcomes || [])) {
-    if (!outcome || !outcome.type) continue;
+    if (!outcome || outcome.removed === true || !outcome.type) continue;
     const type = String(outcome.type).toLowerCase();
     let label = null;
     if (type === 'home') label = 'Home';
@@ -237,6 +239,8 @@ function buildHandicapSelections(market, sourceSelectionPrefix) {
     if (!label) continue;
     const odds = americanOddsToDecimal(outcome.odds_decimal);
     if (!odds) continue;
+    const line = number(outcome.handicap ?? null);
+    if (line === null) continue;
     selections.push({
       key: hash('selection', PROVIDER, 'handicap', label, line),
       label,
@@ -253,32 +257,35 @@ function buildHandicapSelections(market, sourceSelectionPrefix) {
   return selections;
 }
 
-// Pick the bookmaker for a market: prefer "consensus", else first bookmaker
-// that carries every outcome for this market.
 function selectBookmaker(marketsForType) {
   if (!Array.isArray(marketsForType) || marketsForType.length === 0) return null;
-  const consensus = marketsForType.find(m => String(m.bookmaker || '').toLowerCase() === 'consensus');
+  const valid = marketsForType.filter(m => m.removed !== true);
+  if (valid.length === 0) return null;
+  const consensus = valid.find(m => String(m.bookmaker || '').toLowerCase() === 'consensus');
   if (consensus) return consensus;
-  return marketsForType[0];
+  return valid[0];
 }
 
-// Normalize odds for one sport_event into markets keyed by market type.
-function normalizeOddsEvent(raw, now) {
-  if (!raw || !raw.id || !Array.isArray(raw.markets)) return null;
-  const eventId = String(raw.id).replace(/^sr:sport_event:/, '');
+function normalizeOddsEvent(raw) {
+  if (!raw || !raw.sport_event || !Array.isArray(raw.markets)) return null;
+  const eventId = String(raw.sport_event.id).replace(/^sr:sport_event:/, '');
 
-  const marketsByType = new Map();
+  // Collect all books per market type, skipping removed books and is_live markets.
+  const booksByType = new Map();
   for (const market of raw.markets) {
-    if (!market || !market.name) continue;
+    if (!market || !market.name || market.is_live === true) continue;
     const type = String(market.name).toLowerCase().trim();
     if (!ACCEPTED_MARKET_TYPES.has(type)) continue;
-    if (!marketsByType.has(type)) marketsByType.set(type, []);
-    marketsByType.get(type).push(market);
+    if (!booksByType.has(type)) booksByType.set(type, []);
+    for (const book of (market.books || [])) {
+      if (!book || book.removed === true) continue;
+      booksByType.get(type).push(book);
+    }
   }
 
   const normalizedMarkets = [];
-  for (const [type, markets] of marketsByType.entries()) {
-    const chosen = selectBookmaker(markets);
+  for (const [type, books] of booksByType.entries()) {
+    const chosen = selectBookmaker(books);
     if (!chosen) continue;
     const sourceSelectionPrefix = `${eventId}-${type}`;
     let selections;
@@ -291,12 +298,12 @@ function normalizeOddsEvent(raw, now) {
     normalizedMarkets.push(normalizedMarket(String(eventId), {
       key: `${type}`,
       name: type.charAt(0).toUpperCase() + type.slice(1),
-      type: type === '1x2' ? '1X2' : type.charAt(0).toUpperCase() + type.slice(1),
+      type: type === '1x2' ? '1X2' : type === 'handicap' ? 'HANDICAP' : type === 'total' ? 'TOTALS' : type.charAt(0).toUpperCase() + type.slice(1),
       period: 'FT',
       line: selections[0].line ?? null,
       selections,
       source: PROVIDER,
-      sourceMarketId: String(chosen.id || marketId(chosen.name || type)),
+      sourceMarketId: String(chosen.id || `${type}-${chosen.name || ''}`),
       bookmaker: chosen.bookmaker || 'consensus',
       suspended: false,
       updatedAt: iso(chosen.updated_at || new Date()),
@@ -322,11 +329,13 @@ export async function fetchSportradar({
   const bounds = wibBounds(daysAhead);
   const maxPagesResolved = Number.isFinite(maxPages) && maxPages > 0 ? maxPages : Infinity;
   const eventLimit = maxEvents !== 0 ? maxEvents : Infinity;
+  const now = new Date();
 
   const allEvents = [];
   const seenIds = new Set();
   const errors = [];
   let calls = 0;
+  let replacedBySkipped = 0;
 
   const dates = [];
   const d0 = new Date(bounds.start);
@@ -335,10 +344,13 @@ export async function fetchSportradar({
     dates.push(formatDateUTC(x));
   }
 
-  // 1) Load schedules for each date in the WIB window.
   for (const date of dates) {
     if (allEvents.length >= eventLimit) break;
     if (calls >= maxPagesResolved) break;
+    if (callsRemaining() <= 0) {
+      errors.push(`schedule ${date}: hourly call budget exhausted`);
+      break;
+    }
     let start = 0;
     let hasMore = true;
     while (hasMore) {
@@ -348,7 +360,7 @@ export async function fetchSportradar({
         errors.push(`schedule ${date}: hourly call budget exhausted`);
         break;
       }
-      const url = new URL(`${baseUrl()}/sports/${SOCCER_SPORT_ID}/schedules/${date}/schedules.json`, baseUrl());
+      const url = new URL(`${baseUrl()}/sports/${SOCCER_SPORT_ID}/schedules/${date}/sport_event_markets.json`, baseUrl());
       url.searchParams.set('limit', '50');
       url.searchParams.set('start', String(start));
       let data;
@@ -368,41 +380,25 @@ export async function fetchSportradar({
         errors.push(`schedule ${date} start=${start}: ${error.message}`);
         break;
       }
-      const events = Array.isArray(data?.schedules) ? data.schedules.flatMap(s => Array.isArray(s.sport_events) ? s.sport_events : []) : [];
-      for (const raw of events) {
+      const items = Array.isArray(data?.sport_schedule_sport_event_markets) ? data.sport_schedule_sport_event_markets : [];
+      for (const item of items) {
         if (allEvents.length >= eventLimit) break;
-        const parsed = normalizeScheduleEvent(raw, now);
+        if (!item || !item.sport_event) continue;
+        if (item.sport_event.replaced_by) {
+          replacedBySkipped += 1;
+          continue;
+        }
+        const parsed = normalizeScheduleEvent(item.sport_event, now);
         if (!parsed) continue;
         if (seenIds.has(parsed.providerId)) continue;
         seenIds.add(parsed.providerId);
         const kickoff = new Date(parsed.startTime);
         if (kickoff < bounds.start || kickoff > bounds.end) continue;
+        const normalized = normalizeOddsEvent(item);
+        if (normalized) parsed.markets = normalized.markets;
         allEvents.push(parsed);
       }
     }
-  }
-
-  // 2) Load odds per event, honoring the hourly budget and min interval.
-  for (const event of allEvents) {
-    if (calls >= maxPagesResolved) break;
-    if (callsRemaining() <= 0) {
-      errors.push(`odds ${event.providerId}: hourly call budget exhausted`);
-      break;
-    }
-    const url = new URL(`${baseUrl()}/sport_events/${event.providerId}/sport_event_markets.json`, baseUrl());
-    let data;
-    try {
-      const response = await fetchWithRetry(url.toString());
-      calls += 1;
-      data = await response.json();
-    } catch (error) {
-      errors.push(`odds ${event.providerId}: ${error.message}`);
-      continue;
-    }
-    const normalized = normalizeOddsEvent(data, now);
-    if (!normalized || normalized.markets.length === 0) continue;
-    // Merge odds into the existing event.
-    event.markets = normalized.markets;
   }
 
   logger.info('Sportradar Odds Comparison Prematch v2 fetch completed', {
@@ -410,6 +406,7 @@ export async function fetchSportradar({
     events: allEvents.length,
     dates: dates.length,
     calls,
+    replacedBySkipped,
     errors: errors.length,
   });
 
