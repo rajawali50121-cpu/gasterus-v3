@@ -24,19 +24,15 @@ configureProviderOnlyRuntime();
 
 const [
   { config },
-  { fetchSportmonks, fetchSharpApi, teamKey },
-  { fetchOddsPapi },
-  { createPostgresOddsPapiStore, createRedisOddsPapiCacheStore },
-  { postSportsbookSnapshot },
   { fetchTheRundown },
+  { teamKey },
+  { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
-  import('./sportsbook-providers.js'),
-  import('./sportsbook-oddspapi.js'),
-  import('./sportsbook-oddspapi-store.js'),
-  import('./sportsbook-ingest-client.js'),
   import('./sportsbook-therundown.js'),
+  import('./sportsbook-providers.js'),
+  import('./sportsbook-ingest-client.js'),
   import('./sportsbook-render-worker-core.js')
 ]);
 
@@ -107,16 +103,6 @@ while (!shutdown.signal.aborted) {
       new Promise((_, rej) => setTimeout(() => rej(new Error(name + ' timeout ' + ms + 'ms')), ms))
     ]);
     const snapshot = await buildSportsbookRenderSnapshot({
-      fetchSportmonks: () => withTimeout(() => fetchSportmonks({
-        maxEvents: config.sportmonksPassthrough
-          ? config.sportmonksMaxTotalEvents
-          : Math.min(config.sportsbookRenderMaxEvents, config.sportmonksMaxTotalEvents),
-        maxPages: config.sportmonksPassthrough
-          ? config.sportmonksMaxPages
-          : Math.min(config.sportsbookRenderMaxPages, config.sportmonksMaxPages)
-      }), 20000, 'sportmonks'),
-      fetchSharpApi: () => withTimeout(() => fetchSharpApi({}), 20000, 'sharpapi'),
-      fetchOddsPapi: () => withTimeout(() => fetchOddsPapi({}), 20000, 'oddspapi'),
       fetchTheRundown: () => withTimeout(() => fetchTheRundown({
         maxEvents: config.thundownMaxEvents,
         maxPages: config.thundownMaxPages,

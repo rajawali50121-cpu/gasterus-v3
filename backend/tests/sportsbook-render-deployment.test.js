@@ -54,30 +54,33 @@ test('render worker is not wired to The Odds API', () => {
   assert.doesNotMatch(envExample, /^THE_ODDS_API_/m);
 });
 
-test('render worker keeps provider/page limits and Sportmonks coverage (no artificial payload cap)', () => {
+test('render worker uses only TheRundown provider (no Sportmonks/SharpAPI/OddsPapi)', () => {
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
-  // Anggaran halaman penuh diteruskan ke fetchSportmonks agar snapshot ingest
-  // mengambil cakupan luas (bukan terpotong ~17 match oleh pembagian statis).
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
   assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
-  // Tidak ada batas ukuran buatan pada snapshot: sportmonks & sharpapi dikirim utuh.
-  assert.match(worker, /fetchSportmonks/);
-  assert.match(worker, /fetchSharpApi/);
+  // Hanya TheRundown yang terhubung ke worker.
+  assert.match(worker, /fetchTheRundown/);
+  assert.doesNotMatch(worker, /fetchSportmonks/);
+  assert.doesNotMatch(worker, /fetchSharpApi/);
+  assert.doesNotMatch(worker, /fetchOddsPapi/);
   assert.doesNotMatch(worker, /fetchApiSports/);
 
-  // Sportmonks is passed through without an event/page cap.
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
-  assert.match(workerServiceBlock, /SPORTMONKS_PASSTHROUGH:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_DAYS_AHEAD:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_MAX_TOTAL_EVENTS:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_MAX_PAGES:\s*preserve\(\)/);
+  // Sportmonks, SharpAPI, OddsPapi tidak diaktifkan di worker.
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), undefined);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), undefined);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_PASSTHROUGH'), undefined);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_DAYS_AHEAD'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES'), undefined);
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '300');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '0');
-  assert.match(worker, /fetchSportmonks/);
+  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), undefined);
+  assert.equal(railwayWorkerEnv('ODDSPAPI_API_KEY'), undefined);
+  assert.equal(railwayWorkerEnv('RAPIDAPI_ODDS_ENABLED'), undefined);
+  assert.equal(railwayWorkerEnv('RAPIDAPI_ODDS_CACHE_URL'), undefined);
+  assert.equal(railwayWorkerEnv('RAPIDAPI_ODDS_CACHE_TOKEN'), undefined);
 
+  // TheRundown diaktifkan.
+  assert.equal(railwayWorkerEnv('THERUNDOWN_ENABLED'), 'true');
+  assert.match(workerServiceBlock, /THERUNDOWN_API_KEY:\s*preserve\(\)/);
 });
 
 test('ingest URL, env example, both proxies and backend route stay aligned', () => {

@@ -670,6 +670,47 @@ function normalizeSharpApiRows(rows = []) {
         mainLine: group.some(row => row.is_main_line !== false && row.is_alternate_line !== true)
       });
     }).filter(Boolean);
+    // Dedupe 1X2: satu pasar 1X2 per (periode, garis), gabungkan seleksi,
+    // dan urutkan sebagai HOME/DRAW/AWAY.
+    const oneX2ByPeriodLine = new Map();
+    const otherMarkets = [];
+    for (const m of event.markets) {
+      if (m.type === '1X2') {
+        const k = `${m.period || 'FT'}|${m.line ?? ''}`;
+        if (!oneX2ByPeriodLine.has(k)) oneX2ByPeriodLine.set(k, []);
+        oneX2ByPeriodLine.get(k).push(m);
+      } else {
+        otherMarkets.push(m);
+      }
+    }
+    const deduped1x2 = [];
+    const order = { HOME: 0, DRAW: 1, AWAY: 2 };
+    for (const group of oneX2ByPeriodLine.values()) {
+      if (group.length === 1) {
+        const m = { ...group[0] };
+        if (Array.isArray(m.selections)) {
+          m.selections = [...m.selections].sort((a, b) => (order[a.label] || 99) - (order[b.label] || 99));
+        }
+        deduped1x2.push(m);
+      } else {
+        const merged = [];
+        const seen = new Set();
+        for (const m of group) {
+          for (const s of (m.selections || [])) {
+            const k = String(s.label || '') + '|' + String(s.line ?? '');
+            if (!seen.has(k)) {
+              seen.add(k);
+              merged.push({ ...s });
+            }
+          }
+        }
+        merged.sort((a, b) => (order[a.label] || 99) - (order[b.label] || 99));
+        const first = { ...group[0] };
+        first.selections = merged;
+        deduped1x2.push(first);
+      }
+    }
+    event.markets = [...deduped1x2, ...otherMarkets];
     event._refs.sharpapiSportsbook = chosenBook;
     if (event.markets.length) events.push(event);
     else diagnostics.eventsDroppedNoValidMarkets += 1;
