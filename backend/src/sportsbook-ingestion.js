@@ -104,6 +104,7 @@ function validateEvent(event, provider, now = Date.now()) {
     if (!Array.isArray(event._sources) || !event._sources.includes(provider)) problems.push(`sources=${JSON.stringify(event?._sources)}`);
   }
   if (problems.length) {
+    console.warn('VALIDATE_EVENT_PROBLEMS', JSON.stringify({ provider, id: event?.id, problems }));
     invalid(`Event ${String(event?.id || '').slice(0, 40)} tidak memiliki struktur normalisasi yang valid (${provider}: ${problems.join(', ')}.`);
   }
 
