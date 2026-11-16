@@ -104,7 +104,6 @@ function validateEvent(event, provider, now = Date.now()) {
     if (!Array.isArray(event._sources) || !event._sources.includes(provider)) problems.push(`sources=${JSON.stringify(event?._sources)}`);
   }
   if (problems.length) {
-    console.warn('VALIDATE_EVENT_PROBLEMS', JSON.stringify({ provider, id: event?.id, problems }));
     invalid(`Event ${String(event?.id || '').slice(0, 40)} tidak memiliki struktur normalisasi yang valid (${provider}: ${problems.join(', ')}.`);
   }
 
@@ -188,11 +187,6 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
   }
 
   const eventCount = countUniqueFixtures(snapshot.providerResults);
-  console.warn('VALIDATE_SNAPSHOT_DEBUG', JSON.stringify({
-    numProviders: snapshot.providerResults?.length,
-    providers: snapshot.providerResults?.map(r => ({ provider: r.provider, eventCount: r.events?.length })),
-    eventCount
-  }));
   if (eventCount === 0) invalid('Snapshot sportsbook harus memuat setidaknya satu event.');
   if (snapshot.eventCount !== undefined && snapshot.eventCount !== eventCount) {
     invalid('Jumlah event pada envelope snapshot sportsbook tidak konsisten.');
@@ -208,7 +202,7 @@ export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(),
   const nowIso = new Date(now).toISOString();
   const wibNow = new Date(now + 7 * 3600 * 1000);
   const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
-  const maxStartTime = new Date(wibToday.getTime() + 4 * 24 * 3600 * 1000).toISOString();
+  const maxStartTime = new Date(wibToday.getTime() + 15 * 24 * 3600 * 1000).toISOString();
 
   for (const result of freshIncoming) {
     providerResults.push(result);
