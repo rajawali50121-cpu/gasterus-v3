@@ -71,7 +71,7 @@ export const config = Object.freeze({
   sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
   sportsbookDailyRefreshHourWib: int('SPORTSBOOK_DAILY_REFRESH_HOUR_WIB', 0, 0, 23),
   sportsbookDailyRefreshMinuteWib: int('SPORTSBOOK_DAILY_REFRESH_MINUTE_WIB', 5, 0, 59),
-  sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 4, 1, 30),
+  sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 365, 1, 365),
   // No artificial event/page caps: pagination is exhausted to the last page
   // returned by the API. Zero = unlimited (API quota is the only real ceiling).
   sportsbookRenderMaxEvents: unboundedInt('SPORTSBOOK_RENDER_MAX_EVENTS', 0, 0),
@@ -164,7 +164,7 @@ export const config = Object.freeze({
   // silently discarded BTTS, Double Chance, team totals and other provider markets.
   sharpApiMarkets: isProduction ? '' : text('SHARP_API_MARKETS', 'main,spread,total,1st_half'),
   sharpApiSportsbook: text('SHARP_API_SPORTSBOOK', ''),
-  sharpApiPreferredSportsbooks: text('SHARP_API_PREFERRED_SPORTSBOOKS', 'sbobet,pinnacle,bet365'),
+  sharpApiPreferredSportsbooks: text('SHARP_API_PREFERRED_SPORTSBOOKS', ''),
   sharpApiRefreshSeconds: int('SHARP_API_REFRESH_SECONDS', isProduction ? 45 : 30, 15, 1800),
   sharpApiMaxPages: unboundedInt('SHARP_API_MAX_PAGES', 0, 0),
   sharpApiPageSize: int('SHARP_API_PAGE_SIZE', 200, 25, 200),
@@ -235,7 +235,7 @@ export const config = Object.freeze({
   sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 90, 5, 300),
   sportsFeedStaleSeconds: int('SPORTS_FEED_STALE_SECONDS', 180, 30, 3600),
   sportsbookFinishedEventRetentionSeconds: int('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600, 3600, 86400),
-  sportsbookMemberHorizonDays: int('SPORTSBOOK_MEMBER_HORIZON_DAYS', 30, 1, 60),
+  sportsbookMemberHorizonDays: int('SPORTSBOOK_MEMBER_HORIZON_DAYS', 365, 1, 365),
   sportsbookMemberMaxEvents: unboundedInt('SPORTSBOOK_MEMBER_MAX_EVENTS', 0, 0),
   sportsFeedRequestTimeoutMs: int('SPORTS_FEED_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
   sportsbookProviderFailureThreshold: int('SPORTSBOOK_PROVIDER_FAILURE_THRESHOLD', 3, 1, 20),
