@@ -2023,7 +2023,13 @@ export function publicEvent(event) {
         sourceSelectionId: selection.sourceSelectionId || null,
         updatedAt: selection.updatedAt || market.updatedAt || null,
         priceVersion: selection.priceVersion || null
-      }))
+      })).sort((a, b) => {
+        const order1x2 = { HOME: 0, DRAW: 1, AWAY: 2 };
+        if (clean(market.type).toUpperCase() === '1X2') {
+          return (order1x2[clean(a.label).toUpperCase()] || 99) - (order1x2[clean(b.label).toUpperCase()] || 99);
+        }
+        return 0;
+      })
     }))
   };
 }
