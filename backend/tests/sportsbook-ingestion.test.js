@@ -199,16 +199,16 @@ test('accepts a complete event with more than the former market and selection ca
   assert.equal(stored.providerResults[0].events[0].markets[0].selections.length, 251);
 });
 
-test('accepts OddsPapi as an additional provider without changing event source ownership', async () => {
+test('accepts Sportradar as an additional provider without changing event source ownership', async () => {
   const payload = snapshot();
   const result = payload.providerResults[0];
-  result.provider = 'oddspapi';
+  result.provider = 'sportradar';
   const event = result.events[0];
-  event._refs = { oddspapi: 'oddspapi-fixture-1' };
-  event._sources = ['oddspapi'];
+  event._refs = { sportradar: 'sportradar-fixture-1' };
+  event._sources = ['sportradar'];
   for (const market of event.markets) {
-    market.source = 'oddspapi';
-    for (const selection of market.selections) selection.source = 'oddspapi';
+    market.source = 'sportradar';
+    for (const selection of market.selections) selection.source = 'sportradar';
   }
   const signed = signedRequest(payload);
   const accepted = await acceptSportsbookSnapshot(
@@ -219,7 +219,7 @@ test('accepts OddsPapi as an additional provider without changing event source o
       storeSnapshot: async () => {}
     }
   );
-  assert.deepEqual(accepted.providerResults, ['oddspapi']);
+  assert.deepEqual(accepted.providerResults, ['sportradar']);
 });
 
 test('accepts merged events that carry multiple provider sources', async () => {

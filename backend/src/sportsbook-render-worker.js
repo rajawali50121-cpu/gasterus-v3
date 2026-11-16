@@ -24,13 +24,13 @@ configureProviderOnlyRuntime();
 
 const [
   { config },
-  { fetchBetexplorer },
+  { fetchSportradar },
   { teamKey },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
-  import('./sportsbook-betexplorer.js'),
+  import('./sportradar-provider.js'),
   import('./sportsbook-providers.js'),
   import('./sportsbook-ingest-client.js'),
   import('./sportsbook-render-worker-core.js')
@@ -103,11 +103,11 @@ while (!shutdown.signal.aborted) {
       new Promise((_, rej) => setTimeout(() => rej(new Error(name + ' timeout ' + ms + 'ms')), ms))
     ]);
     const snapshot = await buildSportsbookRenderSnapshot({
-      fetchBetexplorer: () => withTimeout(() => fetchBetexplorer({
-        maxEvents: config.betexplorerMaxEvents,
-        maxPages: config.betexplorerMaxPages,
-        daysAhead: config.betexplorerDaysAhead,
-      }), 120000, 'betexplorer'),
+      fetchSportradar: () => withTimeout(() => fetchSportradar({
+        maxEvents: config.sportradarMaxEvents,
+        maxPages: config.sportradarMaxPages,
+        daysAhead: config.sportradarDaysAhead,
+      }), 120000, 'sportradar'),
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
       teamKey
@@ -128,7 +128,7 @@ while (!shutdown.signal.aborted) {
       eventCount: Array.isArray(result.events) ? result.events.length : 0,
       stale: result.stale === true,
       errors: Array.isArray(result.errors) ? result.errors.length : 0,
-      diagnostics: result.provider === 'betexplorer' ? result.diagnostics || null : undefined
+      diagnostics: result.provider === 'sportradar' ? result.diagnostics || null : undefined
     }));
     console.info(JSON.stringify({
       service: 'sportsbook-render-worker',

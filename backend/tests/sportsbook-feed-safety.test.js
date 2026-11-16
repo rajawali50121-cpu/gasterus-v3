@@ -123,15 +123,15 @@ test('staging and development can explicitly enable derived markets', () => {
   }
 });
 
-test('production sportsbook only uses Betexplorer scraper and honors its event horizon', () => {
+test('production sportsbook only uses Sportradar scraper and honors its event horizon', () => {
   const script = `
     const { config } = await import('./src/config.js');
     const { __sportsbookFeed } = await import('./src/sportsbook-feed.js');
     console.log(JSON.stringify({
       provider: __sportsbookFeed.enabledProviders(),
-      enabled: config.betexplorerEnabled,
-      daysAhead: config.betexplorerDaysAhead,
-      maxEvents: config.betexplorerMaxEvents
+      enabled: config.sportradarEnabled,
+      daysAhead: config.sportradarDaysAhead,
+      maxEvents: config.sportradarMaxEvents
     }));
   `;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -148,13 +148,13 @@ test('production sportsbook only uses Betexplorer scraper and honors its event h
       SESSION_HMAC_KEY: 's'.repeat(48),
       API_KEY_PEPPER: 'p'.repeat(48),
       MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
-      BETEXPLORER_ENABLED: 'true',
-      BETEXPLORER_DAYS_AHEAD: '14',
-      BETEXPLORER_MAX_TOTAL_EVENTS: '0'
+      SPORTRADAR_ENABLED: 'true',
+      SPORTRADAR_DAYS_AHEAD: '7',
+      SPORTRADAR_MAX_EVENTS: '0'
     }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":[{"name":"Betexplorer","code":"betexplorer","enabled":true}],"enabled":true,"daysAhead":14,"maxEvents":0}'));
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":[{"name":"Sportradar","code":"sportradar","enabled":true}],"enabled":true,"daysAhead":7,"maxEvents":0}'));
 });
 
 test('legacy Sportmonks mode keeps the previous 500-event cap', () => {

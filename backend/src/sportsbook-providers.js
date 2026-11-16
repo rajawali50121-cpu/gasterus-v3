@@ -4,7 +4,6 @@ import { logger } from './logger.js';
 import { ensureBoundedCacheCapacity, pruneExpiredCacheEntries, setBoundedCacheEntry } from './bounded-cache.js';
 import { readBoundedResponseText } from './bounded-response.js';
 import { eventSettlementAuthority } from './sportsbook-settlement-authority.js';
-import { fetchRapidApiOdds, normalizeRapidApiRow, mapRapidApiStatus, mapRapidApiMarket, mapRapidApiSelection } from './tipsters-provider.js';
 
 // Shared date helper used by multiple providers (Sportmonks, etc.)
 function utcDate(offsetDays = 0) {
@@ -2078,9 +2077,4 @@ export {
   slug,
   teamKey,
   hash,
-  fetchRapidApiOdds,
-  normalizeRapidApiRow,
-  mapRapidApiStatus,
-  mapRapidApiMarket,
-  mapRapidApiSelection,
 };

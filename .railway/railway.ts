@@ -52,14 +52,7 @@ export default defineRailway(() => {
       RESEND_FROM_EMAIL: preserve(),
       RUN_STARTUP_MIGRATIONS: preserve(),
       SESSION_HMAC_KEY: preserve(),
-      SHARP_API_BASE_URL: preserve(),
-      SHARP_API_ENABLED: preserve(),
-      SHARP_API_KEY: preserve(),
-      SHARP_API_MARKETS: preserve(),
-      SHARP_API_MAX_PAGES: preserve(),
-      SHARP_API_PAGE_SIZE: preserve(),
-      SHARP_API_REFRESH_SECONDS: preserve(),
-      SHARP_API_SPORT: preserve(),
+      SPORTRADAR_API_KEY: preserve(),
       SPORTS_SOURCE_BACKGROUND_POLL_ENABLED: preserve(),
       SPORTSBOOK_INGEST_HMAC_SECRET: preserve(),
       SPORTSBOOK_INGEST_URL: preserve(),
@@ -110,8 +103,13 @@ export default defineRailway(() => {
       SPORTSBOOK_INGEST_HMAC_SECRET: "${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}",
       SPORTSBOOK_RENDER_MAX_EVENTS: "500",
       SPORTSBOOK_RENDER_MAX_PAGES: "120",
-      // Hanya Betexplorer scraper sebagai sumber odds prematch tunggal.
-      BETEXPLORER_ENABLED: "true",
+      // Hanya Sportradar Odds Comparison Prematch V2 sebagai sumber odds prematch tunggal.
+      SPORTRADAR_ENABLED: "true",
+      SPORTRADAR_DAYS_AHEAD: "7",
+      SPORTRADAR_MIN_INTERVAL_MS: "1100",
+      SPORTRADAR_MAX_CALLS_PER_HOUR: "500",
+      SPORTRADAR_REFRESH_MINUTES: "120",
+      SPORTRADAR_REQUEST_TIMEOUT_MS: "30000",
     }
   });
 

@@ -31,8 +31,8 @@ export function sportsbookRenderIntervalSeconds(settings) {
   }
   const freshnessInterval = Math.floor(Number(settings?.sportsbookIngestMaxAgeSeconds) / 2);
   const providerIntervals = [];
-  if (settings?.betexplorerEnabled) {
-    providerIntervals.push(settings.betexplorerRefreshSeconds ?? 300);
+  if (settings?.sportradarEnabled) {
+    providerIntervals.push(Number(settings?.sportradarRefreshMinutes ?? 120) * 60);
   }
   const validIntervals = providerIntervals
     .map(Number)
@@ -195,7 +195,7 @@ function countSnapshotFixtures(events) {
 // Endpoint ingest menolak payload di atas anggaran byte; mempertahankan tiap
 // event utuh lebih penting daripada mengirim hanya sebagian pasarnya.
 export async function buildSportsbookRenderSnapshot({
-  fetchBetexplorer,
+  fetchSportradar,
   maxEvents = 0,
   maxPages = 0,
   teamKey,
@@ -210,7 +210,7 @@ export async function buildSportsbookRenderSnapshot({
     throw new Error('Worker sportsbook maxEvents must be a positive integer or 0 (unlimited).');
   }
   const fetchers = [
-    { provider: 'betexplorer', fetch: fetchBetexplorer },
+    { provider: 'sportradar', fetch: fetchSportradar },
   ];
   const providerResults = [];
   const failures = [];
@@ -340,12 +340,7 @@ export async function buildSportsbookRenderSnapshot({
             eventLimit: {
               dataTruncated: true,
               omittedUniqueEvents: combined.truncatedEventCount,
-              omittedSportmonksEvents: combined.truncatedSportmonksEventCount,
-              omittedOtherProviderEvents: combined.truncatedOtherProviderEventCount,
-              envsToIncrease: [
-                ...(combined.truncatedSportmonksEventCount > 0 ? ['SPORTMONKS_MAX_TOTAL_EVENTS'] : []),
-                ...(combined.truncatedOtherProviderEventCount > 0 ? ['SPORTSBOOK_RENDER_MAX_EVENTS'] : [])
-              ]
+              envsToIncrease: []
             }
           }
         }

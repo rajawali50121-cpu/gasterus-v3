@@ -3,9 +3,8 @@ import { config } from './config.js';
 import { AppError } from './errors.js';
 import { redis } from './redis.js';
 import { logger } from './logger.js';
-import { fetchSportmonks, fetchSharpApi, fetchRapidApiOdds, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
-import { fetchTheRundown } from './sportsbook-therundown.js';
-import { fetchBetexplorer } from './sportsbook-betexplorer.js';
+import { mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
+import { fetchSportradar } from './sportradar-provider.js';
 import { resolveSportsbookProviderResults } from './sportsbook-feed-source.js';
 import { appendFeedRevision, readFeedRevision, paginateEvents, SPORTSBOOK_FEED_REVISIONS_KEY } from './sportsbook-feed-revisions.js';
 import { advanceProviderLifecycle, publicProviderLifecycle, shouldProbeProvider, transitionProviderLifecycle } from './sportsbook-provider-lifecycle.js';
@@ -395,11 +394,12 @@ function providerHasPricedMarkets(result) {
 // sportsbook-render-worker-core.js; it is not constrained by this list.
 function enabledProviders() {
   const descriptors = [];
-  // Hanya Betexplorer scraper sebagai sumber odds prematch tunggal.
-  // Sportmonks, SharpAPI, OddsPapi, RapidAPI, dan TheRundown dimatikan
-  // sesuai keputusan: sumber scraping tunggal tanpa API berbayar.
-  if (config.betexplorerEnabled) {
-    descriptors.push({ name: 'Betexplorer', code: 'betexplorer', enabled: true, fetcher: fetchBetexplorer });
+  // Hanya Sportradar Odds Comparison Prematch V2 sebagai sumber odds prematch tunggal.
+  // Betexplorer, TheRundown, Sportmonks, SharpAPI, OddsPapi, RapidAPI dimatikan
+  // dari jalur odds (Sportmonks API-Sports tetap dipakai settlement lewat
+  // fetchSportmonksFixtureById, bukan di sini).
+  if (config.sportradarEnabled) {
+    descriptors.push({ name: 'Sportradar', code: 'sportradar', enabled: true, fetcher: fetchSportradar });
   }
   return descriptors;
 }

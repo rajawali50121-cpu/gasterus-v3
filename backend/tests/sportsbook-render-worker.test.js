@@ -61,41 +61,41 @@ function event(provider, {
   };
 }
 
-test('Worker requests up to 500 fixtures from the licensed odds adapter', async () => {
-  const oddsApi = {
-    provider: 'sharpapi',
+test('Worker requests up to 500 fixtures from Sportradar', async () => {
+  const sportradar = {
+    provider: 'sportradar',
     enabled: true,
-    events: Array.from({ length: 300 }, (_, index) => event('sharpapi', {
-      id: `odds-${index}`,
+    events: Array.from({ length: 300 }, (_, index) => event('sportradar', {
+      id: `sr-${index}`,
       league: index < 200 ? 'Premier League' : 'Regional League',
       startTime: new Date(NOW + (index + 1) * 60000).toISOString()
     }))
   };
-  let oddsApiCalled = false;
-  let oddsApiOptions;
+  let sportradarCalled = false;
+  let sportradarOptions;
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSharpApi: async options => {
-      oddsApiCalled = true;
-      oddsApiOptions = options;
-      return oddsApi;
+    fetchSportradar: async options => {
+      sportradarCalled = true;
+      sportradarOptions = options;
+      return sportradar;
     },
     maxEvents: 500,
     teamKey,
     now: NOW
   });
 
-  assert.equal(oddsApiCalled, true);
-  assert.deepEqual(oddsApiOptions, { maxEvents: 500, maxPages: 0 });
+  assert.equal(sportradarCalled, true);
+  assert.deepEqual(sportradarOptions, { maxEvents: 500, maxPages: 0 });
   assert.equal(snapshot.eventCount, 300);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sharpapi']);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportradar']);
   assert.equal(snapshot.providerResults[0].events.length, 300);
 
-  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sharpapi']);
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportradar']);
 });
 
 test('Worker snapshot signs and validates as a bounded ingestion payload', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'odds-only' })] }),
+    fetchSportradar: async () => ({ provider: 'sportradar', enabled: true, events: [event('sportradar', { id: 'odds-only' })] }),
     maxEvents: 300,
     teamKey,
     now: NOW
@@ -112,22 +112,22 @@ test('Worker snapshot signs and validates as a bounded ingestion payload', async
   });
 
   assert.equal(result.eventCount, 1);
-  assert.deepEqual(result.providerResults, ['sharpapi']);
+  assert.deepEqual(result.providerResults, ['sportradar']);
   assert.equal(stored.providerResults[0].events[0].id, 'odds-only');
   assert.ok(signed.body.length < 6_291_456);
 });
 
 test('Worker signs and delivers a full 500-fixture snapshot', async () => {
-  const bulk = Array.from({ length: 500 }, (_, index) => event('sharpapi', {
+  const bulk = Array.from({ length: 500 }, (_, index) => event('sportradar', {
     id: `bulk-${index}`,
     league: index % 2 ? 'Premier League' : 'Regional League',
     startTime: new Date(NOW + (index + 1) * 60000).toISOString()
   }));
   let requestedOptions;
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSharpApi: async options => {
+    fetchSportradar: async options => {
       requestedOptions = options;
-      return { provider: 'sharpapi', enabled: true, events: bulk };
+      return { provider: 'sportradar', enabled: true, events: bulk };
     },
     maxEvents: 500,
     teamKey,
@@ -136,7 +136,7 @@ test('Worker signs and delivers a full 500-fixture snapshot', async () => {
 
   assert.deepEqual(requestedOptions, { maxEvents: 500, maxPages: 0 });
   assert.equal(snapshot.eventCount, 500, 'seluruh 500 fixture lolos normalisasi tanpa dedupe keliru');
-  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sharpapi']);
+  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportradar']);
 
   const signed = createSportsbookIngestRequest(snapshot, SECRET, { timestamp: Math.floor(NOW / 1000) });
   assert.equal(signed.headers['x-sportsbook-signature'].length, 64);
@@ -154,7 +154,7 @@ test('Worker signs and delivers a full 500-fixture snapshot', async () => {
   });
 
   assert.equal(result.eventCount, 500);
-  assert.deepEqual(result.providerResults, ['sharpapi']);
+  assert.deepEqual(result.providerResults, ['sportradar']);
   assert.equal(stored.providerResults[0].events.length, 500);
 });
 
@@ -165,10 +165,10 @@ test('Worker logs the number of unique fixtures omitted by the 500-event catalog
   let snapshot;
   try {
     snapshot = await buildSportsbookRenderSnapshot({
-      fetchSharpApi: async () => ({
-        provider: 'sharpapi',
+      fetchSportradar: async () => ({
+        provider: 'sportradar',
         enabled: true,
-        events: Array.from({ length: 501 }, (_, index) => event('sharpapi', { id: `capped-${index}` }))
+        events: Array.from({ length: 501 }, (_, index) => event('sportradar', { id: `capped-${index}` }))
       }),
       maxEvents: 500,
       teamKey,
@@ -189,10 +189,10 @@ test('Worker logs the number of unique fixtures omitted by the 500-event catalog
   });
 });
 
-test('Worker fails closed if neither provider returns priced fixtures', async () => {
+test('Worker fails closed if no provider returns fixtures', async () => {
   await assert.rejects(
     buildSportsbookRenderSnapshot({
-      fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: false, events: [] }),
+      fetchSportradar: async () => ({ provider: 'sportradar', enabled: false, events: [] }),
       teamKey
     }),
     /No enabled sportsbook provider returned normalized fixtures/
@@ -205,197 +205,56 @@ test('Worker republishes cached snapshots before their ingestion freshness windo
   );
   assert.match(workerSource, /sportsbookRenderIntervalSeconds\(config\)/);
   assert.doesNotMatch(workerSource, /fetchTheOddsApi/);
-  // Only explicitly selected provider adapters are connected to the worker.
-  assert.match(workerSource, /fetchBetexplorer/);
+  // Only Sportradar provider adapter is connected to the worker.
+  assert.match(workerSource, /fetchSportradar/);
   assert.doesNotMatch(workerSource, /fetchApiSports/);
   assert.doesNotMatch(workerSource, /fetchOddsPapi/);
   assert.doesNotMatch(workerSource, /fetchTheRundown/);
+  assert.doesNotMatch(workerSource, /fetchBetexplorer/);
 });
 
-test('OddsPapi quota storage failure does not block the providers already serving the feed', async () => {
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchOddsPapi: async () => { throw new Error('quota storage unavailable'); },
-    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'existing' })] }),
-    maxEvents: 500,
-    teamKey,
-    now: NOW
-  });
-
-  assert.equal(snapshot.eventCount, 1);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks']);
-});
-
-test('Worker cadence follows the fastest enabled provider without exceeding ingest freshness (legacy mode) and supports daily schedule mode', () => {
+test('Worker cadence follows Sportradar refresh without exceeding ingest freshness (legacy mode) and supports daily schedule mode', () => {
   const legacy = { sportsbookDailyRefreshEnabled: false };
   assert.equal(sportsbookRenderIntervalSeconds({
     ...legacy,
     sportsbookIngestMaxAgeSeconds: 180,
-    sportmonksEnabled: true,
-    sportmonksRefreshSeconds: 300,
-    sportmonksOddsRefreshSeconds: 180,
-    sharpApiEnabled: true,
-    sharpApiRefreshSeconds: 45,
-    oddsPapiEnabled: true,
-    oddsPapiRefreshSeconds: 720
-  }), 45);
-  assert.equal(sportsbookRenderIntervalSeconds({
-    ...legacy,
-    sportsbookIngestMaxAgeSeconds: 180,
-    sportmonksEnabled: true,
-    sportmonksRefreshSeconds: 300,
-    sportmonksOddsRefreshSeconds: 180,
-    oddsPapiEnabled: true,
-    oddsPapiRefreshSeconds: 720
-  }), 90);
-  assert.equal(sportsbookRenderIntervalSeconds({
-    ...legacy,
-    sportsbookIngestMaxAgeSeconds: 120,
-    sharpApiEnabled: false,
-    sportmonksEnabled: false,
-    oddsPapiEnabled: false
+    sportradarRefreshMinutes: 120
   }), 60);
   assert.equal(sportsbookRenderIntervalSeconds({
     ...legacy,
-    sportsbookIngestMaxAgeSeconds: 180,
-    sportmonksEnabled: true,
-    sportmonksRefreshSeconds: 300,
-    sportmonksOddsRefreshSeconds: 180,
-    sportmonksLiveRefreshSeconds: 30,
-    oddsPapiEnabled: false
+    sportsbookIngestMaxAgeSeconds: 120,
+    sportradarRefreshMinutes: 30
   }), 30);
+  assert.equal(sportsbookRenderIntervalSeconds({
+    ...legacy,
+    sportsbookIngestMaxAgeSeconds: 180,
+    sportradarRefreshMinutes: 60
+  }), 60);
   // Daily mode polls on bounded interval to hit WIB slot without provider calls when not due.
   assert.equal(sportsbookRenderIntervalSeconds({ sportsbookDailyRefreshEnabled: true }), 60);
 });
 
-test('Worker combines Sportmonks primary with SharpAPI fallback in one snapshot', async () => {
-  const order = [];
+test('Worker dedupes overlapping fixtures from Sportradar', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async options => {
-      order.push('sportmonks');
-      assert.deepEqual(options, { maxEvents: 0, maxPages: 0 });
-      return { provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'sm-1', league: 'Premier League' })] };
-    },
-    fetchSharpApi: async options => {
-      order.push('sharpapi');
-      assert.deepEqual(options, { maxEvents: 100, maxPages: 0 });
-      return { provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'odds-1', league: 'Serie A' })] };
-    },
-    maxEvents: 100,
-    teamKey,
-    now: NOW
-  });
-
-  assert.deepEqual(order, ['sportmonks', 'sharpapi'], 'provider berjalan sekuensial, Sportmonks lebih dulu');
-  assert.equal(snapshot.eventCount, 2);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'sharpapi']);
-  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks', 'sharpapi']);
-});
-
-test('OddsPapi failure leaves Sportmonks and SharpAPI results available', async () => {
-  const primary = event('sportmonks', { id: 'primary-odds-papi-fallback' });
-  const sharp = event('sharpapi', { id: 'sharp-odds-papi-fallback' });
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [primary] }),
-    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: [sharp] }),
-    fetchOddsPapi: async () => { throw new Error('OddsPapi HTTP 503'); },
-    maxEvents: 100,
-    teamKey,
-    now: NOW
-  });
-  assert.equal(snapshot.eventCount, 2);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sportmonks', 'sharpapi']);
-});
-
-test('Worker bounds the Sportmonks page budget before any provider fetch runs', async () => {
-  let fetched = false;
-  await assert.rejects(
-    buildSportsbookRenderSnapshot({
-      fetchSportmonks: async () => { fetched = true; return { provider: 'sportmonks', enabled: true, events: [] }; },
-      fetchSharpApi: async () => { fetched = true; return { provider: 'sharpapi', enabled: true, events: [] }; },
-      maxEvents: 100,
-      maxPages: -1,
-      teamKey,
-      now: NOW
-    }),
-    /maxPages must be a non-negative integer\./
-  );
-  assert.equal(fetched, false, 'budget halaman tidak valid harus ditolak sebelum scrape dimulai');
-});
-
-test('Worker keeps active unpriced fixtures in the snapshot as display-only events', async () => {
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({
-      provider: 'sportmonks',
-      enabled: true,
-      events: [
-        event('sportmonks', { id: 'priced-1', league: 'Premier League' }),
-        event('sportmonks', { id: 'unpriced-1', league: 'Serie A', markets: [] }),
-        event('sportmonks', { id: 'unpriced-2', league: 'La Liga', markets: [] })
-      ]
-    }),
-    fetchSharpApi: async () => { throw new Error('quota exhausted'); },
-    maxEvents: 100,
-    teamKey,
-    now: NOW
-  });
-  assert.equal(snapshot.eventCount, 3, 'fixture aktif tanpa odds tidak boleh dibuang dari snapshot');
-  assert.deepEqual(
-    snapshot.providerResults[0].events.map(item => item.id).sort(),
-    ['priced-1', 'unpriced-1', 'unpriced-2']
-  );
-  assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks']);
-});
-
-test('Worker produces events from Betexplorer scraper', async () => {
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchBetexplorer: async () => ({
-      provider: 'betexplorer',
-      enabled: true,
-      events: [event('betexplorer', { id: 'be-1', home: 'Alpha', away: 'Beta', markets: [] })]
-    }),
-    maxEvents: 100,
-    teamKey,
-    now: NOW
-  });
-  assert.equal(snapshot.eventCount, 1);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['betexplorer']);
-  const [survivor] = mergeProviderEvents(snapshot.providerResults);
-  assert.deepEqual([...new Set(survivor._sources)].sort(), ['betexplorer']);
-  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
-});
-
-test('Worker keeps publishing when Betexplorer is the only provider', async () => {
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchBetexplorer: async () => ({ provider: 'betexplorer', enabled: true, events: [event('betexplorer', { id: 'be-only' })] }),
-    maxEvents: 100,
-    teamKey,
-    now: NOW
-  });
-  assert.equal(snapshot.eventCount, 1);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['betexplorer']);
-});
-
-test('Worker dedupes overlapping fixtures from Betexplorer', async () => {
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchBetexplorer: async () => ({ provider: 'betexplorer', enabled: true, events: [event('betexplorer', { id: 'be-dup', home: 'Alpha', away: 'Beta' })] }),
+    fetchSportradar: async () => ({ provider: 'sportradar', enabled: true, events: [event('sportradar', { id: 'sr-dup', home: 'Alpha', away: 'Beta' })] }),
     maxEvents: 100,
     teamKey,
     now: NOW
   });
   assert.equal(snapshot.eventCount, 1, 'fixture sama tidak boleh ganda');
   const [merged] = mergeProviderEvents(snapshot.providerResults);
-  assert.equal(merged._refs.betexplorer, 'provider-be-dup');
+  assert.equal(merged._refs.sportradar, 'provider-sr-dup');
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
 });
 
 test('Worker keeps same-team fixtures in different leagues separate', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchBetexplorer: async () => ({
-      provider: 'betexplorer',
+    fetchSportradar: async () => ({
+      provider: 'sportradar',
       enabled: true,
       events: [
-        event('betexplorer', { id: 'be-league-1', league: 'Premier League', home: 'Alpha', away: 'Beta' }),
-        event('betexplorer', { id: 'be-league-2', league: 'Champions League', home: 'Alpha', away: 'Beta' })
+        event('sportradar', { id: 'sr-league-1', league: 'Premier League', home: 'Alpha', away: 'Beta' }),
+        event('sportradar', { id: 'sr-league-2', league: 'Champions League', home: 'Alpha', away: 'Beta' })
       ]
     }),
     maxEvents: 100,
@@ -409,7 +268,7 @@ test('Worker keeps same-team fixtures in different leagues separate', async () =
 test('Worker fails closed when provider fetch throws', async () => {
   await assert.rejects(
     buildSportsbookRenderSnapshot({
-      fetchBetexplorer: async () => { throw new Error('no key'); },
+      fetchSportradar: async () => { throw new Error('no key'); },
       teamKey
     }),
     /No sportsbook provider could be fetched/
@@ -419,9 +278,9 @@ test('Worker fails closed when provider fetch throws', async () => {
 test('Worker snapshot freshness starts after provider fetch finishes', async () => {
   const startedAt = Date.now();
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchBetexplorer: async () => {
+    fetchSportradar: async () => {
       await new Promise(resolve => setTimeout(resolve, 30));
-      return { provider: 'betexplorer', enabled: true, events: [event('betexplorer', { id: 'be-fresh-after-fetch' })] };
+      return { provider: 'sportradar', enabled: true, events: [event('sportradar', { id: 'sr-fresh-after-fetch' })] };
     },
     teamKey
   });

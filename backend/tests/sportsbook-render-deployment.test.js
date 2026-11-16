@@ -49,19 +49,20 @@ test('render worker is not wired to The Odds API', () => {
   assert.doesNotMatch(envExample, /^THE_ODDS_API_/m);
 });
 
-test('render worker uses only Betexplorer scraper (no Sportmonks/SharpAPI/OddsPapi/RapidAPI/TheRundown)', () => {
+test('render worker uses only Sportradar Odds Comparison Prematch V2 (no Sportmonks/SharpAPI/OddsPapi/RapidAPI/TheRundown/Betexplorer)', () => {
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
   assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
-  // Hanya Betexplorer yang terhubung ke worker.
-  assert.match(worker, /fetchBetexplorer/);
+  // Hanya Sportradar yang terhubung ke worker.
+  assert.match(worker, /fetchSportradar/);
   assert.doesNotMatch(worker, /fetchSportmonks/);
   assert.doesNotMatch(worker, /fetchSharpApi/);
   assert.doesNotMatch(worker, /fetchOddsPapi/);
   assert.doesNotMatch(worker, /fetchApiSports/);
   assert.doesNotMatch(worker, /fetchTheRundown/);
+  assert.doesNotMatch(worker, /fetchBetexplorer/);
 
-  // Sportmonks, SharpAPI, OddsPapi, RapidAPI, TheRundown tidak diaktifkan di worker.
+  // Sportmonks, SharpAPI, OddsPapi, RapidAPI, TheRundown, Betexplorer tidak diaktifkan di worker.
   assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_PASSTHROUGH'), undefined);
@@ -75,10 +76,11 @@ test('render worker uses only Betexplorer scraper (no Sportmonks/SharpAPI/OddsPa
   assert.equal(railwayWorkerEnv('RAPIDAPI_ODDS_CACHE_TOKEN'), undefined);
   assert.equal(railwayWorkerEnv('THERUNDOWN_ENABLED'), undefined);
   assert.equal(railwayWorkerEnv('THERUNDOWN_API_KEY'), undefined);
+  assert.equal(railwayWorkerEnv('BETEXPLORER_ENABLED'), undefined);
 
-  // Betexplorer diaktifkan, tidak butuh API key.
-  assert.equal(railwayWorkerEnv('BETEXPLORER_ENABLED'), 'true');
-  assert.match(workerServiceBlock, /BETEXPLORER_ENABLED:\s*"true"/);
+  // Sportradar diaktifkan di worker, kunci diwariskan dari web.
+  assert.equal(railwayWorkerEnv('SPORTRADAR_ENABLED'), 'true');
+  assert.match(railway, /SPORTRADAR_API_KEY:\s*preserve\(\)/);
 });
 
 test('ingest URL, env example, both proxies and backend route stay aligned', () => {

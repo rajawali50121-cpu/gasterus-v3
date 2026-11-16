@@ -40,9 +40,9 @@ function healthySharpEvent(options = {}) {
   return event;
 }
 
-test('R6.9.0.12 healthy prematch SharpAPI prices get explicit manual FT settlement guarantee', () => {
+test('R6.9.0.12 healthy prematch Sportradar prices get explicit manual FT settlement guarantee', () => {
   const [event] = __sportsbookProviders.mergeProviderEvents(
-    [{ provider:'sharpapi', events:[healthySharpEvent()] }],
+    [{ provider:'sportradar', events:[healthySharpEvent()] }],
     { enabled: true }
   );
   assert.ok(event._settlementReadySources.includes('manual-ops'));
@@ -58,9 +58,9 @@ test('R6.9.0.12 healthy prematch SharpAPI prices get explicit manual FT settleme
   assert.equal(authority.mode, 'MANUAL_FALLBACK');
 });
 
-test('R6.9.0.12 manual FT fallback never unlocks SharpAPI-only live betting', () => {
+test('R6.9.0.12 manual FT fallback never unlocks Sportradar-only live betting', () => {
   const [event] = __sportsbookProviders.mergeProviderEvents(
-    [{ provider:'sharpapi', events:[healthySharpEvent({ live:true })] }],
+    [{ provider:'sportradar', events:[healthySharpEvent({ live:true })] }],
     { enabled: true }
   );
   assert.ok(!event._settlementReadySources.includes('manual-ops'));

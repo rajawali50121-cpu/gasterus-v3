@@ -17,9 +17,9 @@ const MEMBER_MARKET_SOURCE_LABELS = Object.freeze({
   'api-sports': 'API-Sports',
   oddspapi: 'OddsPapi',
   sharpapi: 'SharpAPI',
-  'public-market': 'Gasterus Market Feed',
-  'footballdata-io': 'FootballData.io',
-  sportmonks: 'Sportmonks'
+  sportmonks: 'Sportmonks',
+  sportradar: 'Sportradar',
+  betexplorer: 'Betexplorer',
 });
 
 const ORDER_1X2 = { HOME: 0, DRAW: 1, AWAY: 2 };

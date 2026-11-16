@@ -20,10 +20,8 @@ const testSecret = (name, min, fallback) => {
   return value.length >= min ? value : fallback;
 };
 const sportmonksPassthrough = bool('SPORTMONKS_PASSTHROUGH', true);
-const sharpApiKey = optionalSecret('SHARP_API_KEY');
 const theSportsDbKey = optionalSecret('THESPORTSDB_API_KEY');
 const sportmonksKey = optionalSecret('SPORTMONKS_API_KEY');
-const oddsPapiKey = optionalSecret('ODDSPAPI_API_KEY');
 const rapidApiKey = optionalSecret('RAPIDAPI_CASINO_KEY') || optionalSecret('RAPIDAPI_KEY');
 const rapidApiOddsKey = optionalSecret('RAPIDAPI_ODDS_KEY');
 const betnexApiKey = optionalSecret('BETNEX_API_KEY');
@@ -156,21 +154,6 @@ export const config = Object.freeze({
   sportsProviderCacheMaxTotalBytes: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 0, 0),
 
   // Provider credentials are read only by core and may be mounted as Docker secrets.
-  sharpApiKey,
-  sharpApiBaseUrl: text('SHARP_API_BASE_URL', 'https://api.sharpapi.io'),
-  sharpApiEnabled: pricedProviderEnabled('SHARP_API_ENABLED', sharpApiKey),
-  sharpApiSport: text('SHARP_API_SPORT', 'soccer'),
-  // Production fetches the complete SharpAPI soccer catalog. Filtering to only main/spread/total/1st_half
-  // silently discarded BTTS, Double Chance, team totals and other provider markets.
-  sharpApiMarkets: isProduction ? '' : text('SHARP_API_MARKETS', 'main,spread,total,1st_half'),
-  sharpApiSportsbook: text('SHARP_API_SPORTSBOOK', ''),
-  sharpApiPreferredSportsbooks: text('SHARP_API_PREFERRED_SPORTSBOOKS', ''),
-  sharpApiRefreshSeconds: int('SHARP_API_REFRESH_SECONDS', isProduction ? 45 : 30, 15, 1800),
-  sharpApiMaxPages: unboundedInt('SHARP_API_MAX_PAGES', 0, 0),
-  sharpApiPageSize: int('SHARP_API_PAGE_SIZE', 200, 25, 200),
-  sharpApiMainLinesOnly: bool('SHARP_API_MAIN_LINES_ONLY', false),
-  // Keep the configured provider catalog intact; the feed-level event and Redis byte
-  // limits remain the final resource guards for the consolidated snapshot.
   theSportsDbKey,
   theSportsDbBaseUrl: text('THESPORTSDB_BASE_URL', 'https://www.thesportsdb.com/api'),
   theSportsDbEnabled: bool('THESPORTSDB_ENABLED', false),
@@ -189,15 +172,6 @@ export const config = Object.freeze({
     ? unboundedInt('SPORTMONKS_MAX_RESPONSE_BYTES', 0, 0)
     : unboundedInt('SPORTMONKS_MAX_RESPONSE_BYTES', 0, 0),
   sportmonksRefreshSeconds: int('SPORTMONKS_REFRESH_SECONDS', 300, 60, 1800),
-  oddsPapiEnabled: bool('ODDSPAPI_ENABLED', false),
-  oddsPapiKey,
-  oddsPapiBaseUrl: text('ODDSPAPI_BASE_URL', 'https://api.oddspapi.io'),
-  oddsPapiTournamentIds: text('ODDSPAPI_TOURNAMENT_IDS', '17'),
-  oddsPapiBookmaker: text('ODDSPAPI_BOOKMAKER', 'pinnacle'),
-  oddsPapiRefreshSeconds: int('ODDSPAPI_REFRESH_SECONDS', 28800, 3600, 86400),
-  oddsPapiCatalogRefreshSeconds: int('ODDSPAPI_CATALOG_REFRESH_SECONDS', 604800, 3600, 2592000),
-  oddsPapiDailyRequestBudget: int('ODDSPAPI_DAILY_REQUEST_BUDGET', 8, 1, 8),
-  oddsPapiMonthlyRequestBudget: int('ODDSPAPI_MONTHLY_REQUEST_BUDGET', 240, 1, 240),
   sportmonksOddsRefreshSeconds: int('SPORTMONKS_ODDS_REFRESH_SECONDS', 180, 30, 1800),
   sportmonksLiveRefreshSeconds: int('SPORTMONKS_LIVE_REFRESH_SECONDS', 30, 15, 300),
   sportmonksPriorityLeagues: text('SPORTMONKS_PRIORITY_LEAGUES', 'Premier League,La Liga,Serie A,Bundesliga,Ligue 1,UEFA Champions League,UEFA Europa League,UEFA Europa Conference League,Eredivisie,Primeira Liga,Major League Soccer'),
@@ -340,6 +314,19 @@ export const config = Object.freeze({
   betexplorerMaxPages: unboundedInt('BETEXPLORER_MAX_PAGES', 0, 0),
   betexplorerMaxEvents: unboundedInt('BETEXPLORER_MAX_EVENTS', 0, 0),
   betexplorerRequestTimeoutMs: int('BETEXPLORER_REQUEST_TIMEOUT_MS', 15000, 5000, 60000),
+
+  // Sportradar Odds Comparison Prematch V2 — single sportsbook odds source.
+  // Kunci API hanya di env, tidak pernah diekspos ke frontend. Header x-api-key.
+  sportradarApiKey: optionalSecret('SPORTRADAR_API_KEY'),
+  sportradarEnabled: bool('SPORTRADAR_ENABLED', true),
+  sportradarBaseUrl: text('SPORTRADAR_BASE_URL', 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en'),
+  sportradarDaysAhead: int('SPORTRADAR_DAYS_AHEAD', 7, 1, 365),
+  sportradarMaxPages: unboundedInt('SPORTRADAR_MAX_PAGES', 0, 0),
+  sportradarMaxEvents: unboundedInt('SPORTRADAR_MAX_EVENTS', 0, 0),
+  sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 1100, 100, 30000),
+  sportradarMaxCallsPerHour: int('SPORTRADAR_MAX_CALLS_PER_HOUR', 500, 1, 10000),
+  sportradarRefreshMinutes: int('SPORTRADAR_REFRESH_MINUTES', 120, 5, 10080),
+  sportradarRequestTimeoutMs: int('SPORTRADAR_REQUEST_TIMEOUT_MS', 30000, 5000, 120000),
 
   betnexApiKey,
   betnexCallbackKey,
