@@ -346,82 +346,56 @@ test('Worker keeps active unpriced fixtures in the snapshot as display-only even
   assert.deepEqual(validateSportsbookSnapshot(snapshot, { now: NOW }).providers, ['sportmonks']);
 });
 
-test('Worker prefers the priced copy when the same fixture arrives from two providers', async () => {
+test('Worker produces events from Betexplorer scraper', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({
-      provider: 'sportmonks',
+    fetchBetexplorer: async () => ({
+      provider: 'betexplorer',
       enabled: true,
-      events: [event('sportmonks', { id: 'dup-unpriced', home: 'Alpha', away: 'Beta', markets: [] })]
+      events: [event('betexplorer', { id: 'be-1', home: 'Alpha', away: 'Beta', markets: [] })]
     }),
-    fetchSharpApi: async () => ({
-      provider: 'sharpapi',
-      enabled: true,
-      events: [event('sharpapi', { id: 'dup-priced', home: 'Alpha', away: 'Beta' })]
-    }),
-    maxEvents: 100,
-    teamKey,
-    now: NOW
-  });
-  assert.equal(snapshot.eventCount, 1, 'fixture ganda tetap dide-dup');
-  assert.equal(snapshot.providerResults.reduce((count, result) => count + result.events.length, 0), 2,
-    'salinan provider dipertahankan agar merge market tidak kehilangan data');
-  const [survivor] = mergeProviderEvents(snapshot.providerResults);
-  assert.deepEqual(new Set(survivor._sources), new Set(['sportmonks', 'sharpapi']));
-  assert.ok(survivor.markets.length > 0, 'market berharga tetap tersedia setelah merge kanonis');
-  assert.equal(survivor.markets.length, 1, 'market identik tidak diduplikasi');
-  assert.equal(survivor.markets[0].source, 'sharpapi');
-  assert.ok(survivor.markets[0].selections.every(selection => selection.source === survivor.markets[0].source));
-  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
-});
-
-test('Worker keeps publishing when Sportmonks fails (SharpAPI fallback survives)', async () => {
-  const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => { throw new Error('Sportmonks down'); },
-    fetchSharpApi: async () => ({ provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'fallback-1' })] }),
     maxEvents: 100,
     teamKey,
     now: NOW
   });
   assert.equal(snapshot.eventCount, 1);
-  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['sharpapi']);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['betexplorer']);
+  const [survivor] = mergeProviderEvents(snapshot.providerResults);
+  assert.deepEqual([...new Set(survivor._sources)].sort(), ['betexplorer']);
+  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
 });
 
-
-
-test('Worker dedupes overlapping fixtures preferring Sportmonks as primary', async () => {
+test('Worker keeps publishing when Betexplorer is the only provider', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({ provider: 'sportmonks', enabled: true, events: [event('sportmonks', { id: 'dup', home: 'Alpha', away: 'Beta' })] }),
-    fetchSharpApi: async () => ({
-      provider: 'sharpapi',
-      enabled: true,
-      events: [event('sharpapi', {
-        id: 'dup-odds', home: 'Alpha', away: 'Beta',
-        markets: [{
-          id: 'odds-total', type: 'TOTALS', period: 'FT', source: 'sharpapi', suspended: false,
-          selections: [{ key: 'over', label: 'Over 2.5', odds: 1.9, suspended: false, source: 'sharpapi', updatedAt: null }]
-        }]
-      })]
-    }),
+    fetchBetexplorer: async () => ({ provider: 'betexplorer', enabled: true, events: [event('betexplorer', { id: 'be-only' })] }),
     maxEvents: 100,
     teamKey,
     now: NOW
   });
-  assert.equal(snapshot.eventCount, 1, 'fixture sama dari dua provider tidak boleh ganda');
+  assert.equal(snapshot.eventCount, 1);
+  assert.deepEqual(snapshot.providerResults.map(result => result.provider), ['betexplorer']);
+});
+
+test('Worker dedupes overlapping fixtures from Betexplorer', async () => {
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchBetexplorer: async () => ({ provider: 'betexplorer', enabled: true, events: [event('betexplorer', { id: 'be-dup', home: 'Alpha', away: 'Beta' })] }),
+    maxEvents: 100,
+    teamKey,
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 1, 'fixture sama tidak boleh ganda');
   const [merged] = mergeProviderEvents(snapshot.providerResults);
-  assert.equal(merged._refs.sportmonks, 'provider-dup');
-  assert.equal(merged._refs['sharpapi'], 'provider-dup-odds');
-  assert.deepEqual(new Set(merged.markets.map(market => market.source)), new Set(['sportmonks', 'sharpapi']));
+  assert.equal(merged._refs.betexplorer, 'provider-be-dup');
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 1);
 });
 
 test('Worker keeps same-team fixtures in different leagues separate', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSportmonks: async () => ({
-      provider: 'sportmonks',
+    fetchBetexplorer: async () => ({
+      provider: 'betexplorer',
       enabled: true,
       events: [
-        event('sportmonks', { id: 'league-fixture-1', league: 'Premier League', home: 'Alpha', away: 'Beta' }),
-        event('sportmonks', { id: 'league-fixture-2', league: 'Champions League', home: 'Alpha', away: 'Beta' })
+        event('betexplorer', { id: 'be-league-1', league: 'Premier League', home: 'Alpha', away: 'Beta' }),
+        event('betexplorer', { id: 'be-league-2', league: 'Champions League', home: 'Alpha', away: 'Beta' })
       ]
     }),
     maxEvents: 100,
@@ -432,23 +406,22 @@ test('Worker keeps same-team fixtures in different leagues separate', async () =
   assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 2);
 });
 
-test('Worker fails closed when every provider fetch throws', async () => {
+test('Worker fails closed when provider fetch throws', async () => {
   await assert.rejects(
     buildSportsbookRenderSnapshot({
-      fetchSportmonks: async () => { throw new Error('no key'); },
-      fetchSharpApi: async () => { throw new Error('quota'); },
+      fetchBetexplorer: async () => { throw new Error('no key'); },
       teamKey
     }),
     /No sportsbook provider could be fetched/
   );
 });
 
-test('Worker snapshot freshness starts after provider fetches finish', async () => {
+test('Worker snapshot freshness starts after provider fetch finishes', async () => {
   const startedAt = Date.now();
   const snapshot = await buildSportsbookRenderSnapshot({
-    fetchSharpApi: async () => {
+    fetchBetexplorer: async () => {
       await new Promise(resolve => setTimeout(resolve, 30));
-      return { provider: 'sharpapi', enabled: true, events: [event('sharpapi', { id: 'fresh-after-fetch' })] };
+      return { provider: 'betexplorer', enabled: true, events: [event('betexplorer', { id: 'be-fresh-after-fetch' })] };
     },
     teamKey
   });
