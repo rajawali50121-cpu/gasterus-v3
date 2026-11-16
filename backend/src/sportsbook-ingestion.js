@@ -188,6 +188,11 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
   }
 
   const eventCount = countUniqueFixtures(snapshot.providerResults);
+  console.warn('VALIDATE_SNAPSHOT_DEBUG', JSON.stringify({
+    numProviders: snapshot.providerResults?.length,
+    providers: snapshot.providerResults?.map(r => ({ provider: r.provider, eventCount: r.events?.length })),
+    eventCount
+  }));
   if (eventCount === 0) invalid('Snapshot sportsbook harus memuat setidaknya satu event.');
   if (snapshot.eventCount !== undefined && snapshot.eventCount !== eventCount) {
     invalid('Jumlah event pada envelope snapshot sportsbook tidak konsisten.');
