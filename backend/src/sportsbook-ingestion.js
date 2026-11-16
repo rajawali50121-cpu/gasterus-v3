@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { leagueKey, teamKey } from './sportsbook-providers.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
-const ALLOWED_PROVIDERS = new Set(['sportmonks', 'sharpapi', 'oddspapi', 'therundown']);
+const ALLOWED_PROVIDERS = new Set(['sportmonks', 'sharpapi', 'oddspapi', 'therundown', 'betexplorer']);
 const ALLOWED_STATUSES = new Set(['SCHEDULED', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
 const MAX_PROVIDER_RESULTS = 10;
 const MAX_FUTURE_SKEW_SECONDS = 30;
@@ -113,9 +113,9 @@ function validateEvent(event, provider, now = Date.now()) {
 
   const wibNow = new Date(now + 7 * 3600 * 1000);
   const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
-  const maxStartTime = new Date(wibToday.getTime() + 4 * 24 * 3600 * 1000).toISOString();
+  const maxStartTime = new Date(wibToday.getTime() + 15 * 24 * 3600 * 1000).toISOString();
   if (event.startTime > maxStartTime) {
-    invalid(`Event ${event.id} di luar rentang tanggal (hari ini + 3 hari WIB).`);
+    invalid(`Event ${event.id} di luar rentang tanggal (hari ini + 14 hari WIB).`);
   }
 
   for (const market of event.markets) {
