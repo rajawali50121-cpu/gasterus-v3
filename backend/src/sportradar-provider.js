@@ -157,19 +157,23 @@ function normalizeScheduleEvent(raw, now) {
   return {
     provider: PROVIDER,
     providerId: eventId,
+    id: eventId,
     sport: 'soccer',
-    league,
+    league: league,
     country,
     startTime: iso(start),
     state: 'SCHEDULED',
+    status: 'SCHEDULED',
+    live: false,
     providerStatus: clean(String(raw.status || 'SCHEDULED'), 40) || null,
     clock: null,
-    home,
-    away,
+    home: { name: home, score: null, logo: null },
+    away: { name: away, score: null, logo: null },
     homeScore: null,
     awayScore: null,
     markets: [],
     _refs: { [PROVIDER]: eventId },
+    _sources: [PROVIDER],
   };
 }
 

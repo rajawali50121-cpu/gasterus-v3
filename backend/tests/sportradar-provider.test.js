@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { buildSportsbookRenderSnapshot } from '../src/sportsbook-render-worker-core.js';
 
 const fixture = JSON.parse(readFileSync(new URL('./sportradar-fixture.json', import.meta.url), 'utf8'));
 
@@ -37,8 +38,8 @@ test('Sportradar: filters removed books/outcomes, uses qualifier, skips replaced
   assert.ok(types1.has('TOTALS'), 'TEST1 has TOTALS');
 
   // TEST1 home/away from qualifier (not array order)
-  assert.equal(e1.home, 'Home Team', 'home from qualifier');
-  assert.equal(e1.away, 'Away Team', 'away from qualifier');
+  assert.equal(e1.home.name, 'Home Team', 'home from qualifier');
+  assert.equal(e1.away.name, 'Away Team', 'away from qualifier');
 
   // TEST1 1X2 order HOME/DRAW/AWAY
   const m1x2 = e1.markets.find(m => m.type === '1X2');
@@ -69,4 +70,30 @@ test('Sportradar: filters removed books/outcomes, uses qualifier, skips replaced
   assert.equal(live1x2.length, 0, 'no is_live 1X2 market leaked');
 
   console.log('Events:', events.map(e => ({ id: e.providerId, home: e.home, away: e.away, markets: e.markets.map(m => m.type) })));
+});
+
+test('Sportradar: snapshot path works with and without country (null.country localeCompare crash fixed)', async () => {
+  const result = await fetchSportradar({ maxEvents: 0, maxPages: 0, daysAhead: 7 });
+  assert.equal(result.enabled, true);
+
+  const events = result.events;
+
+  // Build normalized events like sportradar-provider.js does
+  const normalizedEvents = events.map(event => {
+    const { fetchSportradar: _, ...rest } = event;
+    return rest;
+  });
+
+  // Run through buildSportsbookRenderSnapshot (this calls stableFeedRevision which does localeCompare)
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportradar: async () => ({ provider: 'sportradar', enabled: true, events: normalizedEvents }),
+    maxEvents: 0,
+    maxPages: 0,
+    teamKey: (name) => name
+  });
+
+  // Both TEST1 (country='England') and TEST5 (country=null) should be in snapshot
+  const snapshotIds = new Set(snapshot.providerResults.flatMap(r => r.events.map(e => e.id)));
+  assert.ok(snapshotIds.has('TEST1'), 'TEST1 (country=England) in snapshot');
+  assert.ok(snapshotIds.has('TEST5'), 'TEST5 (country=null) in snapshot - null.country localeCompare crash fixed');
 });
