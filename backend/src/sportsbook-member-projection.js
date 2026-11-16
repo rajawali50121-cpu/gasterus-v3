@@ -22,6 +22,8 @@ const MEMBER_MARKET_SOURCE_LABELS = Object.freeze({
   sportmonks: 'Sportmonks'
 });
 
+const ORDER_1X2 = { HOME: 0, DRAW: 1, AWAY: 2 };
+
 export function projectMemberMarkets(markets = []) {
   if (!Array.isArray(markets)) return [];
   const seenMarkets = new Set();
@@ -58,6 +60,10 @@ export function projectMemberMarkets(markets = []) {
           updatedAt: selection.updatedAt || null
         } : {})
       });
+    }
+
+    if (clean(market.type).toUpperCase() === '1X2') {
+      selections.sort((a, b) => (ORDER_1X2[clean(a.label).toUpperCase()] || 99) - (ORDER_1X2[clean(b.label).toUpperCase()] || 99));
     }
 
     projected.push({
