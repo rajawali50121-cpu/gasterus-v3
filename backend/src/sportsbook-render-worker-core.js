@@ -259,7 +259,8 @@ export async function buildSportsbookRenderSnapshot({
           }
         : { maxEvents, maxPages: maxPages || 0 };
       const result = await fetch(options);
-      if (result) providerResults.push(result);
+      if (!result) continue;
+      providerResults.push(result);
       console.log('FETCH_DONE ' + provider + ' events=' + (result?.events?.length ?? 0) + ' errors=' + JSON.stringify(result?.errors || []));
     } catch (error) {
       console.log('FETCH_FAIL ' + provider + ' ' + String(error?.message||error).slice(0,200));
@@ -376,7 +377,7 @@ export async function buildSportsbookRenderSnapshot({
     schemaVersion: 1,
     generatedAt: new Date(now ?? Date.now()).toISOString(),
     providerResults: normalizedResults,
-    eventCount: normalizedResults.reduce((sum, r) => sum + (r.events ? r.events.length : 0), 0),
+    eventCount: combined.eventCount,
     ...(combined.truncatedEventCount > 0
       ? {
           diagnostics: {

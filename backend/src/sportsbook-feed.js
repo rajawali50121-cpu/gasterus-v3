@@ -403,8 +403,6 @@ function enabledProviders() {
   if (config.oddsPapiEnabled && config.oddsPapiKey) {
     descriptors.push({ name: 'OddsPapi', code: 'oddspapi', enabled: true, fetcher: null });
   }
-  // Backend Railway TIDAK memanggil RapidAPI langsung. Baca melalui cache worker
-  // Cloudflare (RAPIDAPI_ODDS_CACHE_URL + RAPIDAPI_ODDS_CACHE_TOKEN).
   if (config.rapidApiOddsEnabled && config.rapidApiOddsCacheUrl) {
     descriptors.push({ name: 'RapidAPI Tipsters', code: 'tipsters', enabled: true, fetcher: fetchRapidApiOdds });
   }
