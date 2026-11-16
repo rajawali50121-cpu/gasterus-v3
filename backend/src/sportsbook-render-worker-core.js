@@ -258,7 +258,7 @@ export async function buildSportsbookRenderSnapshot({
     if (!e || typeof e !== 'object') return false;
     if (typeof e.id !== 'string' || !e.id.trim()) return false;
     if (typeof e.sport !== 'string' || !e.sport.trim()) return false;
-    if (typeof e.league !== 'string' || !e.league.trim()) return false;
+    if (e.league !== null && (typeof e.league !== 'string' || !e.league.trim())) return false;
     if (e.country !== null && (typeof e.country !== 'string' || !e.country.trim())) return false;
     if (e.startTime !== null && (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime)))) return false;
     if (!['SCHEDULED','LIVE','FINISHED','SUSPENDED','CANCELLED','CANCELED','ABANDONED','POSTPONED','VOID'].includes(e.status)) return false;

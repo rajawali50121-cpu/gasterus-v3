@@ -10,12 +10,14 @@
           {
             "id": "sr:competitor:1",
             "name": "Home Team",
-            "qualifier": "home"
+            "qualifier": "home",
+            "country": "England"
           },
           {
             "id": "sr:competitor:2",
             "name": "Away Team",
-            "qualifier": "away"
+            "qualifier": "away",
+            "country": "England"
           }
         ]
       },
@@ -134,12 +136,14 @@
           {
             "id": "sr:competitor:3",
             "name": "Replaced Home",
-            "qualifier": "home"
+            "qualifier": "home",
+            "country": "England"
           },
           {
             "id": "sr:competitor:4",
             "name": "Replaced Away",
-            "qualifier": "away"
+            "qualifier": "away",
+            "country": "England"
           }
         ]
       },
@@ -155,12 +159,14 @@
           {
             "id": "sr:competitor:5",
             "name": "Cancelled Home",
-            "qualifier": "home"
+            "qualifier": "home",
+            "country": "England"
           },
           {
             "id": "sr:competitor:6",
             "name": "Cancelled Away",
-            "qualifier": "away"
+            "qualifier": "away",
+            "country": "England"
           }
         ]
       },
@@ -176,12 +182,14 @@
           {
             "id": "sr:competitor:7",
             "name": "Removed Outcome Home",
-            "qualifier": "away"
+            "qualifier": "away",
+            "country": "England"
           },
           {
             "id": "sr:competitor:8",
             "name": "Removed Outcome Away",
-            "qualifier": "home"
+            "qualifier": "home",
+            "country": "England"
           }
         ]
       },

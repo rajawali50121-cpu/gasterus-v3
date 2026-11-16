@@ -130,10 +130,12 @@ function normalizeScheduleEvent(raw, now) {
   const competitors = Array.isArray(raw.competitors) ? raw.competitors : [];
   let home = null;
   let away = null;
+  let country = null;
   for (const competitor of competitors) {
     const role = competitorRole(competitor);
     const name = extractCompetitorName(competitor);
     if (!name) continue;
+    if (!country && competitor.country) country = clean(competitor.country, 120);
     if (role === 'home') home = name;
     else if (role === 'away') away = name;
   }
@@ -141,16 +143,23 @@ function normalizeScheduleEvent(raw, now) {
 
   const start = parseDateUTC(raw.start_time || raw.start_date || raw.scheduled);
   if (!start) return null;
-  // Hanya prematch: status 'not_started' menurut contoh dokumentasi.
+  // Hanya prematch: status 'not_started' menurut contoh dokumentasi Sportradar.
   if (!PREMATCH_STATUSES.has(String(raw.status || '').toLowerCase())) return null;
+
+  // NOTE: Sportradar sport_event_basic (OpenAPI spec) tidak menyertakan field 'league'
+  // atau 'tournament'/'competition' nama. Field ini tidak tersedia dalam respons
+  // /sports/{sport_id}/schedules/{date}/sport_event_markets.json.
+  // Diperlukan oleh sportsbook-feed.js:1361 untuk sorting dan
+  // sportsbook-render-worker-core.js:261 untuk validasi event.
+  const league = null;
 
   const eventId = String(raw.id).replace(/^sr:sport_event:/, '');
   return {
     provider: PROVIDER,
     providerId: eventId,
     sport: 'soccer',
-    league: clean(String(raw.sport_name || raw.tournament_name || ''), 120) || null,
-    country: null,
+    league,
+    country,
     startTime: iso(start),
     state: 'SCHEDULED',
     providerStatus: clean(String(raw.status || 'SCHEDULED'), 40) || null,
