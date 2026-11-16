@@ -31,15 +31,9 @@ export function sportsbookRenderIntervalSeconds(settings) {
   }
   const freshnessInterval = Math.floor(Number(settings?.sportsbookIngestMaxAgeSeconds) / 2);
   const providerIntervals = [];
-  if (settings?.sportmonksEnabled) {
-    providerIntervals.push(
-      settings.sportmonksRefreshSeconds,
-      settings.sportmonksOddsRefreshSeconds,
-      settings.sportmonksLiveRefreshSeconds
-    );
+  if (settings?.betexplorerEnabled) {
+    providerIntervals.push(settings.betexplorerRefreshSeconds ?? 300);
   }
-  if (settings?.sharpApiEnabled) providerIntervals.push(settings.sharpApiRefreshSeconds);
-  if (settings?.oddsPapiEnabled) providerIntervals.push(settings.oddsPapiRefreshSeconds);
   const validIntervals = providerIntervals
     .map(Number)
     .filter(value => Number.isFinite(value) && value > 0);
@@ -62,7 +56,7 @@ function leaguePriority(event, priorities) {
 
 function providerPriority(provider, live) {
   if (live) return 1;
-  return provider === 'sportmonks' ? 2 : 1;
+  return 1;
 }
 
 function compareCandidates(a, b, priorities) {
@@ -91,8 +85,6 @@ function sameFixture(a, b, teamKey) {
 
 export function combineSportsbookProviderResults(providerResults, {
   maxEvents = 0,
-  passthrough = config.sportmonksPassthrough,
-  sportmonksMaxEvents = config.sportmonksMaxTotalEvents,
   priorityLeagues = [],
   teamKey
 } = {}) {
@@ -104,9 +96,6 @@ export function combineSportsbookProviderResults(providerResults, {
   const enabledResults = providerResults.filter(result => result?.enabled === true);
   const candidates = enabledResults.flatMap(result =>
     (Array.isArray(result.events) ? result.events : [])
-      // Pertandingan tanpa pasar (display-only) ikut snapshot: cakupan feed
-      // tidak boleh dipotong oleh ketersediaan odds provider. Semua event
-      // terstruktur (termasuk yang tanpa odds) dihitung dalam eventCount.
       .map(event => ({ provider: result.provider, event }))
   );
   candidates.sort((a, b) => compareCandidates(a, b, priorityLeagues));
@@ -119,28 +108,13 @@ export function combineSportsbookProviderResults(providerResults, {
   }
   fixtureGroups.sort((a, b) => compareCandidates(a[0], b[0], priorityLeagues));
   const boundedGroups = [];
-  let retainedNonSportmonksGroups = 0;
-  let retainedSportmonksGroups = 0;
   let truncatedEventCount = 0;
-  let truncatedSportmonksEventCount = 0;
-  let truncatedOtherProviderEventCount = 0;
-  const nonSportmonksLimit = maxEvents !== 0 ? maxEvents : Infinity;
+  const eventLimit = maxEvents !== 0 ? maxEvents : Infinity;
   for (const group of fixtureGroups) {
-    const hasSportmonks = group.some(candidate => candidate.provider === 'sportmonks');
-    if (passthrough && hasSportmonks) {
-      if (sportmonksMaxEvents > 0 && retainedSportmonksGroups >= sportmonksMaxEvents) {
-        truncatedEventCount += 1;
-        truncatedSportmonksEventCount += 1;
-        continue;
-      }
-      retainedSportmonksGroups += 1;
-      boundedGroups.push(group);
-    } else if (retainedNonSportmonksGroups < nonSportmonksLimit) {
-      retainedNonSportmonksGroups += 1;
+    if (boundedGroups.length < eventLimit) {
       boundedGroups.push(group);
     } else {
       truncatedEventCount += 1;
-      truncatedOtherProviderEventCount += 1;
     }
   }
 
@@ -160,9 +134,7 @@ export function combineSportsbookProviderResults(providerResults, {
   return {
     providerResults: combinedResults,
     eventCount: boundedGroups.length,
-    truncatedEventCount,
-    truncatedSportmonksEventCount,
-    truncatedOtherProviderEventCount
+    truncatedEventCount
   };
 }
 
@@ -223,10 +195,7 @@ function countSnapshotFixtures(events) {
 // Endpoint ingest menolak payload di atas anggaran byte; mempertahankan tiap
 // event utuh lebih penting daripada mengirim hanya sebagian pasarnya.
 export async function buildSportsbookRenderSnapshot({
-  fetchSportmonks,
-  fetchSharpApi,
-  fetchOddsPapi,
-  fetchTheRundown,
+  fetchBetexplorer,
   maxEvents = 0,
   maxPages = 0,
   teamKey,
@@ -241,10 +210,7 @@ export async function buildSportsbookRenderSnapshot({
     throw new Error('Worker sportsbook maxEvents must be a positive integer or 0 (unlimited).');
   }
   const fetchers = [
-    { provider: 'sportmonks', fetch: fetchSportmonks },
-    { provider: 'sharpapi', fetch: fetchSharpApi },
-    { provider: 'oddspapi', fetch: fetchOddsPapi },
-    { provider: 'therundown', fetch: fetchTheRundown },
+    { provider: 'betexplorer', fetch: fetchBetexplorer },
   ];
   const providerResults = [];
   const failures = [];
@@ -252,13 +218,7 @@ export async function buildSportsbookRenderSnapshot({
     if (typeof fetch !== 'function') continue;
     console.log('FETCH_START ' + provider);
     try {
-      const options = provider === 'sportmonks'
-        ? {
-            maxEvents: config.sportmonksPassthrough ? 0 : config.sportmonksMaxTotalEvents,
-            maxPages: config.sportmonksPassthrough ? 0 : config.sportmonksMaxPages
-          }
-        : { maxEvents, maxPages: maxPages || 0 };
-      const result = await fetch(options);
+      const result = await fetch({ maxEvents, maxPages: maxPages || 0 });
       if (!result) continue;
       providerResults.push(result);
       console.log('FETCH_DONE ' + provider + ' events=' + (result?.events?.length ?? 0) + ' errors=' + JSON.stringify(result?.errors || []));
@@ -273,8 +233,6 @@ export async function buildSportsbookRenderSnapshot({
 
   const combined = combineSportsbookProviderResults(providerResults, {
     maxEvents,
-    passthrough: config.sportmonksPassthrough,
-    sportmonksMaxEvents: config.sportmonksMaxTotalEvents,
     teamKey
   });
   console.info(JSON.stringify({
@@ -302,9 +260,7 @@ export async function buildSportsbookRenderSnapshot({
     if (typeof e.sport !== 'string' || !e.sport.trim()) return false;
     if (typeof e.league !== 'string' || !e.league.trim()) return false;
     if (e.country !== null && (typeof e.country !== 'string' || !e.country.trim())) return false;
-    if (provider === 'sportmonks' && config.sportmonksPassthrough) {
-      if (e.startTime !== null && (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime)))) return false;
-    } else if (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime))) return false;
+    if (e.startTime !== null && (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime)))) return false;
     if (!['SCHEDULED','LIVE','FINISHED','SUSPENDED','CANCELLED','CANCELED','ABANDONED','POSTPONED','VOID'].includes(e.status)) return false;
     if (typeof e.live !== 'boolean') return false;
     if (!e.home || typeof e.home.name !== 'string' || !e.home.name.trim()) return false;
@@ -318,11 +274,11 @@ export async function buildSportsbookRenderSnapshot({
       if (typeof m.period !== 'string' || !m.period.trim()) return false;
       if (m.source !== provider) return false;
       if (typeof m.suspended !== 'boolean') return false;
-      if (!Array.isArray(m.selections) || (!m.selections.length && provider !== 'sportmonks')) return false;
+      if (!Array.isArray(m.selections) || !m.selections.length) return false;
       for (const sel of m.selections) {
         if (!sel || typeof sel.key !== 'string' || !sel.key.trim()) return false;
-        if (typeof sel.label !== 'string' || (provider !== 'sportmonks' && !sel.label.trim())) return false;
-        if (!Number.isFinite(sel.odds) || (provider !== 'sportmonks' && sel.odds <= 1)) return false;
+        if (typeof sel.label !== 'string' || !sel.label.trim()) return false;
+        if (!Number.isFinite(sel.odds) || sel.odds <= 1) return false;
         if (typeof sel.suspended !== 'boolean') return false;
         if (sel.source !== provider) return false;
       }
