@@ -105,33 +105,14 @@ export default defineRailway(() => {
       API_FOOTBALL_KEY: preserve(),
       DATABASE_URL: "${{web.DATABASE_URL}}",
       REDIS_URL: "${{web.REDIS_URL}}",
-      ODDSPAPI_ENABLED: "true",
-      ODDSPAPI_API_KEY: preserve(),
-      ODDSPAPI_BASE_URL: preserve(),
-      ODDSPAPI_TOURNAMENT_IDS: "17,8,35,34,9,5,6,244,238,148",
-      ODDSPAPI_BOOKMAKER: "pinnacle",
-      ODDSPAPI_DAILY_REQUEST_BUDGET: "8",
-      ODDSPAPI_MONTHLY_REQUEST_BUDGET: "240",
+      API_FOOTBALL_KEY: preserve(),
       SPORTSBOOK_INGEST_URL: "${{web.SPORTSBOOK_INGEST_URL}}",
       SPORTSBOOK_INGEST_HMAC_SECRET: "${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}",
       SPORTSBOOK_RENDER_MAX_EVENTS: "500",
       SPORTSBOOK_RENDER_MAX_PAGES: "120",
-      // Sportmonks primer (cakupan luas). Key & batas diwariskan/diset di
-      // worker yang sama — service web tetap bebas beban scrape Sportmonks.
-      SPORTMONKS_ENABLED: "true",
-      SPORTMONKS_API_KEY: "${{web.SPORTMONKS_API_KEY}}",
-      SPORTMONKS_PASSTHROUGH: preserve(),
-      SPORTMONKS_DAYS_AHEAD: preserve(),
-      SPORTMONKS_MAX_TOTAL_EVENTS: preserve(),
-      SPORTMONKS_MAX_PAGES: preserve(),
-      SPORTMONKS_MAX_RESPONSE_BYTES: preserve(),
-      SPORTMONKS_REFRESH_SECONDS: "300",
-      SPORTMONKS_LIVE_REFRESH_SECONDS: "30",
-      SPORTMONKS_REQUEST_DELAY_MS: "0",
-      SHARP_API_ENABLED: "${{web.SHARP_API_ENABLED}}",
-      SHARP_API_KEY: "${{web.SHARP_API_KEY}}",
-      SHARP_API_MAX_PAGES: "${{web.SHARP_API_MAX_PAGES}}",
-      SHARP_API_PAGE_SIZE: "${{web.SHARP_API_PAGE_SIZE}}"
+      // Hanya TheRundown sebagai sumber odds prematch.
+      THERUNDOWN_ENABLED: "true",
+      THERUNDOWN_API_KEY: preserve(),
     }
   });
 
