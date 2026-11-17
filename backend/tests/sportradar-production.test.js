@@ -192,3 +192,44 @@ test('Sportradar partial page response is rejected rather than published as a co
   };
   await assert.rejects(fetchSportradar({ daysAhead: 7 }), /empty page at offset 50 while x-max-results reports 60/);
 });
+
+test('Sportradar removed lifecycle accepts documented boolean and string true values', async () => {
+  const event = {
+    sport_event: {
+      id: 'sr:sport_event:removed-string',
+      start_time: eventTimeTomorrowWib(),
+      status: 'not_started',
+      competitors: [
+        { id: 'home-string', name: 'Home String', qualifier: 'home' },
+        { id: 'away-string', name: 'Away String', qualifier: 'away' }
+      ]
+    },
+    markets: [{
+      id: 'sr:market:removed-string',
+      name: '1x2',
+      is_live: false,
+      books: [{
+        id: 'sr:book:removed-string',
+        name: 'Removed Book',
+        removed: 'true',
+        outcomes: [{ id: 'sr:outcome:removed-string', type: 'home', odds_decimal: '1.00', removed: 'true' }]
+      }]
+    }]
+  };
+  const wibDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/sports.json')) {
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
+    }
+    const date = url.pathname.match(/schedules\\/(\\d{4}-\\d{2}-\\d{2})\\//)?.[1];
+    const items = date === wibDate ? [event] : [];
+    return { ok: true, status: 200, headers: new Headers({ 'x-max-results': String(items.length) }), json: async () => ({ sport_schedule_sport_event_markets: items }), text: async () => '' };
+  };
+  const result = await fetchSportradar({ daysAhead: 1 });
+  const market = result.events[0].markets[0];
+  assert.equal(market.removed, true);
+  assert.equal(market.suspended, true);
+  assert.equal(market.selections[0].removed, true);
+  assert.equal(market.selections[0].suspended, true);
+});
