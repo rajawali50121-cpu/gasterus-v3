@@ -1,0 +1,44 @@
+name: Backend tests
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "backend/**"
+      - ".railway/**"
+      - ".github/workflows/backend-tests.yml"
+  push:
+    branches: [master]
+    paths:
+      - "backend/**"
+      - ".railway/**"
+      - ".github/workflows/backend-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Check sportsbook runtime syntax
+        working-directory: backend
+        run: |
+          for file in src/config.js src/sportradar-provider.js src/sportsbook-feed.js src/sportsbook-ingestion.js src/sportsbook-member-projection.js src/sportsbook-providers.js src/sportsbook-render-worker-core.js src/sportsbook-render-worker.js; do
+            node --check "$file"
+          done
+      - name: Run backend test suite
+        working-directory: backend
+        run: npm test

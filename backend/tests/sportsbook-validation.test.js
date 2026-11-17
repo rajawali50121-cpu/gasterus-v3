@@ -157,6 +157,18 @@ test('does not change valid markets and retains events whose markets are all qua
   assert.equal(validationLogs.at(-1)[1].total, 2);
 });
 
+test('Sportradar invalid prices remain visible but are suspended and annotated', () => {
+  const invalidMarket = market('1X2', null, null, [2.5, 3, 5]);
+  invalidMarket.source = 'sportradar';
+  const event = { id: 'sportradar-invalid-market', _sources: ['sportradar'], markets: [invalidMarket] };
+  validateAllHandicapOdds([event]);
+  assert.equal(event.markets.length, 1, 'market data must not be silently removed');
+  assert.equal(event.markets[0].suspended, true);
+  assert.ok(event.markets[0].validationWarnings.includes('OVERROUND_1X2'));
+  assert.ok(event.markets[0].selections.every(selection => selection.suspended));
+  assert.ok(event.validationWarnings.includes('OVERROUND_1X2'));
+});
+
 test('refresh invokes validation without calling the removed reset helper', () => {
   assert.doesNotMatch(feedSource, /resetAbnormalOddsLog\s*\(/);
   assert.match(feedSource, /events = validateAllHandicapOdds\(events\);/);

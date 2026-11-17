@@ -4,6 +4,7 @@ import { AppError } from './errors.js';
 import { redis } from './redis.js';
 import { logger } from './logger.js';
 import { fetchSportmonks, fetchSharpApi, fetchRapidApiOdds, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
+import { fetchSportradar } from './sportradar-provider.js';
 import { resolveSportsbookProviderResults } from './sportsbook-feed-source.js';
 import { appendFeedRevision, readFeedRevision, paginateEvents, SPORTSBOOK_FEED_REVISIONS_KEY } from './sportsbook-feed-revisions.js';
 import { advanceProviderLifecycle, publicProviderLifecycle, shouldProbeProvider, transitionProviderLifecycle } from './sportsbook-provider-lifecycle.js';
@@ -34,12 +35,15 @@ function hasValidQuarterLine(line) {
 export function validateAllHandicapOdds(events = []) {
   const quarantined = Object.create(null);
   const sportmonksWarnings = Object.create(null);
+  const sportradarWarnings = Object.create(null);
   let totalQuarantined = 0;
   let totalSportmonksWarnings = 0;
+  let totalSportradarWarnings = 0;
 
   for (const event of events) {
     const sportmonksPassthrough = config.sportmonksPassthrough
       && (event?._sources || []).includes('sportmonks');
+    const sportradarSource = (event?._sources || []).includes('sportradar');
     const markets = event.markets || [];
     let writeIndex = 0;
     const eventWarnings = new Set(Array.isArray(event.validationWarnings) ? event.validationWarnings : []);
@@ -117,6 +121,21 @@ export function validateAllHandicapOdds(events = []) {
         }
         markets[writeIndex] = market;
         writeIndex += 1;
+      } else if (sportradarSource && market.source === 'sportradar') {
+        // Keep every Sportradar market visible for audit and member display.
+        // Unsafe quotes are suspended rather than silently removed from the feed.
+        market.validationWarnings = [...warnings];
+        if (reason) {
+          market.suspended = true;
+          market.selections = selections.map(selection => ({ ...selection, suspended: true }));
+        }
+        for (const warning of warnings) {
+          sportradarWarnings[warning] = (sportradarWarnings[warning] || 0) + 1;
+          totalSportradarWarnings += 1;
+          eventWarnings.add(warning);
+        }
+        markets[writeIndex] = market;
+        writeIndex += 1;
       } else if (reason) {
         quarantined[reason] = (quarantined[reason] || 0) + 1;
         totalQuarantined += 1;
@@ -127,14 +146,16 @@ export function validateAllHandicapOdds(events = []) {
     }
 
     markets.length = writeIndex;
-    if (sportmonksPassthrough && eventWarnings.size) event.validationWarnings = [...eventWarnings];
+    if ((sportmonksPassthrough || sportradarSource) && eventWarnings.size) event.validationWarnings = [...eventWarnings];
   }
 
   logger.info('Sportsbook market validation quarantine summary', {
     total: totalQuarantined,
     reasons: quarantined,
     sportmonksWarnings: totalSportmonksWarnings,
-    sportmonksWarningCodes: sportmonksWarnings
+    sportmonksWarningCodes: sportmonksWarnings,
+    sportradarWarnings: totalSportradarWarnings,
+    sportradarWarningCodes: sportradarWarnings
   });
 
   return events;
@@ -412,6 +433,13 @@ function providerHasPricedMarkets(result) {
 // The render worker is a SEPARATE process that builds its own snapshot via
 // sportsbook-render-worker-core.js; it is not constrained by this list.
 function enabledProviders() {
+  // In production, Sportradar is the only sportsbook odds source. This path is
+  // used only when the verified render-worker snapshot is unavailable/stale.
+  if (config.nodeEnv === 'production') {
+    return config.sportradarEnabled && config.sportradarApiKey
+      ? [{ name: 'Sportradar', code: 'sportradar', enabled: true, fetcher: fetchSportradar }]
+      : [];
+  }
   const descriptors = [];
   if (config.sportmonksEnabled && config.sportmonksKey) {
     descriptors.push({ name: 'Sportmonks', code: 'sportmonks', enabled: true, fetcher: fetchSportmonks });
@@ -658,7 +686,7 @@ async function readRedisCache() {
     const nonSportmonksEvents = parsed.events.filter(event =>
       !(config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks'))
     );
-    if (nonSportmonksEvents.length > MAX_FEED_EVENTS) {
+    if (Number(MAX_FEED_EVENTS) > 0 && nonSportmonksEvents.length > Number(MAX_FEED_EVENTS)) {
       logger.warn('Sportsbook Redis cache exceeds event cap; ignoring cache', {
         events: nonSportmonksEvents.length,
         maxEvents: MAX_FEED_EVENTS,

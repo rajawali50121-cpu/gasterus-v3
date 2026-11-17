@@ -1699,7 +1699,10 @@ function sameFixture(a, b) {
   return direct && (kickoffDistance(a.startTime, b.startTime) <= 3 * 60 * 60 * 1000 || !a.startTime || !b.startTime);
 }
 function marketIdentity(market) {
-  return `${market.type}|${market.period}|${market.line ?? ''}|${slug(market.label)}`;
+  const base = `${market.type}|${market.period}|${market.line ?? ''}|${slug(market.label)}`;
+  return market.source === 'sportradar'
+    ? `${base}|${slug(market.bookmaker || '')}|${slug(market.sourceMarketId || '')}`
+    : base;
 }
 function sourcePriority(source, live) {
   if (live) {
@@ -1797,24 +1800,26 @@ function applyManualFtSettlementFallback(event, { enabled = config.sportsbookMan
   if (!enabled || !event || event.live || event.status !== 'SCHEDULED') return event;
   const eventSources = new Set(Array.isArray(event._sources) ? event._sources : []);
   const readySources = new Set(Array.isArray(event._settlementReadySources) ? event._settlementReadySources : []);
-  // Automatic authority always wins. The fallback is only a settlement guarantee for
-  // healthy prematch SharpAPI pricing; it is not a score/result source.
+  // Automatic authority always wins. This fallback is only an operator-settlement
+  // guarantee for healthy prematch prices; it is not a score/result source.
   if (readySources.has('public-market') || readySources.has('footballdata-io')) return event;
-  const fallbackPricingSource = eventSources.has('sharpapi') && readySources.has('sharpapi')
-    ? 'sharpapi'
-    : eventSources.has('public-market') && readySources.has('public-market')
+  const fallbackPricingSource = eventSources.has('sportradar') && readySources.has('sportradar')
+    ? 'sportradar'
+    : eventSources.has('sharpapi') && readySources.has('sharpapi')
+      ? 'sharpapi'
+      : eventSources.has('public-market') && readySources.has('public-market')
       ? 'public-market'
       : eventSources.has('footballdata-io') && readySources.has('footballdata-io')
         ? 'footballdata-io'
         : null;
   if (!fallbackPricingSource) return event;
-  const hasHealthySharpFt = (event.markets || []).some(market =>
+  const hasHealthyPrematchFt = (event.markets || []).some(market =>
     (market.period || 'FT') === 'FT'
     && market.source === fallbackPricingSource
     && !market.suspended
     && (market.selections || []).some(selection => !selection.suspended && Number(selection.odds) > 1)
   );
-  if (!hasHealthySharpFt) return event;
+  if (!hasHealthyPrematchFt) return event;
   event._settlementReadySources = [...new Set([...readySources, 'manual-ops'])];
   event._settlementMode = 'MANUAL_FT_FALLBACK';
   return event;

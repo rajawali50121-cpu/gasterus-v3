@@ -24,21 +24,36 @@ configureProviderOnlyRuntime();
 
 const [
   { config },
-  { fetchSportmonks, fetchSharpApi, teamKey },
-  { fetchOddsPapi },
-  { createPostgresOddsPapiStore, createRedisOddsPapiCacheStore },
+  { teamKey },
+  { fetchSportradar },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
   import('./sportsbook-providers.js'),
-  import('./sportsbook-oddspapi.js'),
-  import('./sportsbook-oddspapi-store.js'),
+  import('./sportradar-provider.js'),
   import('./sportsbook-ingest-client.js'),
   import('./sportsbook-render-worker-core.js')
 ]);
 
 console.log('WORKER_IMPORTS_DONE');
+
+const cronOnce = String(process.env.SPORTSBOOK_CRON_ONCE || '').trim().toLowerCase() === 'true';
+if (config.nodeEnv === 'production') {
+  if (!config.sportradarEnabled) {
+    throw new Error('SPORTRADAR_ENABLED must be true for the production sportsbook render worker.');
+  }
+  if (!config.sportradarApiKey) {
+    throw new Error('SPORTRADAR_API_KEY is required by the production sportsbook render worker.');
+  }
+  const sportradarPath = new URL(config.sportradarBaseUrl).pathname.replace(/\/+$/, '');
+  const productionAccess = /\/production\/v2\/en$/i.test(sportradarPath);
+  const trialAccess = /\/trial\/v2\/en$/i.test(sportradarPath);
+  const trialCronOptIn = cronOnce && String(process.env.SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION || '').trim().toLowerCase() === 'true';
+  if (!productionAccess && !(trialAccess && trialCronOptIn)) {
+    throw new Error('Production sportsbook worker requires production Sportradar access, or explicit trial access in one-shot cron mode.');
+  }
+}
 const endpoint = String(process.env.SPORTSBOOK_INGEST_URL || '').trim();
 if (!endpoint) throw new Error('SPORTSBOOK_INGEST_URL is required.');
 if (config.sportsbookIngestHmacSecret.length < 32) {
@@ -100,21 +115,8 @@ while (!shutdown.signal.aborted) {
       if (retryAfterFailure) lastFailureRetryAt = nowMs;
     }
     console.log('CYCLE_START');
-    const withTimeout = (fn, ms, name) => Promise.race([
-      fn(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error(name + ' timeout ' + ms + 'ms')), ms))
-    ]);
     const snapshot = await buildSportsbookRenderSnapshot({
-      fetchSportmonks: () => withTimeout(() => fetchSportmonks({
-        maxEvents: config.sportmonksPassthrough
-          ? config.sportmonksMaxTotalEvents
-          : Math.min(config.sportsbookRenderMaxEvents, config.sportmonksMaxTotalEvents),
-        maxPages: config.sportmonksPassthrough
-          ? config.sportmonksMaxPages
-          : Math.min(config.sportsbookRenderMaxPages, config.sportmonksMaxPages)
-      }), 20000, 'sportmonks'),
-      fetchSharpApi: () => withTimeout(() => fetchSharpApi({}), 20000, 'sharpapi'),
-      fetchOddsPapi: () => withTimeout(() => fetchOddsPapi({}), 20000, 'oddspapi'),
+      fetchSportradar: () => fetchSportradar({}),
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
       teamKey
@@ -135,7 +137,7 @@ while (!shutdown.signal.aborted) {
       eventCount: Array.isArray(result.events) ? result.events.length : 0,
       stale: result.stale === true,
       errors: Array.isArray(result.errors) ? result.errors.length : 0,
-      diagnostics: result.provider === 'sportmonks' ? result.diagnostics || null : undefined
+      diagnostics: result.diagnostics || null
     }));
     console.info(JSON.stringify({
       service: 'sportsbook-render-worker',
@@ -170,6 +172,10 @@ while (!shutdown.signal.aborted) {
       cycleDurationMs: Date.now() - cycleStartedAt,
       retryInMs: nextDelayMs
     }));
+  }
+  if (cronOnce) {
+    if (consecutiveCycleFailures > 0) process.exitCode = 1;
+    break;
   }
   if (!shutdown.signal.aborted) {
     try {

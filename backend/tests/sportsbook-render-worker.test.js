@@ -206,10 +206,8 @@ test('Worker republishes cached snapshots before their ingestion freshness windo
   assert.match(workerSource, /sportsbookRenderIntervalSeconds\(config\)/);
   assert.doesNotMatch(workerSource, /fetchTheOddsApi/);
   // Only explicitly selected provider adapters are connected to the worker.
-  assert.match(workerSource, /fetchSportmonks/);
-  assert.match(workerSource, /fetchSharpApi/);
-  assert.doesNotMatch(workerSource, /fetchApiSports/);
-  assert.match(workerSource, /fetchOddsPapi/);
+  assert.match(workerSource, /fetchSportradar/);
+  assert.doesNotMatch(workerSource, /fetchSportmonks|fetchSharpApi|fetchOddsPapi|fetchApiSports/);
 });
 
 test('OddsPapi quota storage failure does not block the providers already serving the feed', async () => {

@@ -18,7 +18,7 @@ test('Railway uses Dockerfile lifecycle, predeploy, and health gate',()=>{
   assert.match(cfg,/healthcheck:\s*"\/healthz"/);
   assert.match(cfg,/service\("sportsbook-render-worker"/);
   assert.match(cfg,/dockerfilePath:\s*"deploy\/Dockerfile\.sportsbook-render-worker"/);
-  assert.match(cfg,/SPORTSBOOK_RENDER_MAX_PAGES:\s*"120"/);
+  assert.match(cfg,/SPORTSBOOK_RENDER_MAX_PAGES:\s*"0"/);
 });
 
 

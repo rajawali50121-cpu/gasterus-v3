@@ -58,6 +58,86 @@ test('R6.9.0.12 healthy prematch SharpAPI prices get explicit manual FT settleme
   assert.equal(authority.mode, 'MANUAL_FALLBACK');
 });
 
+test('Sportradar prematch FT prices receive operator settlement only; HT remains suspended', () => {
+  const event = {
+    id: 'sportradar-manual-ft',
+    sport: 'soccer',
+    league: 'Premier League',
+    country: 'England',
+    startTime: '2026-11-18T12:00:00.000Z',
+    status: 'SCHEDULED',
+    live: false,
+    home: { name: 'Arsenal', score: null },
+    away: { name: 'Chelsea', score: null },
+    markets: [
+      { id: 'sr-ft', type: '1X2', period: 'FT', source: 'sportradar', suspended: false, selections: [
+        { key: 'sr-ft-home', label: 'Arsenal', odds: 2.1, source: 'sportradar', suspended: false },
+        { key: 'sr-ft-draw', label: 'Draw', odds: 3.2, source: 'sportradar', suspended: false },
+        { key: 'sr-ft-away', label: 'Chelsea', odds: 3.5, source: 'sportradar', suspended: false }
+      ] },
+      { id: 'sr-ht', type: '1X2', period: '1H', source: 'sportradar', suspended: false, selections: [
+        { key: 'sr-ht-home', label: 'Arsenal', odds: 2.2, source: 'sportradar', suspended: false }
+      ] }
+    ],
+    _refs: { sportradar: 'sr:sport_event:123' },
+    _sources: ['sportradar'],
+    _settlementReadySources: ['sportradar']
+  };
+  const [merged] = __sportsbookProviders.mergeProviderEvents(
+    [{ provider: 'sportradar', enabled: true, events: [event] }],
+    { enabled: true }
+  );
+  assert.ok(merged._settlementReadySources.includes('manual-ops'));
+  assert.equal(merged._settlementMode, 'MANUAL_FT_FALLBACK');
+  assert.ok(merged.markets.find(market => market.period === 'FT').suspended === false);
+  assert.ok(merged.markets.find(market => market.period === '1H').suspended === true);
+  const authority = eventSettlementAuthority(merged);
+  assert.equal(authority.ft, true);
+  assert.equal(authority.ht, false);
+  assert.equal(authority.automaticFt, false);
+  assert.equal(authority.manualFt, true);
+});
+
+test('duplicate Sportradar fixture records preserve separate bookmaker prices', () => {
+  const marketFor = (bookmaker, suffix, odds) => ({
+    id: `sr-${suffix}`,
+    type: '1X2',
+    label: 'Match Result',
+    period: 'FT',
+    line: null,
+    source: 'sportradar',
+    sourceMarketId: `sr:market:${suffix}`,
+    bookmaker,
+    suspended: false,
+    selections: [
+      { key: `${suffix}-home`, label: 'Arsenal', odds, source: 'sportradar', suspended: false },
+      { key: `${suffix}-draw`, label: 'Draw', odds: 3.2, source: 'sportradar', suspended: false },
+      { key: `${suffix}-away`, label: 'Chelsea', odds: 3.5, source: 'sportradar', suspended: false }
+    ]
+  });
+  const base = {
+    sport: 'soccer',
+    league: 'Premier League',
+    country: 'England',
+    startTime: '2026-11-18T12:00:00.000Z',
+    status: 'SCHEDULED',
+    live: false,
+    home: { name: 'Arsenal', score: null },
+    away: { name: 'Chelsea', score: null },
+    _sources: ['sportradar'],
+    _settlementReadySources: ['sportradar']
+  };
+  const [merged] = __sportsbookProviders.mergeProviderEvents([{
+    provider: 'sportradar',
+    events: [
+      { ...structuredClone(base), id: 'sr-event-a', markets: [marketFor('Bookmaker A', 'a', 2.1)], _refs: { sportradar: 'sr:event:a' } },
+      { ...structuredClone(base), id: 'sr-event-b', markets: [marketFor('Bookmaker B', 'b', 2.2)], _refs: { sportradar: 'sr:event:b' } }
+    ]
+  }], { enabled: true });
+  assert.equal(merged.markets.length, 2);
+  assert.deepEqual(new Set(merged.markets.map(market => market.bookmaker)), new Set(['Bookmaker A', 'Bookmaker B']));
+});
+
 test('R6.9.0.12 manual FT fallback never unlocks SharpAPI-only live betting', () => {
   const [event] = __sportsbookProviders.mergeProviderEvents(
     [{ provider:'sharpapi', events:[healthySharpEvent({ live:true })] }],

@@ -64,14 +64,14 @@ export const config = Object.freeze({
   apiKeyPepper: testSecret('API_KEY_PEPPER', 32, 'test-api-key-pepper-passphrase-1234'),
   mfaEncryptionKeyBase64: testSecret('MFA_ENCRYPTION_KEY_BASE64', 40, Buffer.alloc(32, 7).toString('base64')),
   sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
-  sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 600),
+  sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 3600),
   // Stored/render snapshots may be up to ~1 day old (daily refresh). Read path uses this;
   // request signature freshness still uses sportsbookIngestMaxAgeSeconds.
   sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 172800, 180, 604800),
   sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
   sportsbookDailyRefreshHourWib: int('SPORTSBOOK_DAILY_REFRESH_HOUR_WIB', 0, 0, 23),
   sportsbookDailyRefreshMinuteWib: int('SPORTSBOOK_DAILY_REFRESH_MINUTE_WIB', 5, 0, 59),
-  sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 4, 1, 30),
+  sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 7, 1, 365),
   // No artificial event/page caps: pagination is exhausted to the last page
   // returned by the API. Zero = unlimited (API quota is the only real ceiling).
   sportsbookRenderMaxEvents: unboundedInt('SPORTSBOOK_RENDER_MAX_EVENTS', 0, 0),
@@ -175,7 +175,19 @@ export const config = Object.freeze({
   theSportsDbBaseUrl: text('THESPORTSDB_BASE_URL', 'https://www.thesportsdb.com/api'),
   theSportsDbEnabled: bool('THESPORTSDB_ENABLED', false),
   theSportsDbLeagueIds: text('THESPORTSDB_LEAGUE_IDS', '4328,4335,4332,4331,4334,4387'),
-  // Sportmonks is the sole sportsbook fixture and odds provider.
+  // Sportradar is the sole production sportsbook fixtures and odds provider.
+  sportradarApiKey: optionalSecret('SPORTRADAR_API_KEY'),
+  sportradarEnabled: bool('SPORTRADAR_ENABLED', true),
+  sportradarBaseUrl: text('SPORTRADAR_BASE_URL', 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en'),
+  sportradarDaysAhead: int('SPORTRADAR_DAYS_AHEAD', 7, 1, 365),
+  sportradarMaxPages: unboundedInt('SPORTRADAR_MAX_PAGES', 0, 0),
+  sportradarMaxEvents: unboundedInt('SPORTRADAR_MAX_EVENTS', 0, 0),
+  sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 1100, 100, 30000),
+  // Zero disables the local ceiling; the provider account's actual quota and HTTP 429 remain authoritative.
+  sportradarMaxCallsPerHour: unboundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 0, 0),
+  sportradarRefreshSeconds: int('SPORTRADAR_REFRESH_SECONDS', 300, 30, 3600),
+  sportradarRequestTimeoutMs: int('SPORTRADAR_REQUEST_TIMEOUT_MS', 30000, 5000, 120000),
+  // Legacy non-production provider settings. Production sportsbook ingestion is Sportradar-only.
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
   sportmonksKey,
   sportmonksEnabled: bool('SPORTMONKS_ENABLED', isProduction && Boolean(sportmonksKey)),

@@ -31,6 +31,7 @@ export function sportsbookRenderIntervalSeconds(settings) {
   }
   const freshnessInterval = Math.floor(Number(settings?.sportsbookIngestMaxAgeSeconds) / 2);
   const providerIntervals = [];
+  if (settings?.sportradarEnabled) providerIntervals.push(settings.sportradarRefreshSeconds);
   if (settings?.sportmonksEnabled) {
     providerIntervals.push(
       settings.sportmonksRefreshSeconds,
@@ -223,6 +224,7 @@ function countSnapshotFixtures(events) {
 // Endpoint ingest menolak payload di atas anggaran byte; mempertahankan tiap
 // event utuh lebih penting daripada mengirim hanya sebagian pasarnya.
 export async function buildSportsbookRenderSnapshot({
+  fetchSportradar,
   fetchSportmonks,
   fetchSharpApi,
   fetchOddsPapi,
@@ -239,7 +241,10 @@ export async function buildSportsbookRenderSnapshot({
   if (maxEvents !== 0 && (!Number.isInteger(maxEvents) || maxEvents < 1)) {
     throw new Error('Worker sportsbook maxEvents must be a positive integer or 0 (unlimited).');
   }
+  // Production worker passes only fetchSportradar. Optional adapters remain injectable
+  // for isolated unit tests; they are not wired in the production worker.
   const fetchers = [
+    { provider: 'sportradar', fetch: fetchSportradar },
     { provider: 'sportmonks', fetch: fetchSportmonks },
     { provider: 'sharpapi', fetch: fetchSharpApi },
     { provider: 'oddspapi', fetch: fetchOddsPapi },
@@ -250,13 +255,21 @@ export async function buildSportsbookRenderSnapshot({
     if (typeof fetch !== 'function') continue;
     console.log('FETCH_START ' + provider);
     try {
-      const options = provider === 'sportmonks'
-        ? {
-            maxEvents: config.sportmonksPassthrough ? 0 : config.sportmonksMaxTotalEvents,
-            maxPages: config.sportmonksPassthrough ? 0 : config.sportmonksMaxPages
-          }
-        : { maxEvents, maxPages: maxPages || 0 };
+      const options = provider === 'sportradar'
+        ? { maxEvents: 0, maxPages: 0 }
+        : provider === 'sportmonks'
+          ? {
+              maxEvents: config.sportmonksPassthrough ? 0 : config.sportmonksMaxTotalEvents,
+              maxPages: config.sportmonksPassthrough ? 0 : config.sportmonksMaxPages
+            }
+          : { maxEvents, maxPages: maxPages || 0 };
       const result = await fetch(options);
+      if (result?.enabled === true && result?.transportOk === false) {
+        throw new Error('Sportradar returned an incomplete transport result; partial snapshot rejected.');
+      }
+      if (result?.enabled === true && Array.isArray(result.errors) && result.errors.length) {
+        throw new Error('Sportradar returned provider errors; partial snapshot rejected: ' + result.errors.join('; '));
+      }
       if (result) providerResults.push(result);
       console.log('FETCH_DONE ' + provider + ' events=' + (result?.events?.length ?? 0) + ' errors=' + JSON.stringify(result?.errors || []));
     } catch (error) {
@@ -297,7 +310,7 @@ export async function buildSportsbookRenderSnapshot({
     if (!e || typeof e !== 'object') return false;
     if (typeof e.id !== 'string' || !e.id.trim()) return false;
     if (typeof e.sport !== 'string' || !e.sport.trim()) return false;
-    if (typeof e.league !== 'string' || !e.league.trim()) return false;
+    if (typeof e.league !== 'string' || (!e.league.trim() && provider !== 'sportradar')) return false;
     if (e.country !== null && (typeof e.country !== 'string' || !e.country.trim())) return false;
     if (provider === 'sportmonks' && config.sportmonksPassthrough) {
       if (e.startTime !== null && (typeof e.startTime !== 'string' || !Number.isFinite(Date.parse(e.startTime)))) return false;
@@ -327,19 +340,24 @@ export async function buildSportsbookRenderSnapshot({
     return true;
   }
   const normalizedResults = combined.providerResults.map(result => ({
-
     ...result,
-    events: (result.events || []).filter(event => {
+    events: (result.events || []).map(event => {
       if (!isValidEvent(event, result.provider)) {
-        console.warn('EVENT_DROP ' + JSON.stringify({ provider: result.provider, id: event?.id, reason: 'invalid-structure' }));
-        return false;
+        throw new Error('Sportradar event rejected before publish: ' + JSON.stringify({
+          provider: result.provider,
+          id: event?.id || null,
+          reason: 'invalid-structure',
+          league: event?.league ?? null,
+          startTime: event?.startTime ?? null,
+          markets: Array.isArray(event?.markets) ? event.markets.length : null
+        }));
       }
-      return true;
-    }).map(event => ({
-      ...event,
-      _sources: [result.provider],
-      _refs: (event._refs && event._refs[result.provider]) ? { [result.provider]: event._refs[result.provider] } : event._refs
-    }))
+      return {
+        ...event,
+        _sources: [result.provider],
+        _refs: (event._refs && event._refs[result.provider]) ? { [result.provider]: event._refs[result.provider] } : event._refs
+      };
+    })
   }));
   const snapshot = {
     schemaVersion: 1,

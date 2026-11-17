@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 
 const renderDockerfile = readFileSync(new URL('../../deploy/Dockerfile.sportsbook-render-worker', import.meta.url), 'utf8');
 const railway = readFileSync(new URL('../../.railway/railway.ts', import.meta.url), 'utf8');
@@ -8,12 +9,15 @@ const envExample = readFileSync(new URL('../.env.example', import.meta.url), 'ut
 const proxy = readFileSync(new URL('../../deploy/member-server.js', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const worker = readFileSync(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8');
+const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
+const webServiceBlock = railway.match(/const web = service\("web", \{[\s\S]*?\n  \}\);/)?.[0] || '';
 const workerServiceBlock = railway.match(/const sportsbookRenderWorker = service\("sportsbook-render-worker", \{[\s\S]*?\n  \}\);/)?.[0] || '';
 
 const INGEST_PATH = '/api/internal/sportsbook/ingest';
 // Nilai env worker memakai bentuk `KEY: "value"`; bentuk preserve() di blok web
 // tidak ikut tertangkap regex ini sehingga hasilnya eksplisit milik worker.
-const railwayWorkerEnv = key => railway.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
+const railwayWebEnv = key => webServiceBlock.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
+const railwayWorkerEnv = key => workerServiceBlock.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
 
 test('Railway scraper runs in its own slim service image with a hard heap ceiling', () => {
   assert.match(railway, /service\("sportsbook-render-worker"/);
@@ -30,11 +34,13 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
   assert.equal(railwayWorkerEnv('DATABASE_URL'), '${{web.DATABASE_URL}}');
   assert.equal(railwayWorkerEnv('REDIS_URL'), '${{web.REDIS_URL}}');
-  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), 'true');
-  assert.match(workerServiceBlock, /ODDSPAPI_API_KEY:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /ODDSPAPI_BASE_URL:\s*preserve\(\)/);
-  assert.equal(railwayWorkerEnv('ODDSPAPI_DAILY_REQUEST_BUDGET'), '8');
-  assert.equal(railwayWorkerEnv('ODDSPAPI_MONTHLY_REQUEST_BUDGET'), '240');
+  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), undefined);
+  assert.equal(railwayWorkerEnv('ODDSPAPI_API_KEY'), undefined);
+  assert.equal(railwayWorkerEnv('SPORTRADAR_ENABLED'), 'true');
+  assert.match(workerServiceBlock, /SPORTRADAR_API_KEY:\s*preserve\(\)/);
+  assert.doesNotMatch(webServiceBlock, /SPORTRADAR_API_KEY|SPORTRADAR_BASE_URL/, 'only the isolated worker may call Sportradar');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_BASE_URL'), 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en');
+  assert.match(railway, /SPORTRADAR_API_KEY:\s*preserve\(\)/);
   assert.doesNotMatch(worker, /127\.0\.0\.1:1|localhost/);
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), undefined);
 
@@ -54,30 +60,56 @@ test('render worker is not wired to The Odds API', () => {
   assert.doesNotMatch(envExample, /^THE_ODDS_API_/m);
 });
 
-test('render worker keeps provider/page limits and Sportmonks coverage (no artificial payload cap)', () => {
-  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
-  // Anggaran halaman penuh diteruskan ke fetchSportmonks agar snapshot ingest
-  // mengambil cakupan luas (bukan terpotong ~17 match oleh pembagian statis).
-  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
-  assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
-  // Tidak ada batas ukuran buatan pada snapshot: sportmonks & sharpapi dikirim utuh.
-  assert.match(worker, /fetchSportmonks/);
-  assert.match(worker, /fetchSharpApi/);
-  assert.doesNotMatch(worker, /fetchApiSports/);
+test('production sportsbook worker refuses trial Sportradar access before polling', () => {
+  const result = spawnSync(process.execPath, ['src/sportsbook-render-worker.js'], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      SPORTRADAR_ENABLED: 'true',
+      SPORTRADAR_API_KEY: 'test-sportradar-key',
+      SPORTRADAR_BASE_URL: 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en',
+      SPORTSBOOK_INGEST_URL: 'https://example.invalid/api/internal/sportsbook/ingest',
+      SPORTSBOOK_INGEST_HMAC_SECRET: 's'.repeat(48),
+      DATABASE_URL: 'postgres://user:password@example.com/db',
+      REDIS_URL: 'redis://example.com:6379'
+    }
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /explicit trial access in one-shot cron mode/);
+});
 
-  // Sportmonks is passed through without an event/page cap.
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
-  assert.match(workerServiceBlock, /SPORTMONKS_PASSTHROUGH:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_DAYS_AHEAD:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_MAX_TOTAL_EVENTS:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_MAX_PAGES:\s*preserve\(\)/);
-  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), undefined);
-  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES'), undefined);
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '300');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '0');
-  assert.match(worker, /fetchSportmonks/);
-
+test('render worker uses Sportradar exclusively with no artificial event/page caps', () => {
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '0');
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '0');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_EVENTS'), '0');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_PAGES'), '0');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_CALLS_PER_HOUR'), '20');
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_DAILY_REFRESH_ENABLED'), 'false');
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_CRON_ONCE'), 'true');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION'), 'true');
+  assert.ok(workerServiceBlock.includes('cronSchedule: "5 17 * * *"'));
+  assert.match(worker, /SPORTSBOOK_CRON_ONCE/);
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_PREMATCH_WINDOW_DAYS'), '7');
+  assert.equal(railwayWebEnv('SPORTS_FEED_MAX_EVENTS'), '0');
+  assert.equal(railwayWebEnv('SPORTS_FEED_MAX_CACHE_BYTES'), '0');
+  assert.equal(railwayWebEnv('SPORTSBOOK_DAILY_REFRESH_ENABLED'), 'true');
+  assert.equal(railwayWebEnv('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS'), '172800');
+  assert.equal(railwayWebEnv('SPORTSBOOK_INGEST_MAX_AGE_SECONDS'), '600');
+  assert.match(worker, /fetchSportradar/);
+  assert.match(worker, /config\.nodeEnv === 'production'/);
+  assert.match(worker, /SPORTRADAR_API_KEY is required/);
+  assert.match(worker, /production.*v2.*en/);
+  assert.match(worker, /trial access in one-shot cron mode/);
+  assert.doesNotMatch(worker, /fetchSportmonks|fetchSharpApi|fetchOddsPapi/);
+  assert.match(feed, /fetchSportradar/);
+  assert.match(feed, /config\.nodeEnv === 'production'/);
+  assert.match(feed, /code: 'sportradar'/);
+  assert.match(feed, /Number\(MAX_FEED_EVENTS\) > 0/, 'zero feed event limit must mean unlimited, not reject all cache reads');
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), undefined);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), undefined);
+  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), undefined);
 });
 
 test('ingest URL, env example, both proxies and backend route stay aligned', () => {
