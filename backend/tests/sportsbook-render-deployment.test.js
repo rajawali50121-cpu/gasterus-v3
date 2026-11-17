@@ -96,6 +96,7 @@ test('render worker uses Sportradar exclusively with no artificial event/page ca
   assert.equal(railwayWorkerEnv('SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION'), 'true');
   assert.ok(workerServiceBlock.includes('cronSchedule: "5 17 * * *"'));
   assert.match(worker, /SPORTSBOOK_CRON_ONCE/);
+  assert.match(worker, /event: 'worker-config'/);
   assert.equal(railwayWorkerEnv('SPORTSBOOK_PREMATCH_WINDOW_DAYS'), '7');
   assert.equal(railwayWebEnv('SPORTS_FEED_MAX_EVENTS'), '0');
   assert.equal(railwayWebEnv('SPORTS_FEED_MAX_CACHE_BYTES'), '0');
