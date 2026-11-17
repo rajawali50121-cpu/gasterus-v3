@@ -73,6 +73,15 @@ function apiEvent(index) {
         books: [{ id: 'book-b', name: 'Bookmaker B', outcomes: [
           { id: `extra-${index}`, name: 'Home team over 0.5', total: '0.5', odds_decimal: '1.50' }
         ] }]
+      },
+      {
+        id: `market-removed-${index}`,
+        name: 'winner (incl. extra innings)',
+        is_live: false,
+        books: [{ id: 'book-removed', name: 'Removed Book', removed: true, outcomes: [
+          { id: `removed-${index}`, type: 'home', odds_decimal: '1.00', removed: true },
+          { id: `removed-no-price-${index}`, type: 'away', removed: true }
+        ] }]
       }
     ]
   };
@@ -103,6 +112,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(result.enabled, true);
   assert.equal(result.transportOk, true);
   assert.equal(result.events.length, 121);
+  assert.equal(calls.filter(call => call.date === undefined).length, 0);
   assert.equal(result.diagnostics.eventsAccepted, 121);
   assert.equal(calls.filter(call => call.date === scheduleDate).length, 3);
   assert.equal(calls.filter(call => call.date === scheduleDate).map(call => call.start).join(','), '0,50,100');
@@ -114,6 +124,12 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.ok(first.markets.some(market => market.type === 'TEAM_TOTAL' || market.type === 'OTHER'));
   assert.ok(first.markets.every(market => market.source === 'sportradar'));
   assert.ok(first.markets.every(market => market.selections.every(selection => selection.source === 'sportradar')));
+  const removedBookMarket = first.markets.find(market => market.sourceBookId === 'book-removed');
+  assert.ok(removedBookMarket, 'removed bookmaker market remains in the ingested source data');
+  assert.equal(removedBookMarket.suspended, true);
+  assert.equal(removedBookMarket.selections[0].odds, 1);
+  assert.equal(removedBookMarket.selections[1].odds, null);
+  assert.equal(removedBookMarket.selections[0].removed, true);
 
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportradar: async () => result,
