@@ -4,9 +4,8 @@ import { logger } from './logger.js';
 
 const PROVIDER = 'sportradar';
 const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en';
-const SOCCER_SPORT_ID = 'sr:sport:1';
 const PAGE_SIZE = 50;
-const PREMATCH_STATUSES = new Set(['not_started']);
+const DEFAULT_SPORT_IDS = ['sr:sport:1'];
 
 function clean(value, max = 160) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -132,16 +131,22 @@ function leagueName(raw, item = null) {
     120
   );
 }
-function normalizeScheduleEvent(raw, item = null) {
-  if (!raw || typeof raw !== 'object' || !raw.id) return { event: null, reason: 'missing-event-id' };
-  if (raw.replaced_by) return { event: null, reason: 'replaced-event' };
-  const status = String(raw.status || '').toLowerCase();
-  if (!PREMATCH_STATUSES.has(status)) return { event: null, reason: status || 'missing-status' };
+function normalizedEventStatus(value) {
+  const status = String(value || '').toLowerCase();
+  if (['ended', 'aet', 'finished', 'final'].includes(status)) return 'FINISHED';
+  if (['cancelled', 'canceled', 'abandoned', 'postponed', 'suspended', 'interrupted'].includes(status)) return 'SUSPENDED';
+  return 'SCHEDULED';
+}
+function normalizeScheduleEvent(raw, item = null, sport = null) {
+  if (!raw || typeof raw !== 'object' || !raw.id) return { event: null, reason: 'missing-documented-event-id' };
+  const startTime = iso(raw.start_time);
+  if (!startTime) return { event: null, reason: 'missing-or-invalid-documented-start-time' };
 
+  const competitors = Array.isArray(raw.competitors) ? raw.competitors : [];
   let home = null;
   let away = null;
   let country = null;
-  for (const competitor of (Array.isArray(raw.competitors) ? raw.competitors : [])) {
+  for (const competitor of competitors) {
     const name = competitorName(competitor);
     if (!name) continue;
     if (!country && competitor.country) country = clean(competitor.country, 80) || null;
@@ -149,20 +154,27 @@ function normalizeScheduleEvent(raw, item = null) {
     if (qualifier === 'home') home = name;
     if (qualifier === 'away') away = name;
   }
-  if (!home || !away) return { event: null, reason: 'missing-home-or-away' };
-  const startTime = iso(raw.start_time || raw.start_date || raw.scheduled);
-  if (!startTime) return { event: null, reason: 'invalid-start-time' };
-
-  const id = String(raw.id).replace(/^sr:sport_event:/, '');
+  const namedCompetitors = competitors.map(competitorName).filter(Boolean);
+  home ||= namedCompetitors[0] || 'TBD';
+  away ||= namedCompetitors[1] || 'TBD';
+  const id = String(raw.id);
   const context = raw.sport_event_context || item?.sport_event_context || {};
   country = country || clean(context.category?.country || context.competition?.country, 80) || null;
+  const status = clean(raw.status, 40) || 'unknown';
+  const mappedStatus = normalizedEventStatus(status);
   return {
     reason: null,
     event: {
-      provider: PROVIDER, providerId: id, id, sport: 'soccer',
+      provider: PROVIDER, providerId: id, id,
+      sport: clean(sport?.name || sport?.id || 'Unknown sport', 40),
+      sportId: sport?.id || null,
       league: leagueName(raw, item), country, startTime,
-      state: 'SCHEDULED', status: 'SCHEDULED', live: false,
-      providerStatus: clean(status, 40), clock: null,
+      state: mappedStatus, status: mappedStatus, live: false,
+      providerStatus: status, replacedBy: raw.replaced_by || null,
+      startTimeConfirmed: raw.start_time_confirmed ?? null,
+      resumeTime: iso(raw.resume_time),
+      sourceData: { sportEvent: raw, sportEventContext: context },
+      clock: null,
       home: { name: home, score: null, logo: null },
       away: { name: away, score: null, logo: null },
       homeScore: null, awayScore: null, markets: [],
@@ -206,52 +218,88 @@ function selectionLabel(outcome, event, type) {
   if (value === 'over') return 'Over';
   if (value === 'under') return 'Under';
   if (value) return clean(value.replace(/[_-]+/g, ' '), 120);
-  return null;
+  return clean(outcome?.id || 'Unlabelled outcome', 120);
 }
 function normalizeOdds(event, raw) {
-  const diagnostics = { marketsSeen: 0, marketsSkippedLive: 0, marketsSkippedRemoved: 0, booksSeen: 0, booksSkippedRemoved: 0, outcomesSeen: 0, outcomesSkippedRemoved: 0, outcomesSkippedInvalidOdds: 0, marketsWithoutUsableOutcomes: 0 };
+  const diagnostics = {
+    marketsSeen: 0, booksSeen: 0, outcomesSeen: 0,
+    removedBooksRetained: 0, removedOutcomesRetained: 0,
+    outcomesWithoutDecimalOddsRetained: 0
+  };
   const markets = [];
   for (const market of (Array.isArray(raw?.markets) ? raw.markets : [])) {
+    if (!market || typeof market !== 'object') continue;
     diagnostics.marketsSeen += 1;
-    if (!market || market.removed === true) { diagnostics.marketsSkippedRemoved += 1; continue; }
-    if (market.is_live === true) { diagnostics.marketsSkippedLive += 1; continue; }
-    const marketName = clean(market.name || market.type || market.id, 120);
-    if (!marketName) { diagnostics.marketsWithoutUsableOutcomes += 1; continue; }
+    const marketName = clean(market.name || market.id || 'Unlabelled market', 240);
+    const marketId = String(market.id || marketName);
     const type = marketType(marketName);
     const period = periodFromMarket(marketName);
     const books = Array.isArray(market.books) ? market.books : [];
-    if (!books.length) { diagnostics.marketsWithoutUsableOutcomes += 1; continue; }
 
-    for (const book of books) {
-      diagnostics.booksSeen += 1;
-      if (!book || book.removed === true) { diagnostics.booksSkippedRemoved += 1; continue; }
-      const selections = [];
-      for (const outcome of (Array.isArray(book.outcomes) ? book.outcomes : [])) {
+    // The API's removed lifecycle is on book/outcome, not a reason to erase history.
+    // Preserve a market even when no book currently prices it.
+    const bookRows = books.length ? books : [null];
+    for (const book of bookRows) {
+      if (book) diagnostics.booksSeen += 1;
+      if (book?.removed === true) diagnostics.removedBooksRetained += 1;
+      const outcomes = Array.isArray(book?.outcomes) ? book.outcomes : [];
+      const selections = outcomes.map((outcome, index) => {
+        if (!outcome || typeof outcome !== 'object') return null;
         diagnostics.outcomesSeen += 1;
-        if (!outcome || outcome.removed === true) { diagnostics.outcomesSkippedRemoved += 1; continue; }
-        const odds = number(outcome.odds_decimal ?? outcome.odds);
-        if (odds === null || odds <= 1 || odds > 10000) { diagnostics.outcomesSkippedInvalidOdds += 1; continue; }
+        if (outcome.removed === true) diagnostics.removedOutcomesRetained += 1;
+        const odds = number(outcome.odds_decimal);
+        if (odds === null) diagnostics.outcomesWithoutDecimalOddsRetained += 1;
         const label = selectionLabel(outcome, event, type);
-        if (!label) { diagnostics.outcomesSkippedInvalidOdds += 1; continue; }
-        const line = number(outcome.total ?? outcome.handicap ?? outcome.points ?? outcome.line);
-        const sourceSelectionId = String(outcome.id || `${market.id || marketName}-${book.id || book.name || 'book'}-${label}-${line ?? ''}`);
-        selections.push({
-          key: hash('selection', event.id, market.id || marketName, book.id || book.name || '', sourceSelectionId, line ?? ''),
-          label, odds, line, suspended: Boolean(outcome.suspended || book.suspended || market.suspended), source: PROVIDER, sourceSelectionId,
-          updatedAt: iso(outcome.updated_at || book.updated_at || market.updated_at),
-          priceVersion: hash('price', event.id, market.id || marketName, book.id || book.name || '', sourceSelectionId, odds)
-        });
-      }
-      if (!selections.length) { diagnostics.marketsWithoutUsableOutcomes += 1; continue; }
-      const bookmaker = clean(book.name || book.bookmaker || book.id || 'unknown', 120);
+        const line = number(outcome.handicap ?? outcome.spread ?? outcome.total);
+        const sourceSelectionId = String(outcome.id || outcome.external_outcome_id || `${marketId}-${book?.id || 'book'}-${index}`);
+        return {
+          key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? ''),
+          label, odds, line,
+          suspended: Boolean(book?.removed === true || outcome.removed === true),
+          removed: outcome.removed === true,
+          outcomeType: outcome.type || null,
+          fieldId: outcome.field_id || null,
+          source: PROVIDER, sourceSelectionId,
+          externalOutcomeId: outcome.external_outcome_id || null,
+          oddsAmerican: outcome.odds_american ?? null,
+          oddsFraction: outcome.odds_fraction ?? null,
+          openOddsDecimal: number(outcome.open_odds_decimal),
+          openOddsAmerican: outcome.open_odds_american ?? null,
+          openOddsFraction: outcome.open_odds_fraction ?? null,
+          handicap: number(outcome.handicap),
+          spread: number(outcome.spread),
+          total: number(outcome.total),
+          openHandicap: number(outcome.open_handicap),
+          openTotal: number(outcome.open_total),
+          handicap7day: number(outcome.handicap_7day),
+          total7day: number(outcome.total_7day),
+          odds7dayDecimal: number(outcome.odds_7day_decimal),
+          odds7dayAmerican: outcome.odds_7day_american ?? null,
+          odds7dayFraction: outcome.odds_7day_fraction ?? null,
+          playerId: outcome.player_id || null,
+          playerName: outcome.player_name || null,
+          updatedAt: iso(outcome.updated_at),
+          sourceData: outcome,
+          priceVersion: hash('price', event.id, marketId, marketName, book?.id || '', sourceSelectionId, odds)
+        };
+      }).filter(Boolean);
+
+      const bookmaker = book ? clean(book.name || book.id || 'Unknown bookmaker', 160) : null;
       markets.push({
-        id: hash('market', event.id, market.id || marketName, bookmaker, period),
-        key: clean(market.id || marketName, 120), type, label: marketName, period,
-        line: selections[0].line ?? null,
-        suspended: Boolean(market.suspended || book.suspended),
-        updatedAt: iso(book.updated_at || market.updated_at),
-        source: PROVIDER, sourceMarketId: String(market.id || marketName),
-        bookmaker, mainLine: market.main_line === true, selections
+        id: hash('market', event.id, marketId, marketName, book?.id || bookmaker || ''),
+        key: marketId, type, label: marketName, period,
+        line: selections[0]?.line ?? null,
+        suspended: book?.removed === true,
+        removed: book?.removed === true,
+        isLive: market.is_live === true,
+        updatedAt: null,
+        source: PROVIDER, sourceMarketId: marketId, sourceMarketName: marketName,
+        sourceBookId: book?.id || null,
+        externalMarketId: book?.external_market_id || null,
+        externalSportEventId: book?.external_sport_event_id || null,
+        bookmaker, mainLine: null,
+        sourceData: { market: { id: market.id, name: market.name, is_live: market.is_live }, book },
+        selections
       });
     }
   }
@@ -259,88 +307,100 @@ function normalizeOdds(event, raw) {
 }
 
 export async function fetchSportradar({
-  maxEvents = config.sportradarMaxEvents,
-  maxPages = config.sportradarMaxPages,
+  maxEvents = 0,
+  maxPages = 0,
   daysAhead = config.sportradarDaysAhead
 } = {}) {
   if (!config.sportradarEnabled) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_ENABLED=false'] };
   if (!apiKey()) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_API_KEY is not configured'] };
 
-  const eventLimit = Number(maxEvents) > 0 ? Number(maxEvents) : Infinity;
-  const pageLimit = Number(maxPages) > 0 ? Number(maxPages) : Infinity;
+  // Discover sport IDs from the official Sports feed; select the configured product scope.
+  const sportsResponse = await fetchJson(`${baseUrl()}/sports.json`);
+  const availableSports = Array.isArray(sportsResponse.data?.sports) ? sportsResponse.data.sports : [];
+  if (!availableSports.length) throw new Error('Sportradar Sports feed returned no sports array; snapshot was not published.');
+  const requestedIds = String(config.sportradarSportIds || DEFAULT_SPORT_IDS.join(','))
+    .split(',').map(value => value.trim()).filter(Boolean);
+  const selectedSports = requestedIds.includes('*')
+    ? availableSports
+    : availableSports.filter(sport => requestedIds.includes(String(sport.id)));
+  const missingSportIds = requestedIds.filter(id => id !== '*' && !availableSports.some(sport => String(sport.id) === id));
+  if (missingSportIds.length) {
+    throw new Error(`Configured Sportradar sport IDs are absent from the official Sports feed: ${missingSportIds.join(', ')}`);
+  }
+  if (!selectedSports.length) throw new Error('No configured Sportradar sport IDs were found in the Sports feed.');
+
   const days = Math.max(1, Number(daysAhead) || 3);
   const dates = requestedDates(days);
-  const bounds = dateBounds(days);
   const allEvents = [];
   const seenIds = new Set();
   const diagnostics = {
+    sportsDiscovered: availableSports.length,
+    sportsSelected: selectedSports.map(sport => ({ id: sport.id, name: sport.name, type: sport.type })),
     datesRequested: dates.length, pagesFetched: 0, eventsSeen: 0, eventsAccepted: 0,
-    eventsSkipped: {}, odds: { marketsSeen: 0, marketsSkippedLive: 0, marketsSkippedRemoved: 0, booksSeen: 0, booksSkippedRemoved: 0, outcomesSeen: 0, outcomesSkippedRemoved: 0, outcomesSkippedInvalidOdds: 0, marketsWithoutUsableOutcomes: 0 }
+    eventsSkipped: {}, odds: {
+      marketsSeen: 0, booksSeen: 0, outcomesSeen: 0,
+      removedBooksRetained: 0, removedOutcomesRetained: 0,
+      outcomesWithoutDecimalOddsRetained: 0
+    }
   };
 
-  for (const date of dates) {
-    let start = 0;
-    while (true) {
-      if (diagnostics.pagesFetched >= pageLimit) {
-        throw new Error(`Sportradar pagination stopped at configured page limit ${pageLimit}; partial data is not published.`);
-      }
-      const url = new URL(`${baseUrl()}/sports/${SOCCER_SPORT_ID}/schedules/${date}/sport_event_markets.json`);
-      url.searchParams.set('limit', String(PAGE_SIZE));
-      url.searchParams.set('start', String(start));
-      const { data, headers: responseHeaders } = await fetchJson(url.toString());
-      diagnostics.pagesFetched += 1;
-      const items = Array.isArray(data?.sport_schedule_sport_event_markets) ? data.sport_schedule_sport_event_markets : [];
-      const maxResultsHeader = responseHeaders?.get?.('x-max-results');
-      const maxResults = maxResultsHeader === null || maxResultsHeader === undefined ? null : Number(maxResultsHeader);
-      if (!items.length) {
-        if (Number.isFinite(maxResults) && start < maxResults) {
-          throw new Error(`Sportradar returned an empty page at offset ${start} while x-max-results reports ${maxResults}; partial data is not published.`);
+  for (const sport of selectedSports) {
+    for (const date of dates) {
+      let start = 0;
+      while (true) {
+        const url = new URL(`${baseUrl()}/sports/${encodeURIComponent(sport.id)}/schedules/${date}/sport_event_markets.json`);
+        url.searchParams.set('limit', String(PAGE_SIZE));
+        url.searchParams.set('start', String(start));
+        const { data, headers: responseHeaders } = await fetchJson(url.toString());
+        diagnostics.pagesFetched += 1;
+        const items = Array.isArray(data?.sport_schedule_sport_event_markets) ? data.sport_schedule_sport_event_markets : [];
+        const maxResultsHeader = responseHeaders?.get?.('x-max-results');
+        const maxResults = maxResultsHeader === null || maxResultsHeader === undefined ? null : Number(maxResultsHeader);
+        if (!items.length) {
+          if (Number.isFinite(maxResults) && start < maxResults) {
+            throw new Error(`Sportradar returned an empty page at offset ${start} while x-max-results reports ${maxResults}; partial data is not published.`);
+          }
+          break;
         }
-        break;
-      }
-      diagnostics.eventsSeen += items.length;
+        diagnostics.eventsSeen += items.length;
 
-      for (const item of items) {
-        const normalized = normalizeScheduleEvent(item?.sport_event, item);
-        if (!normalized.event) {
-          const reason = normalized.reason || 'invalid-event';
-          diagnostics.eventsSkipped[reason] = (diagnostics.eventsSkipped[reason] || 0) + 1;
-          continue;
+        for (const item of items) {
+          const normalized = normalizeScheduleEvent(item?.sport_event, item, sport);
+          if (!normalized.event) {
+            const reason = normalized.reason || 'invalid-documented-event';
+            diagnostics.eventsSkipped[reason] = (diagnostics.eventsSkipped[reason] || 0) + 1;
+            continue;
+          }
+          const event = normalized.event;
+          if (seenIds.has(event.id)) {
+            diagnostics.eventsSkipped.duplicate_provider_id = (diagnostics.eventsSkipped.duplicate_provider_id || 0) + 1;
+            continue;
+          }
+          seenIds.add(event.id);
+          const odds = normalizeOdds(event, item);
+          event.markets = odds.markets;
+          for (const key of Object.keys(diagnostics.odds)) diagnostics.odds[key] += odds.diagnostics[key] || 0;
+          allEvents.push(event);
+          diagnostics.eventsAccepted += 1;
         }
-        const event = normalized.event;
-        const kickoff = Date.parse(event.startTime);
-        if (kickoff < bounds.start || kickoff > bounds.end) {
-          diagnostics.eventsSkipped.outside_requested_window = (diagnostics.eventsSkipped.outside_requested_window || 0) + 1;
-          continue;
-        }
-        if (seenIds.has(event.id)) {
-          diagnostics.eventsSkipped.duplicate_provider_id = (diagnostics.eventsSkipped.duplicate_provider_id || 0) + 1;
-          continue;
-        }
-        seenIds.add(event.id);
-        const odds = normalizeOdds(event, item);
-        event.markets = odds.markets;
-        for (const key of Object.keys(diagnostics.odds)) diagnostics.odds[key] += odds.diagnostics[key] || 0;
-        allEvents.push(event);
-        diagnostics.eventsAccepted += 1;
-        if (allEvents.length >= eventLimit) {
-          throw new Error(`Sportradar event limit ${eventLimit} reached before pagination completed; partial data is not published.`);
-        }
-      }
 
-      start += items.length;
-      if (Number.isFinite(maxResults)) {
-        if (start >= maxResults) break;
-      } else if (items.length < PAGE_SIZE) {
-        break;
+        start += items.length;
+        if (Number.isFinite(maxResults)) {
+          if (start >= maxResults) break;
+        } else if (items.length < PAGE_SIZE) {
+          break;
+        }
       }
     }
   }
 
   const result = {
     provider: PROVIDER, enabled: true, events: allEvents, errors: [], transportOk: true,
-    diagnostics: { ...diagnostics, calls: diagnostics.pagesFetched }
+    diagnostics: { ...diagnostics, calls: diagnostics.pagesFetched + 1 }
   };
-  logger.info('Sportradar prematch ingestion completed', { events: diagnostics.eventsAccepted, pages: diagnostics.pagesFetched, diagnostics });
+  logger.info('Sportradar prematch ingestion completed', {
+    events: diagnostics.eventsAccepted, sports: diagnostics.sportsSelected.length,
+    pages: diagnostics.pagesFetched, diagnostics
+  });
   return result;
 }
