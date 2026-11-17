@@ -157,16 +157,21 @@ test('does not change valid markets and retains events whose markets are all qua
   assert.equal(validationLogs.at(-1)[1].total, 2);
 });
 
-test('Sportradar invalid prices remain visible but are suspended and annotated', () => {
-  const invalidMarket = market('1X2', null, null, [2.5, 3, 5]);
-  invalidMarket.source = 'sportradar';
-  const event = { id: 'sportradar-invalid-market', _sources: ['sportradar'], markets: [invalidMarket] };
+test('Sportradar documented market and odds payload bypasses all Gasterus-only price validators unchanged', () => {
+  const markets = [
+    market('1X2', null, null, [2.5, 3, 5]),
+    market('HANDICAP', -11.76, [-11.76, 11.76], [1.085, 100.5]),
+    market('TOTALS', 2.3, [2.3, 2.3], [1.00, null]),
+    market('OTHER', null, null, [250])
+  ];
+  for (const item of markets) item.source = 'sportradar';
+  markets[2].selections[0].suspended = true;
+  const before = structuredClone(markets);
+  const event = { id: 'sportradar-native-market-payload', _sources: ['sportradar'], markets };
   validateAllHandicapOdds([event]);
-  assert.equal(event.markets.length, 1, 'market data must not be silently removed');
-  assert.equal(event.markets[0].suspended, true);
-  assert.ok(event.markets[0].validationWarnings.includes('OVERROUND_1X2'));
-  assert.ok(event.markets[0].selections.every(selection => selection.suspended));
-  assert.ok(event.validationWarnings.includes('OVERROUND_1X2'));
+  assert.strictEqual(event.markets, markets);
+  assert.deepEqual(event.markets, before, 'prices, lines, suspended state and market records must not be mutated');
+  assert.equal(event.markets.length, 4);
 });
 
 test('refresh invokes validation without calling the removed reset helper', () => {
