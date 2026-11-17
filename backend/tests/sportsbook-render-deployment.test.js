@@ -14,7 +14,7 @@ const workerServiceBlock = railway.match(/const sportsbookRenderWorker = service
 const INGEST_PATH = '/api/internal/sportsbook/ingest';
 // Nilai env worker memakai bentuk `KEY: "value"`; bentuk preserve() di blok web
 // tidak ikut tertangkap regex ini sehingga hasilnya eksplisit milik worker.
-const railwayWorkerEnv = key => railway.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
+const railwayWorkerEnv = key => workerServiceBlock.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
 
 test('Railway scraper runs in its own slim service image with a hard heap ceiling', () => {
   assert.match(railway, /service\("sportsbook-render-worker"/);
