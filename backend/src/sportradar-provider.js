@@ -121,8 +121,8 @@ function competitorName(competitor) {
     ? clean(competitor.name || competitor.display_name, 120) || null
     : null;
 }
-function leagueName(raw) {
-  const context = raw?.sport_event_context || {};
+function leagueName(raw, item = null) {
+  const context = raw?.sport_event_context || item?.sport_event_context || {};
   return clean(
     context.competition?.name
       || context.tournament?.name
@@ -132,7 +132,7 @@ function leagueName(raw) {
     120
   );
 }
-function normalizeScheduleEvent(raw) {
+function normalizeScheduleEvent(raw, item = null) {
   if (!raw || typeof raw !== 'object' || !raw.id) return { event: null, reason: 'missing-event-id' };
   if (raw.replaced_by) return { event: null, reason: 'replaced-event' };
   const status = String(raw.status || '').toLowerCase();
@@ -154,13 +154,13 @@ function normalizeScheduleEvent(raw) {
   if (!startTime) return { event: null, reason: 'invalid-start-time' };
 
   const id = String(raw.id).replace(/^sr:sport_event:/, '');
-  const context = raw.sport_event_context || {};
+  const context = raw.sport_event_context || item?.sport_event_context || {};
   country = country || clean(context.category?.country || context.competition?.country, 80) || null;
   return {
     reason: null,
     event: {
       provider: PROVIDER, providerId: id, id, sport: 'soccer',
-      league: leagueName(raw), country, startTime,
+      league: leagueName(raw, item), country, startTime,
       state: 'SCHEDULED', status: 'SCHEDULED', live: false,
       providerStatus: clean(status, 40), clock: null,
       home: { name: home, score: null, logo: null },
@@ -174,6 +174,7 @@ function marketType(name) {
   const value = clean(name, 120).toLowerCase();
   if (/1x2|money.?line|match.?winner|match.?result|three.?way/.test(value)) return '1X2';
   if (/handicap|spread/.test(value)) return 'HANDICAP';
+  if (/team.?total/.test(value)) return 'TEAM_TOTAL';
   if (/total|over.?under|goals/.test(value)) return 'TOTALS';
   if (/both.?teams|btts/.test(value)) return 'BTTS';
   if (/double.?chance/.test(value)) return 'DOUBLE_CHANCE';
@@ -236,7 +237,7 @@ function normalizeOdds(event, raw) {
         const sourceSelectionId = String(outcome.id || `${market.id || marketName}-${book.id || book.name || 'book'}-${label}-${line ?? ''}`);
         selections.push({
           key: hash('selection', event.id, market.id || marketName, book.id || book.name || '', sourceSelectionId, line ?? ''),
-          label, odds, line, suspended: false, source: PROVIDER, sourceSelectionId,
+          label, odds, line, suspended: Boolean(outcome.suspended || book.suspended || market.suspended), source: PROVIDER, sourceSelectionId,
           updatedAt: iso(outcome.updated_at || book.updated_at || market.updated_at),
           priceVersion: hash('price', event.id, market.id || marketName, book.id || book.name || '', sourceSelectionId, odds)
         });
@@ -300,7 +301,7 @@ export async function fetchSportradar({
       diagnostics.eventsSeen += items.length;
 
       for (const item of items) {
-        const normalized = normalizeScheduleEvent(item?.sport_event);
+        const normalized = normalizeScheduleEvent(item?.sport_event, item);
         if (!normalized.event) {
           const reason = normalized.reason || 'invalid-event';
           diagnostics.eventsSkipped[reason] = (diagnostics.eventsSkipped[reason] || 0) + 1;
