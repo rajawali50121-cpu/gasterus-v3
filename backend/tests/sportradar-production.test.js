@@ -80,7 +80,7 @@ function apiEvent(index) {
 
 test('Sportradar pagination imports 121 fixtures and retains every bookmaker and supported/unknown market', async () => {
   const wibToday = todayWibKey();
-  const firstScheduleDate = new Date(Date.parse(`${wibToday}T00:00:00+07:00`)).toISOString().slice(0, 10);
+  const scheduleDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
   const allItems = Array.from({ length: 121 }, (_, index) => apiEvent(index));
   const calls = [];
   globalThis.fetch = async input => {
@@ -88,7 +88,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
     const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const start = Number(url.searchParams.get('start') || 0);
     calls.push({ date, start });
-    const items = date === firstScheduleDate ? allItems.slice(start, start + 50) : [];
+    const items = date === scheduleDate ? allItems.slice(start, start + 50) : [];
     const maxResults = date === firstScheduleDate ? allItems.length : 0;
     return {
       ok: true,
@@ -104,7 +104,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(result.transportOk, true);
   assert.equal(result.events.length, 121);
   assert.equal(result.diagnostics.eventsAccepted, 121);
-  assert.equal(calls.filter(call => call.date === firstScheduleDate).length, 3);
+  assert.equal(calls.filter(call => call.date === scheduleDate).length, 3);
   assert.equal(calls.filter(call => call.date === firstScheduleDate).map(call => call.start).join(','), '0,50,100');
 
   const first = result.events[0];
