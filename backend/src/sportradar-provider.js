@@ -298,7 +298,7 @@ function normalizeOdds(event, raw) {
         externalMarketId: book?.external_market_id || null,
         externalSportEventId: book?.external_sport_event_id || null,
         bookmaker, mainLine: null,
-        sourceData: { market: { id: market.id, name: market.name, is_live: market.is_live }, book },
+        sourceData: { market: { id: market.id, name: market.name, is_live: market.is_live } },
         selections
       });
     }
