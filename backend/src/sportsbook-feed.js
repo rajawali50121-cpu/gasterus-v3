@@ -35,15 +35,12 @@ function hasValidQuarterLine(line) {
 export function validateAllHandicapOdds(events = []) {
   const quarantined = Object.create(null);
   const sportmonksWarnings = Object.create(null);
-  const sportradarWarnings = Object.create(null);
   let totalQuarantined = 0;
   let totalSportmonksWarnings = 0;
-  let totalSportradarWarnings = 0;
 
   for (const event of events) {
     const sportmonksPassthrough = config.sportmonksPassthrough
       && (event?._sources || []).includes('sportmonks');
-    const sportradarSource = (event?._sources || []).includes('sportradar');
     const markets = event.markets || [];
     let writeIndex = 0;
     const eventWarnings = new Set(Array.isArray(event.validationWarnings) ? event.validationWarnings : []);
@@ -51,6 +48,13 @@ export function validateAllHandicapOdds(events = []) {
     for (let readIndex = 0; readIndex < markets.length; readIndex += 1) {
       const market = markets[readIndex];
       const selections = market.selections || [];
+      // Sportradar is the pricing authority. Gasterus-only heuristics such as minimum
+      // odds, overround, quarter-line and selection-count checks are not in the
+      // Sportradar contract and must not mutate, suspend or remove its source markets.
+      if (market.source === 'sportradar' || (event?._sources || []).includes('sportradar')) {
+        markets[writeIndex++] = market;
+        continue;
+      }
       let reason = null;
       const warnings = new Set(Array.isArray(market.validationWarnings) ? market.validationWarnings : []);
       const addWarning = code => {
@@ -121,21 +125,6 @@ export function validateAllHandicapOdds(events = []) {
         }
         markets[writeIndex] = market;
         writeIndex += 1;
-      } else if (sportradarSource && market.source === 'sportradar') {
-        // Keep every Sportradar market visible for audit and member display.
-        // Unsafe quotes are suspended rather than silently removed from the feed.
-        market.validationWarnings = [...warnings];
-        if (reason) {
-          market.suspended = true;
-          market.selections = selections.map(selection => ({ ...selection, suspended: true }));
-        }
-        for (const warning of warnings) {
-          sportradarWarnings[warning] = (sportradarWarnings[warning] || 0) + 1;
-          totalSportradarWarnings += 1;
-          eventWarnings.add(warning);
-        }
-        markets[writeIndex] = market;
-        writeIndex += 1;
       } else if (reason) {
         quarantined[reason] = (quarantined[reason] || 0) + 1;
         totalQuarantined += 1;
@@ -146,7 +135,7 @@ export function validateAllHandicapOdds(events = []) {
     }
 
     markets.length = writeIndex;
-    if ((sportmonksPassthrough || sportradarSource) && eventWarnings.size) event.validationWarnings = [...eventWarnings];
+    if (sportmonksPassthrough && eventWarnings.size) event.validationWarnings = [...eventWarnings];
   }
 
   logger.info('Sportsbook market validation quarantine summary', {
@@ -154,8 +143,6 @@ export function validateAllHandicapOdds(events = []) {
     reasons: quarantined,
     sportmonksWarnings: totalSportmonksWarnings,
     sportmonksWarningCodes: sportmonksWarnings,
-    sportradarWarnings: totalSportradarWarnings,
-    sportradarWarningCodes: sportradarWarnings
   });
 
   return events;

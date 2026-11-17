@@ -131,6 +131,9 @@ function leagueName(raw, item = null) {
     120
   );
 }
+function isRemovedFlag(value) {
+  return value === true || String(value ?? '').trim().toLowerCase() === 'true';
+}
 function normalizedEventStatus(value) {
   const status = String(value || '').toLowerCase();
   if (['ended', 'aet', 'finished', 'final'].includes(status)) return 'FINISHED';
@@ -245,7 +248,8 @@ function normalizeOdds(event, raw) {
     const bookRows = books.length ? books : [null];
     for (const book of bookRows) {
       if (book) diagnostics.booksSeen += 1;
-      if (book?.removed === true) diagnostics.removedBooksRetained += 1;
+      const bookRemoved = isRemovedFlag(book?.removed);
+      if (bookRemoved) diagnostics.removedBooksRetained += 1;
       const bookSourceData = book
         ? Object.fromEntries(Object.entries(book).filter(([key]) => key !== 'outcomes'))
         : null;
@@ -253,7 +257,8 @@ function normalizeOdds(event, raw) {
       const selections = outcomes.map((outcome, index) => {
         if (!outcome || typeof outcome !== 'object') return null;
         diagnostics.outcomesSeen += 1;
-        if (outcome.removed === true) diagnostics.removedOutcomesRetained += 1;
+        const outcomeRemoved = isRemovedFlag(outcome.removed);
+        if (outcomeRemoved) diagnostics.removedOutcomesRetained += 1;
         const odds = number(outcome.odds_decimal);
         if (odds === null) diagnostics.outcomesWithoutDecimalOddsRetained += 1;
         const label = selectionLabel(outcome, event, type);
@@ -262,8 +267,8 @@ function normalizeOdds(event, raw) {
         return {
           key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? ''),
           label, odds, line,
-          suspended: Boolean(book?.removed === true || outcome.removed === true),
-          removed: outcome.removed === true,
+          suspended: Boolean(bookRemoved || outcomeRemoved),
+          removed: outcomeRemoved,
           outcomeType: outcome.type || null,
           fieldId: outcome.field_id || null,
           source: PROVIDER, sourceSelectionId,
@@ -296,8 +301,8 @@ function normalizeOdds(event, raw) {
         id: hash('market', event.id, marketId, marketName, book?.id || bookmaker || ''),
         key: marketId, type, label: marketName, period,
         line: selections[0]?.line ?? null,
-        suspended: book?.removed === true,
-        removed: book?.removed === true,
+        suspended: bookRemoved,
+        removed: bookRemoved,
         isLive: market.is_live === true,
         updatedAt: null,
         source: PROVIDER, sourceMarketId: marketId, sourceMarketName: marketName,
