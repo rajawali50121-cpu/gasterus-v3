@@ -98,10 +98,6 @@ while (!shutdown.signal.aborted) {
       if (retryAfterFailure) lastFailureRetryAt = nowMs;
     }
     console.log('CYCLE_START');
-    const withTimeout = (fn, ms, name) => Promise.race([
-      fn(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error(name + ' timeout ' + ms + 'ms')), ms))
-    ]);
     const snapshot = await buildSportsbookRenderSnapshot({
       fetchSportradar: () => fetchSportradar({}),
       maxEvents: config.sportsbookRenderMaxEvents,
