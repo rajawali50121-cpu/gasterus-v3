@@ -68,6 +68,7 @@ test('render worker uses Sportradar exclusively with no artificial event/page ca
   assert.match(feed, /fetchSportradar/);
   assert.match(feed, /config\.nodeEnv === 'production'/);
   assert.match(feed, /code: 'sportradar'/);
+  assert.match(feed, /Number\(MAX_FEED_EVENTS\) > 0/, 'zero feed event limit must mean unlimited, not reject all cache reads');
   assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), undefined);
   assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), undefined);
