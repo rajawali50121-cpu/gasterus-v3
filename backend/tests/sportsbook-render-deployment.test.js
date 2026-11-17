@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 
 const renderDockerfile = readFileSync(new URL('../../deploy/Dockerfile.sportsbook-render-worker', import.meta.url), 'utf8');
 const railway = readFileSync(new URL('../../.railway/railway.ts', import.meta.url), 'utf8');
@@ -57,6 +58,26 @@ test('render worker is not wired to The Odds API', () => {
   assert.doesNotMatch(worker, /fetchTheOddsApi|fetchOddsApi/);
   assert.doesNotMatch(railway, /^\s*THE_ODDS_API_ENABLED:\s*"true"/m);
   assert.doesNotMatch(envExample, /^THE_ODDS_API_/m);
+});
+
+test('production sportsbook worker refuses trial Sportradar access before polling', () => {
+  const result = spawnSync(process.execPath, ['src/sportsbook-render-worker.js'], {
+    cwd: new URL('..', import.meta.url),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      SPORTRADAR_ENABLED: 'true',
+      SPORTRADAR_API_KEY: 'test-sportradar-key',
+      SPORTRADAR_BASE_URL: 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en',
+      SPORTSBOOK_INGEST_URL: 'https://example.invalid/api/internal/sportsbook/ingest',
+      SPORTSBOOK_INGEST_HMAC_SECRET: 's'.repeat(48),
+      DATABASE_URL: 'postgres://user:password@example.com/db',
+      REDIS_URL: 'redis://example.com:6379'
+    }
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /trial access is not accepted/);
 });
 
 test('render worker uses Sportradar exclusively with no artificial event/page caps', () => {
