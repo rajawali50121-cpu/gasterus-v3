@@ -328,11 +328,11 @@ export async function buildSportsbookRenderSnapshot({
       if (typeof m.period !== 'string' || !m.period.trim()) return false;
       if (m.source !== provider) return false;
       if (typeof m.suspended !== 'boolean') return false;
-      if (!Array.isArray(m.selections) || (!m.selections.length && provider !== 'sportmonks')) return false;
+      if (!Array.isArray(m.selections)) return false;
       for (const sel of m.selections) {
         if (!sel || typeof sel.key !== 'string' || !sel.key.trim()) return false;
-        if (typeof sel.label !== 'string' || (provider !== 'sportmonks' && !sel.label.trim())) return false;
-        if (!Number.isFinite(sel.odds) || (provider !== 'sportmonks' && sel.odds <= 1)) return false;
+        if (typeof sel.label !== 'string' || !sel.label.trim()) return false;
+        if (!(sel.odds === null || sel.odds === undefined || Number.isFinite(sel.odds))) return false;
         if (typeof sel.suspended !== 'boolean') return false;
         if (sel.source !== provider) return false;
       }
