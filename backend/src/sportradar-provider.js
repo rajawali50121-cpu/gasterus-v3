@@ -100,19 +100,21 @@ function wibDateParts(date = new Date()) {
   return { year: Number(values.year), month: Number(values.month), day: Number(values.day) };
 }
 function dateKeyFromUtc(date) { return date.toISOString().slice(0, 10); }
-function requestedDates(daysAhead, now = new Date()) {
-  const { year, month, day } = wibDateParts(now);
-  const first = new Date(Date.UTC(year, month - 1, day));
-  return Array.from({ length: Math.max(1, daysAhead) + 1 }, (_, index) =>
-    dateKeyFromUtc(new Date(first.getTime() + index * 86400000))
-  );
-}
 function dateBounds(daysAhead, now = new Date()) {
-  const dates = requestedDates(daysAhead, now);
-  return {
-    start: Date.parse(`${dates[0]}T00:00:00+07:00`),
-    end: Date.parse(`${dates[dates.length - 1]}T23:59:59.999+07:00`)
-  };
+  const { year, month, day } = wibDateParts(now);
+  const start = Date.parse(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T00:00:00+07:00`);
+  const end = start + (Math.max(1, daysAhead) + 1) * 86400000 - 1;
+  return { start, end };
+}
+function requestedDates(daysAhead, now = new Date()) {
+  const bounds = dateBounds(daysAhead, now);
+  const firstUtcDay = Math.floor(bounds.start / 86400000) * 86400000;
+  const lastUtcDay = Math.floor(bounds.end / 86400000) * 86400000;
+  const dates = [];
+  for (let day = firstUtcDay; day <= lastUtcDay; day += 86400000) {
+    dates.push(dateKeyFromUtc(new Date(day)));
+  }
+  return dates;
 }
 function competitorName(competitor) {
   return competitor && typeof competitor === 'object'
@@ -287,7 +289,14 @@ export async function fetchSportradar({
       const { data, headers: responseHeaders } = await fetchJson(url.toString());
       diagnostics.pagesFetched += 1;
       const items = Array.isArray(data?.sport_schedule_sport_event_markets) ? data.sport_schedule_sport_event_markets : [];
-      if (!items.length) break;
+      const maxResultsHeader = responseHeaders?.get?.('x-max-results');
+      const maxResults = maxResultsHeader === null || maxResultsHeader === undefined ? null : Number(maxResultsHeader);
+      if (!items.length) {
+        if (Number.isFinite(maxResults) && start < maxResults) {
+          throw new Error(`Sportradar returned an empty page at offset ${start} while x-max-results reports ${maxResults}; partial data is not published.`);
+        }
+        break;
+      }
       diagnostics.eventsSeen += items.length;
 
       for (const item of items) {
@@ -318,8 +327,6 @@ export async function fetchSportradar({
         }
       }
 
-      const maxResultsHeader = responseHeaders?.get?.('x-max-results');
-      const maxResults = maxResultsHeader === null || maxResultsHeader === undefined ? null : Number(maxResultsHeader);
       start += items.length;
       if (Number.isFinite(maxResults)) {
         if (start >= maxResults) break;
