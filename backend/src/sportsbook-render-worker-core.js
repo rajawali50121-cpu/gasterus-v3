@@ -294,7 +294,7 @@ export async function buildSportsbookRenderSnapshot({
     providerResults: combined.providerResults.map(result => ({ provider: result.provider, enabled: result.enabled, events: result.events.length }))
   }));
   if (!combined.providerResults.length) {
-    throw new Error(`No enabled sportsbook provider could be fetched. ${failures.join('; ')}`);
+    throw new Error(`No enabled sportsbook provider returned normalized fixtures. ${failures.join('; ')}`);
   }
   if (combined.truncatedEventCount > 0) {
     console.warn(JSON.stringify({
