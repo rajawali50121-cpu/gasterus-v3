@@ -59,6 +59,19 @@ if (!endpoint) throw new Error('SPORTSBOOK_INGEST_URL is required.');
 if (config.sportsbookIngestHmacSecret.length < 32) {
   throw new Error('SPORTSBOOK_INGEST_HMAC_SECRET must contain at least 32 characters.');
 }
+const ingestUrl = new URL(endpoint);
+const sportradarUrl = new URL(config.sportradarBaseUrl);
+console.info(JSON.stringify({
+  service: 'sportsbook-render-worker',
+  event: 'worker-config',
+  cronOnce,
+  dailyRefreshEnabled: config.sportsbookDailyRefreshEnabled !== false,
+  sportradarEnabled: config.sportradarEnabled,
+  sportradarAccessLevel: /\/trial\//i.test(sportradarUrl.pathname) ? 'trial' : /\/production\//i.test(sportradarUrl.pathname) ? 'production' : 'other',
+  sportIds: config.sportradarSportIds || null,
+  ingestHost: ingestUrl.host,
+  ingestPath: ingestUrl.pathname
+}));
 
 const { nextSportsbookDailyRefreshMs } = await import('./sportsbook-render-worker-core.js');
 const snapshotIntervalSeconds = sportsbookRenderIntervalSeconds(config);
