@@ -137,7 +137,7 @@ function normalizedEventStatus(value) {
   if (['cancelled', 'canceled', 'abandoned', 'postponed', 'suspended', 'interrupted'].includes(status)) return 'SUSPENDED';
   return 'SCHEDULED';
 }
-function normalizeScheduleEvent(raw, item = null, sport = null) {
+function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = null) {
   if (!raw || typeof raw !== 'object' || !raw.id) return { event: null, reason: 'missing-documented-event-id' };
   const startTime = iso(raw.start_time);
   if (!startTime) return { event: null, reason: 'missing-or-invalid-documented-start-time' };
@@ -159,6 +159,9 @@ function normalizeScheduleEvent(raw, item = null, sport = null) {
   away ||= namedCompetitors[1] || 'TBD';
   const id = String(raw.id);
   const context = raw.sport_event_context || item?.sport_event_context || {};
+  const scheduleItem = item && typeof item === 'object'
+    ? Object.fromEntries(Object.entries(item).filter(([key]) => !['sport_event', 'sport_event_context', 'markets'].includes(key)))
+    : {};
   country = country || clean(context.category?.country || context.competition?.country, 80) || null;
   const status = clean(raw.status, 40) || 'unknown';
   const mappedStatus = normalizedEventStatus(status);
@@ -173,7 +176,7 @@ function normalizeScheduleEvent(raw, item = null, sport = null) {
       providerStatus: status, replacedBy: raw.replaced_by || null,
       startTimeConfirmed: raw.start_time_confirmed ?? null,
       resumeTime: iso(raw.resume_time),
-      sourceData: { sportEvent: raw, sportEventContext: context },
+      sourceData: { sportEvent: raw, sportEventContext: context, sport, generatedAt, scheduleItem },
       clock: null,
       home: { name: home, score: null, logo: null },
       away: { name: away, score: null, logo: null },
@@ -339,6 +342,7 @@ export async function fetchSportradar({
   const seenIds = new Set();
   const diagnostics = {
     sportsDiscovered: availableSports.length,
+    sportsFeedGeneratedAt: sportsResponse.data?.generated_at || null,
     sportsSelected: selectedSports.map(sport => ({ id: sport.id, name: sport.name, type: sport.type })),
     datesRequested: dates.length, pagesFetched: 0, eventsSeen: 0, eventsAccepted: 0,
     eventsSkipped: {}, odds: {
@@ -369,7 +373,7 @@ export async function fetchSportradar({
         diagnostics.eventsSeen += items.length;
 
         for (const item of items) {
-          const normalized = normalizeScheduleEvent(item?.sport_event, item, sport);
+          const normalized = normalizeScheduleEvent(item?.sport_event, item, sport, data?.generated_at || null);
           if (!normalized.event) {
             const reason = normalized.reason || 'invalid-documented-event';
             diagnostics.eventsSkipped[reason] = (diagnostics.eventsSkipped[reason] || 0) + 1;

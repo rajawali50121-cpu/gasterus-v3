@@ -106,7 +106,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   globalThis.fetch = async input => {
     const url = new URL(String(input));
     if (url.pathname.endsWith('/sports.json')) {
-      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ generated_at: '2026-11-17T18:59:00Z', sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
     }
     const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const start = Number(url.searchParams.get('start') || 0);
@@ -117,7 +117,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
       ok: true,
       status: 200,
       headers: new Headers({ 'x-max-results': String(maxResults) }),
-      json: async () => ({ sport_schedule_sport_event_markets: items }),
+      json: async () => ({ generated_at: '2026-11-17T19:00:00Z', sport_schedule_sport_event_markets: items }),
       text: async () => ''
     };
   };
@@ -136,6 +136,8 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(first.markets.filter(market => market.type === '1X2').length, 3, 'same market ID with different names and books survives normalization');
   assert.ok(first.markets.some(market => market.sourceMarketId === `market-1x2-0` && market.sourceMarketName === '1st half - 1x2' && market.period === '1H'));
   assert.equal(result.events[0].status, 'FINISHED', 'documented event statuses are retained instead of status-filtered');
+  assert.equal(result.events[0].sourceData.generatedAt, '2026-11-17T19:00:00Z');
+  assert.equal(result.diagnostics.sportsFeedGeneratedAt, '2026-11-17T18:59:00Z');
   assert.equal(result.events[0].replacedBy, 'sr:sport_event:replacement-0');
   assert.ok(first.markets.some(market => market.type === 'TOTALS'));
   assert.ok(first.markets.some(market => market.type === 'TEAM_TOTAL' || market.type === 'OTHER'));
@@ -181,12 +183,12 @@ test('Sportradar partial page response is rejected rather than published as a co
     const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const start = Number(url.searchParams.get('start') || 0);
     if (date !== scheduleDate) {
-      return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '0' }), json: async () => ({ sport_schedule_sport_event_markets: [] }), text: async () => '' };
+      return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '0' }), json: async () => ({ generated_at: '2026-11-17T19:00:00Z', sport_schedule_sport_event_markets: [] }), text: async () => '' };
     }
     if (start > 0) {
       return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '60' }), json: async () => ({ sport_schedule_sport_event_markets: [] }), text: async () => '' };
     }
-    return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '60' }), json: async () => ({ sport_schedule_sport_event_markets: Array.from({ length: 50 }, (_, index) => apiEvent(index)) }), text: async () => '' };
+    return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '60' }), json: async () => ({ generated_at: '2026-11-17T19:00:00Z', sport_schedule_sport_event_markets: Array.from({ length: 50 }, (_, index) => apiEvent(index)) }), text: async () => '' };
   };
   await assert.rejects(fetchSportradar({ daysAhead: 7 }), /empty page at offset 50 while x-max-results reports 60/);
 });
