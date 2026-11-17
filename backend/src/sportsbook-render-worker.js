@@ -46,10 +46,14 @@ if (config.nodeEnv === 'production') {
     throw new Error('SPORTRADAR_API_KEY is required by the production sportsbook render worker.');
   }
   const sportradarPath = new URL(config.sportradarBaseUrl).pathname.replace(/\/+$/, '');
-  if (!/\/production\/v2\/en$/i.test(sportradarPath)) {
-    throw new Error('Production sportsbook worker requires the Sportradar production access-level URL; trial access is not accepted.');
+  const productionAccess = /\/production\/v2\/en$/i.test(sportradarPath);
+  const trialAccess = /\/trial\/v2\/en$/i.test(sportradarPath);
+  const trialCronOptIn = cronOnce && String(process.env.SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION || '').trim().toLowerCase() === 'true';
+  if (!productionAccess && !(trialAccess && trialCronOptIn)) {
+    throw new Error('Production sportsbook worker requires production Sportradar access, or explicit trial access in one-shot cron mode.');
   }
 }
+const cronOnce = String(process.env.SPORTSBOOK_CRON_ONCE || '').trim().toLowerCase() === 'true';
 const endpoint = String(process.env.SPORTSBOOK_INGEST_URL || '').trim();
 if (!endpoint) throw new Error('SPORTSBOOK_INGEST_URL is required.');
 if (config.sportsbookIngestHmacSecret.length < 32) {
@@ -168,6 +172,10 @@ while (!shutdown.signal.aborted) {
       cycleDurationMs: Date.now() - cycleStartedAt,
       retryInMs: nextDelayMs
     }));
+  }
+  if (cronOnce) {
+    if (consecutiveCycleFailures > 0) process.exitCode = 1;
+    break;
   }
   if (!shutdown.signal.aborted) {
     try {
