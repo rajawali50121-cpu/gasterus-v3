@@ -64,7 +64,7 @@ export default defineRailway(() => {
       SPORTSBOOK_INGEST_HMAC_SECRET: preserve(),
       SPORTSBOOK_INGEST_MAX_AGE_SECONDS: "600",
       SPORTSBOOK_DAILY_REFRESH_ENABLED: "true",
-      SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS: "600",
+      SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS: "172800",
       SPORTSBOOK_PREMATCH_WINDOW_DAYS: "7",
       SPORTS_FEED_MAX_EVENTS: "0",
       SPORTS_FEED_MAX_CACHE_BYTES: "0",
@@ -99,8 +99,8 @@ export default defineRailway(() => {
     source: github("rajawali50121-cpu/gasterus-v3", { branch: "master", checkSuites: true }),
     build: { builder: "DOCKERFILE", dockerfilePath: "deploy/Dockerfile.sportsbook-render-worker" },
     deploy: {
-      restartPolicyType: "ON_FAILURE",
-      restartPolicyMaxRetries: 10
+      cronSchedule: "5 17 * * *",
+      restartPolicyType: "NEVER"
     },
     replicas: { "sfo": 1 },
     env: {
@@ -111,7 +111,9 @@ export default defineRailway(() => {
       REDIS_URL: "${{web.REDIS_URL}}",
       SPORTRADAR_ENABLED: "true",
       SPORTRADAR_API_KEY: preserve(),
-      SPORTRADAR_BASE_URL: preserve(),
+      SPORTRADAR_BASE_URL: "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en",
+      SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION: "true",
+      SPORTSBOOK_CRON_ONCE: "true",
       SPORTRADAR_DAYS_AHEAD: "7",
       SPORTRADAR_MAX_PAGES: "0",
       SPORTRADAR_MAX_EVENTS: "0",
