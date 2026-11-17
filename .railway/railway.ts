@@ -52,6 +52,7 @@ export default defineRailway(() => {
       RESEND_FROM_EMAIL: preserve(),
       RUN_STARTUP_MIGRATIONS: preserve(),
       SESSION_HMAC_KEY: preserve(),
+      SPORTRADAR_ENABLED: preserve(),
       SPORTRADAR_API_KEY: preserve(),
       SPORTRADAR_BASE_URL: preserve(),
       SHARP_API_BASE_URL: preserve(),
@@ -65,6 +66,7 @@ export default defineRailway(() => {
       SPORTS_SOURCE_BACKGROUND_POLL_ENABLED: preserve(),
       SPORTSBOOK_INGEST_HMAC_SECRET: preserve(),
       SPORTSBOOK_INGEST_MAX_AGE_SECONDS: preserve(),
+      SPORTSBOOK_DAILY_REFRESH_ENABLED: "false",
       SPORTSBOOK_INGEST_URL: preserve(),
       SPORTSBOOK_RENDER_MAX_EVENTS: preserve(),
       SPORTMONKS_API_KEY: preserve(),
@@ -106,7 +108,7 @@ export default defineRailway(() => {
       API_FOOTBALL_KEY: preserve(),
       DATABASE_URL: "${{web.DATABASE_URL}}",
       REDIS_URL: "${{web.REDIS_URL}}",
-      SPORTRADAR_ENABLED: "true",
+      SPORTRADAR_ENABLED: "${{web.SPORTRADAR_ENABLED}}",
       SPORTRADAR_API_KEY: "${{web.SPORTRADAR_API_KEY}}",
       SPORTRADAR_BASE_URL: "${{web.SPORTRADAR_BASE_URL}}",
       SPORTRADAR_DAYS_AHEAD: "7",
@@ -119,6 +121,7 @@ export default defineRailway(() => {
       SPORTSBOOK_PREMATCH_WINDOW_DAYS: "7",
       SPORTSBOOK_INGEST_URL: "${{web.SPORTSBOOK_INGEST_URL}}",
       SPORTSBOOK_INGEST_HMAC_SECRET: "${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}",
+      SPORTSBOOK_INGEST_MAX_AGE_SECONDS: "${{web.SPORTSBOOK_INGEST_MAX_AGE_SECONDS}}",
       SPORTSBOOK_RENDER_MAX_EVENTS: "0",
       SPORTSBOOK_RENDER_MAX_PAGES: "0"
     }
