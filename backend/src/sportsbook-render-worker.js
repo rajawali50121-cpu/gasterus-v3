@@ -37,6 +37,19 @@ const [
 ]);
 
 console.log('WORKER_IMPORTS_DONE');
+
+if (config.nodeEnv === 'production') {
+  if (!config.sportradarEnabled) {
+    throw new Error('SPORTRADAR_ENABLED must be true for the production sportsbook render worker.');
+  }
+  if (!config.sportradarApiKey) {
+    throw new Error('SPORTRADAR_API_KEY is required by the production sportsbook render worker.');
+  }
+  const sportradarPath = new URL(config.sportradarBaseUrl).pathname.replace(/\\/+$/, '');
+  if (!/\\/production\\/v2\\/en$/i.test(sportradarPath)) {
+    throw new Error('Production sportsbook worker requires the Sportradar production access-level URL; trial access is not accepted.');
+  }
+}
 const endpoint = String(process.env.SPORTSBOOK_INGEST_URL || '').trim();
 if (!endpoint) throw new Error('SPORTSBOOK_INGEST_URL is required.');
 if (config.sportsbookIngestHmacSecret.length < 32) {
