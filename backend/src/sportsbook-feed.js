@@ -4,6 +4,7 @@ import { AppError } from './errors.js';
 import { redis } from './redis.js';
 import { logger } from './logger.js';
 import { fetchSportmonks, fetchSharpApi, fetchRapidApiOdds, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
+import { fetchSportradar } from './sportradar-provider.js';
 import { resolveSportsbookProviderResults } from './sportsbook-feed-source.js';
 import { appendFeedRevision, readFeedRevision, paginateEvents, SPORTSBOOK_FEED_REVISIONS_KEY } from './sportsbook-feed-revisions.js';
 import { advanceProviderLifecycle, publicProviderLifecycle, shouldProbeProvider, transitionProviderLifecycle } from './sportsbook-provider-lifecycle.js';
@@ -412,6 +413,13 @@ function providerHasPricedMarkets(result) {
 // The render worker is a SEPARATE process that builds its own snapshot via
 // sportsbook-render-worker-core.js; it is not constrained by this list.
 function enabledProviders() {
+  // In production, Sportradar is the only sportsbook odds source. This path is
+  // used only when the verified render-worker snapshot is unavailable/stale.
+  if (config.nodeEnv === 'production') {
+    return config.sportradarEnabled && config.sportradarApiKey
+      ? [{ name: 'Sportradar', code: 'sportradar', enabled: true, fetcher: fetchSportradar }]
+      : [];
+  }
   const descriptors = [];
   if (config.sportmonksEnabled && config.sportmonksKey) {
     descriptors.push({ name: 'Sportmonks', code: 'sportmonks', enabled: true, fetcher: fetchSportmonks });
