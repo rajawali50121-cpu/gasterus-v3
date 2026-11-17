@@ -5,8 +5,6 @@ import { leagueKey, teamKey } from './sportsbook-providers.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
 const ALLOWED_PROVIDERS = new Set(['sportradar', 'sportmonks', 'sharpapi', 'oddspapi']);
-const ALLOWED_STATUSES = new Set(['SCHEDULED', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
-const MAX_PROVIDER_RESULTS = 3;
 const MAX_FUTURE_SKEW_SECONDS = 30;
 
 function invalid(message, code = 'SPORTSBOOK_INGEST_INVALID') {
@@ -95,7 +93,7 @@ function validateEvent(event, provider, now = Date.now()) {
     if (!requiredString(event.league, 120) && provider !== 'sportradar') problems.push(`league=${JSON.stringify(event?.league)}`);
     if (!(event.country === null || requiredString(event.country, 80))) problems.push(`country=${JSON.stringify(event?.country)}`);
     if (!validTimestamp(event.startTime)) problems.push(`startTime=${JSON.stringify(event?.startTime)}`);
-    if (!ALLOWED_STATUSES.has(event.status)) problems.push(`status=${JSON.stringify(event?.status)}`);
+    if (!requiredString(event.status, 40)) problems.push(`status=${JSON.stringify(event?.status)}`);
     if (typeof event.live !== 'boolean') problems.push(`live=${JSON.stringify(event?.live)}`);
     if (!isRecord(event.home) || !requiredString(event.home.name, 120)) problems.push(`home=${JSON.stringify(event?.home)}`);
     if (!isRecord(event.away) || !requiredString(event.away.name, 120)) problems.push(`away=${JSON.stringify(event?.away)}`);
@@ -148,8 +146,7 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
   }
 
   if (!Array.isArray(snapshot.providerResults)
-    || snapshot.providerResults.length === 0
-    || snapshot.providerResults.length > MAX_PROVIDER_RESULTS) {
+    || snapshot.providerResults.length === 0) {
     invalid('Daftar provider snapshot sportsbook tidak valid.');
   }
 
@@ -169,10 +166,6 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
   }
 
   const eventCount = countUniqueFixtures(snapshot.providerResults);
-  if (eventCount === 0) invalid('Snapshot sportsbook harus memuat setidaknya satu event.');
-  if (snapshot.eventCount !== undefined && snapshot.eventCount !== eventCount) {
-    invalid('Jumlah event pada envelope snapshot sportsbook tidak konsisten.');
-  }
   return { snapshot, eventCount, providers: [...providers] };
 }
 
