@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { ticketCalculation } from '../src/sportsbook-calculation.js';
 import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
 import { projectMemberMarkets, selectMemberSummaryMarkets } from '../src/sportsbook-member-projection.js';
+import { __sportsbookFeed } from '../src/sportsbook-feed.js';
 import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from '../../frontend/js/sportsbook-markets.js';
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
@@ -70,6 +71,90 @@ test('Sportradar member projection preserves bookmaker, source ids, and timestam
   assert.equal(projected[0].sourceMarketId, 'sr:market:1');
   assert.equal(projected[0].selections[0].source, 'sportradar');
   assert.equal(projected[0].selections[0].sourceSelectionId, 'sr:outcome:1');
+});
+
+test('Sportradar full member event detail preserves all documented source fields end to end', () => {
+  const event = {
+    id: 'sr:sport_event:fixture-1',
+    sport: 'Soccer',
+    sportId: 'sr:sport:1',
+    league: 'Premier League',
+    country: 'England',
+    startTime: '2026-11-20T20:00:00.000Z',
+    status: 'SCHEDULED',
+    providerStatus: 'not_started',
+    replacedBy: 'sr:sport_event:replacement-1',
+    startTimeConfirmed: true,
+    resumeTime: null,
+    sourceData: { sportEvent: { id: 'sr:sport_event:fixture-1', status: 'not_started' } },
+    home: { name: 'Home FC' },
+    away: { name: 'Away FC' },
+    live: false,
+    _sources: ['sportradar'],
+    markets: [{
+      id: 'market-instance-1',
+      source: 'sportradar',
+      sourceMarketId: 'sr:market:1',
+      sourceMarketName: 'Match Result',
+      sourceBookId: 'sr:book:1',
+      externalMarketId: 'external-market-1',
+      externalSportEventId: 'external-event-1',
+      bookmaker: 'Book A',
+      removed: false,
+      isLive: false,
+      sourceData: { market: { id: 'sr:market:1' }, book: { id: 'sr:book:1' } },
+      type: '1X2',
+      label: 'Match Result',
+      period: 'FT',
+      selections: [{
+        key: 'home',
+        label: 'Home',
+        odds: 2.1,
+        oddsAmerican: '+110',
+        oddsFraction: '11/10',
+        openOddsDecimal: 2.0,
+        openOddsAmerican: '+100',
+        openOddsFraction: '1/1',
+        handicap: 0.5,
+        spread: 0.5,
+        total: 2.5,
+        openHandicap: 0,
+        openTotal: 2.25,
+        handicap7day: 0,
+        total7day: 2.0,
+        odds7dayDecimal: 1.9,
+        odds7dayAmerican: '-110',
+        odds7dayFraction: '10/11',
+        removed: false,
+        outcomeType: 'home',
+        fieldId: 'field-1',
+        externalOutcomeId: 'external-outcome-1',
+        playerId: 'player-1',
+        playerName: 'Player One',
+        sourceData: { id: 'sr:outcome:1', odds_decimal: '2.10' },
+        source: 'sportradar',
+        sourceSelectionId: 'sr:outcome:1',
+        suspended: false
+      }]
+    }]
+  };
+
+  const detail = __sportsbookFeed.memberPublicEventDetail(event);
+  assert.equal(detail.sportId, 'sr:sport:1');
+  assert.equal(detail.replacedBy, 'sr:sport_event:replacement-1');
+  assert.equal(detail.sourceData.sportEvent.id, 'sr:sport_event:fixture-1');
+  const market = detail.markets[0];
+  assert.equal(market.sourceMarketName, 'Match Result');
+  assert.equal(market.sourceBookId, 'sr:book:1');
+  assert.equal(market.sourceData.book.id, 'sr:book:1');
+  const selection = market.selections[0];
+  assert.equal(selection.oddsAmerican, '+110');
+  assert.equal(selection.openOddsDecimal, 2);
+  assert.equal(selection.odds7dayDecimal, 1.9);
+  assert.equal(selection.handicap, 0.5);
+  assert.equal(selection.total, 2.5);
+  assert.equal(selection.playerName, 'Player One');
+  assert.equal(selection.sourceData.odds_decimal, '2.10');
 });
 
 test('Sportmonks finite odds outside the bettable range remain visible but disabled', () => {
