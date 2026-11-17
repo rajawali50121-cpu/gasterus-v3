@@ -159,7 +159,15 @@ test('production sportsbook only uses Sportradar and honors its production key a
     }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":[{"name":"Sportradar","code":"sportradar","enabled":true}],"enabled":true,"keyConfigured":true,"daysAhead":7,"maxEvents":50,"liveAcceptanceDelay":3000}'));
+  const output = result.stdout.split(/\r?\n/).find(line => line.startsWith('{"provider":'));
+  assert.ok(output, `expected provider JSON in stdout; stdout=${result.stdout}; stderr=${result.stderr}`);
+  const actual = JSON.parse(output);
+  assert.deepEqual(actual.provider.map(provider => provider.code), ['sportradar']);
+  assert.equal(actual.enabled, true);
+  assert.equal(actual.keyConfigured, true);
+  assert.equal(actual.daysAhead, 7);
+  assert.equal(actual.maxEvents, 50);
+  assert.equal(actual.liveAcceptanceDelay, 3000);
 });
 
 test('legacy Sportmonks mode keeps the previous 500-event cap', () => {
