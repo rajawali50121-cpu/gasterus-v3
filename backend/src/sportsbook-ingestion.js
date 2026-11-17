@@ -253,8 +253,9 @@ export function createStoredSportsbookSnapshot({ serializedSnapshot, timestamp, 
 export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
   secret = config.sportsbookIngestHmacSecret,
   maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds,
+  retentionMaxAgeSeconds = config.sportsbookStoredSnapshotMaxAgeSeconds,
   now = Date.now(),
-  ttlSeconds = 1800,
+  ttlSeconds = config.sportsbookStoredSnapshotMaxAgeSeconds,
   retries = 3
 } = {}) {
   assert(redisClient?.isOpen && typeof redisClient.watch === 'function' && typeof redisClient.multi === 'function', 503,
@@ -270,14 +271,14 @@ export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
       let previous = null;
       if (previousRaw) {
         try {
-          previous = verifyStoredSportsbookSnapshot(previousRaw, { secret, maxAgeSeconds, now });
+          previous = verifyStoredSportsbookSnapshot(previousRaw, { secret, maxAgeSeconds: retentionMaxAgeSeconds, now });
         } catch {
           previous = null;
         }
       }
 
-      const merged = mergeSportsbookSnapshots(incoming, previous, { now, maxAgeSeconds });
-      validateSportsbookSnapshot(merged, { now, maxAgeSeconds });
+      const merged = mergeSportsbookSnapshots(incoming, previous, { now, maxAgeSeconds: retentionMaxAgeSeconds });
+      validateSportsbookSnapshot(merged, { now, maxAgeSeconds: retentionMaxAgeSeconds });
       const serializedSnapshot = JSON.stringify(merged);
       const rawBody = Buffer.from(serializedSnapshot, 'utf8');
       const timestamp = String(Math.floor(now / 1000));
