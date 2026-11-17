@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const renderDockerfile = readFileSync(new URL('../../deploy/Dockerfile.sportsbook-render-worker', import.meta.url), 'utf8');
@@ -18,6 +18,10 @@ const INGEST_PATH = '/api/internal/sportsbook/ingest';
 // tidak ikut tertangkap regex ini sehingga hasilnya eksplisit milik worker.
 const railwayWebEnv = key => webServiceBlock.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
 const railwayWorkerEnv = key => workerServiceBlock.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
+
+test('global railway.json does not override per-service Railway IaC Dockerfiles', () => {
+  assert.equal(existsSync(new URL('../../railway.json', import.meta.url)), false);
+});
 
 test('Railway scraper runs in its own slim service image with a hard heap ceiling', () => {
   assert.match(railway, /service\("sportsbook-render-worker"/);
