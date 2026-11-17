@@ -94,6 +94,9 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   const calls = [];
   globalThis.fetch = async input => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith('/sports.json')) {
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
+    }
     const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const start = Number(url.searchParams.get('start') || 0);
     calls.push({ date, start });
@@ -148,6 +151,9 @@ test('Sportradar partial page response is rejected rather than published as a co
   const scheduleDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
   globalThis.fetch = async input => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith('/sports.json')) {
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
+    }
     const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const start = Number(url.searchParams.get('start') || 0);
     if (date !== scheduleDate) {
