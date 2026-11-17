@@ -129,12 +129,15 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
 
 test('Sportradar partial page response is rejected rather than published as a complete snapshot', async () => {
   const wibToday = todayWibKey();
-  const firstScheduleDate = new Date(Date.parse(`${wibToday}T00:00:00+07:00`)).toISOString().slice(0, 10);
+  const scheduleDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
   globalThis.fetch = async input => {
     const url = new URL(String(input));
     const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const start = Number(url.searchParams.get('start') || 0);
-    if (date !== firstScheduleDate || start > 0) {
+    if (date !== scheduleDate) {
+      return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '0' }), json: async () => ({ sport_schedule_sport_event_markets: [] }), text: async () => '' };
+    }
+    if (start > 0) {
       return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '60' }), json: async () => ({ sport_schedule_sport_event_markets: [] }), text: async () => '' };
     }
     return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '60' }), json: async () => ({ sport_schedule_sport_event_markets: Array.from({ length: 50 }, (_, index) => apiEvent(index)) }), text: async () => '' };
