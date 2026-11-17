@@ -666,7 +666,7 @@ async function readRedisCache() {
     const nonSportmonksEvents = parsed.events.filter(event =>
       !(config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks'))
     );
-    if (nonSportmonksEvents.length > MAX_FEED_EVENTS) {
+    if (Number(MAX_FEED_EVENTS) > 0 && nonSportmonksEvents.length > Number(MAX_FEED_EVENTS)) {
       logger.warn('Sportsbook Redis cache exceeds event cap; ignoring cache', {
         events: nonSportmonksEvents.length,
         maxEvents: MAX_FEED_EVENTS,
