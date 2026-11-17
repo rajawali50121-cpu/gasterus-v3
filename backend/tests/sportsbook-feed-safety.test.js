@@ -166,7 +166,7 @@ test('production sportsbook only uses Sportradar and honors its production key a
   assert.equal(actual.enabled, true);
   assert.equal(actual.keyConfigured, true);
   assert.equal(actual.daysAhead, 7);
-  assert.equal(actual.maxEvents, 50);
+  assert.equal(actual.maxEvents, 0, 'production feed must not have an artificial event cap');
   assert.equal(actual.liveAcceptanceDelay, 3000);
 });
 
