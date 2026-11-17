@@ -153,7 +153,9 @@ export function validateAllHandicapOdds(events = []) {
     total: totalQuarantined,
     reasons: quarantined,
     sportmonksWarnings: totalSportmonksWarnings,
-    sportmonksWarningCodes: sportmonksWarnings
+    sportmonksWarningCodes: sportmonksWarnings,
+    sportradarWarnings: totalSportradarWarnings,
+    sportradarWarningCodes: sportradarWarnings
   });
 
   return events;
