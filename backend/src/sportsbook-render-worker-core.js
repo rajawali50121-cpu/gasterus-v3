@@ -238,8 +238,13 @@ export async function buildSportsbookRenderSnapshot({
   if (maxEvents !== 0 && (!Number.isInteger(maxEvents) || maxEvents < 1)) {
     throw new Error('Worker sportsbook maxEvents must be a positive integer or 0 (unlimited).');
   }
+  // Production worker passes only fetchSportradar. Optional adapters remain injectable
+  // for isolated unit tests; they are not wired in the production worker.
   const fetchers = [
     { provider: 'sportradar', fetch: fetchSportradar },
+    { provider: 'sportmonks', fetch: fetchSportmonks },
+    { provider: 'sharpapi', fetch: fetchSharpApi },
+    { provider: 'oddspapi', fetch: fetchOddsPapi },
   ];
   const providerResults = [];
   const failures = [];
@@ -247,7 +252,15 @@ export async function buildSportsbookRenderSnapshot({
     if (typeof fetch !== 'function') continue;
     console.log('FETCH_START ' + provider);
     try {
-      const result = await fetch({ maxEvents: 0, maxPages: 0 });
+      const options = provider === 'sportradar'
+        ? { maxEvents: 0, maxPages: 0 }
+        : provider === 'sportmonks'
+          ? {
+              maxEvents: config.sportmonksPassthrough ? 0 : config.sportmonksMaxTotalEvents,
+              maxPages: config.sportmonksPassthrough ? 0 : config.sportmonksMaxPages
+            }
+          : { maxEvents, maxPages: maxPages || 0 };
+      const result = await fetch(options);
       if (result?.enabled === true && result?.transportOk === false) {
         throw new Error('Sportradar returned an incomplete transport result; partial snapshot rejected.');
       }
@@ -267,8 +280,8 @@ export async function buildSportsbookRenderSnapshot({
 
   const combined = combineSportsbookProviderResults(providerResults, {
     maxEvents,
-    passthrough: false,
-    sportmonksMaxEvents: 0,
+    passthrough: config.sportmonksPassthrough,
+    sportmonksMaxEvents: config.sportmonksMaxTotalEvents,
     teamKey
   });
   console.info(JSON.stringify({
