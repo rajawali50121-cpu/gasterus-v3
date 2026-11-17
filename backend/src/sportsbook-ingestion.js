@@ -193,7 +193,7 @@ export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(),
   const nowIso = new Date(now).toISOString();
   const wibNow = new Date(now + 7 * 3600 * 1000);
   const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
-  const maxStartTime = new Date(wibToday.getTime() + 4 * 24 * 3600 * 1000).toISOString();
+  const maxStartTime = new Date(wibToday.getTime() + (Math.max(1, Number(config.sportsbookPrematchWindowDays) || 7) + 1) * 24 * 3600 * 1000 - 1).toISOString();
 
   for (const result of freshIncoming) {
     providerResults.push(result);
