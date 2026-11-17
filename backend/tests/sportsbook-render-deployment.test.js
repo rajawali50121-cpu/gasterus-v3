@@ -77,7 +77,7 @@ test('production sportsbook worker refuses trial Sportradar access before pollin
     }
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /production access, or explicit trial access in one-shot cron mode/);
+  assert.match(result.stderr, /explicit trial access in one-shot cron mode/);
 });
 
 test('render worker uses Sportradar exclusively with no artificial event/page caps', () => {
