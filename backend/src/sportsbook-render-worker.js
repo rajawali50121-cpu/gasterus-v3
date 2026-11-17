@@ -24,16 +24,15 @@ configureProviderOnlyRuntime();
 
 const [
   { config },
-  { fetchSportmonks, fetchSharpApi, teamKey },
-  { fetchOddsPapi },
+  { teamKey },
+  { fetchSportradar },
   { createPostgresOddsPapiStore, createRedisOddsPapiCacheStore },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
   import('./sportsbook-providers.js'),
-  import('./sportsbook-oddspapi.js'),
-  import('./sportsbook-oddspapi-store.js'),
+  import('./sportradar-provider.js'),
   import('./sportsbook-ingest-client.js'),
   import('./sportsbook-render-worker-core.js')
 ]);
@@ -105,16 +104,7 @@ while (!shutdown.signal.aborted) {
       new Promise((_, rej) => setTimeout(() => rej(new Error(name + ' timeout ' + ms + 'ms')), ms))
     ]);
     const snapshot = await buildSportsbookRenderSnapshot({
-      fetchSportmonks: () => withTimeout(() => fetchSportmonks({
-        maxEvents: config.sportmonksPassthrough
-          ? config.sportmonksMaxTotalEvents
-          : Math.min(config.sportsbookRenderMaxEvents, config.sportmonksMaxTotalEvents),
-        maxPages: config.sportmonksPassthrough
-          ? config.sportmonksMaxPages
-          : Math.min(config.sportsbookRenderMaxPages, config.sportmonksMaxPages)
-      }), 20000, 'sportmonks'),
-      fetchSharpApi: () => withTimeout(() => fetchSharpApi({}), 20000, 'sharpapi'),
-      fetchOddsPapi: () => withTimeout(() => fetchOddsPapi({}), 20000, 'oddspapi'),
+      fetchSportradar: () => fetchSportradar({}),
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
       teamKey
@@ -135,7 +125,7 @@ while (!shutdown.signal.aborted) {
       eventCount: Array.isArray(result.events) ? result.events.length : 0,
       stale: result.stale === true,
       errors: Array.isArray(result.errors) ? result.errors.length : 0,
-      diagnostics: result.provider === 'sportmonks' ? result.diagnostics || null : undefined
+      diagnostics: result.diagnostics || null
     }));
     console.info(JSON.stringify({
       service: 'sportsbook-render-worker',
