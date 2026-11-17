@@ -111,13 +111,6 @@ function validateEvent(event, provider, now = Date.now()) {
     invalid(`Event ${event.id} harus prematch (live=false).`);
   }
 
-  const wibNow = new Date(now + 7 * 3600 * 1000);
-  const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
-  const maxStartTime = new Date(wibToday.getTime() + (Math.max(1, Number(config.sportsbookPrematchWindowDays) || 7) + 1) * 24 * 3600 * 1000 - 1).toISOString();
-  if (event.startTime > maxStartTime) {
-    invalid(`Event ${event.id} di luar rentang tanggal yang dikonfigurasi (WIB).`);
-  }
-
   for (const market of event.markets) {
     if (!isRecord(market)
       || !requiredString(market.id, 128)
@@ -126,16 +119,14 @@ function validateEvent(event, provider, now = Date.now()) {
       || market.source !== provider
       || typeof market.suspended !== 'boolean'
       || !Array.isArray(market.selections)
-      || market.selections.length === 0) {
+      ) {
       invalid(`Market pada event ${event.id} tidak valid.`);
     }
     for (const selection of market.selections) {
       if (!isRecord(selection)
         || !requiredString(selection.key, 160)
         || !requiredString(selection.label, 120)
-        || !Number.isFinite(selection.odds)
-        || selection.odds <= 1
-        || selection.odds > 10000
+        || !(selection.odds === null || selection.odds === undefined || Number.isFinite(selection.odds))
         || typeof selection.suspended !== 'boolean'
         || selection.source !== provider
         || !(selection.updatedAt === null || validTimestamp(selection.updatedAt))) {
@@ -191,10 +182,6 @@ export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(),
   const providerReceivedAt = {};
   const providerResults = [];
   const nowIso = new Date(now).toISOString();
-  const wibNow = new Date(now + 7 * 3600 * 1000);
-  const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
-  const maxStartTime = new Date(wibToday.getTime() + (Math.max(1, Number(config.sportsbookPrematchWindowDays) || 7) + 1) * 24 * 3600 * 1000 - 1).toISOString();
-
   for (const result of freshIncoming) {
     providerResults.push(result);
     providerReceivedAt[result.provider] = nowIso;
@@ -214,7 +201,6 @@ export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(),
   const retainedEvents = new Set();
   for (const result of providerResults) {
     for (const event of result.events) {
-      if (event.startTime > maxStartTime) continue;
       let group = retainedGroups.find(items => sameFixture(items[0], event));
       if (!group) {
         group = [];
