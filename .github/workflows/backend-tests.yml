@@ -33,6 +33,12 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
+      - name: Check sportsbook runtime syntax
+        working-directory: backend
+        run: |
+          for file in src/config.js src/sportradar-provider.js src/sportsbook-feed.js src/sportsbook-ingestion.js src/sportsbook-member-projection.js src/sportsbook-providers.js src/sportsbook-render-worker-core.js src/sportsbook-render-worker.js; do
+            node --check "$file"
+          done
       - name: Run backend test suite
         working-directory: backend
         run: npm test
