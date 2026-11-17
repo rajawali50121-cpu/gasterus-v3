@@ -42,7 +42,7 @@ export function projectMemberMarkets(markets = []) {
     for (const selection of Array.isArray(market.selections) ? market.selections : []) {
       if (!isRecord(selection)) continue;
       const selectionIdentity = `${clean(selection.key || selection.label)}|${clean(selection.line ?? market.line)}`;
-      if (!sportmonksPassthrough) {
+      if (!sourcePassthrough) {
         if (seenSelections.has(selectionIdentity)) continue;
         seenSelections.add(selectionIdentity);
       }
@@ -70,7 +70,7 @@ export function projectMemberMarkets(markets = []) {
       suspended: market.suspended,
       mainLine: market.mainLine ?? null,
       bookmaker: market.bookmaker || null,
-      ...(sportmonksPassthrough ? {
+      ...(sourcePassthrough ? {
         source: market.source || null,
         sourceMarketId: market.sourceMarketId || null,
         updatedAt: market.updatedAt || null,
