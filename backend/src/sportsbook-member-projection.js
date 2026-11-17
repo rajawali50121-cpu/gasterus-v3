@@ -23,6 +23,27 @@ const MEMBER_MARKET_SOURCE_LABELS = Object.freeze({
   sportradar: 'Sportradar'
 });
 
+export function projectMemberEventFields(event = {}, { includeProviderFields = false, includeSportradarFields = false } = {}) {
+  return {
+    ...(includeProviderFields || includeSportradarFields ? {
+      providerStatus: event.providerStatus || null
+    } : {}),
+    ...(includeProviderFields ? {
+      periodScores: event.periodScores || {},
+      statistics: event.statistics || [],
+      events: event.events || [],
+      validationWarnings: event.validationWarnings || []
+    } : {}),
+    ...(includeSportradarFields ? {
+      sportId: event.sportId || null,
+      replacedBy: event.replacedBy || null,
+      startTimeConfirmed: event.startTimeConfirmed ?? null,
+      resumeTime: event.resumeTime || null,
+      sourceData: event.sourceData || null
+    } : {})
+  };
+}
+
 export function projectMemberMarkets(markets = [], { includeSourceData = true } = {}) {
   if (!Array.isArray(markets)) return [];
   const seenMarkets = new Set();
