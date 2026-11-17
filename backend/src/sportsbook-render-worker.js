@@ -45,8 +45,8 @@ if (config.nodeEnv === 'production') {
   if (!config.sportradarApiKey) {
     throw new Error('SPORTRADAR_API_KEY is required by the production sportsbook render worker.');
   }
-  const sportradarPath = new URL(config.sportradarBaseUrl).pathname.replace(/\\/+$/, '');
-  if (!/\\/production\\/v2\\/en$/i.test(sportradarPath)) {
+  const sportradarPath = new URL(config.sportradarBaseUrl).pathname.replace(/\/+$/, '');
+  if (!/\/production\/v2\/en$/i.test(sportradarPath)) {
     throw new Error('Production sportsbook worker requires the Sportradar production access-level URL; trial access is not accepted.');
   }
 }
