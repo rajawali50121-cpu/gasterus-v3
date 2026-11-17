@@ -9,7 +9,7 @@ const PAGE_SIZE = 50;
 const PREMATCH_STATUSES = new Set(['not_started']);
 
 function clean(value, max = 160) {
-  return String(value ?? '').replace(/\\s+/g, ' ').trim().slice(0, max);
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 function number(value) {
   if (value === null || value === undefined || String(value).trim() === '') return null;
@@ -24,7 +24,7 @@ function hash(...parts) {
   return createHash('sha256').update(parts.map(value => clean(value, 500)).join('|')).digest('hex').slice(0, 28);
 }
 function apiKey() { return config.sportradarApiKey || ''; }
-function baseUrl() { return (config.sportradarBaseUrl || DEFAULT_BASE_URL).replace(/\\/$/, ''); }
+function baseUrl() { return (config.sportradarBaseUrl || DEFAULT_BASE_URL).replace(/\/+$/, ''); }
 function headers() { return { 'x-api-key': apiKey(), accept: 'application/json' }; }
 
 const callState = { lastCallAt: 0, hourStart: 0, callsThisHour: 0 };
@@ -321,8 +321,11 @@ export async function fetchSportradar({
       const maxResultsHeader = responseHeaders?.get?.('x-max-results');
       const maxResults = maxResultsHeader === null || maxResultsHeader === undefined ? null : Number(maxResultsHeader);
       start += items.length;
-      if (items.length < PAGE_SIZE) break;
-      if (Number.isFinite(maxResults) && start >= maxResults) break;
+      if (Number.isFinite(maxResults)) {
+        if (start >= maxResults) break;
+      } else if (items.length < PAGE_SIZE) {
+        break;
+      }
     }
   }
 
