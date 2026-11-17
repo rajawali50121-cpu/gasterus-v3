@@ -175,6 +175,18 @@ export const config = Object.freeze({
   theSportsDbBaseUrl: text('THESPORTSDB_BASE_URL', 'https://www.thesportsdb.com/api'),
   theSportsDbEnabled: bool('THESPORTSDB_ENABLED', false),
   theSportsDbLeagueIds: text('THESPORTSDB_LEAGUE_IDS', '4328,4335,4332,4331,4334,4387'),
+  // Sportradar is the sole production sportsbook fixtures and odds provider.
+  sportradarApiKey: optionalSecret('SPORTRADAR_API_KEY'),
+  sportradarEnabled: bool('SPORTRADAR_ENABLED', true),
+  sportradarBaseUrl: text('SPORTRADAR_BASE_URL', 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en'),
+  sportradarDaysAhead: int('SPORTRADAR_DAYS_AHEAD', 7, 1, 365),
+  sportradarMaxPages: unboundedInt('SPORTRADAR_MAX_PAGES', 0, 0),
+  sportradarMaxEvents: unboundedInt('SPORTRADAR_MAX_EVENTS', 0, 0),
+  sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 1100, 100, 30000),
+  // Zero disables the local ceiling; the provider account's actual quota and HTTP 429 remain authoritative.
+  sportradarMaxCallsPerHour: unboundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 0, 0),
+  sportradarRefreshSeconds: int('SPORTRADAR_REFRESH_SECONDS', 300, 30, 3600),
+  sportradarRequestTimeoutMs: int('SPORTRADAR_REQUEST_TIMEOUT_MS', 30000, 5000, 120000),
   // Sportmonks is the sole sportsbook fixture and odds provider.
   sportmonksBaseUrl: text('SPORTMONKS_BASE_URL', 'https://api.sportmonks.com/v3'),
   sportmonksKey,
