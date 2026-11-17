@@ -9,11 +9,13 @@ const proxy = readFileSync(new URL('../../deploy/member-server.js', import.meta.
 const app = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const worker = readFileSync(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8');
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
+const webServiceBlock = railway.match(/const web = service\("web", \{[\s\S]*?\n  \}\);/)?.[0] || '';
 const workerServiceBlock = railway.match(/const sportsbookRenderWorker = service\("sportsbook-render-worker", \{[\s\S]*?\n  \}\);/)?.[0] || '';
 
 const INGEST_PATH = '/api/internal/sportsbook/ingest';
 // Nilai env worker memakai bentuk `KEY: "value"`; bentuk preserve() di blok web
 // tidak ikut tertangkap regex ini sehingga hasilnya eksplisit milik worker.
+const railwayWebEnv = key => webServiceBlock.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
 const railwayWorkerEnv = key => workerServiceBlock.match(new RegExp(`${key}: "([^"]*)"`))?.[1];
 
 test('Railway scraper runs in its own slim service image with a hard heap ceiling', () => {
@@ -64,6 +66,10 @@ test('render worker uses Sportradar exclusively with no artificial event/page ca
   assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_CALLS_PER_HOUR'), '0');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_DAILY_REFRESH_ENABLED'), 'false');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_PREMATCH_WINDOW_DAYS'), '7');
+  assert.equal(railwayWebEnv('SPORTS_FEED_MAX_EVENTS'), '0');
+  assert.equal(railwayWebEnv('SPORTS_FEED_MAX_CACHE_BYTES'), '0');
+  assert.equal(railwayWebEnv('SPORTSBOOK_DAILY_REFRESH_ENABLED'), 'true');
+  assert.equal(railwayWebEnv('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS'), '600');
   assert.match(worker, /fetchSportradar/);
   assert.doesNotMatch(worker, /fetchSportmonks|fetchSharpApi|fetchOddsPapi/);
   assert.match(feed, /fetchSportradar/);
