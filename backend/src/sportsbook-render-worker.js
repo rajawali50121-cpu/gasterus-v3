@@ -26,7 +26,6 @@ const [
   { config },
   { teamKey },
   { fetchSportradar },
-  { createPostgresOddsPapiStore, createRedisOddsPapiCacheStore },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
