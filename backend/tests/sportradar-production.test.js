@@ -108,7 +108,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
     if (url.pathname.endsWith('/sports.json')) {
       return { ok: true, status: 200, headers: new Headers(), json: async () => ({ generated_at: '2026-11-17T18:59:00Z', sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
     }
-    const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
+    const date = url.pathname.split('/schedules/')[1]?.split('/')[0];
     const start = Number(url.searchParams.get('start') || 0);
     calls.push({ date, start });
     const items = date === scheduleDate ? allItems.slice(start, start + 50) : [];
