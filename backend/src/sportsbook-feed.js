@@ -15,7 +15,7 @@ import { priceVersionChangeCount } from './sportsbook-live-observability.js';
 import { applySportsbookTradingControls, listActiveSportsbookTradingControls, resolveSportsbookTradingPolicy } from './sportsbook-trading-controls.js';
 import { eventSettlementAuthority, settlementAuthoritySummary } from './sportsbook-settlement-authority.js';
 import { enrichTeamArtwork } from './sportsbook-team-artwork.js';
-import { projectMemberMarkets, selectMemberSummaryMarkets } from './sportsbook-member-projection.js';
+import { projectMemberEventFields, projectMemberMarkets, selectMemberSummaryMarkets } from './sportsbook-member-projection.js';
 
 const MIN_1X2_OVERROUND = 1.00;
 const MAX_1X2_OVERROUND = 1.25;
@@ -1421,21 +1421,7 @@ function memberEventShape(item, markets, { includeProviderFields = false, includ
     country: item.country,
     startTime: item.startTime,
     status: item.status,
-    ...(includeProviderFields || includeSportradarFields ? {
-      providerStatus: item.providerStatus || null
-    } : {}),
-    ...(includeProviderFields ? {
-      periodScores: item.periodScores || {},
-      statistics: item.statistics || [],
-      events: item.events || []
-    } : {}),
-    ...(includeSportradarFields ? {
-      sportId: item.sportId || null,
-      replacedBy: item.replacedBy || null,
-      startTimeConfirmed: item.startTimeConfirmed ?? null,
-      resumeTime: item.resumeTime || null,
-      sourceData: item.sourceData || null
-    } : {}),
+    ...projectMemberEventFields(item, { includeProviderFields, includeSportradarFields }),
     live: item.live,
     clock: item.clock,
     home: item.home,
@@ -1443,7 +1429,6 @@ function memberEventShape(item, markets, { includeProviderFields = false, includ
     leagueLogo: item.leagueLogo,
     venue: item.venue,
     availableMarketCount: item.availableMarketCount,
-    ...(includeProviderFields ? { validationWarnings: item.validationWarnings || [] } : {}),
     detailLoaded: item.detailLoaded,
     markets: projectMemberMarkets(projectedMarkets, { includeSourceData: includeSportradarFields })
   };
