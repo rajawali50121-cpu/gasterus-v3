@@ -85,7 +85,7 @@ test('render worker uses Sportradar exclusively with no artificial event/page ca
   assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '0');
   assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_EVENTS'), '0');
   assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_PAGES'), '0');
-  assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_CALLS_PER_HOUR'), '0');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_CALLS_PER_HOUR'), '20');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_DAILY_REFRESH_ENABLED'), 'false');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_CRON_ONCE'), 'true');
   assert.equal(railwayWorkerEnv('SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION'), 'true');
