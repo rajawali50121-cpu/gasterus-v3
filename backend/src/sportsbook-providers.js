@@ -1934,6 +1934,13 @@ export function publicEvent(event) {
     periodScores: event.periodScores || {},
     statistics: Array.isArray(event.statistics) ? event.statistics : [],
     events: Array.isArray(event.events) ? event.events : [],
+    ...(event._sources?.includes('sportradar') ? {
+      sportId: event.sportId || null,
+      replacedBy: event.replacedBy || null,
+      startTimeConfirmed: event.startTimeConfirmed ?? null,
+      resumeTime: event.resumeTime || null,
+      sourceData: event.sourceData || null
+    } : {}),
     availableMarketCount: Number(event.availableMarketCount || event.markets?.length || 0),
     ...(config.sportmonksPassthrough && (event._sources || []).includes('sportmonks')
       ? { validationWarnings: Array.isArray(event.validationWarnings) ? event.validationWarnings : [] }
@@ -1953,6 +1960,15 @@ export function publicEvent(event) {
       sourceMarketId: market.sourceMarketId || null,
       bookmaker: market.bookmaker || null,
       mainLine: market.mainLine ?? null,
+      ...(market.source === 'sportradar' ? {
+        sourceMarketName: market.sourceMarketName || null,
+        sourceBookId: market.sourceBookId || null,
+        externalMarketId: market.externalMarketId || null,
+        externalSportEventId: market.externalSportEventId || null,
+        removed: market.removed === true,
+        isLive: market.isLive === true,
+        sourceData: market.sourceData || null
+      } : {}),
       ...(config.sportmonksPassthrough && market.source === 'sportmonks'
         ? { validationWarnings: Array.isArray(market.validationWarnings) ? market.validationWarnings : [] }
         : {}),
@@ -1968,7 +1984,31 @@ export function publicEvent(event) {
         source: selection.source || market.source || null,
         sourceSelectionId: selection.sourceSelectionId || null,
         updatedAt: selection.updatedAt || market.updatedAt || null,
-        priceVersion: selection.priceVersion || null
+        priceVersion: selection.priceVersion || null,
+        ...(selection.source === 'sportradar' ? {
+          removed: selection.removed === true,
+          outcomeType: selection.outcomeType || null,
+          fieldId: selection.fieldId || null,
+          externalOutcomeId: selection.externalOutcomeId || null,
+          oddsAmerican: selection.oddsAmerican ?? null,
+          oddsFraction: selection.oddsFraction ?? null,
+          openOddsDecimal: selection.openOddsDecimal ?? null,
+          openOddsAmerican: selection.openOddsAmerican ?? null,
+          openOddsFraction: selection.openOddsFraction ?? null,
+          handicap: selection.handicap ?? null,
+          spread: selection.spread ?? null,
+          total: selection.total ?? null,
+          openHandicap: selection.openHandicap ?? null,
+          openTotal: selection.openTotal ?? null,
+          handicap7day: selection.handicap7day ?? null,
+          total7day: selection.total7day ?? null,
+          odds7dayDecimal: selection.odds7dayDecimal ?? null,
+          odds7dayAmerican: selection.odds7dayAmerican ?? null,
+          odds7dayFraction: selection.odds7dayFraction ?? null,
+          playerId: selection.playerId || null,
+          playerName: selection.playerName || null,
+          sourceData: selection.sourceData || null
+        } : {})
       }))
     }))
   };
