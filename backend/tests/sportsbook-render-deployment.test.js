@@ -30,11 +30,11 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
   assert.equal(railwayWorkerEnv('DATABASE_URL'), '${{web.DATABASE_URL}}');
   assert.equal(railwayWorkerEnv('REDIS_URL'), '${{web.REDIS_URL}}');
-  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), 'true');
-  assert.match(workerServiceBlock, /ODDSPAPI_API_KEY:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /ODDSPAPI_BASE_URL:\s*preserve\(\)/);
-  assert.equal(railwayWorkerEnv('ODDSPAPI_DAILY_REQUEST_BUDGET'), '8');
-  assert.equal(railwayWorkerEnv('ODDSPAPI_MONTHLY_REQUEST_BUDGET'), '240');
+  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), undefined);
+  assert.equal(railwayWorkerEnv('ODDSPAPI_API_KEY'), undefined);
+  assert.equal(railwayWorkerEnv('SPORTRADAR_ENABLED'), 'true');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_API_KEY'), '${{web.SPORTRADAR_API_KEY}}');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_BASE_URL'), '${{web.SPORTRADAR_BASE_URL}}');
   assert.doesNotMatch(worker, /127\.0\.0\.1:1|localhost/);
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), undefined);
 
@@ -54,30 +54,19 @@ test('render worker is not wired to The Odds API', () => {
   assert.doesNotMatch(envExample, /^THE_ODDS_API_/m);
 });
 
-test('render worker keeps provider/page limits and Sportmonks coverage (no artificial payload cap)', () => {
-  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '500');
-  // Anggaran halaman penuh diteruskan ke fetchSportmonks agar snapshot ingest
-  // mengambil cakupan luas (bukan terpotong ~17 match oleh pembagian statis).
-  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '120');
-  assert.match(worker, /maxPages: config\.sportsbookRenderMaxPages/);
-  // Tidak ada batas ukuran buatan pada snapshot: sportmonks & sharpapi dikirim utuh.
-  assert.match(worker, /fetchSportmonks/);
-  assert.match(worker, /fetchSharpApi/);
-  assert.doesNotMatch(worker, /fetchApiSports/);
-
-  // Sportmonks is passed through without an event/page cap.
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), 'true');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), '${{web.SPORTMONKS_API_KEY}}');
-  assert.match(workerServiceBlock, /SPORTMONKS_PASSTHROUGH:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_DAYS_AHEAD:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_MAX_TOTAL_EVENTS:\s*preserve\(\)/);
-  assert.match(workerServiceBlock, /SPORTMONKS_MAX_PAGES:\s*preserve\(\)/);
-  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_TOTAL_EVENTS'), undefined);
-  assert.equal(railwayWorkerEnv('SPORTMONKS_MAX_PAGES'), undefined);
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REFRESH_SECONDS'), '300');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_REQUEST_DELAY_MS'), '0');
-  assert.match(worker, /fetchSportmonks/);
-
+test('render worker uses Sportradar exclusively with no artificial event/page caps', () => {
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_EVENTS'), '0');
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_RENDER_MAX_PAGES'), '0');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_EVENTS'), '0');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_PAGES'), '0');
+  assert.equal(railwayWorkerEnv('SPORTRADAR_MAX_CALLS_PER_HOUR'), '0');
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_DAILY_REFRESH_ENABLED'), 'false');
+  assert.equal(railwayWorkerEnv('SPORTSBOOK_PREMATCH_WINDOW_DAYS'), '7');
+  assert.match(worker, /fetchSportradar/);
+  assert.doesNotMatch(worker, /fetchSportmonks|fetchSharpApi|fetchOddsPapi/);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), undefined);
+  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), undefined);
+  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), undefined);
 });
 
 test('ingest URL, env example, both proxies and backend route stay aligned', () => {
