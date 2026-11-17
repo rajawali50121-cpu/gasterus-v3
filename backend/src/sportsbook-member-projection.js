@@ -23,7 +23,7 @@ const MEMBER_MARKET_SOURCE_LABELS = Object.freeze({
   sportradar: 'Sportradar'
 });
 
-export function projectMemberMarkets(markets = []) {
+export function projectMemberMarkets(markets = [], { includeSourceData = true } = {}) {
   if (!Array.isArray(markets)) return [];
   const seenMarkets = new Set();
   const projected = [];
@@ -57,6 +57,30 @@ export function projectMemberMarkets(markets = []) {
           source: selection.source || market.source || null,
           sourceSelectionId: selection.sourceSelectionId || null,
           updatedAt: selection.updatedAt || null
+        } : {}),
+        ...(market.source === 'sportradar' ? {
+          removed: selection.removed === true,
+          outcomeType: selection.outcomeType || null,
+          fieldId: selection.fieldId || null,
+          externalOutcomeId: selection.externalOutcomeId || null,
+          oddsAmerican: selection.oddsAmerican ?? null,
+          oddsFraction: selection.oddsFraction ?? null,
+          openOddsDecimal: selection.openOddsDecimal ?? null,
+          openOddsAmerican: selection.openOddsAmerican ?? null,
+          openOddsFraction: selection.openOddsFraction ?? null,
+          handicap: selection.handicap ?? null,
+          spread: selection.spread ?? null,
+          total: selection.total ?? null,
+          openHandicap: selection.openHandicap ?? null,
+          openTotal: selection.openTotal ?? null,
+          handicap7day: selection.handicap7day ?? null,
+          total7day: selection.total7day ?? null,
+          odds7dayDecimal: selection.odds7dayDecimal ?? null,
+          odds7dayAmerican: selection.odds7dayAmerican ?? null,
+          odds7dayFraction: selection.odds7dayFraction ?? null,
+          playerId: selection.playerId || null,
+          playerName: selection.playerName || null,
+          ...(includeSourceData ? { sourceData: selection.sourceData || null } : {})
         } : {})
       });
     }
@@ -75,6 +99,15 @@ export function projectMemberMarkets(markets = []) {
         sourceMarketId: market.sourceMarketId || null,
         updatedAt: market.updatedAt || null,
         validationWarnings: Array.isArray(market.validationWarnings) ? market.validationWarnings : []
+      } : {}),
+      ...(market.source === 'sportradar' ? {
+        sourceMarketName: market.sourceMarketName || null,
+        sourceBookId: market.sourceBookId || null,
+        externalMarketId: market.externalMarketId || null,
+        externalSportEventId: market.externalSportEventId || null,
+        removed: market.removed === true,
+        isLive: market.isLive === true,
+        ...(includeSourceData ? { sourceData: market.sourceData || null } : {})
       } : {}),
       sourceLabel: MEMBER_MARKET_SOURCE_LABELS[clean(market.source).toLowerCase()] || null,
       selections
