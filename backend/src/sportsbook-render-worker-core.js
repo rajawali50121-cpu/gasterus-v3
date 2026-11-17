@@ -225,6 +225,9 @@ function countSnapshotFixtures(events) {
 // event utuh lebih penting daripada mengirim hanya sebagian pasarnya.
 export async function buildSportsbookRenderSnapshot({
   fetchSportradar,
+  fetchSportmonks,
+  fetchSharpApi,
+  fetchOddsPapi,
   maxEvents = 0,
   maxPages = 0,
   teamKey,
