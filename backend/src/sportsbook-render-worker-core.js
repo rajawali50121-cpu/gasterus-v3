@@ -31,6 +31,7 @@ export function sportsbookRenderIntervalSeconds(settings) {
   }
   const freshnessInterval = Math.floor(Number(settings?.sportsbookIngestMaxAgeSeconds) / 2);
   const providerIntervals = [];
+  if (settings?.sportradarEnabled) providerIntervals.push(settings.sportradarRefreshSeconds);
   if (settings?.sportmonksEnabled) {
     providerIntervals.push(
       settings.sportmonksRefreshSeconds,
