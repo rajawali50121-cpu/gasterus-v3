@@ -1699,7 +1699,10 @@ function sameFixture(a, b) {
   return direct && (kickoffDistance(a.startTime, b.startTime) <= 3 * 60 * 60 * 1000 || !a.startTime || !b.startTime);
 }
 function marketIdentity(market) {
-  return `${market.type}|${market.period}|${market.line ?? ''}|${slug(market.label)}|${slug(market.bookmaker || '')}|${slug(market.sourceMarketId || '')}`;
+  const base = `${market.type}|${market.period}|${market.line ?? ''}|${slug(market.label)}`;
+  return market.source === 'sportradar'
+    ? `${base}|${slug(market.bookmaker || '')}|${slug(market.sourceMarketId || '')}`
+    : base;
 }
 function sourcePriority(source, live) {
   if (live) {
