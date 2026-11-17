@@ -5,8 +5,6 @@ import { leagueKey, teamKey } from './sportsbook-providers.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
 const ALLOWED_PROVIDERS = new Set(['sportradar', 'sportmonks', 'sharpapi', 'oddspapi']);
-const ALLOWED_STATUSES = new Set(['SCHEDULED', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
-const MAX_PROVIDER_RESULTS = 3;
 const MAX_FUTURE_SKEW_SECONDS = 30;
 
 function invalid(message, code = 'SPORTSBOOK_INGEST_INVALID') {
@@ -95,7 +93,7 @@ function validateEvent(event, provider, now = Date.now()) {
     if (!requiredString(event.league, 120) && provider !== 'sportradar') problems.push(`league=${JSON.stringify(event?.league)}`);
     if (!(event.country === null || requiredString(event.country, 80))) problems.push(`country=${JSON.stringify(event?.country)}`);
     if (!validTimestamp(event.startTime)) problems.push(`startTime=${JSON.stringify(event?.startTime)}`);
-    if (!ALLOWED_STATUSES.has(event.status)) problems.push(`status=${JSON.stringify(event?.status)}`);
+    if (!requiredString(event.status, 40)) problems.push(`status=${JSON.stringify(event?.status)}`);
     if (typeof event.live !== 'boolean') problems.push(`live=${JSON.stringify(event?.live)}`);
     if (!isRecord(event.home) || !requiredString(event.home.name, 120)) problems.push(`home=${JSON.stringify(event?.home)}`);
     if (!isRecord(event.away) || !requiredString(event.away.name, 120)) problems.push(`away=${JSON.stringify(event?.away)}`);
@@ -111,13 +109,6 @@ function validateEvent(event, provider, now = Date.now()) {
     invalid(`Event ${event.id} harus prematch (live=false).`);
   }
 
-  const wibNow = new Date(now + 7 * 3600 * 1000);
-  const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
-  const maxStartTime = new Date(wibToday.getTime() + (Math.max(1, Number(config.sportsbookPrematchWindowDays) || 7) + 1) * 24 * 3600 * 1000 - 1).toISOString();
-  if (event.startTime > maxStartTime) {
-    invalid(`Event ${event.id} di luar rentang tanggal yang dikonfigurasi (WIB).`);
-  }
-
   for (const market of event.markets) {
     if (!isRecord(market)
       || !requiredString(market.id, 128)
@@ -126,16 +117,14 @@ function validateEvent(event, provider, now = Date.now()) {
       || market.source !== provider
       || typeof market.suspended !== 'boolean'
       || !Array.isArray(market.selections)
-      || market.selections.length === 0) {
+      ) {
       invalid(`Market pada event ${event.id} tidak valid.`);
     }
     for (const selection of market.selections) {
       if (!isRecord(selection)
         || !requiredString(selection.key, 160)
         || !requiredString(selection.label, 120)
-        || !Number.isFinite(selection.odds)
-        || selection.odds <= 1
-        || selection.odds > 10000
+        || !(selection.odds === null || selection.odds === undefined || Number.isFinite(selection.odds))
         || typeof selection.suspended !== 'boolean'
         || selection.source !== provider
         || !(selection.updatedAt === null || validTimestamp(selection.updatedAt))) {
@@ -157,8 +146,7 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
   }
 
   if (!Array.isArray(snapshot.providerResults)
-    || snapshot.providerResults.length === 0
-    || snapshot.providerResults.length > MAX_PROVIDER_RESULTS) {
+    || snapshot.providerResults.length === 0) {
     invalid('Daftar provider snapshot sportsbook tidak valid.');
   }
 
@@ -178,10 +166,6 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
   }
 
   const eventCount = countUniqueFixtures(snapshot.providerResults);
-  if (eventCount === 0) invalid('Snapshot sportsbook harus memuat setidaknya satu event.');
-  if (snapshot.eventCount !== undefined && snapshot.eventCount !== eventCount) {
-    invalid('Jumlah event pada envelope snapshot sportsbook tidak konsisten.');
-  }
   return { snapshot, eventCount, providers: [...providers] };
 }
 
@@ -191,10 +175,6 @@ export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(),
   const providerReceivedAt = {};
   const providerResults = [];
   const nowIso = new Date(now).toISOString();
-  const wibNow = new Date(now + 7 * 3600 * 1000);
-  const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
-  const maxStartTime = new Date(wibToday.getTime() + (Math.max(1, Number(config.sportsbookPrematchWindowDays) || 7) + 1) * 24 * 3600 * 1000 - 1).toISOString();
-
   for (const result of freshIncoming) {
     providerResults.push(result);
     providerReceivedAt[result.provider] = nowIso;
@@ -214,7 +194,6 @@ export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(),
   const retainedEvents = new Set();
   for (const result of providerResults) {
     for (const event of result.events) {
-      if (event.startTime > maxStartTime) continue;
       let group = retainedGroups.find(items => sameFixture(items[0], event));
       if (!group) {
         group = [];

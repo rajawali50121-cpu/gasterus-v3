@@ -10,7 +10,7 @@ Object.assign(process.env, {
   SPORTSBOOK_PREMATCH_WINDOW_DAYS: '7'
 });
 
-const [{ fetchSportradar }, { buildSportsbookRenderSnapshot }, { teamKey }, { validateSportsbookSnapshot }] = await Promise.all([
+const [{ fetchSportradar }, { buildSportsbookRenderSnapshot }, { teamKey, publicEvent }, { validateSportsbookSnapshot }] = await Promise.all([
   import('../src/sportradar-provider.js'),
   import('../src/sportsbook-render-worker-core.js'),
   import('../src/sportsbook-providers.js'),
@@ -29,7 +29,8 @@ function apiEvent(index) {
     sport_event: {
       id: `sr:sport_event:bulk-${index}`,
       start_time: eventTimeTomorrowWib(),
-      status: 'not_started',
+      status: index === 0 ? 'ended' : 'not_started',
+      replaced_by: index === 0 ? 'sr:sport_event:replacement-0' : undefined,
       sport_event_context: {
         competition: { id: 'sr:competition:1', name: 'Premier League' },
         category: { name: 'England', country: 'England' }
@@ -58,6 +59,16 @@ function apiEvent(index) {
         ]
       },
       {
+        id: `market-1x2-${index}`,
+        name: '1st half - 1x2',
+        is_live: false,
+        books: [{ id: 'book-a', name: 'Bookmaker A', outcomes: [
+          { id: `first-half-home-${index}`, type: 'home', odds_decimal: '2.00' },
+          { id: `first-half-draw-${index}`, type: 'draw', odds_decimal: '3.00' },
+          { id: `first-half-away-${index}`, type: 'away', odds_decimal: '4.00' }
+        ] }]
+      },
+      {
         id: `market-total-${index}`,
         name: 'total',
         is_live: false,
@@ -73,6 +84,15 @@ function apiEvent(index) {
         books: [{ id: 'book-b', name: 'Bookmaker B', outcomes: [
           { id: `extra-${index}`, name: 'Home team over 0.5', total: '0.5', odds_decimal: '1.50' }
         ] }]
+      },
+      {
+        id: `market-removed-${index}`,
+        name: 'winner (incl. extra innings)',
+        is_live: true,
+        books: [{ id: 'book-removed', name: 'Removed Book', removed: true, outcomes: [
+          { id: `removed-${index}`, type: 'home', odds_decimal: '1.00', removed: true },
+          { id: `removed-no-price-${index}`, type: 'away', removed: true }
+        ] }]
       }
     ]
   };
@@ -85,6 +105,9 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   const calls = [];
   globalThis.fetch = async input => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith('/sports.json')) {
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
+    }
     const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const start = Number(url.searchParams.get('start') || 0);
     calls.push({ date, start });
@@ -103,17 +126,28 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(result.enabled, true);
   assert.equal(result.transportOk, true);
   assert.equal(result.events.length, 121);
+  assert.equal(calls.filter(call => call.date === undefined).length, 0);
   assert.equal(result.diagnostics.eventsAccepted, 121);
   assert.equal(calls.filter(call => call.date === scheduleDate).length, 3);
   assert.equal(calls.filter(call => call.date === scheduleDate).map(call => call.start).join(','), '0,50,100');
 
   const first = result.events[0];
   assert.equal(first.league, 'Premier League');
-  assert.equal(first.markets.filter(market => market.type === '1X2').length, 2, 'both bookmakers survive normalization');
+  assert.equal(first.markets.filter(market => market.type === '1X2').length, 3, 'same market ID with different names and books survives normalization');
+  assert.ok(first.markets.some(market => market.sourceMarketId === `market-1x2-0` && market.sourceMarketName === '1st half - 1x2' && market.period === '1H'));
+  assert.equal(result.events[0].status, 'FINISHED', 'documented event statuses are retained instead of status-filtered');
+  assert.equal(result.events[0].replacedBy, 'sr:sport_event:replacement-0');
   assert.ok(first.markets.some(market => market.type === 'TOTALS'));
   assert.ok(first.markets.some(market => market.type === 'TEAM_TOTAL' || market.type === 'OTHER'));
   assert.ok(first.markets.every(market => market.source === 'sportradar'));
   assert.ok(first.markets.every(market => market.selections.every(selection => selection.source === 'sportradar')));
+  const removedBookMarket = first.markets.find(market => market.sourceBookId === 'book-removed');
+  assert.ok(removedBookMarket, 'removed bookmaker market remains in the ingested source data');
+  assert.equal(removedBookMarket.suspended, true);
+  assert.equal(removedBookMarket.selections[0].odds, 1);
+  assert.equal(removedBookMarket.selections[1].odds, null);
+  assert.equal(removedBookMarket.selections[0].removed, true);
+  assert.equal(removedBookMarket.isLive, true, 'documented is_live market flag is preserved');
 
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportradar: async () => result,
@@ -125,6 +159,15 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.deepEqual(snapshot.providerResults.map(provider => provider.provider), ['sportradar']);
   assert.equal(snapshot.eventCount, 121);
   assert.equal(validateSportsbookSnapshot(snapshot).eventCount, 121);
+
+  const publicFirst = publicEvent(first);
+  assert.equal(publicFirst.replacedBy, 'sr:sport_event:replacement-0');
+  assert.ok(publicFirst.sourceData?.sportEvent, 'official event payload survives public serialization');
+  const publicRemoved = publicFirst.markets.find(market => market.sourceBookId === 'book-removed');
+  assert.equal(publicRemoved.removed, true);
+  assert.equal(publicRemoved.isLive, true);
+  assert.equal(publicRemoved.selections[0].oddsAmerican, null);
+  assert.equal(publicRemoved.selections[0].sourceData.removed, true);
 });
 
 test('Sportradar partial page response is rejected rather than published as a complete snapshot', async () => {
@@ -132,6 +175,9 @@ test('Sportradar partial page response is rejected rather than published as a co
   const scheduleDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
   globalThis.fetch = async input => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith('/sports.json')) {
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
+    }
     const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const start = Number(url.searchParams.get('start') || 0);
     if (date !== scheduleDate) {

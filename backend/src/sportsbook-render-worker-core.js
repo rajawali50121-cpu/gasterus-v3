@@ -293,6 +293,9 @@ export async function buildSportsbookRenderSnapshot({
     eventCount: combined.eventCount,
     providerResults: combined.providerResults.map(result => ({ provider: result.provider, enabled: result.enabled, events: result.events.length }))
   }));
+  if (!combined.providerResults.length) {
+    throw new Error(`No enabled sportsbook provider returned normalized fixtures. ${failures.join('; ')}`);
+  }
   if (combined.truncatedEventCount > 0) {
     console.warn(JSON.stringify({
       service: 'sportsbook-render-worker',
@@ -302,10 +305,6 @@ export async function buildSportsbookRenderSnapshot({
       maxEvents
     }));
   }
-  if (!combined.eventCount) {
-    throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
-  }
-
   function isValidEvent(e, provider) {
     if (!e || typeof e !== 'object') return false;
     if (typeof e.id !== 'string' || !e.id.trim()) return false;
@@ -328,11 +327,11 @@ export async function buildSportsbookRenderSnapshot({
       if (typeof m.period !== 'string' || !m.period.trim()) return false;
       if (m.source !== provider) return false;
       if (typeof m.suspended !== 'boolean') return false;
-      if (!Array.isArray(m.selections) || (!m.selections.length && provider !== 'sportmonks')) return false;
+      if (!Array.isArray(m.selections)) return false;
       for (const sel of m.selections) {
         if (!sel || typeof sel.key !== 'string' || !sel.key.trim()) return false;
-        if (typeof sel.label !== 'string' || (provider !== 'sportmonks' && !sel.label.trim())) return false;
-        if (!Number.isFinite(sel.odds) || (provider !== 'sportmonks' && sel.odds <= 1)) return false;
+        if (typeof sel.label !== 'string' || !sel.label.trim()) return false;
+        if (!(sel.odds === null || sel.odds === undefined || Number.isFinite(sel.odds))) return false;
         if (typeof sel.suspended !== 'boolean') return false;
         if (sel.source !== provider) return false;
       }
