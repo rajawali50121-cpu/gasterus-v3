@@ -179,6 +179,7 @@ export const config = Object.freeze({
   sportradarApiKey: optionalSecret('SPORTRADAR_API_KEY'),
   sportradarEnabled: bool('SPORTRADAR_ENABLED', true),
   sportradarBaseUrl: text('SPORTRADAR_BASE_URL', 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en'),
+  sportradarSportIds: text('SPORTRADAR_SPORT_IDS', 'sr:sport:1'),
   sportradarDaysAhead: int('SPORTRADAR_DAYS_AHEAD', 7, 1, 365),
   sportradarMaxPages: unboundedInt('SPORTRADAR_MAX_PAGES', 0, 0),
   sportradarMaxEvents: unboundedInt('SPORTRADAR_MAX_EVENTS', 0, 0),
