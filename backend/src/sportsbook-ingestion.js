@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { leagueKey, teamKey } from './sportsbook-providers.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
-const ALLOWED_PROVIDERS = new Set(['sportmonks', 'sharpapi', 'oddspapi']);
+const ALLOWED_PROVIDERS = new Set(['sportradar', 'sportmonks', 'sharpapi', 'oddspapi']);
 const ALLOWED_STATUSES = new Set(['SCHEDULED', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
 const MAX_PROVIDER_RESULTS = 3;
 const MAX_EVENT_RECORDS = 10000;
@@ -93,7 +93,7 @@ function validateEvent(event, provider, now = Date.now()) {
   else {
     if (!requiredString(event.id, 128)) problems.push(`id=${JSON.stringify(event?.id)}`);
     if (!requiredString(event.sport, 40)) problems.push(`sport=${JSON.stringify(event?.sport)}`);
-    if (!requiredString(event.league, 120)) problems.push(`league=${JSON.stringify(event?.league)}`);
+    if (!requiredString(event.league, 120) && provider !== 'sportradar') problems.push(`league=${JSON.stringify(event?.league)}`);
     if (!(event.country === null || requiredString(event.country, 80))) problems.push(`country=${JSON.stringify(event?.country)}`);
     if (!validTimestamp(event.startTime)) problems.push(`startTime=${JSON.stringify(event?.startTime)}`);
     if (!ALLOWED_STATUSES.has(event.status)) problems.push(`status=${JSON.stringify(event?.status)}`);
@@ -114,7 +114,7 @@ function validateEvent(event, provider, now = Date.now()) {
 
   const wibNow = new Date(now + 7 * 3600 * 1000);
   const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
-  const maxStartTime = new Date(wibToday.getTime() + 4 * 24 * 3600 * 1000).toISOString();
+  const maxStartTime = new Date(wibToday.getTime() + Math.max(1, Number(config.sportsbookPrematchWindowDays) || 7) * 24 * 3600 * 1000).toISOString();
   if (event.startTime > maxStartTime) {
     invalid(`Event ${event.id} di luar rentang tanggal (hari ini + 3 hari WIB).`);
   }
