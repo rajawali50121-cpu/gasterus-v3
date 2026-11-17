@@ -75,7 +75,7 @@ test('render worker uses Sportradar exclusively with no artificial event/page ca
   assert.match(worker, /fetchSportradar/);
   assert.match(worker, /config\.nodeEnv === 'production'/);
   assert.match(worker, /SPORTRADAR_API_KEY is required/);
-  assert.match(worker, /production\\/v2\\/en/);
+  assert.match(worker, /production\/v2\/en/);
   assert.match(worker, /trial access is not accepted/);
   assert.doesNotMatch(worker, /fetchSportmonks|fetchSharpApi|fetchOddsPapi/);
   assert.match(feed, /fetchSportradar/);
