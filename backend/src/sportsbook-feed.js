@@ -1409,7 +1409,7 @@ function leagueFacets(events = []) {
   });
 }
 
-function memberEventShape(item, markets, { includeProviderFields = false } = {}) {
+function memberEventShape(item, markets, { includeProviderFields = false, includeSportradarFields = false } = {}) {
   const projectedMarkets = (markets || []).map(market => ({
     ...market,
     period: market.period || 'FT'
@@ -1421,11 +1421,20 @@ function memberEventShape(item, markets, { includeProviderFields = false } = {})
     country: item.country,
     startTime: item.startTime,
     status: item.status,
+    ...(includeProviderFields || includeSportradarFields ? {
+      providerStatus: item.providerStatus || null
+    } : {}),
     ...(includeProviderFields ? {
-      providerStatus: item.providerStatus || null,
       periodScores: item.periodScores || {},
       statistics: item.statistics || [],
       events: item.events || []
+    } : {}),
+    ...(includeSportradarFields ? {
+      sportId: item.sportId || null,
+      replacedBy: item.replacedBy || null,
+      startTimeConfirmed: item.startTimeConfirmed ?? null,
+      resumeTime: item.resumeTime || null,
+      sourceData: item.sourceData || null
     } : {}),
     live: item.live,
     clock: item.clock,
@@ -1436,7 +1445,7 @@ function memberEventShape(item, markets, { includeProviderFields = false } = {})
     availableMarketCount: item.availableMarketCount,
     ...(includeProviderFields ? { validationWarnings: item.validationWarnings || [] } : {}),
     detailLoaded: item.detailLoaded,
-    markets: projectMemberMarkets(projectedMarkets)
+    markets: projectMemberMarkets(projectedMarkets, { includeSourceData: includeSportradarFields })
   };
 }
 
@@ -1466,8 +1475,10 @@ function memberPublicEvent(event) {
 }
 function memberPublicEventDetail(event) {
   const item = publicEvent(memberSourceEvent(event));
+  const sources = event?._sources || [];
   return memberEventShape(item, item.markets || [], {
-    includeProviderFields: config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks')
+    includeProviderFields: config.sportmonksPassthrough && sources.includes('sportmonks'),
+    includeSportradarFields: sources.includes('sportradar')
   });
 }
 
