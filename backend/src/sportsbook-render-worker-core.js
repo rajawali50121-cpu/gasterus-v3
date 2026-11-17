@@ -302,10 +302,6 @@ export async function buildSportsbookRenderSnapshot({
       maxEvents
     }));
   }
-  if (!combined.eventCount) {
-    throw new Error('No enabled sportsbook provider returned normalized fixtures; snapshot was not sent.');
-  }
-
   function isValidEvent(e, provider) {
     if (!e || typeof e !== 'object') return false;
     if (typeof e.id !== 'string' || !e.id.trim()) return false;
