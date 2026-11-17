@@ -38,6 +38,7 @@ const [
 
 console.log('WORKER_IMPORTS_DONE');
 
+const cronOnce = String(process.env.SPORTSBOOK_CRON_ONCE || '').trim().toLowerCase() === 'true';
 if (config.nodeEnv === 'production') {
   if (!config.sportradarEnabled) {
     throw new Error('SPORTRADAR_ENABLED must be true for the production sportsbook render worker.');
@@ -53,7 +54,6 @@ if (config.nodeEnv === 'production') {
     throw new Error('Production sportsbook worker requires production Sportradar access, or explicit trial access in one-shot cron mode.');
   }
 }
-const cronOnce = String(process.env.SPORTSBOOK_CRON_ONCE || '').trim().toLowerCase() === 'true';
 const endpoint = String(process.env.SPORTSBOOK_INGEST_URL || '').trim();
 if (!endpoint) throw new Error('SPORTSBOOK_INGEST_URL is required.');
 if (config.sportsbookIngestHmacSecret.length < 32) {
