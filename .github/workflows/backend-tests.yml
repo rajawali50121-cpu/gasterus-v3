@@ -6,6 +6,7 @@ on:
     paths:
       - "backend/**"
       - ".railway/**"
+      - "railway.json"
       - ".github/workflows/backend-tests.yml"
   push:
     branches: [master]
