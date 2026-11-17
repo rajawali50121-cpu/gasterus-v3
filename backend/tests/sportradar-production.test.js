@@ -89,7 +89,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
     const start = Number(url.searchParams.get('start') || 0);
     calls.push({ date, start });
     const items = date === scheduleDate ? allItems.slice(start, start + 50) : [];
-    const maxResults = date === firstScheduleDate ? allItems.length : 0;
+    const maxResults = date === scheduleDate ? allItems.length : 0;
     return {
       ok: true,
       status: 200,
@@ -105,7 +105,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(result.events.length, 121);
   assert.equal(result.diagnostics.eventsAccepted, 121);
   assert.equal(calls.filter(call => call.date === scheduleDate).length, 3);
-  assert.equal(calls.filter(call => call.date === firstScheduleDate).map(call => call.start).join(','), '0,50,100');
+  assert.equal(calls.filter(call => call.date === scheduleDate).map(call => call.start).join(','), '0,50,100');
 
   const first = result.events[0];
   assert.equal(first.league, 'Premier League');
