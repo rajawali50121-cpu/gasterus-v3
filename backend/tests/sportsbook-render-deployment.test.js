@@ -89,7 +89,7 @@ test('render worker uses Sportradar exclusively with no artificial event/page ca
   assert.equal(railwayWorkerEnv('SPORTSBOOK_DAILY_REFRESH_ENABLED'), 'false');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_CRON_ONCE'), 'true');
   assert.equal(railwayWorkerEnv('SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION'), 'true');
-  assert.match(workerServiceBlock, /cronSchedule: "5 17 \\* \\* \\*"/);
+  assert.ok(workerServiceBlock.includes('cronSchedule: "5 17 * * *"'));
   assert.match(worker, /SPORTSBOOK_CRON_ONCE/);
   assert.equal(railwayWorkerEnv('SPORTSBOOK_PREMATCH_WINDOW_DAYS'), '7');
   assert.equal(railwayWebEnv('SPORTS_FEED_MAX_EVENTS'), '0');
