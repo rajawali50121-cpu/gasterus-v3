@@ -71,6 +71,7 @@ test('render worker uses Sportradar exclusively with no artificial event/page ca
   assert.equal(railwayWebEnv('SPORTS_FEED_MAX_CACHE_BYTES'), '0');
   assert.equal(railwayWebEnv('SPORTSBOOK_DAILY_REFRESH_ENABLED'), 'true');
   assert.equal(railwayWebEnv('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS'), '600');
+  assert.equal(railwayWebEnv('SPORTSBOOK_INGEST_MAX_AGE_SECONDS'), '600');
   assert.match(worker, /fetchSportradar/);
   assert.doesNotMatch(worker, /fetchSportmonks|fetchSharpApi|fetchOddsPapi/);
   assert.match(feed, /fetchSportradar/);
