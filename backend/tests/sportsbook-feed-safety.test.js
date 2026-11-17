@@ -123,16 +123,16 @@ test('staging and development can explicitly enable derived markets', () => {
   }
 });
 
-test('production sportsbook only uses Sportmonks and honors its production key and event horizon', () => {
+test('production sportsbook only uses Sportradar and honors its production key and event horizon', () => {
   const script = `
     const { config } = await import('./src/config.js');
     const { __sportsbookFeed } = await import('./src/sportsbook-feed.js');
     console.log(JSON.stringify({
       provider: __sportsbookFeed.enabledProviders(),
-      enabled: config.sportmonksEnabled,
-      keyConfigured: config.sportmonksKey === 'configured-sportmonks-key',
-      daysAhead: config.sportmonksDaysAhead,
-      maxEvents: config.sportmonksMaxTotalEvents,
+      enabled: config.sportradarEnabled,
+      keyConfigured: config.sportradarApiKey === 'configured-sportradar-key',
+      daysAhead: config.sportradarDaysAhead,
+      maxEvents: config.sportradarMaxEvents,
       liveAcceptanceDelay: config.sportsbookLiveAcceptanceDelayMs
     }));
   `;
@@ -152,14 +152,14 @@ test('production sportsbook only uses Sportmonks and honors its production key a
       MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
       FOOTBALLDATA_IO_ENABLED: 'true',
       FOOTBALLDATA_IO_KEY: 'unused-football-data-key',
-      SPORTMONKS_DAYS_AHEAD: '7',
-      SPORTMONKS_MAX_TOTAL_EVENTS: '50',
-      SPORTMONKS_ENABLED: 'true',
-      SPORTMONKS_API_KEY: 'configured-sportmonks-key'
+      SPORTRADAR_DAYS_AHEAD: '7',
+      SPORTRADAR_MAX_EVENTS: '50',
+      SPORTRADAR_ENABLED: 'true',
+      SPORTRADAR_API_KEY: 'configured-sportradar-key'
     }
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":[{"name":"Sportmonks","code":"sportmonks","enabled":true}],"enabled":true,"keyConfigured":true,"daysAhead":7,"maxEvents":0,"liveAcceptanceDelay":3000}'));
+  assert.ok(result.stdout.split(/\r?\n/).includes('{"provider":[{"name":"Sportradar","code":"sportradar","enabled":true}],"enabled":true,"keyConfigured":true,"daysAhead":7,"maxEvents":50,"liveAcceptanceDelay":3000}'));
 });
 
 test('legacy Sportmonks mode keeps the previous 500-event cap', () => {
