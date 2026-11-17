@@ -8,6 +8,7 @@ const envExample = readFileSync(new URL('../.env.example', import.meta.url), 'ut
 const proxy = readFileSync(new URL('../../deploy/member-server.js', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
 const worker = readFileSync(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8');
+const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 const workerServiceBlock = railway.match(/const sportsbookRenderWorker = service\("sportsbook-render-worker", \{[\s\S]*?\n  \}\);/)?.[0] || '';
 
 const INGEST_PATH = '/api/internal/sportsbook/ingest';
@@ -64,6 +65,9 @@ test('render worker uses Sportradar exclusively with no artificial event/page ca
   assert.equal(railwayWorkerEnv('SPORTSBOOK_PREMATCH_WINDOW_DAYS'), '7');
   assert.match(worker, /fetchSportradar/);
   assert.doesNotMatch(worker, /fetchSportmonks|fetchSharpApi|fetchOddsPapi/);
+  assert.match(feed, /fetchSportradar/);
+  assert.match(feed, /config\.nodeEnv === 'production'/);
+  assert.match(feed, /code: 'sportradar'/);
   assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), undefined);
   assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), undefined);
   assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), undefined);
