@@ -39,7 +39,7 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.equal(railwayWorkerEnv('SPORTRADAR_ENABLED'), 'true');
   assert.match(workerServiceBlock, /SPORTRADAR_API_KEY:\s*preserve\(\)/);
   assert.doesNotMatch(webServiceBlock, /SPORTRADAR_API_KEY|SPORTRADAR_BASE_URL/, 'only the isolated worker may call Sportradar');
-  assert.match(workerServiceBlock, /SPORTRADAR_BASE_URL:\s*preserve\(\)/);
+  assert.equal(railwayWorkerEnv('SPORTRADAR_BASE_URL'), 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en');
   assert.match(railway, /SPORTRADAR_API_KEY:\s*preserve\(\)/);
   assert.doesNotMatch(worker, /127\.0\.0\.1:1|localhost/);
   assert.equal(railwayWorkerEnv('THE_ODDS_API_KEY'), undefined);
