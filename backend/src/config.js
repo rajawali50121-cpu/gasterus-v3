@@ -68,10 +68,10 @@ export const config = Object.freeze({
   // Stored/render snapshots may be up to ~1 day old (daily refresh). Read path uses this;
   // request signature freshness still uses sportsbookIngestMaxAgeSeconds.
   sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 172800, 180, 604800),
-  sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
+  sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', false),
   sportsbookDailyRefreshHourWib: int('SPORTSBOOK_DAILY_REFRESH_HOUR_WIB', 0, 0, 23),
   sportsbookDailyRefreshMinuteWib: int('SPORTSBOOK_DAILY_REFRESH_MINUTE_WIB', 5, 0, 59),
-  sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 4, 1, 30),
+  sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 7, 1, 365),
   // No artificial event/page caps: pagination is exhausted to the last page
   // returned by the API. Zero = unlimited (API quota is the only real ceiling).
   sportsbookRenderMaxEvents: unboundedInt('SPORTSBOOK_RENDER_MAX_EVENTS', 0, 0),
