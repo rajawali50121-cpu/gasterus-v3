@@ -3,8 +3,8 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { ticketCalculation } from '../src/sportsbook-calculation.js';
 import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
-import { projectMemberMarkets, selectMemberSummaryMarkets } from '../src/sportsbook-member-projection.js';
-import { __sportsbookFeed } from '../src/sportsbook-feed.js';
+import { projectMemberEventFields, projectMemberMarkets, selectMemberSummaryMarkets } from '../src/sportsbook-member-projection.js';
+
 import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from '../../frontend/js/sportsbook-markets.js';
 
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
@@ -139,11 +139,11 @@ test('Sportradar full member event detail preserves all documented source fields
     }]
   };
 
-  const detail = __sportsbookFeed.memberPublicEventDetail(event);
+  const detail = projectMemberEventFields(event, { includeSportradarFields: true });
   assert.equal(detail.sportId, 'sr:sport:1');
   assert.equal(detail.replacedBy, 'sr:sport_event:replacement-1');
   assert.equal(detail.sourceData.sportEvent.id, 'sr:sport_event:fixture-1');
-  const market = detail.markets[0];
+  const market = projectMemberMarkets(event.markets, { includeSourceData: true })[0];
   assert.equal(market.sourceMarketName, 'Match Result');
   assert.equal(market.sourceBookId, 'sr:book:1');
   assert.equal(market.sourceData.book.id, 'sr:book:1');
