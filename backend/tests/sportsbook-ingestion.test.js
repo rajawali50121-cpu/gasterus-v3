@@ -174,6 +174,28 @@ test('Sportradar snapshot replaces legacy provider snapshots instead of retainin
   assert.equal(merged.providerResults[0].events[0].id, 'sportradar-event');
 });
 
+test('Sportradar snapshot merge retains events across the full configured seven-day horizon', async () => {
+  const { mergeSportsbookSnapshots } = await import('../src/sportsbook-ingestion.js');
+  const event = structuredClone(snapshot().providerResults[0].events[0]);
+  event.id = 'sportradar-seven-day-event';
+  event.startTime = new Date(NOW + 6 * 24 * 60 * 60 * 1000).toISOString();
+  event._refs = { sportradar: 'sr:sport_event:seven-day' };
+  event._sources = ['sportradar'];
+  for (const market of event.markets) {
+    market.source = 'sportradar';
+    for (const selection of market.selections) selection.source = 'sportradar';
+  }
+  const incoming = {
+    schemaVersion: 1,
+    generatedAt: new Date(NOW).toISOString(),
+    providerResults: [{ provider: 'sportradar', enabled: true, events: [event], transportOk: true }]
+  };
+  const merged = mergeSportsbookSnapshots(incoming, null, { now: NOW });
+  assert.equal(merged.providerResults[0].events.length, 1);
+  assert.equal(merged.providerResults[0].events[0].id, 'sportradar-seven-day-event');
+  assert.equal(merged.eventCount, 1);
+});
+
 test('accepts a fresh HMAC-signed snapshot and stores only its verified JSON', async () => {
   const payload = snapshot();
   const signed = signedRequest(payload);
