@@ -10,7 +10,7 @@ Object.assign(process.env, {
   SPORTSBOOK_PREMATCH_WINDOW_DAYS: '7'
 });
 
-const [{ fetchSportradar }, { buildSportsbookRenderSnapshot }, { teamKey }, { validateSportsbookSnapshot }] = await Promise.all([
+const [{ fetchSportradar }, { buildSportsbookRenderSnapshot }, { teamKey, publicEvent }, { validateSportsbookSnapshot }] = await Promise.all([
   import('../src/sportradar-provider.js'),
   import('../src/sportsbook-render-worker-core.js'),
   import('../src/sportsbook-providers.js'),
@@ -159,6 +159,15 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.deepEqual(snapshot.providerResults.map(provider => provider.provider), ['sportradar']);
   assert.equal(snapshot.eventCount, 121);
   assert.equal(validateSportsbookSnapshot(snapshot).eventCount, 121);
+
+  const publicFirst = publicEvent(first);
+  assert.equal(publicFirst.replacedBy, 'sr:sport_event:replacement-0');
+  assert.ok(publicFirst.sourceData?.sportEvent, 'official event payload survives public serialization');
+  const publicRemoved = publicFirst.markets.find(market => market.sourceBookId === 'book-removed');
+  assert.equal(publicRemoved.removed, true);
+  assert.equal(publicRemoved.isLive, true);
+  assert.equal(publicRemoved.selections[0].oddsAmerican, null);
+  assert.equal(publicRemoved.selections[0].sourceData.removed, true);
 });
 
 test('Sportradar partial page response is rejected rather than published as a complete snapshot', async () => {
