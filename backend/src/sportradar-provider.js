@@ -235,6 +235,7 @@ function normalizeOdds(event, raw) {
     const type = marketType(marketName);
     const period = periodFromMarket(marketName);
     const books = Array.isArray(market.books) ? market.books : [];
+    const marketSourceData = Object.fromEntries(Object.entries(market).filter(([key]) => key !== 'books'));
 
     // The API's removed lifecycle is on book/outcome, not a reason to erase history.
     // Preserve a market even when no book currently prices it.
@@ -242,6 +243,9 @@ function normalizeOdds(event, raw) {
     for (const book of bookRows) {
       if (book) diagnostics.booksSeen += 1;
       if (book?.removed === true) diagnostics.removedBooksRetained += 1;
+      const bookSourceData = book
+        ? Object.fromEntries(Object.entries(book).filter(([key]) => key !== 'outcomes'))
+        : null;
       const outcomes = Array.isArray(book?.outcomes) ? book.outcomes : [];
       const selections = outcomes.map((outcome, index) => {
         if (!outcome || typeof outcome !== 'object') return null;
@@ -298,7 +302,7 @@ function normalizeOdds(event, raw) {
         externalMarketId: book?.external_market_id || null,
         externalSportEventId: book?.external_sport_event_id || null,
         bookmaker, mainLine: null,
-        sourceData: { market: { id: market.id, name: market.name, is_live: market.is_live } },
+        sourceData: { market: marketSourceData, book: bookSourceData },
         selections
       });
     }
