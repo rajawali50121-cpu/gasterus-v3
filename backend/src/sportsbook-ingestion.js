@@ -7,7 +7,6 @@ export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1
 const ALLOWED_PROVIDERS = new Set(['sportradar', 'sportmonks', 'sharpapi', 'oddspapi']);
 const ALLOWED_STATUSES = new Set(['SCHEDULED', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID']);
 const MAX_PROVIDER_RESULTS = 3;
-const MAX_EVENT_RECORDS = 10000;
 const MAX_FUTURE_SKEW_SECONDS = 30;
 
 function invalid(message, code = 'SPORTSBOOK_INGEST_INVALID') {
@@ -114,9 +113,9 @@ function validateEvent(event, provider, now = Date.now()) {
 
   const wibNow = new Date(now + 7 * 3600 * 1000);
   const wibToday = new Date(wibNow.getFullYear(), wibNow.getMonth(), wibNow.getDate());
-  const maxStartTime = new Date(wibToday.getTime() + Math.max(1, Number(config.sportsbookPrematchWindowDays) || 7) * 24 * 3600 * 1000).toISOString();
+  const maxStartTime = new Date(wibToday.getTime() + (Math.max(1, Number(config.sportsbookPrematchWindowDays) || 7) + 1) * 24 * 3600 * 1000 - 1).toISOString();
   if (event.startTime > maxStartTime) {
-    invalid(`Event ${event.id} di luar rentang tanggal (hari ini + 3 hari WIB).`);
+    invalid(`Event ${event.id} di luar rentang tanggal yang dikonfigurasi (WIB).`);
   }
 
   for (const market of event.markets) {
@@ -175,9 +174,6 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
     }
     providers.add(result.provider);
     totalEventRecords += result.events.length;
-    if (totalEventRecords > MAX_EVENT_RECORDS) {
-      throw new AppError(413, 'Snapshot sportsbook melebihi batas record event.', 'SPORTSBOOK_INGEST_EVENT_LIMIT');
-    }
     for (const event of result.events) validateEvent(event, result.provider, now);
   }
 
@@ -204,7 +200,7 @@ export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(),
     providerReceivedAt[result.provider] = nowIso;
   }
 
-  for (const result of previous?.snapshot?.providerResults || []) {
+  for (const result of (incomingProviders.has('sportradar') ? [] : (previous?.snapshot?.providerResults || []))) {
     if (incomingProviders.has(result.provider)) continue;
     const receivedAt = previous.snapshot.providerReceivedAt?.[result.provider]
       || previous.snapshot.generatedAt;
