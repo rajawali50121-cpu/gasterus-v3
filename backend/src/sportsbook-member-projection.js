@@ -19,7 +19,8 @@ const MEMBER_MARKET_SOURCE_LABELS = Object.freeze({
   sharpapi: 'SharpAPI',
   'public-market': 'Gasterus Market Feed',
   'footballdata-io': 'FootballData.io',
-  sportmonks: 'Sportmonks'
+  sportmonks: 'Sportmonks',
+  sportradar: 'Sportradar'
 });
 
 export function projectMemberMarkets(markets = []) {
@@ -29,9 +30,9 @@ export function projectMemberMarkets(markets = []) {
 
   for (const market of markets) {
     if (!isRecord(market)) continue;
-    const sportmonksPassthrough = config.sportmonksPassthrough && market.source === 'sportmonks';
+    const sourcePassthrough = market.source === 'sportradar' || (config.sportmonksPassthrough && market.source === 'sportmonks');
     const identity = marketIdentity(market);
-    if (!sportmonksPassthrough) {
+    if (!sourcePassthrough) {
       if (seenMarkets.has(identity)) continue;
       seenMarkets.add(identity);
     }
@@ -52,7 +53,7 @@ export function projectMemberMarkets(markets = []) {
         line: selection.line,
         suspended: selection.suspended,
         priceVersion: selection.priceVersion,
-        ...(sportmonksPassthrough ? {
+        ...(sourcePassthrough ? {
           source: selection.source || market.source || null,
           sourceSelectionId: selection.sourceSelectionId || null,
           updatedAt: selection.updatedAt || null
