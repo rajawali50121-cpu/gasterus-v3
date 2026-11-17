@@ -270,7 +270,7 @@ export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
       let previous = null;
       if (previousRaw) {
         try {
-          previous = verifyStoredSportsbookSnapshot(previousRaw, { secret, maxPayloadBytes, maxAgeSeconds, now });
+          previous = verifyStoredSportsbookSnapshot(previousRaw, { secret, maxAgeSeconds, now });
         } catch {
           previous = null;
         }
