@@ -43,6 +43,35 @@ test('member REST snapshot projection retains valid FT and HT markets without du
   assert.equal(result.find(item => item.id === 'ht-main').selections.some(item => item.key === 'HOME'), true);
 });
 
+test('Sportradar member projection preserves bookmaker, source ids, and timestamps', () => {
+  const projected = projectMemberMarkets([{
+    id: 'sr-market-1',
+    type: '1X2',
+    label: 'Match Result',
+    period: 'FT',
+    source: 'sportradar',
+    sourceMarketId: 'sr:market:1',
+    bookmaker: 'Bookmaker A',
+    updatedAt: '2026-11-17T10:00:00.000Z',
+    suspended: false,
+    selections: [{
+      key: 'sr-selection-1',
+      label: 'Home',
+      odds: 2.1,
+      suspended: false,
+      source: 'sportradar',
+      sourceSelectionId: 'sr:outcome:1',
+      updatedAt: '2026-11-17T10:00:00.000Z'
+    }]
+  }]);
+  assert.equal(projected.length, 1);
+  assert.equal(projected[0].sourceLabel, 'Sportradar');
+  assert.equal(projected[0].bookmaker, 'Bookmaker A');
+  assert.equal(projected[0].sourceMarketId, 'sr:market:1');
+  assert.equal(projected[0].selections[0].source, 'sportradar');
+  assert.equal(projected[0].selections[0].sourceSelectionId, 'sr:outcome:1');
+});
+
 test('Sportmonks finite odds outside the bettable range remain visible but disabled', () => {
   const periods = availableMarketPeriods({
     markets: [{
