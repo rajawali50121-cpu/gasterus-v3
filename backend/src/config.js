@@ -62,7 +62,6 @@ export const config = Object.freeze({
   opsInternalSecret: testSecret('OPS_INTERNAL_SECRET', 32, 'test-ops-internal-secret-0123456789'),
   sessionHmacKey: testSecret('SESSION_HMAC_KEY', 32, 'test-session-hmac-key-passphrase-123'),
   apiKeyPepper: testSecret('API_KEY_PEPPER', 32, 'test-api-key-pepper-passphrase-1234'),
-  mfaEncryptionKeyBase64: testSecret('MFA_ENCRYPTION_KEY_BASE64', 40, Buffer.alloc(32, 7).toString('base64')),
   sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
   sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 3600),
   // Stored/render snapshots may be up to ~1 day old (daily refresh). Read path uses this;
@@ -339,7 +338,3 @@ export const config = Object.freeze({
   betnexProtocolVerified,
   betnexRealMoneyEnabled: bool('BETNEX_REAL_MONEY_ENABLED', false) && betnexProtocolVerified
 });
-
-const mfaKey = Buffer.from(config.mfaEncryptionKeyBase64, 'base64');
-if (mfaKey.length !== 32) throw new Error('MFA_ENCRYPTION_KEY_BASE64 must decode to exactly 32 bytes');
-export const mfaEncryptionKey = mfaKey;
