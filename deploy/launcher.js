@@ -28,8 +28,11 @@ for (const name of requiredSecrets) {
   if (value.length < 32) {
     throw new Error(`[security] ${name} is missing or too short; configure a unique secret in Railway.`);
   }
-  if (name === 'MFA_ENCRYPTION_KEY_BASE64' && Buffer.from(value, 'base64').length !== 32) {
-    throw new Error('[security] MFA_ENCRYPTION_KEY_BASE64 must decode to exactly 32 bytes.');
+  if (name === 'MFA_ENCRYPTION_KEY_BASE64') {
+    const decoded = Buffer.from(value, 'base64');
+    if (decoded.length !== 32 || decoded.toString('base64') !== value) {
+      throw new Error('[security] MFA_ENCRYPTION_KEY_BASE64 must be canonical base64 for exactly 32 bytes.');
+    }
   }
 }
 const children = new Map();
