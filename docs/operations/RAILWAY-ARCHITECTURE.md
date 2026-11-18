@@ -13,7 +13,7 @@ Canonical repository: `rajawali50121-cpu/gasterus-v3`.
 | Primary data | Railway PostgreSQL | Durable relational source of truth. |
 | Cache and coordination | Railway Redis | Feed snapshots, cache, queues and distributed coordination. |
 | Odds ingestion | Railway `sportsbook-render-worker` | Fetch and normalize Sportradar prematch fixtures/odds, then send a signed snapshot to the API over Railway private networking. |
-| One-time migration | Railway `gasterus-db-migration` | Dump the old PostgreSQL database and restore it to the new PostgreSQL database. Run only during the approved migration window. |
+| Migration verification | Railway `gasterus-db-migration` | One-shot schema-ledger inspection only. It does not perform the final source-to-target data restore. Keep it unscheduled; use a separately reviewed final dump/restore procedure during the approved migration window. |
 
 Do not move application/business logic between these layers without a reviewed change and explicit approval. Cloudflare remains the frontend platform. Railway remains the API/data/ingestion platform.
 
@@ -39,7 +39,7 @@ Transport rule: HTTPS is accepted generally. HTTP is accepted only when the dest
 
 ## 4. New Railway project layout
 
-Project: `unique-possibility`, environment: `production`.
+Project: `unique-possibility` (`12c25d56-2f12-4d26-ad30-0b822389d8b0`), environment: `production` (`18c05d2e-db87-419c-a2e5-ce43591e1d4f`).
 
 - `gasterus-v3`: backend/API; source branch `railway-migration-fix-039`; Dockerfile `deploy/Dockerfile`.
 - `Postgres`: new target database; persistent volume mounted at `/var/lib/postgresql/data`.
@@ -90,16 +90,39 @@ For each audit, inspect in this order:
 
 Always record the project, environment, service, commit SHA, deployment ID, observed status, evidence, and any remaining blocker. Distinguish clearly between configured, deployed, running, tested, and production-serving. A successful backend deployment alone does not prove the worker, data migration, frontend routing, or cutover is complete.
 
-## 8. Current migration checkpoint (2026-11-18)
+## 8. Current migration checkpoint (verified 2026-11-18)
 
-- New backend deployment is successful and the service is online.
-- New PostgreSQL and Redis are online with persistent volumes.
-- Worker source is staged (not committed/deployed) at commit `e8906f2432c99ca58c4b36d9a0e2eb7c30bbf674`; its cron configuration remains in place.
-- Migration service has no source/deployment yet.
-- `SPORTRADAR_API_KEY` is not present in the new worker's variable-name inventory; worker must not be deployed until it is securely configured.
-- `SOURCE_DATABASE_URL` is not currently staged on the migration service. Re-stage it from the secured old-account CLI export only after verifying the source endpoint; do not paste the secret into chat.
-- Three earlier backend deployments failed; the latest backend deployment succeeded. Preserve the failed deployment history for audit.
-- No production cutover has occurred.
-- No CI checks were returned for the current code commits; do not describe the code change as test-passing until tests actually run.
-- The worker source attachment is staged in Railway and must not be committed/deployed until `SPORTRADAR_API_KEY` is securely configured and the ingest transport tests are run.
+### Old Railway — source production (must remain untouched until cutover)
+- Project: `amiable-sparkle` (`72b7f370-4029-4860-9f0c-cb1bc7b870ea`), environment: `production` (`ddab77fd-fd61-4f44-95de-675953659381`).
+- Backend, PostgreSQL, Redis and `sportsbook-render-worker` are LIVE/healthy. The backend is on `master`; the old worker and backend still contain legacy provider variable names.
+- Old backend service domain remains `gasterus-v3-production.up.railway.app`.
+- No old service, variable, volume, domain, database, Redis or cron configuration was changed during this audit.
 
+### New Railway — migration target (not yet production-serving)
+- Project: `unique-possibility` (`12c25d56-2f12-4d26-ad30-0b822389d8b0`), environment: `production` (`18c05d2e-db87-419c-a2e5-ce43591e1d4f`).
+- Live services: `gasterus-v3`, `Postgres`, `Redis`, `sportsbook-render-worker`, and one-shot `gasterus-db-migration`. All latest deployments report `SUCCESS`; backend, Postgres and Redis are online, worker is cron-ready.
+- Backend and worker are deployed from `railway-migration-fix-039` at commit `e8906f2432c99ca58c4b36d9a0e2eb7c30bbf674`.
+- New backend variable inventory is clean of legacy provider flags. New worker variable inventory includes Sportradar settings and the ingestion credentials/URL names. The connected Railway account redacts variable values, so presence is verified but exact reference targets and secret validity are not independently verified here.
+- Worker cron is `5 17 * * *` UTC (00:05 WIB). The worker deployment is successful and cron-ready; a successful scheduled Sportradar ingestion run and accepted event/market counts have not yet been verified.
+- No Railway-generated service domain or custom domain is attached to the new backend. Keep routing unchanged until the final cutover gate.
+
+### Database migration — incomplete; do not cut over
+- The old PostgreSQL remains the live write source.
+- A point-in-time copy of the old database exists separately as `gasterus_import` on the new PostgreSQL. The previously recorded comparison found 131 tables in both source and import; this snapshot is not current because the old production database continues receiving writes.
+- The new PostgreSQL's primary `railway` database has its own application schema/migration ledger. The one-shot `gasterus-db-migration` service currently runs only a migration-ledger inspection; it does not copy `gasterus_import` into `railway`.
+- Latest ledger inspection: SOURCE = 48 rows, IMPORT = 48 rows, TARGET (`railway`) = 44 rows. The target ledger corresponds to the current 44 migration files; the source/import ledger retains four legacy/duplicate historical entries. Do not treat these counts alone as proof of business-data parity.
+- Final consistent dump/restore into the target primary database, row-count comparison, wallet/ledger integrity checks, owner/admin verification, and application smoke tests are still outstanding.
+- Three historical backend deployments failed while migration `039_canonicalize_market_slugs.sql` rejected five expected pool slugs. The current latest backend deployment is successful; preserve those failed deployments as audit history and do not erase them.
+- No production cutover has occurred. Old Railway remains the active production system.
+
+### Required next sequence
+1. Keep old Railway production untouched.
+2. Verify the new worker's next scheduled run against Sportradar and confirm the signed private ingest is accepted by the new backend; record event/market counts and Redis snapshot freshness.
+3. Schedule a maintenance window and stop old-application writes.
+4. Take a final consistent source PostgreSQL dump, validate it, and restore it into the new primary `railway` database. Do not overwrite the live target or use destructive restore flags without a verified backup and explicit migration plan.
+5. Compare source and target table counts plus critical user, wallet, transaction, bet, settlement and audit records. Resolve any schema/migration mismatch before startup.
+6. Verify new backend readiness and read-only business smoke tests against the restored target database.
+7. Verify Cloudflare frontend/API origin configuration without changing it prematurely.
+8. Obtain explicit cutover approval, then switch traffic. Keep old Railway intact for rollback until the new system is proven stable.
+
+A deployment marked `SUCCESS` proves only that deployment completed. It does not prove final database migration, provider ingestion, Cloudflare routing, or production cutover.
