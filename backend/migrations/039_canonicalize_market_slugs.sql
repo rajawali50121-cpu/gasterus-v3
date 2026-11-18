@@ -96,12 +96,12 @@ WHERE c.market_id = m.id
   AND c.auto_reopen_blocked
   AND m.slug IN ('newjersey-mid-pool','tennessee-mid-pool','tennessee-eve-pool','washington-md-pool','washington-ev-pool');
 
--- (5) VERIFIKASI: slug lama habis, slug kanonik hadir, tidak ada duplikat.
+-- (5) VERIFIKASI: slug lama habis; identitas kanonik lengkap bila sudah ada.
 DO $$
 DECLARE
   sisa_lama INTEGER;
   hilang TEXT;
-  total_markets INTEGER;
+  jumlah_kanonik INTEGER;
 BEGIN
   SELECT COUNT(*) INTO sisa_lama FROM markets
   WHERE slug IN ('newjerseymid-pool','tennesse-mid-pool','tennesse-eve-pool','washingtonmd-pool','washingtonev-pool');
@@ -109,8 +109,13 @@ BEGIN
     RAISE EXCEPTION 'Migrasi 039 gagal: masih ada % baris dengan slug lama', sisa_lama;
   END IF;
 
-  SELECT COUNT(*) INTO total_markets FROM markets;
-  IF total_markets > 0 THEN
+  SELECT COUNT(*) INTO jumlah_kanonik FROM markets
+  WHERE slug IN ('newjersey-mid-pool','tennessee-mid-pool','tennessee-eve-pool','washington-md-pool','washington-ev-pool');
+
+  -- Fresh database already contains a few markets from migration 032, but the
+  -- five canonical pools are inserted by seed.js only AFTER all migrations.
+  -- Allow zero canonical rows here; reject partial sets and preserve full sets.
+  IF jumlah_kanonik > 0 AND jumlah_kanonik < 5 THEN
     SELECT string_agg(t.target, ', ') INTO hilang
     FROM (VALUES
       ('newjersey-mid-pool'),
@@ -122,14 +127,13 @@ BEGIN
     LEFT JOIN markets m ON m.slug = t.target
     WHERE m.id IS NULL;
 
-    IF hilang IS NOT NULL THEN
-      RAISE EXCEPTION 'Migrasi 039 gagal: slug kanonik berikut tidak ditemukan setelah rename: %', hilang;
-    END IF;
-  ELSE
-    RAISE NOTICE 'Migration 039: markets masih kosong saat migrasi; keberadaan slug kanonik akan dipenuhi oleh seed.js';
+    RAISE EXCEPTION 'Migrasi 039 gagal: slug kanonik berikut belum lengkap: %', hilang;
   END IF;
 
-  RAISE NOTICE 'Migration 039: tidak ada slug lama tersisa; tidak ada data hasil yang ditimpa';
+  IF jumlah_kanonik = 0 THEN
+    RAISE NOTICE 'Migration 039: lima pool kanonik belum ada; seed.js akan membuatnya setelah migrasi';
+  ELSE
+    RAISE NOTICE 'Migration 039: lima slug kanonik lengkap; tidak ada data hasil yang ditimpa';
+  END IF;
 END $$;
-
 COMMIT;
