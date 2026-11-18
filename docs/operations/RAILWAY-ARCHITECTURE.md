@@ -94,11 +94,12 @@ Always record the project, environment, service, commit SHA, deployment ID, obse
 
 - New backend deployment is successful and the service is online.
 - New PostgreSQL and Redis are online with persistent volumes.
-- Worker service has its cron configuration but no source/deployment yet.
+- Worker source is staged (not committed/deployed) at commit `e8906f2432c99ca58c4b36d9a0e2eb7c30bbf674`; its cron configuration remains in place.
 - Migration service has no source/deployment yet.
 - `SPORTRADAR_API_KEY` is not present in the new worker's variable-name inventory; worker must not be deployed until it is securely configured.
-- A staged `SOURCE_DATABASE_URL` change exists on the migration service. It is not live/applied; verify its origin before committing the staged patch.
+- `SOURCE_DATABASE_URL` is not currently staged on the migration service. Re-stage it from the secured old-account CLI export only after verifying the source endpoint; do not paste the secret into chat.
 - Three earlier backend deployments failed; the latest backend deployment succeeded. Preserve the failed deployment history for audit.
 - No production cutover has occurred.
 - No CI checks were returned for the current code commits; do not describe the code change as test-passing until tests actually run.
+- The worker source attachment is staged in Railway and must not be committed/deployed until `SPORTRADAR_API_KEY` is securely configured and the ingest transport tests are run.
 
