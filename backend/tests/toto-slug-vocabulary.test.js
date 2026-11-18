@@ -181,15 +181,15 @@ test('migrasi 039 hanya membatalkan jika slug lama dan kanonik sama-sama ada', (
   assert.ok(guardAt > -1, 'harus ada pre-flight guard');
   assert.ok(firstRename > -1, 'harus ada rename');
   assert.ok(guardAt < firstRename, 'guard duplikat harus mendahului rename');
-  assert.match(sql, /JOIN markets legacy_m ON legacy_m\\.slug = t\\.legacy/);
-  assert.match(sql, /JOIN markets canonical_m ON canonical_m\\.slug = t\\.target/);
+  assert.ok(sql.includes('JOIN markets legacy_m ON legacy_m.slug = t.legacy'));
+  assert.ok(sql.includes('JOIN markets canonical_m ON canonical_m.slug = t.target'));
 });
 
 test('migrasi 039 tidak mewajibkan slug kanonik sebelum seed pada database kosong', () => {
   const sql = read('backend/migrations/039_canonicalize_market_slugs.sql');
-  assert.match(sql, /SELECT COUNT\\(\\*\\) INTO total_markets FROM markets/);
-  assert.match(sql, /IF total_markets > 0 THEN/);
-  assert.match(sql, /markets masih kosong saat migrasi/);
+  assert.ok(sql.includes('SELECT COUNT(*) INTO total_markets FROM markets'));
+  assert.ok(sql.includes('IF total_markets > 0 THEN'));
+  assert.ok(sql.includes('markets masih kosong saat migrasi'));
 });
 
 test('migrasi 039 menutup diri dengan verifikasi akhir', () => {
