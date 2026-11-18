@@ -33,7 +33,7 @@ try {
          mfa_secret_encrypted = NULL,
          status = 'ACTIVE', 
          updated_at = now() 
-     WHERE username = $3 
+     WHERE username = $2 
      RETURNING id, username`,
     [hash, username]
   );
@@ -50,7 +50,7 @@ try {
       passwordGenerated: generated
     }, null, 2));
     console.log('\nCara pakai:');
-    console.log('1. Simpan password & TOTP secret di password manager sekarang.');
+    console.log('1. Simpan password baru di password manager sekarang.');
     console.log(`2. Buka https://gasterus.fun/cc-x7k9/ lalu login dengan username "${username}".`);
     console.log('3. Login menggunakan password baru. MFA/OTP dinonaktifkan untuk akun ini.');
   }
