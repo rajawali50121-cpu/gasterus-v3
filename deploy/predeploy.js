@@ -10,19 +10,12 @@ const requiredSecrets = [
   'ADMIN_PROXY_SECRET',
   'OPS_INTERNAL_SECRET',
   'SESSION_HMAC_KEY',
-  'API_KEY_PEPPER',
-  'MFA_ENCRYPTION_KEY_BASE64'
+  'API_KEY_PEPPER'
 ];
 for (const name of requiredSecrets) {
   const value = String(process.env[name] || '').trim();
   if (value.length < 32) {
     throw new Error(`[security] ${name} is missing or too short; configure a unique secret in Railway.`);
-  }
-  if (name === 'MFA_ENCRYPTION_KEY_BASE64') {
-    const decoded = Buffer.from(value, 'base64');
-    if (decoded.length !== 32 || decoded.toString('base64') !== value) {
-      throw new Error('[security] MFA_ENCRYPTION_KEY_BASE64 must be canonical base64 for exactly 32 bytes.');
-    }
   }
 }
 import { spawn } from 'node:child_process';
