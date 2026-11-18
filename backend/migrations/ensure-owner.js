@@ -28,7 +28,7 @@ try {
     if(password.length<14||password.length>128) throw new Error('OWNER_PASSWORD must contain 14-128 characters for first deploy');
     const hash=await hashPassword(password);
     const userId=randomUUID();
-    await client.query(`INSERT INTO users(id,username,password_hash,status,rules_accepted_at) VALUES($1,$2,$3,'ACTIVE',now())`,[userId,username,hash);
+    await client.query(`INSERT INTO users(id,username,password_hash,status,rules_accepted_at) VALUES($1,$2,$3,'ACTIVE',now())`,[userId,username,hash]);
     await client.query(`INSERT INTO user_roles(user_id,role_code,assigned_by) VALUES($1,'OWNER',$1),($1,'SUPERVISOR',$1) ON CONFLICT DO NOTHING`,[userId]);
     return {created:true,username};
   });
