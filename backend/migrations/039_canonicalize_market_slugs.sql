@@ -46,7 +46,7 @@
 
 BEGIN;
 
--- (1) PRE-FLIGHT: batalkan kalau slug kanonik sudah ada di markets.
+-- (1) PRE-FLIGHT: batalkan hanya bila slug lama dan kanonik sama-sama ada.
 DO $$
 DECLARE
   bentrok TEXT;
@@ -64,7 +64,7 @@ BEGIN
 
   IF bentrok IS NOT NULL THEN
     RAISE EXCEPTION
-      'Migrasi 039 dibatalkan: slug kanonik sudah ada di markets (%). Tidak ada data yang diubah; periksa dan putuskan manual sebelum menjalankan ulang.',
+      'Migrasi 039 dibatalkan: slug lama dan kanonik sama-sama ada di markets (%). Tidak ada data yang diubah; periksa dan putuskan manual sebelum menjalankan ulang.',
       bentrok;
   END IF;
 END $$;
