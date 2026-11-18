@@ -1,3 +1,10 @@
+// STALE LEGACY SNAPSHOT — DO NOT RUN railway config plan/apply with this file.
+// Verified live target differs: project unique-possibility / production, region iad,
+// backend service gasterus-v3 on railway-migration-fix-039, a deployed Sportradar-only
+// worker, and a live one-shot gasterus-db-migration service. This file still contains
+// legacy web/master/sfo/provider configuration and omits live resources. Regenerate
+// from the NEW Railway project with `railway config pull`, then review all diffs,
+// volumes and deletions before enabling IaC. See docs/operations/RAILWAY-ARCHITECTURE.md.
 import { defineRailway, github, postgres, preserve, project, redis, service, volume } from "railway/iac";
 
 export default defineRailway(() => {
