@@ -187,9 +187,10 @@ test('migrasi 039 hanya membatalkan jika slug lama dan kanonik sama-sama ada', (
 
 test('migrasi 039 tidak mewajibkan slug kanonik sebelum seed pada database kosong', () => {
   const sql = read('backend/migrations/039_canonicalize_market_slugs.sql');
-  assert.ok(sql.includes('SELECT COUNT(*) INTO total_markets FROM markets'));
-  assert.ok(sql.includes('IF total_markets > 0 THEN'));
-  assert.ok(sql.includes('markets masih kosong saat migrasi'));
+  assert.ok(sql.includes('SELECT COUNT(*) INTO jumlah_kanonik FROM markets'));
+  assert.ok(sql.includes('IF jumlah_kanonik > 0 AND jumlah_kanonik < 5 THEN'));
+  assert.ok(sql.includes('lima pool kanonik belum ada'));
+
 });
 
 test('migrasi 039 menutup diri dengan verifikasi akhir', () => {
