@@ -945,7 +945,7 @@ function leagueFacets(events = []) {
   });
 }
 
-function memberEventShape(item, markets, { includeProviderFields = false, includeSportradarFields = false } = {}) {
+function memberEventShape(item, markets, { includeDetailFields = false } = {}) {
   const projectedMarkets = (markets || []).map(market => ({
     ...market,
     period: market.period || 'FT'
@@ -957,20 +957,10 @@ function memberEventShape(item, markets, { includeProviderFields = false, includ
     country: item.country,
     startTime: item.startTime,
     status: item.status,
-    ...(includeProviderFields || includeSportradarFields ? {
-      providerStatus: item.providerStatus || null
-    } : {}),
-    ...(includeProviderFields ? {
+    ...(includeDetailFields ? {
       periodScores: item.periodScores || {},
       statistics: item.statistics || [],
       events: item.events || []
-    } : {}),
-    ...(includeSportradarFields ? {
-      sportId: item.sportId || null,
-      replacedBy: item.replacedBy || null,
-      startTimeConfirmed: item.startTimeConfirmed ?? null,
-      resumeTime: item.resumeTime || null,
-      sourceData: item.sourceData || null
     } : {}),
     live: item.live,
     clock: item.clock,
@@ -979,9 +969,8 @@ function memberEventShape(item, markets, { includeProviderFields = false, includ
     leagueLogo: item.leagueLogo,
     venue: item.venue,
     availableMarketCount: item.availableMarketCount,
-    ...(includeProviderFields ? { validationWarnings: item.validationWarnings || [] } : {}),
     detailLoaded: item.detailLoaded,
-    markets: projectMemberMarkets(projectedMarkets, { includeSourceData: includeSportradarFields })
+    markets: projectMemberMarkets(projectedMarkets)
   };
 }
 
@@ -1007,7 +996,7 @@ function memberPublicEvent(event) {
 }
 function memberPublicEventDetail(event) {
   const item = publicEvent(memberSourceEvent(event));
-  return memberEventShape(item, item.markets || [], { includeSportradarFields: true });
+  return memberEventShape(item, item.markets || [], { includeDetailFields: true });
 }
 
 export async function sportsbookSnapshot(filters = {}, { memberView = true } = {}) {
