@@ -4,7 +4,6 @@ import { sportsbookSettlementSnapshot } from './sportsbook-feed.js';
 import { settleSportsbookTicketAutomatic } from './sportsbook-betting.js';
 import { evaluateSportsbookLeg } from './sportsbook-result-evaluator.js';
 
-let fixtureRetrievalInvocations = 0;
 export async function autoSettleSportsbookTickets({ limit = 200 } = {}) {
   logger.info('Sportsbook auto-settlement function started', { limit });
   const cycleStartedAt = Date.now();
@@ -17,7 +16,7 @@ export async function autoSettleSportsbookTickets({ limit = 200 } = {}) {
     LIMIT $1
   `, [Math.min(Math.max(Number(limit) || 200, 1), 500)]);
   if (!open.rowCount) {
-    logger.info('Sportsbook auto-settlement cycle diagnostics', { checked: 0, eligibleEventIds: 0, settled: 0, skipped: 0, fixtureRetrievalInvocations, durationMs: Date.now() - cycleStartedAt, reason: 'no-open-tickets' });
+    logger.info('Sportsbook auto-settlement cycle diagnostics', { checked: 0, eligibleEventIds: 0, settled: 0, skipped: 0, durationMs: Date.now() - cycleStartedAt, reason: 'no-open-tickets' });
     return { checked: 0, settled: 0, skipped: 0 };
   }
 
@@ -31,7 +30,6 @@ export async function autoSettleSportsbookTickets({ limit = 200 } = {}) {
   for (const ticketRow of open.rows) {
     try {
       const legsResult = await query('SELECT * FROM sportsbook_legs WHERE ticket_id=$1 ORDER BY leg_no', [ticketRow.id]);
-      const distinctEventIds = [...new Set(legsResult.rows.map(leg => String(leg.event_id)))];
 
 
       const results = [];
@@ -58,7 +56,6 @@ export async function autoSettleSportsbookTickets({ limit = 200 } = {}) {
     eligibleEventIds: events.size,
     settled,
     skipped,
-    fixtureRetrievalInvocations,
     durationMs: Date.now() - cycleStartedAt
   });
   return { checked: open.rowCount, settled, skipped, feedFetchedAt: snapshot?.fetchedAt, feedRevision: snapshot?.feedRevision || null, settlementSources: snapshot?.settlementSources || [] };
