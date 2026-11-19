@@ -5,7 +5,7 @@ import { MEMBER_HIDDEN_TOTO_MARKETS, MEMBER_VISIBLE_TOTO_MARKET_COUNT } from '..
 // Secret statis (DATABASE_URL/REDIS_URL/dll) tidak tersedia pada fase build Railway;
 // seed placeholder inert SEBELUM dynamic import modul yang grafnya menyentuh
 // config.js (konvensi uji repo - lihat toto-collector.test.js).
-Object.assign(process.env,{NODE_ENV:'test',DATABASE_URL:'postgresql://user:pass@example.com/db',REDIS_URL:'redis://example.com:6379',MEMBER_PROXY_SECRET:'m'.repeat(48),ADMIN_PROXY_SECRET:'a'.repeat(48),OPS_INTERNAL_SECRET:'o'.repeat(48),SESSION_HMAC_KEY:'s'.repeat(48),API_KEY_PEPPER:'p'.repeat(48),7).toString('base64')});
+Object.assign(process.env,{NODE_ENV:'test',DATABASE_URL:'postgresql://user:pass@example.com/db',REDIS_URL:'redis://example.com:6379',MEMBER_PROXY_SECRET:'m'.repeat(48),ADMIN_PROXY_SECRET:'a'.repeat(48),OPS_INTERNAL_SECRET:'o'.repeat(48),SESSION_HMAC_KEY:'s'.repeat(48),API_KEY_PEPPER:'p'.repeat(48)});
 const { parseObservation, MARKET_MAP } = await import('../src/toto-collector-core.js');
 
 test('ROOT closure exposes the canonical TOTO markets to member catalog (VegasNet pools only)',()=>{
@@ -35,7 +35,7 @@ test('ROOT closure market-card captures close and result schedule in WIB',()=>{
 });
 
 test('ROOT closure official source can recover from HTTP failure using bounded rendered page',async()=>{
-  Object.assign(process.env,{NODE_ENV:'test',DATABASE_URL:'postgresql://user:pass@example.com/db',REDIS_URL:'redis://example.com:6379',MEMBER_PROXY_SECRET:'m'.repeat(48),ADMIN_PROXY_SECRET:'a'.repeat(48),OPS_INTERNAL_SECRET:'o'.repeat(48),SESSION_HMAC_KEY:'s'.repeat(48),API_KEY_PEPPER:'p'.repeat(48),7).toString('base64')});
+  Object.assign(process.env,{NODE_ENV:'test',DATABASE_URL:'postgresql://user:pass@example.com/db',REDIS_URL:'redis://example.com:6379',MEMBER_PROXY_SECRET:'m'.repeat(48),ADMIN_PROXY_SECRET:'a'.repeat(48),OPS_INTERNAL_SECRET:'o'.repeat(48),SESSION_HMAC_KEY:'s'.repeat(48),API_KEY_PEPPER:'p'.repeat(48)});
   const { collectOfficialTotoSources } = await import('../src/toto-official-source.js');
   const fetchImpl=async()=>{throw new Error('HTTP 403')};
   let rendered=0;
