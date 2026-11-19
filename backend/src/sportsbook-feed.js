@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { AppError } from './errors.js';
 import { redis } from './redis.js';
 import { logger } from './logger.js';
-import { fetchSportmonks, fetchSharpApi, fetchRapidApiOdds, mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
+import { mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
 import { fetchSportradar } from './sportradar-provider.js';
 import { resolveSportsbookProviderResults } from './sportsbook-feed-source.js';
 import { appendFeedRevision, readFeedRevision, paginateEvents, SPORTSBOOK_FEED_REVISIONS_KEY } from './sportsbook-feed-revisions.js';
@@ -412,252 +412,12 @@ function bettableMarketCount(events = []) {
 function providerHasPricedMarkets(result) {
   return Boolean(result?.enabled && !result?.stale && pricedMarketCount(result.events || []) > 0);
 }
-// enabledProviders() returns the LIVE provider descriptors that the core feed
-// pipeline may fetch directly. It is intentionally a config-driven allowlist:
-// every provider that has a real fetcher in sportsbook-providers.js and an
-// enabled flag must appear here, otherwise performRefresh() throws
-// SPORTS_PROVIDERS_NOT_CONFIGURED and the whole feed goes read-only.
-// The render worker is a SEPARATE process that builds its own snapshot via
-// sportsbook-render-worker-core.js; it is not constrained by this list.
+// Odds are fetched exclusively by the isolated Sportradar render worker.
+// The backend never holds provider adapters or performs provider network calls.
 function enabledProviders() {
-  // In production, Sportradar is the only sportsbook odds source. This path is
-  // used only when the verified render-worker snapshot is unavailable/stale.
-  if (config.nodeEnv === 'production') {
-    return config.sportradarEnabled && config.sportradarApiKey
-      ? [{ name: 'Sportradar', code: 'sportradar', enabled: true, fetcher: fetchSportradar }]
-      : [];
-  }
-  const descriptors = [];
-  if (config.sportmonksEnabled && config.sportmonksKey) {
-    descriptors.push({ name: 'Sportmonks', code: 'sportmonks', enabled: true, fetcher: fetchSportmonks });
-  }
-  if (config.sharpApiEnabled && config.sharpApiKey) {
-    descriptors.push({ name: 'SharpAPI', code: 'sharpapi', enabled: true, fetcher: fetchSharpApi });
-  }
-  if (config.oddsPapiEnabled && config.oddsPapiKey) {
-    descriptors.push({ name: 'OddsPapi', code: 'oddspapi', enabled: true, fetcher: null });
-  }
-  // Backend Railway TIDAK memanggil RapidAPI langsung. Baca melalui cache worker
-  // Cloudflare (RAPIDAPI_ODDS_CACHE_URL + RAPIDAPI_ODDS_CACHE_TOKEN).
-  if (config.rapidApiOddsEnabled && config.rapidApiOddsCacheUrl) {
-    descriptors.push({ name: 'RapidAPI Tipsters', code: 'tipsters', enabled: true, fetcher: fetchRapidApiOdds });
-  }
-  return descriptors;
+  return [];
 }
 
-// ---------------------------------------------------------------------------
-// Emergency hard fallback snapshot (anti "0 Pertandingan").
-// Provider kosong, timeout, atau error total tidak boleh menghasilkan feed
-// kosong di produksi. Snapshot tanganan ini menyediakan pertandingan showcase
-// lengkap dengan 4 pasaran inti (1X2, Handicap, Totals, BTTS) agar papan
-// sportsbook selalu terisi dan status feed tetap "Feed aktif". Odds ditandai
-// source 'hard-fallback' dengan provider gate bettingAllowed:false sehingga
-// tidak pernah menerima taruhan uang asli.
-// ---------------------------------------------------------------------------
-const HARD_FALLBACK_SOURCE = 'hard-fallback';
-const HARD_FALLBACK_MIN_EVENTS = 60;
-const HARD_FALLBACK_TTL_MS = 60_000;
-// Pasaran cadangan selalu full-time; nama konstanta dipakai agar guard test
-// "period tidak boleh di-hardcode inline" tetap berlaku untuk blok fallback.
-const HARD_FALLBACK_PERIOD = 'FT';
-const HARD_FALLBACK_ODDS_PROFILES = Object.freeze([
-  { oneXTwo: [1.95, 3.55, 3.85], handicap: [1.90, 1.90], totals: [1.82, 1.98], btts: [1.72, 2.05] },
-  { oneXTwo: [2.30, 3.30, 3.10], handicap: [2.05, 1.75], totals: [2.00, 1.80], btts: [1.95, 1.85] },
-  { oneXTwo: [1.65, 3.90, 4.75], handicap: [1.78, 2.02], totals: [1.75, 2.05], btts: [1.62, 2.20] }
-]);
-const HARD_FALLBACK_LEAGUES = Object.freeze([
-  { country: 'Inggris', league: 'Premier League', fixtures: [['Arsenal', 'Chelsea'], ['Liverpool', 'Manchester City'], ['Manchester United', 'Tottenham Hotspur'], ['Newcastle United', 'Aston Villa'], ['Brighton', 'West Ham United'], ['Brentford', 'Crystal Palace'], ['Everton', 'Fulham'], ['Nottingham Forest', 'AFC Bournemouth']] },
-  { country: 'Spanyol', league: 'La Liga', fixtures: [['Real Madrid', 'Barcelona'], ['Atletico Madrid', 'Sevilla'], ['Real Betis', 'Villarreal'], ['Athletic Club', 'Valencia'], ['Real Sociedad', 'Girona'], ['Osasuna', 'Getafe'], ['Celta Vigo', 'Mallorca'], ['Las Palmas', 'Alaves']] },
-  { country: 'Italia', league: 'Serie A', fixtures: [['Inter Milan', 'AC Milan'], ['Juventus', 'Roma'], ['Napoli', 'Lazio'], ['Atalanta', 'Fiorentina'], ['Bologna', 'Torino'], ['Udinese', 'Genoa'], ['Lecce', 'Cagliari'], ['Hellas Verona', 'Parma']] },
-  { country: 'Jerman', league: 'Bundesliga', fixtures: [['Bayern Munich', 'Borussia Dortmund'], ['RB Leipzig', 'Bayer Leverkusen'], ['VfB Stuttgart', 'Eintracht Frankfurt'], ['Freiburg', 'Wolfsburg'], ['Mainz 05', 'Union Berlin'], ['Augsburg', 'Bochum'], ['Heidenheim', 'Werder Bremen'], ['Hoffenheim', 'St Pauli']] },
-  { country: 'Prancis', league: 'Ligue 1', fixtures: [['Paris Saint-Germain', 'Marseille'], ['Monaco', 'Lyon'], ['Lille', 'Nice'], ['Rennes', 'Lens'], ['Brest', 'Strasbourg'], ['Toulouse', 'Reims'], ['Nantes', 'Auxerre'], ['Angers', 'Le Havre']] },
-  { country: 'Eropa', league: 'Champions League', fixtures: [['Real Madrid', 'Manchester City'], ['Bayern Munich', 'Paris Saint-Germain'], ['Barcelona', 'Inter Milan'], ['Arsenal', 'Atletico Madrid'], ['Liverpool', 'AC Milan'], ['Borussia Dortmund', 'Juventus'], ['Benfica', 'Ajax'], ['Sporting CP', 'Celtic']] },
-  { country: 'Belanda', league: 'Eredivisie', fixtures: [['Ajax', 'PSV'], ['Feyenoord', 'AZ Alkmaar'], ['FC Twente', 'Utrecht'], ['Go Ahead Eagles', 'Heerenveen'], ['NEC Nijmegen', 'NAC Breda'], ['Sparta Rotterdam', 'Fortuna Sittard'], ['Groningen', 'Willem II'], ['Zwolle', 'Almere City']] },
-  { country: 'Indonesia', league: 'Liga 1', fixtures: [['Persib Bandung', 'Persebaya Surabaya'], ['Arema FC', 'Bali United'], ['PSM Makassar', 'Persija Jakarta'], ['Bhayangkara FC', 'RANS Nusantara'], ['Dewa United', 'PSBS Biak'], ['Barito Putera', 'Persik Kediri'], ['Malut United', 'Persita Tangerang'], ['PSS Sleman', 'PSIS Semarang']] }
-]);
-let hardFallbackFeedCache = null;
-function buildHardFallbackMarket(eventId, updatedAt, { key, label, type, line = null, mainLine = null, oddsLabels }) {
-  const marketId = `${eventId}-${key}`;
-  return {
-    id: marketId,
-    key,
-    type,
-    label,
-    period: HARD_FALLBACK_PERIOD,
-    line,
-    suspended: false,
-    updatedAt,
-    source: HARD_FALLBACK_SOURCE,
-    sourceMarketId: null,
-    bookmaker: null,
-    mainLine,
-    selections: oddsLabels.map(([selectionKey, selectionLabel, selectionOdds, selectionLine]) => ({
-      key: `${marketId}-${selectionKey}`,
-      label: selectionLabel,
-      odds: selectionOdds,
-      line: selectionLine ?? null,
-      suspended: false,
-      source: HARD_FALLBACK_SOURCE,
-      sourceSelectionId: null,
-      updatedAt,
-      priceVersion: crypto.createHash('sha256')
-        .update(`${eventId}|${marketId}|${selectionKey}|${selectionOdds}`)
-        .digest('hex')
-        .slice(0, 28)
-    }))
-  };
-}
-// Bangun event showcase deterministik: selalu ≤120 event, 4 pasaran inti per
-// event, odds valid (>=1.20 dengan overround 1X2 yang wajar), sebagian LIVE
-// agar tab "Live"/"Hari Ini" tetap terisi berapa pun jam server.
-function buildHardFallbackEvents(now = Date.now()) {
-  const events = [];
-  let fixtureIndex = 0;
-  for (const league of HARD_FALLBACK_LEAGUES) {
-    for (const [homeName, awayName] of league.fixtures) {
-      const live = fixtureIndex % 4 === 0;
-      const profile = HARD_FALLBACK_ODDS_PROFILES[fixtureIndex % HARD_FALLBACK_ODDS_PROFILES.length];
-      const eventId = `hf-${String(fixtureIndex + 1).padStart(3, '0')}`;
-      const kickoff = live
-        ? new Date(now - (15 + (fixtureIndex % 45)) * 60_000)
-        : new Date(now + (1 + ((fixtureIndex * 7) % 70)) * 3_600_000);
-      const updatedAt = new Date(now).toISOString();
-      const markets = [
-        buildHardFallbackMarket(eventId, updatedAt, {
-          key: '1x2',
-          label: '1X2',
-          type: '1X2',
-          oddsLabels: [
-            ['home', 'Home', profile.oneXTwo[0]],
-            ['draw', 'Draw', profile.oneXTwo[1]],
-            ['away', 'Away', profile.oneXTwo[2]]
-          ]
-        }),
-        buildHardFallbackMarket(eventId, updatedAt, {
-          key: 'handicap',
-          label: 'Asian Handicap',
-          type: 'HANDICAP',
-          line: -0.5,
-          mainLine: true,
-          oddsLabels: [
-            ['home', 'Home -0.5', profile.handicap[0], -0.5],
-            ['away', 'Away +0.5', profile.handicap[1], 0.5]
-          ]
-        }),
-        buildHardFallbackMarket(eventId, updatedAt, {
-          key: 'totals',
-          label: 'Over / Under',
-          type: 'TOTALS',
-          line: 2.5,
-          mainLine: true,
-          oddsLabels: [
-            ['over', 'Over 2.5', profile.totals[0], 2.5],
-            ['under', 'Under 2.5', profile.totals[1], 2.5]
-          ]
-        }),
-        buildHardFallbackMarket(eventId, updatedAt, {
-          key: 'btts',
-          label: 'Both Teams To Score',
-          type: 'BTTS',
-          oddsLabels: [
-            ['yes', 'Yes', profile.btts[0]],
-            ['no', 'No', profile.btts[1]]
-          ]
-        })
-      ];
-      events.push({
-        id: eventId,
-        sport: 'Football',
-        league: league.league,
-        country: league.country,
-        startTime: kickoff.toISOString(),
-        status: live ? 'LIVE' : 'SCHEDULED',
-        providerStatus: live ? 'LIVE' : 'SCHEDULED',
-        live,
-        clock: live ? `${12 + (fixtureIndex % 60)}'` : null,
-        home: { name: homeName, score: live ? fixtureIndex % 3 : null, logo: null },
-        away: { name: awayName, score: live ? (fixtureIndex + 1) % 3 : null, logo: null },
-        leagueLogo: null,
-        venue: null,
-        periodScores: {},
-        availableMarketCount: markets.length,
-        markets,
-        _refs: { [HARD_FALLBACK_SOURCE]: eventId },
-        _sources: [HARD_FALLBACK_SOURCE]
-      });
-      fixtureIndex += 1;
-    }
-  }
-  return events;
-}
-// Feed hard fallback siap pakai. Instance di-cache selama HARD_FALLBACK_TTL_MS
-// agar revisi stabil (SSE tidak spam broadcast), tetapi startTime selalu
-// digenerasi ulang berkala supaya jadwal tidak pernah lewat dari horizon member.
-function buildHardFallbackFeed({ now = Date.now(), error = null, reason = 'hard-fallback' } = {}) {
-  if (!hardFallbackFeedCache || now - Number(hardFallbackFeedCache.builtAt || 0) >= HARD_FALLBACK_TTL_MS) {
-    const events = buildHardFallbackEvents(now);
-    const providerLifecycle = {
-      [HARD_FALLBACK_SOURCE]: {
-        code: HARD_FALLBACK_SOURCE,
-        state: 'OPEN_CIRCUIT',
-        failureStreak: 1,
-        successStreak: 0,
-        nextProbeAt: 0,
-        lastAttemptAt: now,
-        transportHealthy: false,
-        pricingReady: false,
-        bettingAllowed: false,
-        lastError: (error && error.message) || 'Live provider tidak tersedia.'
-      }
-    };
-    hardFallbackFeedCache = {
-      builtAt: now,
-      lifecycleGeneration: LIFECYCLE_GENERATION,
-      events,
-      providers: [{
-        name: 'Gasterus Hard Fallback',
-        code: HARD_FALLBACK_SOURCE,
-        enabled: true,
-        healthy: false,
-        transportHealthy: false,
-        pricingReady: false,
-        latencyMs: 0,
-        events: events.length,
-        pricedMarkets: pricedMarketCount(events),
-        bettableMarkets: bettableMarketCount(events),
-        warnings: ['Live provider tidak tersedia; menampilkan snapshot cadangan hard-fallback.'],
-        state: 'OPEN_CIRCUIT',
-        failureStreak: 1,
-        successStreak: 0,
-        nextProbeAt: 0,
-        bettingAllowed: false
-      }],
-      providerLifecycle,
-      marketLifecycleStats: { active: events.length * 4, suspended: 0, reopening: 0, closed: 0 },
-      revision: stableFeedRevision(events, providerLifecycle),
-      renderSnapshotRevision: null,
-      snapshotFallback: false,
-      hardFallback: true,
-      snapshotCapturedAt: null,
-      readOnlySource: false,
-      pricedMarkets: pricedMarketCount(events),
-      bettableMarkets: bettableMarketCount(events),
-      primaryPricingProvider: null,
-      lastPriceChanges: 0,
-      lastMarketLifecycleTransitionCount: 0,
-      reason: clean(reason),
-      error: {
-        code: 'SPORTS_HARD_FALLBACK',
-        message: (error && error.message) || 'Live provider tidak tersedia; menampilkan snapshot cadangan.'
-      }
-    };
-  }
-  const feed = { ...hardFallbackFeedCache };
-  delete feed.builtAt;
-  feed.fetchedAt = now;
-  feed.expiresAt = now + REFRESH_MS;
-  return feed;
-}
 async function readRedisCache() {
   if (!redis.isOpen) return null;
   try {
@@ -831,40 +591,7 @@ function applyProviderLifecycleResult(result, lifecycle) {
 }
 async function performRefresh({ reason = 'scheduled' } = {}) {
   const previousLifecycle = await readProviderLifecycle();
-  const { renderSnapshot, settled } = await resolveSportsbookProviderResults(redis, {
-    logger,
-    fetchLocalProviders: async () => {
-      // Daily/stored mode: member reads and restarts must never trigger provider API calls.
-      // Refresh happens only via scheduled render worker ingesting stored snapshots.
-      if (config.sportsbookDailyRefreshEnabled !== false) {
-        throw new AppError(503, 'Snapshot sportsbook tersimpan belum tersedia; penarikan provider dijadwalkan dan tidak dipicu oleh request member/restart.', 'SPORTS_SNAPSHOT_REQUIRED');
-      }
-      const configured = enabledProviders();
-      if (!configured.some(provider => provider.enabled)) {
-        throw new AppError(503, 'Tidak ada snapshot worker valid atau provider sportsbook lokal terkonfigurasi.', 'SPORTS_PROVIDERS_NOT_CONFIGURED');
-      }
-      const descriptors = configured
-        .filter(d => d.enabled && typeof d.fetcher === 'function')
-        .map(d => ({ code: d.code, enabled: true, fetcher: d.fetcher }));
-      return Promise.all(descriptors.map(descriptor => {
-        const lifecycle = previousLifecycle[descriptor.code];
-        if (descriptor.enabled && lifecycle?.state === 'OPEN_CIRCUIT' && !shouldProbeProvider(lifecycle)) {
-          return Promise.resolve({
-            result: {
-              provider: descriptor.code,
-              enabled: true,
-              events: [],
-              errors: ['Provider circuit breaker cooldown active.'],
-              transportOk: false,
-              skipped: true
-            },
-            elapsedMs: 0
-          });
-        }
-        return timed(descriptor.code, descriptor.fetcher);
-      }));
-    }
-  });
+  const { renderSnapshot, settled } = await resolveSportsbookProviderResults(redis, { logger });
   if (renderSnapshot) {
     logger.info('Using verified worker sportsbook snapshot', {
       revision: renderSnapshot.revision,
@@ -982,12 +709,7 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
     marketLifecycleStats: marketLifecycle.stats,
     revision,
     renderSnapshotRevision: renderSnapshot?.revision || null,
-    diagnostics: {
-      ...(renderSnapshot?.diagnostics || {}),
-      providers: results
-        .filter(result => result.provider === 'sportmonks' && result.diagnostics)
-        .map(result => ({ provider: result.provider, ...result.diagnostics }))
-    },
+    diagnostics: renderSnapshot?.diagnostics || {},
     fetchedAt,
     expiresAt: fetchedAt + REFRESH_MS,
     error: snapshotFallback
