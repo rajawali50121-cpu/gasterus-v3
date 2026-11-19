@@ -38,6 +38,8 @@ const [
 
 console.log('WORKER_IMPORTS_DONE');
 
+const { nextSportsbookDailyRefreshMs } = await import('./sportsbook-render-worker-core.js');
+
 const cronOnce = String(process.env.SPORTSBOOK_CRON_ONCE || '').trim().toLowerCase() === 'true';
 if (config.nodeEnv === 'production') {
   if (!config.sportradarEnabled) {
