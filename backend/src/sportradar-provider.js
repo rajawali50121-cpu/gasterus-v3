@@ -135,10 +135,12 @@ function isRemovedFlag(value) {
   return value === true || String(value ?? '').trim().toLowerCase() === 'true';
 }
 function normalizedEventStatus(value) {
-  const status = String(value || '').toLowerCase();
+  const status = String(value || '').trim().toLowerCase();
   if (['ended', 'aet', 'finished', 'final'].includes(status)) return 'FINISHED';
+  if (['live', 'in_progress', 'inprogress', 'started', '1st_period', '2nd_period', 'period_1', 'period_2', 'halftime', 'half_time', 'extra_time', 'overtime', 'penalties'].includes(status)) return 'LIVE';
   if (['cancelled', 'canceled', 'abandoned', 'postponed', 'suspended', 'interrupted'].includes(status)) return 'SUSPENDED';
-  return 'SCHEDULED';
+  if (['not_started', 'scheduled', 'pre_match', 'prematch', 'fixture', ''].includes(status)) return 'SCHEDULED';
+  return 'UNKNOWN';
 }
 function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = null) {
   if (!raw || typeof raw !== 'object' || !raw.id) return { event: null, reason: 'missing-documented-event-id' };
