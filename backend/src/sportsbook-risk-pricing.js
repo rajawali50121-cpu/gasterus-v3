@@ -20,7 +20,7 @@ export function applySportsbookRiskRepricing(events = [], exposures = [], { now 
     ...event,
     markets: (event.markets || []).map(market => {
       const selections = market.selections || [];
-      if (market.source !== 'public-market' || selections.length < 2) return market;
+      if (market.source !== 'sportradar' || selections.length < 2) return market;
       const implied = selections.map(selection => 1 / Number(selection.odds));
       if (implied.some(value => !Number.isFinite(value) || value <= 0)) return market;
       const totalImplied = implied.reduce((a, b) => a + b, 0);
