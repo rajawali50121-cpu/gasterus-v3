@@ -17,7 +17,6 @@ function configureProviderOnlyRuntime() {
   ]) {
     process.env[name] = randomBytes(32).toString('base64url');
   }
-  process.env.MFA_ENCRYPTION_KEY_BASE64 = randomBytes(32).toString('base64');
 }
 
 configureProviderOnlyRuntime();
