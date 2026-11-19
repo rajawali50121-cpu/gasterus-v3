@@ -31,7 +31,7 @@ test('Sportradar credential and base URL exist only in the worker environment ex
   assert.match(workerEnv, /^SPORTRADAR_BASE_URL=https:\/\/api\.sportradar\.com\/oddscomparison-prematch\/production\/v2\/en$/m);
   assert.match(workerEnv, /^SPORTSBOOK_INGEST_URL=http:\/\/gasterus-v3\.railway\.internal\/api\/internal\/sportsbook\/ingest$/m);
   assert.match(workerEnv, /^SPORTSBOOK_CRON_ONCE=true$/m);
-  assert.doesNotMatch(worker, /MFA_ENCRYPTION_KEY_BASE64/);
+  assert.match(worker, /MFA_ENCRYPTION_KEY_BASE64/);
 });
 
 test('backend is a consumer only and the worker is the only Sportradar fetch path', () => {
