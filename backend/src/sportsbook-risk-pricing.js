@@ -38,14 +38,16 @@ export function applySportsbookRiskRepricing(events = [], exposures = [], { now 
           ...item.selection,
           baseOdds: Number(item.selection.baseOdds || item.selection.odds),
           odds,
-          updatedAt: repricedAt,
+          // Repricing time is not a provider update time. Keep source freshness timestamps intact.
+          updatedAt: item.selection.updatedAt || market.updatedAt || null,
+          riskRepricedAt: repricedAt,
           anchorUpdatedAt: item.selection.anchorUpdatedAt || item.selection.updatedAt || market.updatedAt || null,
           pricingModel: 'GASTERUS_RISK_SHADE_V1',
           riskLiability: Math.trunc(item.liability),
           riskShadeBps: Math.round(item.shade * 10000)
         };
       });
-      return { ...market, updatedAt: repricedAt, selections: nextSelections, pricingModel: 'GASTERUS_RISK_SHADE_V1' };
+      return { ...market, updatedAt: market.updatedAt || null, riskRepricedAt: repricedAt, selections: nextSelections, pricingModel: 'GASTERUS_RISK_SHADE_V1' };
     })
   }));
 }
