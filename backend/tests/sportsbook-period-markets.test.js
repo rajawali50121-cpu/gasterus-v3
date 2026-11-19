@@ -53,7 +53,7 @@ test('live odds extractor accepts top-level bets payload', () => {
 
 
 test('auto settlement evaluates HT market from halftime score and FT market from final score', () => {
-  const event = { status: 'FINISHED', home: { score: 3 }, away: { score: 1 }, periodScores: { '1H': { home: 1, away: 1 } }, settlementAuthority: { ft: true, ht: false } };
+  const event = { status: 'FINISHED', home: { score: 3 }, away: { score: 1 }, periodScores: { '1H': { home: 1, away: 1 } }, settlementAuthority: { ft: true, ht: false, automaticFt: true } };
   const base = { home_team: 'Arsenal', away_team: 'Chelsea', market_type: '1X2', market_line: null };
   const ht = evaluateSportsbookLeg({ ...base, market_period: '1H', selection_label: 'Draw' }, event);
   const ft = evaluateSportsbookLeg({ ...base, market_period: 'FT', selection_label: 'Home' }, event);
