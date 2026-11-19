@@ -1,16 +1,14 @@
 # Railway configuration
 
-## IMPORTANT: current IaC file is stale — do not apply
+## Current state: no checked-in Railway IaC file
 
-The current `.railway/railway.ts` is a legacy snapshot and does **not** match the verified live `unique-possibility/production` project. It still describes the old `web` service, `master` branch, `sfo` region, legacy odds-provider variables, and omits the live one-shot `gasterus-db-migration` service.
+The stale `.railway/railway.ts` snapshot has been deleted because it did not describe the live `unique-possibility/production` project. This README is a safety policy only, not an executable configuration. Until a fresh configuration is pulled from the new Railway project and reviewed against the complete live inventory:
 
-Until this file is regenerated from the new Railway project and reviewed against the live inventory:
-
-- Do **not** run `railway config plan` or `railway config apply` using this file.
-- Do **not** treat this file as the source of truth for production.
-- Do **not** delete or recreate live resources to make them match this stale file.
+- Do **not** run `railway config plan` or `railway config apply` until a reviewed IaC file has been generated.
+- Do **not** treat this README as the source of truth for live service configuration.
+- Do **not** delete or recreate live resources to make them match an unverified file.
 - Use `docs/operations/RAILWAY-ARCHITECTURE.md` as the current migration architecture and verified checkpoint.
-- Make changes only after comparing a fresh `railway config pull` from the **new** project and reviewing the complete plan, including omitted resources and volumes.
+- Make changes only after comparing a fresh `railway config pull` from the **new** project and reviewing the complete plan, including all services, variables, volumes and private-network links.
 
 ## Intended infrastructure-as-code workflow
 
@@ -32,4 +30,4 @@ railway config plan
 railway config apply
 ```
 
-Do not use these commands against the current stale `.railway/railway.ts`.
+Do not run these commands until a fresh IaC file has been pulled from the new project and reviewed.
