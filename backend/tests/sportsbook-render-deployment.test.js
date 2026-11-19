@@ -55,7 +55,7 @@ test('ingest endpoint is signed and private-network HTTP is restricted to Railwa
 test('stale, unexecutable Railway TypeScript snapshot is not kept in the repository', () => {
   assert.equal(existsSync(new URL('../../.railway/railway.ts', import.meta.url)), false);
   assert.match(architecture, /Canonical deployment source: `railway-migration-fix-039`/);
-  assert.match(architecture, /Cloudflare Pages remains the frontend/);
+  assert.match(architecture, /Cloudflare remains the frontend platform/);
 });
 
 test('Sportradar trial access is always refused in production', () => {
