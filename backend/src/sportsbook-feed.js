@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { AppError } from './errors.js';
 import { redis } from './redis.js';
 import { logger } from './logger.js';
-import { mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-providers.js';
+import { mergeProviderEvents, publicEvent, suspendStaleLiveMarkets } from './sportsbook-feed-utils.js';
 import { fetchSportradar } from './sportradar-provider.js';
 import { resolveSportsbookProviderResults } from './sportsbook-feed-source.js';
 import { appendFeedRevision, readFeedRevision, paginateEvents, SPORTSBOOK_FEED_REVISIONS_KEY } from './sportsbook-feed-revisions.js';
