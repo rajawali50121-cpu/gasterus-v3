@@ -3,6 +3,7 @@
 Status: migration preparation; NOT cut over to the new Railway account.
 Last reviewed: 2026-11-19.
 Canonical repository: `rajawali50121-cpu/gasterus-v3`.
+Canonical deployment source: `railway-migration-fix-039`. 
 
 ## 1. Service boundaries
 
