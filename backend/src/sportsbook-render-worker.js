@@ -24,13 +24,11 @@ configureProviderOnlyRuntime();
 
 const [
   { config },
-  { teamKey },
   { fetchSportradar },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
-  import('./sportsbook-providers.js'),
   import('./sportradar-provider.js'),
   import('./sportsbook-ingest-client.js'),
   import('./sportsbook-render-worker-core.js')
@@ -132,7 +130,6 @@ while (!shutdown.signal.aborted) {
       fetchSportradar: () => fetchSportradar({}),
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
-      teamKey
     });
     const snapshotBuiltAt = Date.now();
     const accepted = await postSportsbookSnapshot(endpoint, snapshot, {
