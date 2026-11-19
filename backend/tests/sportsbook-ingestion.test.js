@@ -287,7 +287,7 @@ test('rejects stale snapshot data despite a fresh request signature', async () =
   assert.equal(stored, false);
 });
 
-test('rejects malformed normalized events but accepts more than 500 Sportmonks fixtures', async () => {
+test('rejects malformed normalized events but accepts more than 500 Sportradar fixtures', async () => {
   const malformed = snapshot();
   malformed.providerResults[0].events[0].markets[0].selections[0].odds = 'not-a-decimal-price';
   const malformedSigned = signedRequest(malformed);
