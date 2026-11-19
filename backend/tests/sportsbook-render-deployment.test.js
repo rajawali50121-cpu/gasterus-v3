@@ -48,7 +48,7 @@ test('backend is a consumer only and the worker is the only Sportradar fetch pat
 test('ingest endpoint is signed and private-network HTTP is restricted to Railway internal DNS', () => {
   assert.match(ingestClient, /createHmac\('sha256'/);
   assert.match(ingestClient, /hostname\.endsWith\('\.railway\.internal'\)/);
-  assert.match(ingestClient, /public HTTP endpoints remain rejected/);
+  assert.match(ingestClient, /endpoint must use HTTPS/);
   assert.match(app, /sportsbook\/ingest/);
   assert.match(proxy, /sportsbook\/ingest/);
 });
