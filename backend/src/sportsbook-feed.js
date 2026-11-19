@@ -16,17 +16,6 @@ import { eventSettlementAuthority, settlementAuthoritySummary } from './sportsbo
 import { enrichTeamArtwork } from './sportsbook-team-artwork.js';
 import { projectMemberMarkets, selectMemberSummaryMarkets } from './sportsbook-member-projection.js';
 
-const MIN_1X2_OVERROUND = 1.00;
-const MAX_1X2_OVERROUND = 1.25;
-// Keeps Indonesian negative odds at or above -5.00 (decimal odds >= 1.20).
-const MIN_DECIMAL_ODDS = 1.20;
-
-function hasValidQuarterLine(line) {
-  if (line === null || line === undefined || line === '') return true;
-  const value = Number(line);
-  return Number.isFinite(value) && Math.abs(value * 4 - Math.round(value * 4)) <= 1e-8;
-}
-
 /**
  * Quarantine invalid markets in place so the large feed is not cloned.
  * Valid market objects and events are retained unchanged.
@@ -281,10 +270,6 @@ function providerHasPricedMarkets(result) {
 }
 // Odds are fetched exclusively by the isolated Sportradar render worker.
 // The backend never holds provider adapters or performs provider network calls.
-function enabledProviders() {
-  return [];
-}
-
 async function readRedisCache() {
   if (!redis.isOpen) return null;
   try {
@@ -1179,11 +1164,10 @@ export async function sportsbookSettlementSnapshot() {
 }
 
 export function sportsbookSourceStatus() {
-  const enabledCount = 0;
   const renderIngestionConfigured = config.sportsbookIngestHmacSecret.length >= 32;
   const healthyCount = memory.providers.filter(provider => provider.enabled && provider.bettingAllowed).length;
   return {
-    configured: enabledCount > 0 || renderIngestionConfigured,
+    configured: renderIngestionConfigured,
     healthy: healthyCount > 0 && !memory.readOnlySource && !memory.snapshotFallback,
     cachedEvents: memory.events.length,
     fetchedAt: memory.fetchedAt ? new Date(memory.fetchedAt).toISOString() : null,
@@ -1348,4 +1332,4 @@ export async function sportsbookSelectionSnapshot({ eventId, marketId, selection
   };
 }
 
-export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail, enabledProviders };
+export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail };
