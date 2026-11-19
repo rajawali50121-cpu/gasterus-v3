@@ -207,7 +207,7 @@ export const config = Object.freeze({
   // Sportradar supplies odds only. FT settlement requires an explicit operator authority;
   // HT settlement remains unavailable without a separately approved results authority.
   sportsbookManualFtSettlementFallbackEnabled: isProduction ? true : bool('SPORTSBOOK_MANUAL_FT_SETTLEMENT_FALLBACK_ENABLED', false),
-  sportsbookAutoSettlementEnabled: bool('SPORTSBOOK_AUTO_SETTLEMENT_ENABLED', true),
+  sportsbookAutoSettlementEnabled: bool('SPORTSBOOK_AUTO_SETTLEMENT_ENABLED', false),
   sportsbookAutoSettlementSeconds: int('SPORTSBOOK_AUTO_SETTLEMENT_SECONDS', 30, 15, 600),
   // Settlement TOTO otomatis: begitu hasil OFFICIAL/CONSENSUS terbit dan betting
   // window tertutup, periodenya dibayar otomatis tanpa operator menekan tombol.
