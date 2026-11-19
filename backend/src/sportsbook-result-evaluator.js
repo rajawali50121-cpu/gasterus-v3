@@ -59,9 +59,10 @@ function halfScoreReady(event) {
 }
 function settlementAuthorityReady(event, isHalf, isHtFt = false) {
   const authority = event?.settlementAuthority;
-  if (!authority || typeof authority !== 'object') return true;
+  if (!authority || typeof authority !== 'object') return !isHtFt;
   if (isHtFt) return authority.ht === true && authority.automaticFt === true;
-  return isHalf ? authority.ht === true : authority.automaticFt === true;}
+  return isHalf ? authority.ht === true : authority.automaticFt === true;
+}
 
 function providerSettlementDisposition(event) {
   const provider = rawStatus(event.providerStatus);
