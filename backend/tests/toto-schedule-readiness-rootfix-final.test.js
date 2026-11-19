@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 // Secret statis (DATABASE_URL/REDIS_URL/dll) tidak tersedia pada fase build Railway;
 // seed placeholder inert SEBELUM dynamic import modul yang grafnya menyentuh
 // config.js (konvensi uji repo - lihat toto-collector.test.js).
-Object.assign(process.env,{NODE_ENV:'test',DATABASE_URL:'postgresql://user:pass@example.com/db',REDIS_URL:'redis://example.com:6379',MEMBER_PROXY_SECRET:'m'.repeat(48),ADMIN_PROXY_SECRET:'a'.repeat(48),OPS_INTERNAL_SECRET:'o'.repeat(48),SESSION_HMAC_KEY:'s'.repeat(48),API_KEY_PEPPER:'p'.repeat(48),MFA_ENCRYPTION_KEY_BASE64:Buffer.alloc(32,7).toString('base64')});
+Object.assign(process.env,{NODE_ENV:'test',DATABASE_URL:'postgresql://user:pass@example.com/db',REDIS_URL:'redis://example.com:6379',MEMBER_PROXY_SECRET:'m'.repeat(48),ADMIN_PROXY_SECRET:'a'.repeat(48),OPS_INTERNAL_SECRET:'o'.repeat(48),SESSION_HMAC_KEY:'s'.repeat(48),API_KEY_PEPPER:'p'.repeat(48),7).toString('base64')});
 const { resolveDecision, scheduleEvidence } = await import('../src/toto-collector-core.js');
 
 const htmlA=`<div>Merida Mid</div><strong>3311</strong><div>Result: Rabu, 19 Agustus 2026</div><div>Tutup Pasaran:</div><b>00:30 WIB</b><div>Result Pasaran:</div><b>01:00 WIB</b>`;
