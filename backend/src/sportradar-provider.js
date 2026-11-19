@@ -190,6 +190,8 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
 }
 function marketType(name) {
   const value = clean(name, 120).toLowerCase();
+  // HT/FT is a single combination market, not ordinary 1X2.
+  if (/half.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\\bht\\s*[/\\-]?\\s*ft\\b/.test(value)) return 'HT_FT';
   if (/1x2|money.?line|match.?winner|match.?result|three.?way/.test(value)) return '1X2';
   if (/handicap|spread/.test(value)) return 'HANDICAP';
   if (/team.?total/.test(value)) return 'TEAM_TOTAL';
@@ -205,6 +207,7 @@ function marketType(name) {
 }
 function periodFromMarket(name) {
   const value = clean(name, 120).toLowerCase();
+  if (/half.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\\bht\\s*[/\\-]?\\s*ft\\b/.test(value)) return 'HT_FT';
   if (/first.?half|1st.?half|half.?time|1h/.test(value)) return '1H';
   if (/second.?half|2nd.?half|2h/.test(value)) return '2H';
   return 'FT';
@@ -317,6 +320,8 @@ function normalizeOdds(event, raw) {
   }
   return { markets, diagnostics };
 }
+
+export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds };
 
 export async function fetchSportradar({
   maxEvents = 0,
