@@ -1,5 +1,3 @@
-import { config } from './config.js';
-
 function clean(value) { return String(value ?? '').trim(); }
 const SUMMARY_MARKET_PERIODS = new Set(['FT', '1H']);
 
@@ -14,12 +12,6 @@ function marketIdentity(market) {
 }
 
 const MEMBER_MARKET_SOURCE_LABELS = Object.freeze({
-  'api-sports': 'API-Sports',
-  oddspapi: 'OddsPapi',
-  sharpapi: 'SharpAPI',
-  'public-market': 'Gasterus Market Feed',
-  'footballdata-io': 'FootballData.io',
-  sportmonks: 'Sportmonks',
   sportradar: 'Sportradar'
 });
 
@@ -30,7 +22,7 @@ export function projectMemberMarkets(markets = [], { includeSourceData = true } 
 
   for (const market of markets) {
     if (!isRecord(market)) continue;
-    const sourcePassthrough = market.source === 'sportradar' || (config.sportmonksPassthrough && market.source === 'sportmonks');
+    const sourcePassthrough = market.source === 'sportradar';
     const identity = marketIdentity(market);
     if (!sourcePassthrough) {
       if (seenMarkets.has(identity)) continue;
