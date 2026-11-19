@@ -111,7 +111,7 @@ test('manual settlement cannot fabricate automatic scores or HT authority', () =
     _sources: ['sportradar', 'manual-ops'],
     _settlementReadySources: ['sportradar', 'manual-ops']
   });
-  assert.equal(evaluateSportsbookLeg(ftLeg, { ...result, settlementAuthority: manual })?.status, 'WON');
+  assert.equal(evaluateSportsbookLeg(ftLeg, { ...result, settlementAuthority: manual }), null, 'manual FT authority cannot be used by automatic settlement');
   assert.equal(evaluateSportsbookLeg(htLeg, { ...result, settlementAuthority: manual }), null);
 });
 
