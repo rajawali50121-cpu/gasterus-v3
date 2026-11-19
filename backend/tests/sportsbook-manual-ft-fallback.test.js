@@ -70,6 +70,18 @@ test('healthy Sportradar prematch FT prices get operator settlement only; HT sta
   assert.equal(authority.manualFt, true);
 });
 
+test('manual FT authority cannot unlock HT/FT combo markets without HT authority', () => {
+  const htFt = market('HT_FT', 'market-HT_FT');
+  htFt.type = 'HT_FT';
+  const [merged] = mergeProviderEvents([{
+    provider: 'sportradar',
+    enabled: true,
+    events: [event({ markets: [market('FT'), htFt] })]
+  }]);
+  assert.equal(merged.markets.find(item => item.period === 'FT').suspended, false);
+  assert.equal(merged.markets.find(item => item.period === 'HT_FT').suspended, true);
+});
+
 test('Sportradar odds alone never become an automatic results authority', () => {
   const authority = eventSettlementAuthority({
     _sources: ['sportradar'],
