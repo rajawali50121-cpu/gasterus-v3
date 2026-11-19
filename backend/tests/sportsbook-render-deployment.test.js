@@ -30,10 +30,6 @@ test('Railway scraper runs in its own slim service image with a hard heap ceilin
   assert.match(railway, /resources: \[Postgres, web, sportsbookRenderWorker, Redis, postgresVolume, redisVolume\]/);
 
   // Secret diwariskan dari service web — tidak diduplikasi manual.
-  assert.match(workerServiceBlock, /API_FOOTBALL_KEY:\s*preserve\(\)/);
-  assert.equal(railwayWorkerEnv('API_SPORTS_ENABLED'), undefined);
-  assert.equal(railwayWorkerEnv('API_SPORTS_DAILY_QUOTA'), undefined);
-  assert.equal(railwayWorkerEnv('API_SPORTS_MONTHLY_QUOTA'), undefined);
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_HMAC_SECRET'), '${{web.SPORTSBOOK_INGEST_HMAC_SECRET}}');
   assert.equal(railwayWorkerEnv('SPORTSBOOK_INGEST_URL'), '${{web.SPORTSBOOK_INGEST_URL}}');
   assert.equal(railwayWorkerEnv('DATABASE_URL'), '${{web.DATABASE_URL}}');
@@ -108,14 +104,15 @@ test('render worker uses Sportradar exclusively with no artificial event/page ca
   assert.match(worker, /SPORTRADAR_API_KEY is required/);
   assert.match(worker, /production.*v2.*en/);
   assert.match(worker, /trial access in one-shot cron mode/);
-  assert.doesNotMatch(worker, /fetchSportmonks|fetchSharpApi|fetchOddsPapi/);
-  assert.match(feed, /fetchSportradar/);
-  assert.match(feed, /config\.nodeEnv === 'production'/);
-  assert.match(feed, /code: 'sportradar'/);
+  assert.doesNotMatch(worker, /fetchSportmonks|fetchSharpApi|fetchOddsPapi|fetchRapidApiOdds|fetchTheRundown/);
+  assert.match(feed, /resolveSportsbookProviderResults/);
+  assert.doesNotMatch(feed, /fetchSportradar|fetchSportmonks|fetchSharpApi|fetchOddsPapi/);
   assert.match(feed, /Number\(MAX_FEED_EVENTS\) > 0/, 'zero feed event limit must mean unlimited, not reject all cache reads');
-  assert.equal(railwayWorkerEnv('SPORTMONKS_ENABLED'), undefined);
-  assert.equal(railwayWorkerEnv('SPORTMONKS_API_KEY'), undefined);
-  assert.equal(railwayWorkerEnv('ODDSPAPI_ENABLED'), undefined);
+  for (const retired of ['SPORTMONKS_ENABLED', 'SPORTMONKS_API_KEY', 'SHARP_API_ENABLED', 'SHARP_API_KEY', 'ODDSPAPI_ENABLED', 'ODDSPAPI_API_KEY', 'RAPIDAPI_ODDS_ENABLED', 'API_FOOTBALL_KEY', 'API_SPORTS_KEY']) {
+    assert.equal(railwayWorkerEnv(retired), undefined, `${retired} must not be wired to the worker`);
+    assert.equal(railwayWebEnv(retired), undefined, `${retired} must not be wired to the backend`);
+    assert.doesNotMatch(envExample, new RegExp(`^${retired}=`, 'm'));
+  }
 });
 
 test('ingest URL, env example, both proxies and backend route stay aligned', () => {
