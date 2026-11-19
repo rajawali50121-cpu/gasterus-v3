@@ -74,7 +74,7 @@ function storedSnapshot(value) {
 function redisWith(value) {
   return {
     isOpen: true,
-    async get() { return value; }
+    async get() { return typeof value === 'string' ? value : JSON.stringify(value); }
   };
 }
 
