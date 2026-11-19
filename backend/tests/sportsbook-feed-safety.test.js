@@ -68,7 +68,7 @@ test('Sportsbook event pruning prioritizes live/top-league fixtures and expires 
   assert.ok(ids.includes('top-live'));
   assert.ok(ids.includes('today-top'));
   assert.ok(ids.includes('today-other'));
-  assert.ok(ids.includes('old-finished'), 'recent completed fixtures remain briefly available for settlement');
+  assert.ok(ids.includes('old-finished'), `recent completed fixtures remain briefly available for settlement; retained=${JSON.stringify(ids)}`);
   assert.ok(!ids.includes('old-scheduled'), 'expired scheduled fixtures are removed immediately');
 });
 
