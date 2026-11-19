@@ -33,122 +33,11 @@ function hasValidQuarterLine(line) {
  * Valid market objects and events are retained unchanged.
  */
 export function validateAllHandicapOdds(events = []) {
-  const quarantined = Object.create(null);
-  const sportmonksWarnings = Object.create(null);
-  let totalQuarantined = 0;
-  let totalSportmonksWarnings = 0;
-
-  for (const event of events) {
-    const sportmonksPassthrough = config.sportmonksPassthrough
-      && (event?._sources || []).includes('sportmonks');
-    const markets = event.markets || [];
-    let writeIndex = 0;
-    const eventWarnings = new Set(Array.isArray(event.validationWarnings) ? event.validationWarnings : []);
-
-    for (let readIndex = 0; readIndex < markets.length; readIndex += 1) {
-      const market = markets[readIndex];
-      const selections = market.selections || [];
-      // Sportradar is the pricing authority. Gasterus-only heuristics such as minimum
-      // odds, overround, quarter-line and selection-count checks are not in the
-      // Sportradar contract and must not mutate, suspend or remove its source markets.
-      if (market.source === 'sportradar' || (event?._sources || []).includes('sportradar')) {
-        markets[writeIndex++] = market;
-        continue;
-      }
-      let reason = null;
-      const warnings = new Set(Array.isArray(market.validationWarnings) ? market.validationWarnings : []);
-      const addWarning = code => {
-        warnings.add(code);
-        reason ||= code;
-      };
-
-      if (market.type === 'HANDICAP' || market.type === 'TOTALS') {
-        if (!hasValidQuarterLine(market.line)) addWarning('INVALID_LINE');
-      }
-
-      let activeSelectionCount = 0;
-      let activeOverround = 0;
-      let activeHandicapOverround = 0;
-      let minOdds = Number.POSITIVE_INFINITY;
-      let maxOdds = 0;
-      let legacyOddsCount = 0;
-
-      for (const selection of selections) {
-        if ((market.type === 'HANDICAP' || market.type === 'TOTALS')
-          && !hasValidQuarterLine(selection.line)) addWarning('INVALID_LINE');
-        const odds = Number(selection.odds);
-        if (odds > 1) {
-          legacyOddsCount += 1;
-          minOdds = Math.min(minOdds, odds);
-          maxOdds = Math.max(maxOdds, odds);
-        }
-
-        if (market.suspended || selection.suspended) continue;
-        if (!Number.isFinite(odds) || odds < MIN_DECIMAL_ODDS || odds > 100) {
-          addWarning('ODDS_RANGE');
-          continue;
-        }
-        activeSelectionCount += 1;
-        if (market.type === '1X2') activeOverround += 1 / odds;
-        if (market.type === 'HANDICAP') activeHandicapOverround += 1 / odds;
-      }
-
-      if (!reason && market.type === '1X2' && activeSelectionCount === 3
-        && (activeOverround < MIN_1X2_OVERROUND || activeOverround > MAX_1X2_OVERROUND)) {
-        addWarning('OVERROUND_1X2');
-      }
-      if (!reason && market.type === 'HANDICAP' && activeSelectionCount === 2
-        && (activeHandicapOverround < MIN_1X2_OVERROUND || activeHandicapOverround > MAX_1X2_OVERROUND)) {
-        addWarning('OVERROUND_HANDICAP');
-      }
-      if (!reason && market.type === 'HANDICAP' && activeSelectionCount > 0 && activeSelectionCount !== 2) {
-        addWarning('INCOMPLETE_HANDICAP');
-      }
-      if (!reason && market.type === 'HANDICAP' && activeSelectionCount === 2 && maxOdds / minOdds > 3) {
-        addWarning('ABNORMAL_HANDICAP_ODDS');
-      }
-
-      // Preserve the existing pick'em handicap safeguard.
-      if (!reason && market.type === 'HANDICAP'
-        && (market.line === 0 || market.line === null || market.line === '')
-        && legacyOddsCount >= 2
-        && minOdds < 1.50) {
-        addWarning('ABNORMAL_HANDICAP_ODDS');
-      }
-
-      if (sportmonksPassthrough && market.source === 'sportmonks') {
-        market.validationWarnings = [...warnings];
-        for (const warning of warnings) {
-          sportmonksWarnings[warning] = (sportmonksWarnings[warning] || 0) + 1;
-          totalSportmonksWarnings += 1;
-          eventWarnings.add(warning);
-        }
-        markets[writeIndex] = market;
-        writeIndex += 1;
-      } else if (reason) {
-        quarantined[reason] = (quarantined[reason] || 0) + 1;
-        totalQuarantined += 1;
-      } else {
-        markets[writeIndex] = market;
-        writeIndex += 1;
-      }
-    }
-
-    markets.length = writeIndex;
-    if (sportmonksPassthrough && eventWarnings.size) event.validationWarnings = [...eventWarnings];
-  }
-
-  logger.info('Sportsbook market validation quarantine summary', {
-    total: totalQuarantined,
-    reasons: quarantined,
-    sportmonksWarnings: totalSportmonksWarnings,
-    sportmonksWarningCodes: sportmonksWarnings,
-  });
-
+  // Sportradar Odds Comparison values are preserved exactly as supplied.
   return events;
 }
 
-const LIFECYCLE_GENERATION = 'render-ingest-multisource-v2';
+const LIFECYCLE_GENERATION = 'sportradar-worker-only-v3';
 const CACHE_KEY = 'sportsbook:aggregated-feed:v17';
 const LIFECYCLE_KEY = 'sportsbook:provider-lifecycle:v6';
 const MARKET_LIFECYCLE_KEY = 'sportsbook:market-lifecycle:v6';
@@ -213,32 +102,21 @@ function eventBucket(event, now = Date.now()) {
 function boundedEvents(events = []) {
   if (!Array.isArray(events)) return [];
   const now = Date.now();
-  const diagnostics = { total: events.length, soccer: 0, statusRejected: 0, kickoffRejected: 0, visibilityRejected: 0, retained: 0, capped: 0 };
-  const soccerEvents = events.filter(event =>
-    (config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks')) || isSoccerEvent(event)
-  );
-  diagnostics.soccer = soccerEvents.length;
+  const soccerEvents = events.filter(isSoccerEvent);
   const filtered = soccerEvents.filter(event => {
-    if (config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks')) return true;
     const status = clean(event?.status).toUpperCase();
     const kickoff = Date.parse(event?.startTime || '');
     const live = Boolean(event?.live) || ['LIVE', 'IN_PLAY', 'IN-PLAY'].includes(status);
     if (CLOSED_EVENT_STATUSES.has(status)) {
-      const ok = Number.isFinite(kickoff) && now - kickoff <= config.sportsbookFinishedEventRetentionSeconds * 1000;
-      if (!ok) diagnostics.statusRejected += 1;
-      return ok;
+      return Number.isFinite(kickoff)
+        && now - kickoff <= config.sportsbookFinishedEventRetentionSeconds * 1000;
     }
-    if (!live && Number.isFinite(kickoff) && kickoff < now - config.sportsbookPrematchCloseGraceSeconds * 1000) {
-      diagnostics.kickoffRejected += 1;
-      return false;
-    }
-    const visible = memberVisibleEvent(event, now);
-    if (!visible) diagnostics.visibilityRejected += 1;
-    return visible;
+    if (!live && Number.isFinite(kickoff)
+      && kickoff < now - config.sportsbookPrematchCloseGraceSeconds * 1000) return false;
+    return memberVisibleEvent(event, now);
   });
-  diagnostics.retained = filtered.length;
   const mapped = filtered.map((event, index) => ({ event, index }));
-  const sorted = mapped.sort((a, b) => {
+  mapped.sort((a, b) => {
     const aLive = Boolean(a.event?.live);
     const bLive = Boolean(b.event?.live);
     if (aLive !== bLive) return Number(bLive) - Number(aLive);
@@ -252,26 +130,21 @@ function boundedEvents(events = []) {
     if (aTop !== bTop) return Number(bTop) - Number(aTop);
     return aStart - bStart || a.index - b.index;
   });
-  const retained = [];
-  let nonSportmonksCount = 0;
   const maxFeedEvents = Number(MAX_FEED_EVENTS);
-  const unlimitedFeed = !Number.isFinite(maxFeedEvents) || maxFeedEvents <= 0;
-  for (const item of sorted) {
-    const isSportmonks = config.sportmonksPassthrough && (item.event?._sources || []).includes('sportmonks');
-    if (isSportmonks || unlimitedFeed || nonSportmonksCount < maxFeedEvents) {
-      retained.push(item);
-      if (!isSportmonks) nonSportmonksCount += 1;
-    }
-  }
-  const sliced = retained;
-  diagnostics.capped = sorted.length - sliced.length;
-  logger.info('boundedEvents diagnostics', diagnostics);
-  return sliced.map(({ event }) => event);
+  const unlimited = !Number.isFinite(maxFeedEvents) || maxFeedEvents <= 0;
+  const result = unlimited ? mapped : mapped.slice(0, maxFeedEvents);
+  logger.info('Sportradar feed selection', {
+    total: events.length,
+    soccer: soccerEvents.length,
+    retained: result.length,
+    omittedByConfiguredLimit: mapped.length - result.length
+  });
+  return result.map(({ event }) => event);
 }
 
 function cacheWithinLimit(value) {
   const bounded = { ...value, events: boundedEvents(value?.events) };
-  if (!bounded.events.length) {
+  if (!bounded.events.length && !bounded.readOnlySource) {
     throw new AppError(503, 'Tidak ada event sportsbook yang tersedia dalam feed.', 'SPORTS_FEED_CACHE_LIMIT');
   }
   return bounded;
@@ -289,7 +162,6 @@ function eventBettingOpen(event, now = Date.now()) {
 }
 function enforceEventBettingWindow(events = [], now = Date.now()) {
   return events.map(event => {
-    if (config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks')) return event;
     if (eventBettingOpen(event, now)) return event;
     return {
       ...event,
@@ -302,17 +174,13 @@ function enforceEventBettingWindow(events = [], now = Date.now()) {
   });
 }
 function memberVisibleEvent(event, now = Date.now()) {
-  if (config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks')) return true;
   const status = clean(event?.status).toUpperCase();
   if (CLOSED_EVENT_STATUSES.has(status)) return false;
   if (event?.live || ['LIVE', 'IN_PLAY', 'IN-PLAY'].includes(status)) return true;
   const kickoff = Date.parse(event?.startTime || '');
   if (!Number.isFinite(kickoff)) return true;
-  // Tipsters: jendela prematch start_at > sekarang dan start_at <= now + DAYS_AHEAD (WIB),
-  // tanpa grace ke belakang (tidak menampilkan premiatch yang sudah lewat kick-off).
-  const isTipsters = Array.isArray(event._sources) && event._sources.includes('tipsters');
-  const horizonMs = Number(isTipsters ? config.rapidApiOddsDaysAhead : config.sportsbookMemberHorizonDays || 14) * 86400000;
-  const graceMs = isTipsters ? 0 : Number(config.sportsbookPrematchCloseGraceSeconds || 0) * 1000;
+  const horizonMs = Number(config.sportsbookMemberHorizonDays || 14) * 86400000;
+  const graceMs = Number(config.sportsbookPrematchCloseGraceSeconds || 0) * 1000;
   return kickoff >= now - graceMs && kickoff <= now + horizonMs;
 }
 
@@ -482,8 +350,7 @@ async function readRevisionFeed(revision) {
   const now = Date.now();
   const maxAgeMs = Math.max(Number(config.sportsFeedStaleSeconds) || 180, 180) * 1000;
   const memoryAgeMs = now - Number(memory.fetchedAt || 0);
-  if (!memory.hardFallback
-    && memory.revision === revision
+  if (memory.revision === revision
     && memory.lifecycleGeneration === LIFECYCLE_GENERATION
     && Array.isArray(memory.events)
     && memoryAgeMs >= 0
@@ -493,7 +360,6 @@ async function readRevisionFeed(revision) {
     const raw = await redis.get(SPORTSBOOK_FEED_REVISIONS_KEY);
     const snapshot = readFeedRevision(raw, revision, { now, maxAgeMs });
     if (snapshot?.lifecycleGeneration !== LIFECYCLE_GENERATION || !Array.isArray(snapshot.providers)) return null;
-    if (snapshot.hardFallback) return null;
     return snapshot;
   } catch (error) {
     logger.warn('Sportsbook revision cache read failed', { error: error.message });
@@ -720,7 +586,6 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
           ? { code: 'SPORTS_SOURCE_STALE', message: 'Live priced source belum tersedia; sportsbook tetap read-only.' }
           : null,
     snapshotFallback,
-    hardFallback: false,
     snapshotCapturedAt,
     readOnlySource,
     pricedMarkets: mergedPricedMarkets,
@@ -1176,19 +1041,11 @@ function memberSourceEvent(event) {
 
 function memberPublicEvent(event) {
   const item = publicEvent(memberSourceEvent(event));
-  const isSportmonks = config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks');
-  const markets = isSportmonks
-    ? item.markets
-    : selectMemberSummaryMarkets(item.markets);
-  return memberEventShape(item, markets, { includeProviderFields: isSportmonks });
+  return memberEventShape(item, selectMemberSummaryMarkets(item.markets), { includeProviderFields: false });
 }
 function memberPublicEventDetail(event) {
   const item = publicEvent(memberSourceEvent(event));
-  const sources = event?._sources || [];
-  return memberEventShape(item, item.markets || [], {
-    includeProviderFields: config.sportmonksPassthrough && sources.includes('sportmonks'),
-    includeSportradarFields: sources.includes('sportradar')
-  });
+  return memberEventShape(item, item.markets || [], { includeSportradarFields: true });
 }
 
 export async function sportsbookSnapshot(filters = {}, { memberView = true } = {}) {
@@ -1213,7 +1070,7 @@ export async function sportsbookSnapshot(filters = {}, { memberView = true } = {
 async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, providedFeed = null) {
   const feed = providedFeed || await currentFeed();
   const now = Date.now();
-  const unavailable = Boolean(feed.hardFallback || (feed.readOnlySource && !feed.events?.length));
+  const unavailable = Boolean(feed.readOnlySource && !feed.events?.length);
   const stale = Boolean(unavailable || feed.readOnlySource || feed.snapshotFallback || !feed.fetchedAt || now - Number(feed.fetchedAt) > STALE_MS);
   let controls = [];
   try {
@@ -1224,7 +1081,7 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
   const soccerEvents = unavailable
     ? []
     : (feed.events || [])
-      .filter(event => (config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks')) || isSoccerEvent(event))
+      .filter(isSoccerEvent)
       .filter(event => memberVisibleEvent(event, now));
   const facets = leagueFacets(soccerEvents);
   const counts = {
@@ -1250,20 +1107,7 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
   const memberHealthy = !unavailable && !stale && !feed.readOnlySource && Number(feed.bettableMarkets || 0) > 0;
   return {
     events,
-    ...((config.sportmonksPassthrough && soccerEvents.some(event => (event?._sources || []).includes('sportmonks')))
-      ? {
-          diagnostics: {
-            ...(feed.diagnostics || {}),
-            validationWarnings: events.reduce((summary, event) => {
-              for (const warning of event.validationWarnings || []) summary[warning] = (summary[warning] || 0) + 1;
-              for (const market of event.markets || []) {
-                for (const warning of market.validationWarnings || []) summary[warning] = (summary[warning] || 0) + 1;
-              }
-              return summary;
-            }, {})
-          }
-        }
-      : {}),
+    ...(feed.diagnostics ? { diagnostics: feed.diagnostics } : {}),
     leagues: facets,
     counts,
     pagination: page.pagination,
@@ -1287,7 +1131,6 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
       pricedMarkets: visiblePricedMarkets,
       bettableMarkets: visibleBettableMarkets,
       feedRevision: unavailable ? null : feed.revision || null,
-      hardFallback: false
     },
     capabilities: {
       betBuilderPricedMarkets: events.some(event => event.markets?.some(market => market.type === 'BET_BUILDER' && !market.suspended)),
@@ -1317,8 +1160,8 @@ export async function sportsbookEventSnapshot(eventId) {
   const requested = clean(eventId);
   if (!requested) throw new AppError(400, 'ID pertandingan wajib diisi.', 'SPORTS_EVENT_ID_REQUIRED');
   const feed = await currentFeed();
-  if (feed.hardFallback) {
-    throw new AppError(503, 'Odds pertandingan belum tersedia dari sumber live.', 'SPORTS_LIVE_FEED_UNAVAILABLE');
+  if (feed.readOnlySource && !feed.events?.length) {
+    throw new AppError(503, 'Snapshot Sportradar belum tersedia.', 'SPORTS_SNAPSHOT_REQUIRED');
   }
   let current = feed.events.find(item => item.id === requested);
   if (!current) throw new AppError(404, 'Pertandingan tidak ditemukan.', 'SPORTS_EVENT_UNAVAILABLE');
@@ -1337,7 +1180,7 @@ export async function sportsbookEventSnapshot(eventId) {
 
 export async function sportsbookSettlementSnapshot() {
   const feed = await currentFeed({ force: true });
-  if (feed.readOnlySource || feed.snapshotFallback || feed.hardFallback) {
+  if (feed.readOnlySource || feed.snapshotFallback) {
     throw new AppError(503, 'Sumber sportsbook read-only/stale tidak boleh dipakai untuk settlement.', 'SPORTS_SETTLEMENT_SOURCE_STALE');
   }
   const authorities = feed.events.map(event => eventSettlementAuthority(event));
@@ -1355,7 +1198,7 @@ export async function sportsbookSettlementSnapshot() {
 }
 
 export function sportsbookSourceStatus() {
-  const enabledCount = enabledProviders().filter(provider => provider.enabled).length;
+  const enabledCount = 0;
   const renderIngestionConfigured = config.sportsbookIngestHmacSecret.length >= 32;
   const healthyCount = memory.providers.filter(provider => provider.enabled && provider.bettingAllowed).length;
   return {
@@ -1474,8 +1317,8 @@ export async function sportsbookOperationalStatus() {
 
 export async function sportsbookSelectionSnapshot({ eventId, marketId, selectionId }) {
   let feed = await currentFeed();
-  if (feed.hardFallback) {
-    throw new AppError(503, 'Odds sportsbook belum tersedia dari sumber live.', 'SPORTS_LIVE_FEED_UNAVAILABLE');
+  if (feed.readOnlySource && !feed.events?.length) {
+    throw new AppError(503, 'Snapshot Sportradar belum tersedia.', 'SPORTS_SNAPSHOT_REQUIRED');
   }
   let event = feed.events.find(item => item.id === eventId);
   let market = event?.markets.find(item => item.id === marketId);
