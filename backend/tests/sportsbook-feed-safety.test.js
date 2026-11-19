@@ -27,7 +27,7 @@ test('stale Sportsbook feed cache is read-only and cannot be settled', () => {
   assert.match(feed, /SPORTS_SETTLEMENT_SOURCE_STALE/);
 });
 
-test('Sportsbook event pruning prioritizes live/top-league fixtures and expires old matches', () => {
+test('Sportsbook prematch-only pruning excludes live, finished, and expired fixtures', () => {
   const script = `
     const { __sportsbookFeed } = await import('./src/sportsbook-feed.js');
     const now = Date.now();
@@ -65,14 +65,14 @@ test('Sportsbook event pruning prioritizes live/top-league fixtures and expires 
   });
   assert.equal(result.status, 0, result.stderr);
   const ids = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
-  assert.ok(ids.includes('top-live'));
+  assert.ok(!ids.includes('top-live'), 'live fixtures are disabled from the member prematch feed');
   assert.ok(ids.includes('today-top'));
   assert.ok(ids.includes('today-other'));
-  assert.ok(ids.includes('old-finished'), `recent completed fixtures remain briefly available for settlement; retained=${JSON.stringify(ids)}`);
+  assert.ok(!ids.includes('old-finished'), 'finished fixtures never appear in the prematch catalog');
   assert.ok(!ids.includes('old-scheduled'), 'expired scheduled fixtures are removed immediately');
 });
 
-test('Sportsbook Redis cache respects its configured byte budget while preferring live/upcoming events', () => {
+test('Sportsbook Redis cache respects its configured byte budget while preferring upcoming prematch events', () => {
   const script = `
     const { __sportsbookFeed } = await import('./src/sportsbook-feed.js');
     const now = Date.now();
