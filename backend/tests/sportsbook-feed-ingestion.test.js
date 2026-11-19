@@ -47,6 +47,7 @@ function payload(provider = 'sportradar') {
             key: 'home',
             label: 'Home',
             odds: 1.9,
+            updatedAt: new Date(NOW).toISOString(),
             source: provider,
             suspended: false
           }]
