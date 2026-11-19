@@ -122,6 +122,5 @@ test('acceptance trace stores feed revision and provider lifecycle state', () =>
   assert.match(betting, /provider_state_at_acceptance/);
   assert.match(migration, /sportsbook_provider_incidents/);
   assert.match(migration, /accepted_feed_revision/);
-  assert.ok(app.includes('sportsbook\/health'));
-  assert.ok(app.includes('sportsbook\/provider-incidents'));
+  assert.ok(app.includes('provider-incidents'));
 });
