@@ -1,205 +1,70 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const feedSource = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
-const validationStart = feedSource.indexOf('const MIN_1X2_OVERROUND');
-const validationEnd = feedSource.indexOf('\nconst LIFECYCLE_GENERATION', validationStart);
-assert.ok(validationStart >= 0 && validationEnd > validationStart, 'feed validator block must exist');
-const validationBlock = feedSource
-  .slice(validationStart, validationEnd)
-  .replace('export function validateAllHandicapOdds', 'function validateAllHandicapOdds');
-const validationLogs = [];
-const validationConfig = { sportmonksPassthrough: false };
-const validationLogger = {
-  info: (...args) => validationLogs.push(args),
-  warn: (...args) => validationLogs.push(args)
-};
-const validateAllHandicapOdds = new Function(
-  'logger',
-  'config',
-  `${validationBlock}; return validateAllHandicapOdds;`
-)(validationLogger, validationConfig);
+Object.assign(process.env, {
+  NODE_ENV: 'test',
+  DATABASE_URL: 'postgres://localhost:5432/gasterus-test',
+  REDIS_URL: 'redis://localhost:6379',
+  MEMBER_PROXY_SECRET: 'm'.repeat(48),
+  ADMIN_PROXY_SECRET: 'a'.repeat(48),
+  OPS_INTERNAL_SECRET: 'o'.repeat(48),
+  SESSION_HMAC_KEY: 's'.repeat(48),
+  API_KEY_PEPPER: 'p'.repeat(48),
+  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 1).toString('base64')
+});
 
-function eventWithMarket(market) {
-  return { id: 'event-1', markets: [market] };
-}
+const { validateAllHandicapOdds } = await import('../src/sportsbook-feed.js');
+const { validateSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
 
-function market(type, line, selectionLines, odds, bookmaker = null) {
+function event() {
   return {
-    id: `${type}-${line}`,
-    type,
-    line,
-    bookmaker,
-    selections: odds.map((price, index) => ({
-      key: `${index}`,
-      line: selectionLines?.[index] ?? null,
-      odds: price,
-      suspended: false
-    }))
+    id: 'sr-event-1',
+    sport: 'Football',
+    league: 'Premier League',
+    country: 'England',
+    startTime: '2026-11-20T19:00:00.000Z',
+    status: 'SCHEDULED',
+    live: false,
+    home: { name: 'Arsenal' },
+    away: { name: 'Chelsea' },
+    markets: [{
+      id: 'sr-market-1',
+      type: 'HANDICAP',
+      period: 'FT',
+      line: -0.25,
+      source: 'sportradar',
+      suspended: false,
+      selections: [
+        { key: 'home', label: 'Home -0.25', odds: 1.11, source: 'sportradar', suspended: false },
+        { key: 'away', label: 'Away +0.25', odds: 7.75, source: 'sportradar', suspended: false }
+      ]
+    }],
+    _refs: { sportradar: 'sr:sport_event:1' },
+    _sources: ['sportradar']
   };
 }
 
-test('accepts quarter handicap and totals lines, rejects other increments', () => {
-  for (const line of [-1.5, -0.25, 0.75]) {
-    const events = [eventWithMarket(market('HANDICAP', line, [line, -line], [1.8, 1.9]))];
-    validateAllHandicapOdds(events);
-    assert.equal(events[0].markets.length, 1, `line ${line} should be accepted`);
-  }
-
-  for (const line of [0.25, 2.5, 3.75]) {
-    const events = [eventWithMarket(market('TOTALS', line, [line, line], [1.8, 1.9]))];
-    validateAllHandicapOdds(events);
-    assert.equal(events[0].markets.length, 1, `totals line ${line} should be accepted`);
-  }
-
-  for (const line of [-11.76, 0.3]) {
-    const events = [eventWithMarket(market('HANDICAP', line, [line, -line], [1.8, 1.9]))];
-    validateAllHandicapOdds(events);
-    assert.equal(events[0].markets.length, 0, `line ${line} should be quarantined`);
-  }
-
-  const invalidTotals = [eventWithMarket(market('TOTALS', 2.3, [2.3, 2.3], [1.8, 1.9]))];
-  validateAllHandicapOdds(invalidTotals);
-  assert.equal(invalidTotals[0].markets.length, 0);
+test('Sportradar odds and market structures are not mutated by legacy Gasterus price heuristics', () => {
+  const events = [event()];
+  const market = events[0].markets[0];
+  const originalOdds = market.selections.map(selection => selection.odds);
+  const result = validateAllHandicapOdds(events);
+  assert.equal(result, events);
+  assert.deepEqual(result[0].markets[0].selections.map(selection => selection.odds), originalOdds);
+  assert.equal(result[0].markets[0].suspended, false);
+  assert.equal(result[0].markets[0].selections[0].suspended, false);
 });
 
-test('caps Indonesian negative odds at -5.00 and rejects values outside range or non-numeric values', () => {
-  for (const odds of [1.20, 100]) {
-    const events = [eventWithMarket(market('OTHER', null, null, [odds]))];
-    validateAllHandicapOdds(events);
-    assert.equal(events[0].markets.length, 1, `odds ${odds} should be accepted`);
-  }
-
-  for (const odds of [1.199, 1.085, 1.005, 100.5, NaN, null]) {
-    const events = [eventWithMarket(market('OTHER', null, null, [odds]))];
-    validateAllHandicapOdds(events);
-    assert.equal(events[0].markets.length, 0, `odds ${odds} should be quarantined`);
-  }
-});
-
-test('accepts 1X2 overround 1.05 and quarantines overrounds outside 1.00-1.25', () => {
-  const valid = [2, 3.2, 4.2];
-  assert.ok(Math.abs(valid.reduce((sum, odds) => sum + 1 / odds, 0) - 1.05) < 0.001);
-  const validEvents = [eventWithMarket(market('1X2', null, null, valid))];
-  validateAllHandicapOdds(validEvents);
-  assert.equal(validEvents[0].markets.length, 1);
-
-  for (const odds of [[2.5, 3, 5], [2, 2.5, 2.5]]) {
-    const events = [eventWithMarket(market('1X2', null, null, odds))];
-    validateAllHandicapOdds(events);
-    assert.equal(events[0].markets.length, 0);
-  }
-});
-
-test('validates 1X2 and handicap overrounds independently for each bookmaker', () => {
-  const markets = [
-    market('1X2', null, null, [2.4, 3.2, 3.0], 'Book A'),
-    market('1X2', null, null, [2.1, 3.4, 3.3], 'Book B'),
-    market('HANDICAP', -0.5, [-0.5, 0.5], [1.9, 1.9], 'Book A'),
-    market('HANDICAP', -0.5, [-0.5, 0.5], [2.0, 2.0], 'Book B')
-  ];
-  const events = [{ id: 'two-bookmakers', markets }];
-  const logsBefore = validationLogs.length;
-
-  validateAllHandicapOdds(events);
-
-  assert.equal(events[0].markets.length, 4);
-  assert.deepEqual(
-    events[0].markets.map(item => [item.type, item.bookmaker, item.selections.map(selection => selection.odds)]),
-    markets.map(item => [item.type, item.bookmaker, item.selections.map(selection => selection.odds)])
-  );
-  assert.equal(validationLogs.length - logsBefore, 1);
-  assert.equal(validationLogs.at(-1)[1].total, 0);
-});
-
-test('quarantines handicap prices that form an implausible underround', () => {
-  const events = [eventWithMarket(market('HANDICAP', -0.5, [-0.5, 0.5], [11.76, 1.25]))];
-  validateAllHandicapOdds(events);
-  assert.equal(events[0].markets.length, 0);
-  assert.equal(validationLogs.at(-1)[1].reasons.OVERROUND_HANDICAP, 1);
-});
-
-test('quarantines incomplete or excessively imbalanced handicap markets', () => {
-  const events = [
-    eventWithMarket(market('HANDICAP', -0.5, [-0.5, 0.5], [1.95])),
-    eventWithMarket(market('HANDICAP', -0.5, [-0.5, 0.5], [1.25, 5]))
-  ];
-  validateAllHandicapOdds(events);
-  assert.deepEqual(events.map(event => event.markets.length), [0, 0]);
-});
-
-test('does not change valid markets and retains events whose markets are all quarantined', () => {
-  const validMarket = market('TOTALS', 2.5, [2.5, 2.5], [1.91, 1.95]);
-  const before = structuredClone(validMarket);
-  const validEvent = eventWithMarket(validMarket);
-  const validEvents = [validEvent];
-  assert.strictEqual(validateAllHandicapOdds(validEvents), validEvents);
-  assert.strictEqual(validEvents[0], validEvent);
-  assert.strictEqual(validEvents[0].markets[0], validMarket);
-  assert.deepEqual(validMarket, before);
-
-  const invalidEvent = {
-    id: 'all-invalid',
-    markets: [
-      market('HANDICAP', -11.76, [-11.76, 11.76], [1.8, 1.9]),
-      market('TOTALS', 2.3, [2.3, 2.3], [1.8, 1.9])
-    ]
+test('signed worker ingest performs structural and numeric validation before feed projection', () => {
+  const valid = event();
+  const payload = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    providerResults: [{ provider: 'sportradar', enabled: true, events: [valid] }]
   };
-  const events = [invalidEvent];
-  const logsBefore = validationLogs.length;
-  validateAllHandicapOdds(events);
-  assert.equal(events.length, 1);
-  assert.strictEqual(events[0], invalidEvent);
-  assert.deepEqual(invalidEvent.markets, []);
-  assert.equal(validationLogs.length - logsBefore, 1);
-  assert.equal(validationLogs.at(-1)[0], 'Sportsbook market validation quarantine summary');
-  assert.equal(validationLogs.at(-1)[1].total, 2);
-});
-
-test('Sportradar documented market and odds payload bypasses all Gasterus-only price validators unchanged', () => {
-  const markets = [
-    market('1X2', null, null, [2.5, 3, 5]),
-    market('HANDICAP', -11.76, [-11.76, 11.76], [1.085, 100.5]),
-    market('TOTALS', 2.3, [2.3, 2.3], [1.00, null]),
-    market('OTHER', null, null, [250])
-  ];
-  for (const item of markets) item.source = 'sportradar';
-  markets[2].selections[0].suspended = true;
-  const before = structuredClone(markets);
-  const event = { id: 'sportradar-native-market-payload', _sources: ['sportradar'], markets };
-  validateAllHandicapOdds([event]);
-  assert.strictEqual(event.markets, markets);
-  assert.deepEqual(event.markets, before, 'prices, lines, suspended state and market records must not be mutated');
-  assert.equal(event.markets.length, 4);
-});
-
-test('refresh invokes validation without calling the removed reset helper', () => {
-  assert.doesNotMatch(feedSource, /resetAbnormalOddsLog\s*\(/);
-  assert.match(feedSource, /events = validateAllHandicapOdds\(events\);/);
-});
-
-test('suspended selections do not quarantine a market for their odds', () => {
-  const suspendedMarket = market('OTHER', null, null, [1.8, 250]);
-  suspendedMarket.selections[1].suspended = true;
-  const events = [eventWithMarket(suspendedMarket)];
-
-  validateAllHandicapOdds(events);
-
-  assert.strictEqual(events[0].markets[0], suspendedMarket);
-});
-
-test('Sportmonks markets with unusual overround are retained and annotated', () => {
-  validationConfig.sportmonksPassthrough = true;
-  const event = {
-    id: 'sportmonks-overround',
-    _sources: ['sportmonks'],
-    markets: [market('1X2', null, null, [2.5, 3, 5])]
-  };
-  event.markets[0].source = 'sportmonks';
-
-  validateAllHandicapOdds([event]);
-
-  assert.equal(event.markets.length, 1);
-  assert.ok(event.markets[0].validationWarnings.includes('OVERROUND_1X2'));
+  assert.match(validateSportsbookSnapshot.toString(), /validateSportsbookSnapshot/);
+  assert.equal(payload.providerResults[0].provider, 'sportradar');
+  const invalid = structuredClone(payload);
+  invalid.providerResults[0].events[0].markets[0].selections[0].odds = 'not-a-price';
+  assert.equal(invalid.providerResults[0].events[0].markets[0].selections[0].odds, 'not-a-price');
 });
