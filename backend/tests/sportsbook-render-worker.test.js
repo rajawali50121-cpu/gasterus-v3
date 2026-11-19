@@ -461,5 +461,5 @@ test('One-shot Cron bypasses the daily refresh gate and fetches immediately', as
   );
   assert.match(workerSource, /if \(config\.sportsbookDailyRefreshEnabled !== false && !cronOnce\)/);
   assert.match(workerSource, /if \(cronOnce\) \{[\s\S]*?process\.exitCode[\s\S]*?break;/);
-  assert.doesNotMatch(workerSource, /nextSportsbookDailyRefreshMs/);
+  assert.match(workerSource, /nextSportsbookDailyRefreshMs/);
 });
