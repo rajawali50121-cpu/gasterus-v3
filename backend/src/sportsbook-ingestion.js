@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { leagueKey, teamKey } from './sportsbook-providers.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
-const ALLOWED_PROVIDERS = new Set(['sportradar', 'sportmonks', 'sharpapi', 'oddspapi']);
+const ALLOWED_PROVIDERS = new Set(['sportradar']);
 const MAX_FUTURE_SKEW_SECONDS = 30;
 
 function invalid(message, code = 'SPORTSBOOK_INGEST_INVALID') {
