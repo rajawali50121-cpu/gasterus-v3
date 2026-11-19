@@ -130,6 +130,25 @@ test('Sportradar snapshot merge retains events across the full configured seven-
   assert.equal(merged.eventCount, 1);
 });
 
+test('rejects oversized signed ingestion body from Content-Length before buffering', async () => {
+  const oversizedHeaders = {
+    'content-type': 'application/json',
+    'content-length': String(32 * 1024 * 1024 + 1),
+    'x-sportsbook-timestamp': String(Math.floor(NOW / 1000)),
+    'x-sportsbook-signature': '0'.repeat(64)
+  };
+  let stored = false;
+  await assert.rejects(
+    acceptSportsbookSnapshot(requestFor(Buffer.from('{}'), oversizedHeaders), {
+      secret: SECRET,
+      now: NOW,
+      storeSnapshot: async () => { stored = true; }
+    }),
+    error => error.code === 'SPORTSBOOK_INGEST_BODY_TOO_LARGE' && error.status === 413
+  );
+  assert.equal(stored, false);
+});
+
 test('accepts a fresh HMAC-signed snapshot and stores only its verified JSON', async () => {
   const payload = snapshot();
   const signed = signedRequest(payload);
