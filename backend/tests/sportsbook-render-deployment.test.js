@@ -69,6 +69,8 @@ test('Sportradar trial access is refused in production unless the explicit one-s
       SPORTRADAR_ENABLED: 'true',
       SPORTRADAR_API_KEY: 'test-sportradar-key',
       SPORTRADAR_BASE_URL: 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en',
+      SPORTSBOOK_CRON_ONCE: 'true',
+      SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION: 'true',
       SPORTSBOOK_INGEST_URL: 'http://gasterus-v3.railway.internal/api/internal/sportsbook/ingest',
       SPORTSBOOK_INGEST_HMAC_SECRET: 's'.repeat(48),
       DATABASE_URL: 'postgres://user:password@example.com/db',
@@ -81,7 +83,7 @@ test('Sportradar trial access is refused in production unless the explicit one-s
     }
   });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /explicit trial access in one-shot cron mode/);
+  assert.match(result.stderr, /requires production Sportradar access/);
 });
 
 test('automatic sportsbook settlement is disabled by default without an approved results authority', () => {
