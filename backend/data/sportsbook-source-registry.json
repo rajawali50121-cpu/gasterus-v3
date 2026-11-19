@@ -1,35 +1,9 @@
 {
   "sources": {
-    "public-market": {
-      "code": "public-market",
-      "label": "OpenFootball (CC0) + Football-Data.co.uk public CSV",
+    "sportradar": {
+      "code": "sportradar",
+      "label": "Sportradar Odds Comparison",
       "status": "active",
-      "lastSuccess": 1789052765285,
-      "lastError": 0,
-      "consecutiveErrors": 0,
-      "totalSuccess": 420,
-      "totalErrors": 0,
-      "evictedAt": 0,
-      "promotedAt": 0,
-      "lastEvent": "Football-Data anchor unavailable: fetch failed"
-    },
-    "footballdata-io": {
-      "code": "footballdata-io",
-      "label": "footballdata.io (free plan, real market odds)",
-      "status": "candidate",
-      "lastSuccess": 0,
-      "lastError": 0,
-      "consecutiveErrors": 0,
-      "totalSuccess": 0,
-      "totalErrors": 0,
-      "evictedAt": 0,
-      "promotedAt": 0,
-      "lastEvent": ""
-    },
-    "thesportsdb": {
-      "code": "thesportsdb",
-      "label": "TheSportsDB (free)",
-      "status": "candidate",
       "lastSuccess": 0,
       "lastError": 0,
       "consecutiveErrors": 0,
@@ -40,5 +14,5 @@
       "lastEvent": ""
     }
   },
-  "updatedAt": 1789206208518
+  "updatedAt": 0
 }
