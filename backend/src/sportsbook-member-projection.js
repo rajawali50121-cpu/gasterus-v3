@@ -15,7 +15,7 @@ const MEMBER_MARKET_SOURCE_LABELS = Object.freeze({
   sportradar: 'Sportradar'
 });
 
-export function projectMemberMarkets(markets = [], { includeSourceData = true } = {}) {
+export function projectMemberMarkets(markets = []) {
   if (!Array.isArray(markets)) return [];
   const seenMarkets = new Set();
   const projected = [];
