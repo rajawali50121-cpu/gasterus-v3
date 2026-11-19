@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,17 +10,14 @@ const here=dirname(fileURLToPath(import.meta.url));
 const root=resolve(here,'../..');
 const read=p=>readFileSync(resolve(root,p),'utf8');
 
-test('Railway uses Dockerfile lifecycle, predeploy, and health gate',()=>{
-  const cfg=read('.railway/railway.ts');
-  assert.match(cfg,/source:\s*github\("rajawali50121-cpu\/gasterus-v3",\s*\{ branch:\s*"master",\s*checkSuites:\s*true \}\)/);
-  assert.match(cfg,/build:\s*\{\s*builder:\s*"DOCKERFILE",\s*dockerfilePath:\s*"deploy\/Dockerfile"\s*\}/);
-  assert.match(cfg,/preDeploy:\s*"node deploy\/predeploy\.js"/);
-  assert.match(cfg,/healthcheck:\s*"\/healthz"/);
-  assert.match(cfg,/service\("sportsbook-render-worker"/);
-  assert.match(cfg,/dockerfilePath:\s*"deploy\/Dockerfile\.sportsbook-render-worker"/);
-  assert.match(cfg,/SPORTSBOOK_RENDER_MAX_PAGES:\s*"0"/);
+test('stale non-executable Railway snapshot is removed and the canonical deployment branch is documented',()=>{
+  assert.equal(existsSync(resolve(root,'.railway/railway.ts')),false);
+  const workflow=read('.github/workflows/backend-tests.yml');
+  const architecture=read('docs/operations/RAILWAY-ARCHITECTURE.md');
+  assert.match(workflow,/railway-migration-fix-039/);
+  assert.match(architecture,/Canonical deployment source: `railway-migration-fix-039`/);
+  assert.match(architecture,/sportsbook-render-worker/);
 });
-
 
 
 test('Railway public port is bound before dependency readiness to prevent edge 502 during cold start',()=>{
