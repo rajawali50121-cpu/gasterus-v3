@@ -11,10 +11,10 @@ process.env.MFA_ENCRYPTION_KEY_BASE64 ||= Buffer.alloc(32).toString('base64');
 const { applySportsbookRiskRepricing } = await import('../src/sportsbook-risk-pricing.js');
 
 function fixture() {
-  return [{ id:'evt', markets:[{ id:'mkt', source:'public-market', type:'1X2', period:'FT', selections:[
-    { key:'home', label:'Home', source:'public-market', odds:2.0, updatedAt:'2026-08-17T00:00:00.000Z', anchorUpdatedAt:'2026-08-17T00:00:00.000Z' },
-    { key:'draw', label:'Draw', source:'public-market', odds:3.5, updatedAt:'2026-08-17T00:00:00.000Z', anchorUpdatedAt:'2026-08-17T00:00:00.000Z' },
-    { key:'away', label:'Away', source:'public-market', odds:4.0, updatedAt:'2026-08-17T00:00:00.000Z', anchorUpdatedAt:'2026-08-17T00:00:00.000Z' }
+  return [{ id:'evt', markets:[{ id:'mkt', source:'sportradar', type:'1X2', period:'FT', selections:[
+    { key:'home', label:'Home', source:'sportradar', odds:2.0, updatedAt:'2026-08-17T00:00:00.000Z', anchorUpdatedAt:'2026-08-17T00:00:00.000Z' },
+    { key:'draw', label:'Draw', source:'sportradar', odds:3.5, updatedAt:'2026-08-17T00:00:00.000Z', anchorUpdatedAt:'2026-08-17T00:00:00.000Z' },
+    { key:'away', label:'Away', source:'sportradar', odds:4.0, updatedAt:'2026-08-17T00:00:00.000Z', anchorUpdatedAt:'2026-08-17T00:00:00.000Z' }
   ]}] }];
 }
 
