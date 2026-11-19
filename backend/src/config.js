@@ -168,6 +168,7 @@ export const config = Object.freeze({
   sportsbookMarketReopenSuccesses: int('SPORTSBOOK_MARKET_REOPEN_SUCCESSES', 2, 1, 20),
   sportsbookMarketReopenObservationSeconds: int('SPORTSBOOK_MARKET_REOPEN_OBSERVATION_SECONDS', 30, 1, 3600),
   sportsbookMarketLifecycleRetentionSeconds: int('SPORTSBOOK_MARKET_LIFECYCLE_RETENTION_SECONDS', 86400, 300, 604800),
+  sportsbookFinishedEventRetentionSeconds: int('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600, 3600, 86400),
   sportsbookMinStake: int('SPORTSBOOK_MIN_STAKE', 1000, 100, 100000000),
   sportsbookMaxStake: int('SPORTSBOOK_MAX_STAKE', 50000000, 1000, 1000000000),
   sportsbookMaxPayout: int('SPORTSBOOK_MAX_PAYOUT', 500000000, 10000, 2000000000),
