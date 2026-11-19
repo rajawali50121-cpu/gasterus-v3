@@ -11,8 +11,9 @@ if (existsSync(localEnvFile)) {
   try { process.loadEnvFile(localEnvFile); } catch { /* .env rusak tidak boleh menggagalkan boot */ }
 }
 
-const isProduction = process.env.NODE_ENV === 'production';
-const isTestRuntime = !process.env.NODE_ENV || process.env.NODE_ENV === 'test';
+const isRailwayRuntime = Boolean(process.env.RAILWAY_ENVIRONMENT_ID || process.env.RAILWAY_DEPLOYMENT_ID);
+const isProduction = process.env.NODE_ENV === 'production' || isRailwayRuntime;
+const isTestRuntime = process.env.NODE_ENV === 'test' || (!process.env.NODE_ENV && !isRailwayRuntime);
 const isSportsbookRenderWorker = process.env.SPORTSBOOK_RENDER_WORKER === 'true';
 const testSecret = (name, min, fallback) => {
   if (!isTestRuntime) return requiredSecret(name, min);
