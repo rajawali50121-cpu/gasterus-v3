@@ -1,6 +1,7 @@
 // Normalize Railway environment variable aliases
 process.env.DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.DATABASE_PRIVATE_URL || process.env.DATABASE_PUBLIC_URL || '';
 process.env.REDIS_URL = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || process.env.REDIS_PUBLIC_URL || '';
+if (process.env.RAILWAY_ENVIRONMENT_ID || process.env.RAILWAY_DEPLOYMENT_ID) process.env.NODE_ENV = 'production';
 
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
