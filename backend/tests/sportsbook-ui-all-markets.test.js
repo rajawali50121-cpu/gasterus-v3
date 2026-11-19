@@ -268,8 +268,8 @@ test('member sportsbook lazy-loads complete event market details and retains all
   assert.match(frontend, /const FEED_DETAIL_URL = \(id\) => `\/api\/member\/sportsbook\/events\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(frontend, /await api\.get\(FEED_DETAIL_URL\(eventId\)\)/);
   assert.match(frontend, /function renderAllEventMarkets\(event\)[\s\S]*event\.markets[\s\S]*market\.selections\.map/);
-  assert.match(feed, /function memberPublicEvent\(event\)[\s\S]*const isSportmonks[\s\S]*const markets = isSportmonks[\s\S]*item\.markets[\s\S]*selectMemberSummaryMarkets\(item\.markets\)[\s\S]*memberEventShape\(item, markets/);
-  assert.match(feed, /function memberPublicEventDetail\(event\)[\s\S]*item\.markets \|\| \[\], \{[\s\S]*includeProviderFields/);
+  assert.match(feed, /function memberPublicEvent\\(event\\)[\\s\\S]*selectMemberSummaryMarkets\\(item\\.markets\\)[\\s\\S]*memberEventShape\\(item, markets/);
+  assert.match(feed, /function memberPublicEventDetail\\(event\\)[\\s\\S]*item\\.markets \\|\\| \\[\\], \\{[\\s\\S]*includeSportradarFields/);
 });
 
 test('detailed markets are refreshed by feed revision and stale odds cannot place a bet during refresh', () => {
