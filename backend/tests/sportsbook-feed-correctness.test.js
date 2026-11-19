@@ -86,3 +86,8 @@ test('E2E enforces expanded event volume and core market coverage without derive
   assert.match(e2e, /const marketPeriodCoverage/);
   assert.doesNotMatch(e2e, /minimumDerivedMarkets|hasDerivedTypes/);
 });
+test('member event detail and quote endpoints fail closed for non-prematch events', () => {
+  assert.match(feed, /if \(!current \|\| !memberVisibleEvent\(current\)\) throw new AppError\(404/);
+  assert.match(feed, /if \(!event \|\| !eventBettingOpen\(event\)\) throw new AppError\(409/);
+});
+
