@@ -1,19 +1,32 @@
-name: Backend tests
+name: Backend and repository checks
 
 on:
   pull_request:
-    branches: [master]
+    branches: [master, railway-migration-fix-039]
     paths:
       - "backend/**"
-      - ".railway/**"
-      - "railway.json"
-      - ".github/workflows/backend-tests.yml"
+      - "frontend/**"
+      - "admin/**"
+      - "deploy/**"
+      - "scripts/**"
+      - "docs/**"
+      - "MAINTENANCE.md"
+      - ".github/workflows/**"
+      - "package.json"
+      - "package-lock.json"
   push:
-    branches: [master]
+    branches: [master, railway-migration-fix-039]
     paths:
       - "backend/**"
-      - ".railway/**"
-      - ".github/workflows/backend-tests.yml"
+      - "frontend/**"
+      - "admin/**"
+      - "deploy/**"
+      - "scripts/**"
+      - "docs/**"
+      - "MAINTENANCE.md"
+      - ".github/workflows/**"
+      - "package.json"
+      - "package-lock.json"
 
 permissions:
   contents: read
@@ -21,7 +34,7 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -30,16 +43,20 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: backend/package-lock.json
-      - name: Install backend dependencies
-        working-directory: backend
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+      - name: Install root dependencies
         run: npm ci
-      - name: Check sportsbook runtime syntax
-        working-directory: backend
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
+      - name: Check backend source syntax
         run: |
-          for file in src/config.js src/sportradar-provider.js src/sportsbook-feed.js src/sportsbook-ingestion.js src/sportsbook-member-projection.js src/sportsbook-providers.js src/sportsbook-render-worker-core.js src/sportsbook-render-worker.js; do
-            node --check "$file"
-          done
-      - name: Run backend test suite
-        working-directory: backend
+          find backend/src -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --check deploy/predeploy.js
+          node --check deploy/launcher.js
+          node --check scripts/reset-admin-password.mjs
+      - name: Run full repository test suite
         run: npm test
+      - name: Run repository static checks
+        run: npm run check
