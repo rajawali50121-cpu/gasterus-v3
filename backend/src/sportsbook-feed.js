@@ -101,6 +101,7 @@ function boundedEvents(events = []) {
     }
     if (!live && Number.isFinite(kickoff)
       && kickoff < now - config.sportsbookPrematchCloseGraceSeconds * 1000) return false;
+    if (CLOSED_EVENT_STATUSES.has(status)) return true;
     return memberVisibleEvent(event, now);
   });
   const mapped = filtered.map((event, index) => ({ event, index }));
