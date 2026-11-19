@@ -56,7 +56,7 @@ test('TOTO memakai VegasNet sebagai satu-satunya sumber (label & jadwal tampil u
   assert.match(requested, /show_id=1,2,3/);
   assert.match(requested, /171/);
   assert.equal(calls.length, Math.ceil(vegasnet.showIds.length / vegasnet.batchSize));
-  assert.equal(calls.every(call => call.options.redirect === 'follow'), true);
+  assert.equal(calls.every(call => call.options.redirect === 'manual'), true);
   const byHost = new Map(calls.map(call => [new URL(call.url).hostname.replace(/^www\./, ''), call.options.headers]));
   assert.match(byHost.get('widgets.vegasnet.info')['user-agent'], /ASEAN777-Result-Collector\/6\.8\.14/);
 });
