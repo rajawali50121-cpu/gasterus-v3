@@ -1525,7 +1525,7 @@ function findMarket(e, type, period) {
 }
 
 const MARKET_PERIOD_LABELS = {
-  FT: 'FT · Full Time / Babak Penuh (BP)', '1H': 'HT · Half Time / Babak Pertama (B1)', '2H': '2H · Babak 2',
+  FT: 'FT · Full Time / Babak Penuh (BP)', '1H': 'HT · Half Time / Babak Pertama (B1)', HT_FT: 'HT/FT · Kombinasi Half Time / Full Time', '2H': '2H · Babak 2',
   Q1: 'Kuarter 1', Q2: 'Kuarter 2', Q3: 'Kuarter 3', Q4: 'Kuarter 4'
 };
 
