@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 process.on('uncaughtException', (e) => { console.error('WORKER_UNCAUGHT', e && e.stack ? e.stack : String(e)); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('WORKER_UNHANDLED', e && e.stack ? e.stack : String(e)); process.exit(1); });
 console.log('WORKER_BOOT');
