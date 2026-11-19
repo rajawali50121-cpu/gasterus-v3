@@ -77,7 +77,7 @@ test('manual FT authority cannot unlock HT/FT combo markets without HT authority
     provider: 'sportradar',
     enabled: true,
     events: [event({ markets: [market('FT'), htFt] })]
-  }]);
+  }], { enabled: true });
   assert.equal(merged.markets.find(item => item.period === 'FT').suspended, false);
   assert.equal(merged.markets.find(item => item.period === 'HT_FT').suspended, true);
 });
