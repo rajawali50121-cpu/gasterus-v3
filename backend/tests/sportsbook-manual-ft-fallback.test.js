@@ -104,14 +104,14 @@ test('duplicate Sportradar fixture records preserve distinct bookmaker market pr
 });
 
 test('manual settlement cannot fabricate automatic scores or HT authority', () => {
-  const ftLeg = { market_period: 'FT', selection_key: 'home', market_type: '1X2' };
-  const htLeg = { market_period: '1H', selection_key: 'home', market_type: '1X2' };
+  const ftLeg = { market_period: 'FT', selection_label: 'Home', home_team: 'Arsenal', away_team: 'Chelsea', market_type: '1X2' };
+  const htLeg = { market_period: '1H', selection_label: 'Home', home_team: 'Arsenal', away_team: 'Chelsea', market_type: '1X2' };
   const result = { status: 'FINISHED', homeScore: 2, awayScore: 0 };
   const manual = eventSettlementAuthority({
     _sources: ['sportradar', 'manual-ops'],
     _settlementReadySources: ['sportradar', 'manual-ops']
   });
-  assert.equal(evaluateSportsbookLeg(ftLeg, { ...result, settlementAuthority: manual }), 'WON');
+  assert.equal(evaluateSportsbookLeg(ftLeg, { ...result, settlementAuthority: manual })?.status, 'WON');
   assert.equal(evaluateSportsbookLeg(htLeg, { ...result, settlementAuthority: manual }), null);
 });
 
