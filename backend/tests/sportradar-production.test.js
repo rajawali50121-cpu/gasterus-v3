@@ -93,7 +93,16 @@ function apiEvent(index) {
           { id: `removed-${index}`, type: 'home', odds_decimal: '1.00', removed: true },
           { id: `removed-no-price-${index}`, type: 'away', removed: true }
         ] }]
-      }
+      },
+      {
+        id: `market-live-only-${index}`,
+        name: 'live market only',
+        is_live: true,
+        books: [{ id: 'book-live', name: 'Bookmaker Live', outcomes: [
+          { id: `live-home-${index}`, type: 'home', odds_decimal: '2.10' },
+          { id: `live-away-${index}`, type: 'away', odds_decimal: '3.10' }
+        ] }]
+      },
     ]
   };
 }
@@ -150,6 +159,9 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(removedBookMarket.selections[1].odds, null);
   assert.equal(removedBookMarket.selections[0].removed, true);
   assert.equal(removedBookMarket.isLive, true, 'documented is_live market flag is preserved');
+  const liveOnlyMarket = first.markets.find(market => market.sourceMarketId === 'market-live-only-0');
+  assert.ok(liveOnlyMarket?.suspended, 'live markets are disabled in prematch mode');
+  assert.ok(liveOnlyMarket?.selections.every(selection => selection.suspended), 'live selections are disabled in prematch mode');
 
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportradar: async () => result,
