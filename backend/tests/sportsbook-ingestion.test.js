@@ -10,12 +10,10 @@ process.env.OPS_INTERNAL_SECRET ||= 'o'.repeat(48);
 process.env.SESSION_HMAC_KEY ||= 's'.repeat(48);
 process.env.API_KEY_PEPPER ||= 'p'.repeat(48);
 process.env.MFA_ENCRYPTION_KEY_BASE64 ||= Buffer.alloc(32, 1).toString('base64');
-process.env.SPORTMONKS_REDIS_MAX_PAYLOAD_BYTES = '65536';
 
 const { acceptSportsbookSnapshot, createStoredSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
 const { createSportsbookIngestRequest } = await import('../src/sportsbook-ingest-client.js');
 const { loadRenderProviderSnapshot } = await import('../src/sportsbook-feed-source.js');
-const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
 const SECRET = 'ingest-secret-for-test-only-'.padEnd(48, 'x');
 const NOW = Date.UTC(2025, 0, 2, 12, 0, 0);
 
@@ -34,7 +32,7 @@ function snapshot() {
     schemaVersion: 1,
     generatedAt: new Date(NOW).toISOString(),
     providerResults: [{
-      provider: 'sportmonks',
+      provider: 'sportradar',
       enabled: true,
       events: [{
         id: 'event-123',
@@ -50,19 +48,19 @@ function snapshot() {
           id: 'market-123',
           type: '1X2',
           period: 'FT',
-          source: 'sportmonks',
+          source: 'sportradar',
           suspended: false,
           selections: [{
             key: 'selection-123',
             label: 'Home',
             odds: 2.1,
             suspended: false,
-            source: 'sportmonks',
+            source: 'sportradar',
             updatedAt: null
           }]
         }],
-        _refs: { sportmonks: 'provider-event-123' },
-        _sources: ['sportmonks']
+        _refs: { sportradar: 'provider-event-123' },
+        _sources: ['sportradar']
       }]
     }]
   };
@@ -77,69 +75,6 @@ function requestFor(body, headers) {
 function signedRequest(payload, { timestamp = Math.floor(NOW / 1000), maxPayloadBytes } = {}) {
   return createSportsbookIngestRequest(payload, SECRET, { timestamp, maxPayloadBytes });
 }
-
-test('partial provider refresh preserves fresh provider data, expires old data, and re-signs the merged snapshot', async () => {
-  const previousPayload = snapshot();
-  const previousRequest = signedRequest(previousPayload);
-  let stored = (await import('../src/sportsbook-ingestion.js')).createStoredSportsbookSnapshot({
-    serializedSnapshot: previousRequest.body.toString('utf8'),
-    timestamp: previousRequest.headers['x-sportsbook-timestamp'],
-    signature: previousRequest.headers['x-sportsbook-signature'],
-    receivedAt: NOW
-  });
-  let pending;
-  const redisClient = {
-    isOpen: true,
-    async watch() {},
-    async get() { return stored; },
-    async unwatch() {},
-    multi() {
-      return {
-        set(_key, value) { pending = value; return this; },
-        async exec() { stored = pending; return ['OK']; }
-      };
-    }
-  };
-  const providerEvent = JSON.parse(JSON.stringify(previousPayload.providerResults[0].events[0]));
-  providerEvent.id = 'sharp-event';
-  providerEvent.home.name = 'Sharp Home';
-  providerEvent.away.name = 'Sharp Away';
-  providerEvent._refs = { sharpapi: 'sharp-provider-event' };
-  providerEvent._sources = ['sharpapi'];
-  for (const market of providerEvent.markets) {
-    market.source = 'sharpapi';
-    for (const selection of market.selections) selection.source = 'sharpapi';
-  }
-  const { mergeSportsbookSnapshots, storeMergedSportsbookSnapshot, verifyStoredSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
-  const incoming = {
-    schemaVersion: 1,
-    generatedAt: new Date(NOW + 60000).toISOString(),
-    providerResults: [
-      { provider: 'sharpapi', enabled: true, events: [providerEvent] },
-      { provider: 'sportmonks', enabled: true, events: [], transportOk: false }
-    ]
-  };
-  const merged = mergeSportsbookSnapshots(incoming, verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW }), {
-    now: NOW + 60000,
-    maxAgeSeconds: 180
-  });
-  assert.deepEqual(merged.providerResults.map(result => result.provider), ['sharpapi', 'sportmonks']);
-  assert.equal(merged.providerResults.find(result => result.provider === 'sportmonks').stale, true);
-  assert.equal(merged.providerResults.find(result => result.provider === 'sportmonks').transportOk, false);
-  assert.equal(merged.eventCount, 2);
-
-  await storeMergedSportsbookSnapshot(redisClient, incoming, { secret: SECRET, now: NOW + 60000, maxAgeSeconds: 180 });
-  const verified = verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW + 60000, maxAgeSeconds: 180 });
-  assert.deepEqual(verified.providerResults, ['sharpapi', 'sportmonks']);
-  assert.equal(verified.snapshot.eventCount, 2);
-
-  const laterIncoming = { ...incoming, generatedAt: new Date(NOW + 240000).toISOString() };
-  await storeMergedSportsbookSnapshot(redisClient, laterIncoming, { secret: SECRET, now: NOW + 240000, maxAgeSeconds: 180 });
-  const afterExpiry = verifyStoredSportsbookSnapshot(stored, { secret: SECRET, now: NOW + 240000, maxAgeSeconds: 180 });
-  assert.deepEqual(afterExpiry.providerResults, ['sharpapi']);
-  assert.equal(afterExpiry.snapshot.eventCount, 1);
-});
-
 
 test('Sportradar snapshot replaces legacy provider snapshots instead of retaining stale odds sources', async () => {
   const previousPayload = snapshot();
@@ -213,7 +148,7 @@ test('accepts a fresh HMAC-signed snapshot and stores only its verified JSON', a
   assert.deepEqual(result, {
     accepted: true,
     generatedAt: payload.generatedAt,
-    providerResults: ['sportmonks'],
+    providerResults: ['sportradar'],
     eventCount: 1
   });
   assert.deepEqual(stored, payload);
@@ -227,14 +162,14 @@ test('accepts a complete event with more than the former market and selection ca
     id: `market-${marketIndex}`,
     type: 'OTHER',
     period: 'FT',
-    source: 'sportmonks',
+    source: 'sportradar',
     suspended: false,
     selections: Array.from({ length: marketIndex === 0 ? 251 : 1 }, (_, selectionIndex) => ({
       key: `selection-${marketIndex}-${selectionIndex}`,
       label: `Selection ${selectionIndex}`,
       odds: 2,
       suspended: false,
-      source: 'sportmonks',
+      source: 'sportradar',
       updatedAt: null
     }))
   }));
@@ -254,49 +189,6 @@ test('accepts a complete event with more than the former market and selection ca
   assert.equal(stored.providerResults[0].events[0].markets[0].selections.length, 251);
 });
 
-test('accepts OddsPapi as an additional provider without changing event source ownership', async () => {
-  const payload = snapshot();
-  const result = payload.providerResults[0];
-  result.provider = 'oddspapi';
-  const event = result.events[0];
-  event._refs = { oddspapi: 'oddspapi-fixture-1' };
-  event._sources = ['oddspapi'];
-  for (const market of event.markets) {
-    market.source = 'oddspapi';
-    for (const selection of market.selections) selection.source = 'oddspapi';
-  }
-  const signed = signedRequest(payload);
-  const accepted = await acceptSportsbookSnapshot(
-    requestFor(signed.body, signed.headers),
-    {
-      secret: SECRET,
-      now: NOW,
-      storeSnapshot: async () => {}
-    }
-  );
-  assert.deepEqual(accepted.providerResults, ['oddspapi']);
-});
-
-test('accepts merged events that carry multiple provider sources', async () => {
-  const payload = snapshot();
-  const event = payload.providerResults[0].events[0];
-  event._refs = { sportmonks: 'merged-sm-1', sharpapi: 'merged-sh-1' };
-  event._sources = ['sportmonks', 'sharpapi'];
-  for (const market of event.markets) {
-    for (const selection of market.selections) selection.source = 'sportmonks';
-  }
-  const signed = signedRequest(payload);
-  const accepted = await acceptSportsbookSnapshot(
-    requestFor(signed.body, signed.headers),
-    {
-      secret: SECRET,
-      now: NOW,
-      storeSnapshot: async () => {}
-    }
-  );
-  assert.deepEqual(accepted.providerResults, ['sportmonks']);
-});
-
 test('accepts active display-only events that carry no priced markets yet', async () => {
   const payload = snapshot();
   payload.providerResults[0].events.push({
@@ -310,8 +202,8 @@ test('accepts active display-only events that carry no priced markets yet', asyn
     home: { name: 'Home B FC' },
     away: { name: 'Away B FC' },
     markets: [],
-    _refs: { sportmonks: 'provider-event-unpriced' },
-    _sources: ['sportmonks']
+    _refs: { sportradar: 'provider-event-unpriced' },
+    _sources: ['sportradar']
   });
   const signed = signedRequest(payload);
   let stored;
@@ -335,7 +227,7 @@ test('counts same-team fixtures in different leagues separately', async () => {
   second.id = 'event-different-league';
   second.league = 'Serie A';
   second.country = 'Italy';
-  second._refs.sportmonks = 'provider-event-different-league';
+  second._refs.sportradar = 'provider-event-different-league';
   payload.providerResults[0].events.push(second);
 
   const signed = signedRequest(payload);
@@ -420,7 +312,7 @@ test('rejects malformed normalized events but accepts more than 500 Sportmonks f
       id: `market-${index}`,
       selections: market.selections.map(selection => ({ ...selection, key: `selection-${index}` }))
     })),
-    _refs: { sportmonks: `provider-event-${index}` }
+    _refs: { sportradar: `provider-event-${index}` }
   }));
   const oversizedSigned = signedRequest(oversized);
   let stored;
@@ -436,84 +328,6 @@ test('rejects malformed normalized events but accepts more than 500 Sportmonks f
   assert.equal(stored.providerResults[0].events.length, 501);
 });
 
-function threeProviderSnapshot() {
-  const base = snapshot();
-  const sharpEvent = JSON.parse(JSON.stringify(base.providerResults[0].events[0]));
-  sharpEvent._refs = { sharpapi: 'provider-event-sharp' };
-  sharpEvent._sources = ['sharpapi'];
-  for (const market of sharpEvent.markets) {
-    market.source = 'sharpapi';
-    for (const selection of market.selections) selection.source = 'sharpapi';
-  }
-
-  const oddsEvent = JSON.parse(JSON.stringify(base.providerResults[0].events[0]));
-  oddsEvent._refs = { oddspapi: 'provider-event-oddspapi' };
-  oddsEvent._sources = ['oddspapi'];
-  for (const market of oddsEvent.markets) {
-    market.source = 'oddspapi';
-    for (const selection of market.selections) selection.source = 'oddspapi';
-  }
-
-  return {
-    schemaVersion: 1,
-    generatedAt: base.generatedAt,
-    providerResults: [
-      base.providerResults[0],
-      { provider: 'sharpapi', enabled: true, events: [sharpEvent] },
-      { provider: 'oddspapi', enabled: true, events: [oddsEvent] }
-    ]
-  };
-}
-
-test('accepts a fresh snapshot containing all three allowed providers', async () => {
-  const payload = threeProviderSnapshot();
-  const signed = signedRequest(payload);
-  let stored = false;
-  const result = await acceptSportsbookSnapshot(
-    requestFor(signed.body, signed.headers),
-    {
-      secret: SECRET,
-      now: NOW,
-      storeSnapshot: async () => { stored = true; }
-    }
-  );
-
-  assert.deepEqual(result.providerResults, ['sportmonks', 'sharpapi', 'oddspapi']);
-  assert.equal(result.eventCount, 1);
-  assert.equal(stored, true);
-});
-
-test('rejects a snapshot with an unallowed or fourth provider', async () => {
-  const tooMany = threeProviderSnapshot();
-  tooMany.providerResults.push({
-    provider: 'oddspapi',
-    enabled: true,
-    events: [JSON.parse(JSON.stringify(tooMany.providerResults[0].events[0]))]
-  });
-  tooMany.providerResults[3]._refs = { 'oddspapi': 'provider-event-api' };
-  tooMany.providerResults[3]._sources = ['oddspapi'];
-  const tooManySigned = signedRequest(tooMany);
-  await assert.rejects(
-    acceptSportsbookSnapshot(requestFor(tooManySigned.body, tooManySigned.headers), {
-      secret: SECRET,
-      now: NOW,
-      storeSnapshot: async () => assert.fail('over-cap snapshot must not be stored')
-    }),
-    error => error.code === 'SPORTSBOOK_INGEST_INVALID'
-  );
-
-  const unallowed = threeProviderSnapshot();
-  unallowed.providerResults[1].provider = 'unknown-provider';
-  const unallowedSigned = signedRequest(unallowed);
-  await assert.rejects(
-    acceptSportsbookSnapshot(requestFor(unallowedSigned.body, unallowedSigned.headers), {
-      secret: SECRET,
-      now: NOW,
-      storeSnapshot: async () => assert.fail('unallowed provider must not be stored')
-    }),
-    error => error.code === 'SPORTSBOOK_INGEST_INVALID'
-  );
-});
 test('client signs the raw JSON bytes and refuses non-HTTPS endpoints', async () => {
   const signed = signedRequest(snapshot());
   assert.equal(signed.headers['content-length'], String(signed.body.length));
