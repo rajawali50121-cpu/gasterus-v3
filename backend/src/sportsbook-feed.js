@@ -992,7 +992,7 @@ function memberSourceEvent(event) {
 
 function memberPublicEvent(event) {
   const item = publicEvent(memberSourceEvent(event));
-  return memberEventShape(item, selectMemberSummaryMarkets(item.markets), { includeProviderFields: false });
+  return memberEventShape(item, selectMemberSummaryMarkets(item.markets));
 }
 function memberPublicEventDetail(event) {
   const item = publicEvent(memberSourceEvent(event));
