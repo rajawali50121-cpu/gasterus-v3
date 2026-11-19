@@ -14,10 +14,9 @@ Object.assign(process.env, {
   MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
 });
 
-const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
 
-test('normalizer carries first-half markets and halftime settlement score', () => {
+test('Sportradar event retains HT market metadata without claiming HT result authority', () => {
   const event = {
     id: 'api-score',
     sport: 'Football',
@@ -31,13 +30,14 @@ test('normalizer carries first-half markets and halftime settlement score', () =
     away: { name: 'Chelsea', score: 1, logo: null },
     periodScores: { '1H': { home: 1, away: 1 } },
     markets: [
-      { id: 'm1', type: '1X2', period: 'FT', source: 'sportmonks', suspended: false, selections: [{ key: 'k1', label: 'Home', odds: 1.8, suspended: false, source: 'sportmonks', updatedAt: null }] },
-      { id: 'm2', type: '1X2', period: '1H', source: 'sportmonks', suspended: false, selections: [{ key: 'k2', label: 'Home', odds: 2.2, suspended: false, source: 'sportmonks', updatedAt: null }] },
-      { id: 'm3', type: 'TOTALS', period: '1H', source: 'sportmonks', suspended: false, selections: [{ key: 'k3', label: 'Over 1.0', odds: 1.88, suspended: false, source: 'sportmonks', updatedAt: null }] }
+      { id: 'm1', type: '1X2', period: 'FT', source: 'sportradar', suspended: false, selections: [{ key: 'k1', label: 'Home', odds: 1.8, suspended: false, source: 'sportradar', updatedAt: null }] },
+      { id: 'm2', type: '1X2', period: '1H', source: 'sportradar', suspended: false, selections: [{ key: 'k2', label: 'Home', odds: 2.2, suspended: false, source: 'sportradar', updatedAt: null }] },
+      { id: 'm3', type: 'TOTALS', period: '1H', source: 'sportradar', suspended: false, selections: [{ key: 'k3', label: 'Over 1.0', odds: 1.88, suspended: false, source: 'sportradar', updatedAt: null }] }
     ],
-    _refs: { 'sportmonks': 'api-9911' },
-    _sources: ['sportmonks'],
-    _settlementReadySources: ['sportmonks']
+    _refs: { 'sportradar': 'api-9911' },
+    _sources: ['sportradar'],
+    _settlementReadySources: ['sportradar'],
+    settlementAuthority: { ft: true, ht: false, automaticFt: false, manualFt: true }
   };
   assert.ok(event.markets.some(market => market.type === '1X2' && market.period === '1H'));
   assert.ok(event.markets.some(market => market.type === 'TOTALS' && market.period === '1H'));
@@ -53,12 +53,11 @@ test('live odds extractor accepts top-level bets payload', () => {
 
 
 test('auto settlement evaluates HT market from halftime score and FT market from final score', () => {
-  const event = { status: 'FINISHED', home: { score: 3 }, away: { score: 1 }, periodScores: { '1H': { home: 1, away: 1 } } };
+  const event = { status: 'FINISHED', home: { score: 3 }, away: { score: 1 }, periodScores: { '1H': { home: 1, away: 1 } }, settlementAuthority: { ft: true, ht: false } };
   const base = { home_team: 'Arsenal', away_team: 'Chelsea', market_type: '1X2', market_line: null };
   const ht = evaluateSportsbookLeg({ ...base, market_period: '1H', selection_label: 'Draw' }, event);
   const ft = evaluateSportsbookLeg({ ...base, market_period: 'FT', selection_label: 'Home' }, event);
-  assert.equal(ht.status, 'WON');
-  assert.match(ht.resultValue, /^HT 1-1$/);
+  assert.equal(ht, null, 'HT result must remain unavailable without an approved results authority');
   assert.equal(ft.status, 'WON');
   assert.match(ft.resultValue, /^FT 3-1$/);
 });
