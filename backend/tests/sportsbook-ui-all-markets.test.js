@@ -276,7 +276,7 @@ test('member sportsbook lazy-loads complete event market details and retains all
   assert.ok(feed.includes('function memberPublicEvent(event)'));
   assert.ok(feed.includes('selectMemberSummaryMarkets(item.markets)'));
   assert.ok(feed.includes('function memberPublicEventDetail(event)'));
-  assert.ok(feed.includes('includeSportradarFields: true'));
+  assert.ok(feed.includes('includeDetailFields: true'));
 });
 
 test('detailed markets are refreshed by feed revision and stale odds cannot place a bet during refresh', () => {
