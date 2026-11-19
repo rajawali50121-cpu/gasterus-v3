@@ -59,7 +59,7 @@ test('stale, unexecutable Railway TypeScript snapshot is not kept in the reposit
   assert.match(architecture, /Cloudflare Pages remains the frontend/);
 });
 
-test('Sportradar trial access is refused in production unless the explicit one-shot trial exception is used', () => {
+test('Sportradar trial access is always refused in production', () => {
   const result = spawnSync(process.execPath, ['src/sportsbook-render-worker.js'], {
     cwd: new URL('..', import.meta.url),
     encoding: 'utf8',
