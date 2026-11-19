@@ -35,7 +35,7 @@ test('feed and provider merge retain every market instead of truncating market l
       period: 'FT',
       label: `Market ${index}`,
       line: null,
-      source: 'sportmonks',
+      source: 'sportradar',
       suspended: false,
       selections: [{
         key: `selection-${index}`,
@@ -43,14 +43,14 @@ test('feed and provider merge retain every market instead of truncating market l
         odds: 2,
         line: null,
         suspended: false,
-        source: 'sportmonks'
+        source: 'sportradar'
       }]
     })),
-    _refs: { sportmonks: 'fixture-1' },
-    _sources: ['sportmonks']
+    _refs: { sportradar: 'fixture-1' },
+    _sources: ['sportradar']
   };
 
-  const [merged] = mergeProviderEvents([{ provider: 'sportmonks', events: [event] }]);
+  const [merged] = mergeProviderEvents([{ provider: 'sportradar', enabled: true, events: [event] }]);
 
   assert.equal(merged.markets.length, 40);
 });
