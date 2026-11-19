@@ -39,11 +39,10 @@ test('Asian quarter total settles split lines correctly', () => {
   assert.equal(evaluateSportsbookLeg(leg('TOTALS', 'Under', 2.25), twoGoals).status, 'HALF_WON');
 });
 
-test('HT market can settle once official halftime score is available before FT', () => {
+test('HT market remains unsettled until an approved HT result authority is enabled', () => {
   const halftime = { status: 'LIVE', providerStatus: 'HT', home: { score: 1 }, away: { score: 0 }, periodScores: { '1H': { home: 1, away: 0 } } };
   const result = evaluateSportsbookLeg(leg('1X2', 'Home', null, '1H'), halftime);
-  assert.equal(result.status, 'WON');
-  assert.equal(result.resultValue, 'HT 1-0');
+  assert.equal(result, null, 'HT is intentionally fail-closed without an approved results authority');
 });
 
 test('postponed, suspended and abandoned matches do not auto-void open tickets', () => {
