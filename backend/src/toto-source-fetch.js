@@ -78,7 +78,7 @@ export async function fetchTotoDocument(source, fetchImpl = fetch) {
   const timer = setTimeout(() => controller.abort(), config.totoSourceTimeoutMs);
   try {
     const response = await fetchImpl(url, {
-      redirect: 'follow',
+      redirect: 'manual',
       signal: controller.signal,
       headers: {
         accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
