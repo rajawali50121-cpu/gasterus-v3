@@ -84,7 +84,12 @@ function applyManualFtSettlementFallback(event, {
 function applySettlementSafety(event) {
   const authority = eventSettlementAuthority(event);
   event.markets = (event.markets || []).map(market => {
-    const mustSuspend = (market.period || 'FT') === '1H' ? !authority.ht : !authority.ft;
+    const period = String(market.period || 'FT').toUpperCase();
+    const mustSuspend = period === '1H'
+      ? !authority.ht
+      : period === 'HT_FT'
+        ? !(authority.ht && authority.ft)
+        : !authority.ft;
     if (!mustSuspend) return market;
     return {
       ...market,
