@@ -1099,7 +1099,7 @@ export async function sportsbookEventSnapshot(eventId) {
     throw new AppError(503, 'Snapshot Sportradar belum tersedia.', 'SPORTS_SNAPSHOT_REQUIRED');
   }
   let current = feed.events.find(item => item.id === requested);
-  if (!current) throw new AppError(404, 'Pertandingan tidak ditemukan.', 'SPORTS_EVENT_UNAVAILABLE');
+  if (!current || !memberVisibleEvent(current)) throw new AppError(404, 'Pertandingan prematch tidak tersedia.', 'SPORTS_EVENT_UNAVAILABLE');
   const controls = await listActiveSportsbookTradingControls({ eventId: current.id });
   return {
     event: applySportsbookTradingControls([memberPublicEventDetail(current)], controls)[0],
@@ -1263,7 +1263,7 @@ export async function sportsbookSelectionSnapshot({ eventId, marketId, selection
     market = event?.markets.find(item => item.id === marketId);
     selection = market?.selections.find(item => item.key === selectionId);
   }
-  if (!event) throw new AppError(409, 'Pertandingan sudah tidak tersedia.', 'SPORTS_EVENT_UNAVAILABLE');
+  if (!event || !eventBettingOpen(event)) throw new AppError(409, 'Pertandingan bukan prematch aktif atau kickoff telah tercapai.', 'SPORTS_EVENT_UNAVAILABLE');
   const scheduledStart = Date.parse(event.startTime || '');
   if (!event.live && event.status === 'SCHEDULED' && Number.isFinite(scheduledStart) && Date.now() > scheduledStart + config.sportsbookPrematchCloseGraceSeconds * 1000) {
     throw new AppError(409, 'Kickoff sudah tercapai tetapi status live belum terkonfirmasi. Market ditahan sampai sumber resmi memperbarui status pertandingan.', 'SPORTS_EVENT_START_STATUS_PENDING');
