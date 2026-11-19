@@ -10,7 +10,7 @@ Object.assign(process.env, {
   SPORTSBOOK_PREMATCH_WINDOW_DAYS: '7'
 });
 
-const [{ fetchSportradar }, { buildSportsbookRenderSnapshot }, { teamKey, publicEvent }, { validateSportsbookSnapshot }] = await Promise.all([
+const [{ fetchSportradar, __sportradarNormalizer }, { buildSportsbookRenderSnapshot }, { teamKey, publicEvent }, { validateSportsbookSnapshot }] = await Promise.all([
   import('../src/sportradar-provider.js'),
   import('../src/sportsbook-render-worker-core.js'),
   import('../src/sportsbook-feed-utils.js'),
@@ -233,3 +233,16 @@ test('Sportradar removed lifecycle accepts documented boolean and string true va
   assert.equal(market.selections[0].removed, true);
   assert.equal(market.selections[0].suspended, true);
 });
+
+test('provider maps live and unknown statuses fail closed rather than masquerading as scheduled', () => {
+  const normalize = __sportradarNormalizer.normalizedEventStatus;
+  assert.equal(normalize('not_started'), 'SCHEDULED');
+  assert.equal(normalize('scheduled'), 'SCHEDULED');
+  assert.equal(normalize('live'), 'LIVE');
+  assert.equal(normalize('in_progress'), 'LIVE');
+  assert.equal(normalize('finished'), 'FINISHED');
+  assert.equal(normalize('postponed'), 'SUSPENDED');
+  assert.equal(normalize('provider-new-status'), 'UNKNOWN');
+  assert.equal(normalize(''), 'SCHEDULED');
+});
+
