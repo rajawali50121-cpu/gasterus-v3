@@ -231,16 +231,11 @@ function assertSelectionFresh(event, market, selection, feedFetchedAt) {
   if (!Number.isFinite(feedAge) || feedAge < 0 || feedAge > STALE_MS) {
     throw new AppError(409, 'Feed odds sudah kedaluwarsa. Tunggu pembaruan berikutnya.', 'SPORTS_FEED_STALE_AT_ACCEPTANCE');
   }
-  const source = String(selection?.source || market?.source || '');
-  // public-market freshness is governed by its bounded collector cache. A successful
-  // aggregate observation is therefore the acceptance freshness clock; source file
-  // Last-Modified may legitimately be older without making the deterministic quote stale.
-  const freshnessTimestamp = source === 'public-market' ? new Date(Number(feedFetchedAt || 0)).toISOString() : (selection?.updatedAt || market?.updatedAt);
-  const updatedMs = Date.parse(freshnessTimestamp || '');
+  const updatedMs = Date.parse(selection?.updatedAt || market?.updatedAt || '');
   if (!Number.isFinite(updatedMs)) return;
-  const maxAgeSeconds = source === 'public-market'
-    ? config.publicMarketPriceMaxAgeSeconds
-    : event?.live ? config.sportsbookMaxLivePriceAgeSeconds : config.sportsbookMaxPrematchPriceAgeSeconds;
+  const maxAgeSeconds = event?.live
+    ? config.sportsbookMaxLivePriceAgeSeconds
+    : config.sportsbookMaxPrematchPriceAgeSeconds;
   if (now - updatedMs > maxAgeSeconds * 1000) {
     throw new AppError(409, 'Harga odds terlalu lama untuk diterima. Market ditahan sampai provider mengirim harga baru.', 'SPORTS_PRICE_STALE', {
       eventId: event?.id || null,
