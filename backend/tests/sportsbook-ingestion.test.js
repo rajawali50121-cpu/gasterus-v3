@@ -76,7 +76,7 @@ function signedRequest(payload, { timestamp = Math.floor(NOW / 1000), maxPayload
   return createSportsbookIngestRequest(payload, SECRET, { timestamp, maxPayloadBytes });
 }
 
-test('Sportradar snapshot replaces legacy provider snapshots instead of retaining stale odds sources', async () => {
+test('Sportradar snapshot replaces retired source data instead of retaining stale odds sources', async () => {
   const previousPayload = snapshot();
   const previousRequest = signedRequest(previousPayload);
   const previousStored = (await import('../src/sportsbook-ingestion.js')).createStoredSportsbookSnapshot({
