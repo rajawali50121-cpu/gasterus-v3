@@ -159,25 +159,6 @@ export const config = Object.freeze({
   // R6.9.0.15: Gasterus-owned public market feed. No commercial odds-provider credential is required.
   // Upcoming fixtures + bookmaker anchor prices are collected from Football-Data's downloadable public CSV,
   // then normalized and expanded by Gasterus's own probability/market engine.
-  publicMarketEnabled: bool('PUBLIC_MARKET_ENABLED', true),
-  publicMarketOpenFootballEnabled: isProduction ? false : bool('PUBLIC_MARKET_OPENFOOTBALL_ENABLED', true),
-  publicMarketFixturesUrl: text('PUBLIC_MARKET_FIXTURES_URL', 'https://www.football-data.co.uk/fixtures.csv'),
-  publicMarketExtraFixturesPageUrl: text('PUBLIC_MARKET_EXTRA_FIXTURES_PAGE_URL', 'https://www.football-data.co.uk/matches_new_leagues.php'),
-  publicMarketLatestResultsUrl: text('PUBLIC_MARKET_LATEST_RESULTS_URL', 'https://www.football-data.co.uk/new/Latest_Results.csv'),
-  publicMarketRefreshSeconds: int('PUBLIC_MARKET_REFRESH_SECONDS', 900, 300, 21600),
-  publicMarketMaxStaleSeconds: int('PUBLIC_MARKET_MAX_STALE_SECONDS', 172800, 1800, 604800),
-  publicMarketRequestTimeoutMs: int('PUBLIC_MARKET_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
-  publicMarketMaxEvents: unboundedInt('PUBLIC_MARKET_MAX_EVENTS', 0, 0),
-  publicMarketDerivedMarketsEnabled: bool('PUBLIC_MARKET_DERIVED_MARKETS_ENABLED', !isProduction),
-  publicMarketDerivedMarginBps: int('PUBLIC_MARKET_DERIVED_MARGIN_BPS', 450, 100, 1200),
-  publicMarketPriceMaxAgeSeconds: int('PUBLIC_MARKET_PRICE_MAX_AGE_SECONDS', 604800, 900, 604800),
-  sportsbookRiskRepricingEnabled: bool('SPORTSBOOK_RISK_REPRICING_ENABLED', true),
-  sportsbookRiskRepricingMaxShadeBps: int('SPORTSBOOK_RISK_REPRICING_MAX_SHADE_BPS', 600, 0, 2000),
-  // Background poll diperlambat 30s -> 90s agar worker tidak request berturut-turut.
-  // Volume event TETAP penuh (500); yang dikurangi hanya frekuensi refresh.
-  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 90, 5, 300),
-  sportsFeedStaleSeconds: int('SPORTS_FEED_STALE_SECONDS', 180, 30, 3600),
-  sportsbookFinishedEventRetentionSeconds: int('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600, 3600, 86400),
   sportsbookMemberHorizonDays: int('SPORTSBOOK_MEMBER_HORIZON_DAYS', 30, 1, 60),
   sportsbookMemberMaxEvents: unboundedInt('SPORTSBOOK_MEMBER_MAX_EVENTS', 0, 0),
   sportsFeedRequestTimeoutMs: int('SPORTS_FEED_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
