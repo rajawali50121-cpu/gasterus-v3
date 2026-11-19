@@ -45,11 +45,6 @@ export function projectMemberMarkets(markets = [], { includeSourceData = true } 
         line: selection.line,
         suspended: selection.suspended,
         priceVersion: selection.priceVersion,
-        ...(sourcePassthrough ? {
-          source: selection.source || market.source || null,
-          sourceSelectionId: selection.sourceSelectionId || null,
-          updatedAt: selection.updatedAt || null
-        } : {}),
         ...(market.source === 'sportradar' ? {
           removed: selection.removed === true,
           outcomeType: selection.outcomeType || null,
@@ -72,7 +67,6 @@ export function projectMemberMarkets(markets = [], { includeSourceData = true } 
           odds7dayFraction: selection.odds7dayFraction ?? null,
           playerId: selection.playerId || null,
           playerName: selection.playerName || null,
-          ...(includeSourceData ? { sourceData: selection.sourceData || null } : {})
         } : {})
       });
     }
@@ -86,20 +80,7 @@ export function projectMemberMarkets(markets = [], { includeSourceData = true } 
       suspended: market.suspended,
       mainLine: market.mainLine ?? null,
       bookmaker: market.bookmaker || null,
-      ...(sourcePassthrough ? {
-        source: market.source || null,
-        sourceMarketId: market.sourceMarketId || null,
-        updatedAt: market.updatedAt || null,
-        validationWarnings: Array.isArray(market.validationWarnings) ? market.validationWarnings : []
-      } : {}),
       ...(market.source === 'sportradar' ? {
-        sourceMarketName: market.sourceMarketName || null,
-        sourceBookId: market.sourceBookId || null,
-        externalMarketId: market.externalMarketId || null,
-        externalSportEventId: market.externalSportEventId || null,
-        removed: market.removed === true,
-        isLive: market.isLive === true,
-        ...(includeSourceData ? { sourceData: market.sourceData || null } : {})
       } : {}),
       sourceLabel: MEMBER_MARKET_SOURCE_LABELS[clean(market.source).toLowerCase()] || null,
       selections
