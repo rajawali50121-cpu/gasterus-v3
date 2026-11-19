@@ -2,7 +2,7 @@ name: Backend and repository checks
 
 on:
   pull_request:
-    branches: [master, railway-migration-fix-039]
+    branches: [master, railway-migration-fix-039, chore/sportradar-only-final]
     paths:
       - "backend/**"
       - "frontend/**"
