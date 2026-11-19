@@ -91,19 +91,7 @@ function boundedEvents(events = []) {
   if (!Array.isArray(events)) return [];
   const now = Date.now();
   const soccerEvents = events.filter(isSoccerEvent);
-  const filtered = soccerEvents.filter(event => {
-    const status = clean(event?.status).toUpperCase();
-    const kickoff = Date.parse(event?.startTime || '');
-    const live = Boolean(event?.live) || ['LIVE', 'IN_PLAY', 'IN-PLAY'].includes(status);
-    if (CLOSED_EVENT_STATUSES.has(status)) {
-      return Number.isFinite(kickoff)
-        && now - kickoff <= config.sportsbookFinishedEventRetentionSeconds * 1000;
-    }
-    if (!live && Number.isFinite(kickoff)
-      && kickoff < now - config.sportsbookPrematchCloseGraceSeconds * 1000) return false;
-    if (CLOSED_EVENT_STATUSES.has(status)) return true;
-    return memberVisibleEvent(event, now);
-  });
+  const filtered = soccerEvents.filter(event => memberVisibleEvent(event, now));
   const mapped = filtered.map((event, index) => ({ event, index }));
   mapped.sort((a, b) => {
     const aLive = Boolean(a.event?.live);
@@ -139,15 +127,15 @@ function cacheWithinLimit(value) {
   return bounded;
 }
 
-function eventBettingOpen(event, now = Date.now()) {
+const PREMATCH_EVENT_STATUSES = new Set(['SCHEDULED', 'UPCOMING', 'NOT_STARTED', 'PREMATCH', 'PRE-MATCH']);
+function isValidPrematchEvent(event, now = Date.now()) {
   const status = clean(event?.status).toUpperCase();
-  if (CLOSED_EVENT_STATUSES.has(status) || status === 'SUSPENDED') return false;
-  if (event?.live || ['LIVE', 'IN_PLAY', 'IN-PLAY'].includes(status)) return true;
+  if (event?.live === true || !PREMATCH_EVENT_STATUSES.has(status)) return false;
   const kickoff = Date.parse(event?.startTime || '');
-  if (status === 'SCHEDULED' && Number.isFinite(kickoff)) {
-    return now <= kickoff + Number(config.sportsbookPrematchCloseGraceSeconds || 0) * 1000;
-  }
-  return true;
+  return Number.isFinite(kickoff) && kickoff > now;
+}
+function eventBettingOpen(event, now = Date.now()) {
+  return isValidPrematchEvent(event, now);
 }
 function enforceEventBettingWindow(events = [], now = Date.now()) {
   return events.map(event => {
@@ -163,14 +151,10 @@ function enforceEventBettingWindow(events = [], now = Date.now()) {
   });
 }
 function memberVisibleEvent(event, now = Date.now()) {
-  const status = clean(event?.status).toUpperCase();
-  if (CLOSED_EVENT_STATUSES.has(status)) return false;
-  if (event?.live || ['LIVE', 'IN_PLAY', 'IN-PLAY'].includes(status)) return true;
-  const kickoff = Date.parse(event?.startTime || '');
-  if (!Number.isFinite(kickoff)) return true;
+  if (!isValidPrematchEvent(event, now)) return false;
+  const kickoff = Date.parse(event.startTime);
   const horizonMs = Number(config.sportsbookMemberHorizonDays || 14) * 86400000;
-  const graceMs = Number(config.sportsbookPrematchCloseGraceSeconds || 0) * 1000;
-  return kickoff >= now - graceMs && kickoff <= now + horizonMs;
+  return kickoff <= now + horizonMs;
 }
 
 function stablePriceVersion(event, market, selection) {
