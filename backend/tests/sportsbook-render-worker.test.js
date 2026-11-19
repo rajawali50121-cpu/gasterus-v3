@@ -84,7 +84,7 @@ test('worker rejects any non-Sportradar or multi-provider snapshot', async () =>
   await assert.rejects(buildSportsbookRenderSnapshot({
     fetchSportradar: async () => ({ provider: 'sportmonks', enabled: true, events: [] }),
     now: NOW
-  }), /invalid or non-Sportradar provider result/);
+  }), /invalid provider result/);
 });
 
 test('worker rejects incomplete Sportradar transport and malformed events', async () => {
