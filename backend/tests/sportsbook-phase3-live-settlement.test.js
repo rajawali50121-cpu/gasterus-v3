@@ -22,10 +22,10 @@ function feedEvent({ marketSuspended = false, selectionSuspended = false, update
   return [{
     id: 'evt-1', status: 'SCHEDULED', providerStatus: 'NS', live: false,
     markets: [{
-      id: 'mkt-1', source: 'sharpapi', updatedAt, suspended: marketSuspended,
+      id: 'mkt-1', source: 'sportradar', updatedAt, suspended: marketSuspended,
       selections: [
-        { key: 'home', odds: 1.91, source: 'sharpapi', updatedAt, priceVersion: 'p-home', suspended: selectionSuspended },
-        { key: 'away', odds: 1.95, source: 'sharpapi', updatedAt, priceVersion: 'p-away', suspended: selectionSuspended }
+        { key: 'home', odds: 1.91, source: 'sportradar', updatedAt, priceVersion: 'p-home', suspended: selectionSuspended },
+        { key: 'away', odds: 1.95, source: 'sportradar', updatedAt, priceVersion: 'p-away', suspended: selectionSuspended }
       ]
     }]
   }];
@@ -118,9 +118,9 @@ test('HF6 Phase 3 HT/FT auto settlement requires explicit result authority when 
     periodScores:{'1H':{home:1,away:0}}
   };
   assert.equal(evaluateSportsbookLeg(ftLeg, { ...base, settlementAuthority:{ft:false,ht:false,sources:[]} }), null);
-  assert.equal(evaluateSportsbookLeg(htLeg, { ...base, settlementAuthority:{ft:true,ht:false,sources:['sportmonks']} }), null);
-  assert.equal(evaluateSportsbookLeg(ftLeg, { ...base, settlementAuthority:{ft:true,ht:false,sources:['sportmonks']} }).status, 'WON');
-  assert.equal(evaluateSportsbookLeg(htLeg, { ...base, settlementAuthority:{ft:true,ht:true,sources:['oddspapi']} }).status, 'WON');
+  assert.equal(evaluateSportsbookLeg(htLeg, { ...base, settlementAuthority:{ft:true,ht:false,sources:['sportradar']} }), null);
+  assert.equal(evaluateSportsbookLeg(ftLeg, { ...base, settlementAuthority:{ft:true,ht:false,sources:['sportradar']} }).status, 'WON');
+  assert.equal(evaluateSportsbookLeg(htLeg, { ...base, settlementAuthority:{ft:true,ht:false,sources:['sportradar','manual-ops']} }), null);
 });
 
 test('HF6 Phase 3 settlement revisions, rollback/cancel routes, pending-funds gate and odds policy are wired before money movement', () => {
