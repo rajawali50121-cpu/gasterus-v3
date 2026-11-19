@@ -12,7 +12,7 @@ import {
 } from '../../frontend/js/sportsbook-feed-state.js';
 
 function event(id, extra = {}) {
-  return { id, league: 'League', home: { name: `Home ${id}` }, away: { name: `Away ${id}` }, markets: [], ...extra };
+  return { id, status: 'SCHEDULED', live: false, startTime: new Date(Date.now() + 3600000).toISOString(), league: 'League', home: { name: `Home ${id}` }, away: { name: `Away ${id}` }, markets: [], ...extra };
 }
 
 function snapshot(events, fetchedAt, feedRevision) {
@@ -63,9 +63,19 @@ test('page replacement and append preserve ordering without duplicate event IDs'
   assert.equal(preserved[59].id, 'e59');
 });
 
-test('all filter retains every valid event regardless of date or market status', () => {
-  const events = [event('scheduled'), event('live', { live: true }), event('unpriced', { markets: [] }), null];
-  assert.deepEqual(filterVisibleEvents(events).map(item => item.id), ['scheduled', 'live', 'unpriced']);
+test('prematch-only UI excludes live, started, unknown-status, and timestamp-less events', () => {
+  const events = [
+    event('scheduled'),
+    event('live', { live: true, status: 'LIVE' }),
+    event('status-live', { status: 'IN_PLAY' }),
+    event('started', { startTime: new Date(Date.now() - 60000).toISOString() }),
+    event('unknown', { status: 'UNKNOWN' }),
+    event('missing-time', { startTime: '' }),
+    event('unpriced', { markets: [] }),
+    null
+  ];
+  assert.deepEqual(filterVisibleEvents(events).map(item => item.id), ['scheduled', 'unpriced']);
+  assert.deepEqual(filterVisibleEvents(events, { filter: 'live' }), []);
 });
 
 test('malformed markets and selections do not remove their valid event card', () => {
