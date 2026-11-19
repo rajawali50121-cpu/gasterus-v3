@@ -25,6 +25,10 @@ test('R6.9.0.15 internal exposure shortens backed price without random movement'
   assert.ok(draw.odds > 3.5);
   assert.ok(away.odds > 4.0);
   assert.equal(home.anchorUpdatedAt, '2026-08-17T00:00:00.000Z');
+  assert.equal(home.updatedAt, '2026-08-17T00:00:00.000Z', 'risk repricing must not refresh provider timestamp');
+  assert.equal(home.riskRepricedAt, '2026-08-17T01:00:00.000Z');
+  assert.equal(after[0].markets[0].updatedAt, null, 'risk repricing must not create a provider market timestamp');
+  assert.equal(after[0].markets[0].riskRepricedAt, '2026-08-17T01:00:00.000Z');
   assert.equal(home.pricingModel, 'GASTERUS_RISK_SHADE_V1');
   assert.equal(home.riskShadeBps, 600);
   const repeated = applySportsbookRiskRepricing(fixture(), [{ eventId:'evt', marketId:'mkt', selectionId:'home', liability:'500000000' }], { now: Date.parse('2026-08-17T01:00:00.000Z') });
