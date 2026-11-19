@@ -18,12 +18,12 @@ function directSourceEvent() {
       id: 'source-ft-1x2',
       type: '1X2',
       period: 'FT',
-      source: 'public-market',
+      source: 'sportradar',
       suspended: false,
       selections: [
-        { key: 'home', odds: 1.91, source: 'public-market', suspended: false },
-        { key: 'draw', odds: 3.2, source: 'public-market', suspended: false },
-        { key: 'away', odds: 4.1, source: 'public-market', suspended: false }
+        { key: 'home', odds: 1.91, source: 'sportradar', suspended: false },
+        { key: 'draw', odds: 3.2, source: 'sportradar', suspended: false },
+        { key: 'away', odds: 4.1, source: 'sportradar', suspended: false }
       ]
     }]
   }];
@@ -31,7 +31,7 @@ function directSourceEvent() {
 
 test('R6.9.0.11 fresh direct source becomes provider-healthy on its first healthy generation sample', () => {
   const next = advanceProviderLifecycle(null, {
-    code: 'public-market',
+    code: 'sportradar',
     enabled: true,
     transportHealthy: true,
     pricingReady: true
@@ -57,7 +57,7 @@ test('R6.9.0.11 fresh FT market starts ACTIVE instead of inheriting an obsolete 
 test('sportsbook feed cache is generation-isolated from the previous production lifecycle', () => {
   const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 
-  assert.match(feed, /LIFECYCLE_GENERATION\s*=\s*'render-ingest-multisource-v2'/);
+  assert.match(feed, /LIFECYCLE_GENERATION\s*=\s*'sportradar-worker-only-v3'/);
   assert.match(feed, /sportsbook:aggregated-feed:v17/);
   assert.match(feed, /sportsbook:provider-lifecycle:v6/);
   assert.match(feed, /sportsbook:market-lifecycle:v6/);
