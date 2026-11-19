@@ -93,7 +93,7 @@ test('predeploy guarantees a usable owner exists without rotating an existing ow
   assert.match(pre,/ensure initial owner/);
   assert.match(ensure,/role_code='OWNER'/);
   assert.match(ensure,/OWNER_PASSWORD/);
-  assert.match(ensure,/OWNER_TOTP_SECRET/);
+  assert.doesNotMatch(ensure,/OWNER_TOTP_SECRET|encryptSecret|mfa_enabled|mfa_secret_encrypted/);
   assert.match(ensure,/Owner already exists; bootstrap skipped/);
   assert.doesNotMatch(ensure,/UPDATE users SET password_hash/);
 });
