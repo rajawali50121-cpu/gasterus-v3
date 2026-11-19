@@ -51,7 +51,7 @@ function legacySportmonksBoundedInt(name, fallback, min, max, passthroughValue, 
 }
 
 export const config = Object.freeze({
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv: isProduction ? 'production' : (process.env.NODE_ENV || 'development'),
   host: process.env.HOST || '0.0.0.0',
   port: int('PORT', 8080, 1, 65535),
   databaseUrl: isSportsbookRenderWorker ? optionalSecret('DATABASE_URL') : testSecret('DATABASE_URL', 12, 'postgresql://user:pass@localhost:5432/gasterus_test'),
