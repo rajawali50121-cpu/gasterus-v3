@@ -15,6 +15,7 @@ Object.assign(process.env, {
 });
 
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
+const { __sportradarNormalizer } = await import('../src/sportradar-provider.js');
 
 test('Sportradar event retains HT market metadata without claiming HT result authority', () => {
   const event = {
@@ -70,4 +71,29 @@ test('member sportsbook ships explicit FT/HT controls and does not hard-code bri
   assert.match(ui, /period/);
   assert.match(feed, /period: market\.period \|\| 'FT'/);
   assert.doesNotMatch(feed, /period: 'FT',/);
+});
+
+test('Sportradar normalizes HT/FT combo as one priced market', () => {
+  const event = { id: 'sr-test', home: { name: 'Home Team' }, away: { name: 'Away Team' } };
+  const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [{
+    id: 'market-htft', name: 'Half Time / Full Time', books: [{
+      id: 'book-1', name: 'Test Book', outcomes: [
+        { id: 'o1', name: 'Home/Home', odds_decimal: '2.75' },
+        { id: 'o2', name: 'Draw/Draw', odds_decimal: '4.20' },
+        { id: 'o3', name: 'Away/Away', odds_decimal: '5.10' }
+      ]
+    }]
+  }] });
+  assert.equal(normalized.markets[0].type, 'HT_FT');
+  assert.equal(normalized.markets[0].period, 'HT_FT');
+  assert.deepEqual(normalized.markets[0].selections.map(s => s.odds), [2.75, 4.2, 5.1]);
+});
+
+test('HT/FT settlement needs both authorities and both scores', () => {
+  const event = { status: 'FINISHED', providerStatus: 'FT', home: { score: 2 }, away: { score: 1 },
+    periodScores: { '1H': { home: 0, away: 1 } }, settlementAuthority: { ht: true, automaticFt: true } };
+  const combo = { market_type: 'HT_FT', market_period: 'HT_FT', selection_label: 'Away/Home' };
+  assert.equal(evaluateSportsbookLeg(combo, event).status, 'WON');
+  assert.equal(evaluateSportsbookLeg(combo, { ...event, settlementAuthority: { ht: false, automaticFt: true } }), null);
+  assert.equal(evaluateSportsbookLeg(combo, { ...event, periodScores: {} }), null);
 });
