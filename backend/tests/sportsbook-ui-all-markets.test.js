@@ -157,17 +157,18 @@ test('Sportradar full member event detail preserves all documented source fields
   assert.equal(selection.sourceData.odds_decimal, '2.10');
 });
 
-test('Sportmonks finite odds outside the bettable range remain visible but disabled', () => {
+test('Sportradar prices outside the bettable range are not selectable but remain in detail data', () => {
   const periods = availableMarketPeriods({
     markets: [{
-      source: 'sportmonks',
+      source: 'sportradar',
       period: 'FT',
-      selections: [{ odds: 1, source: 'sportmonks', suspended: false }]
+      selections: [{ odds: 1, source: 'sportradar', suspended: false }]
     }]
   });
-  assert.deepEqual(periods, ['FT']);
-  assert.match(frontend, /sportmonksPrice[\s\S]*decOdds <= 1[\s\S]*formatOdds\(decOdds, oddsFormat\)/);
-  assert.match(frontend, /market\.selections\.length \|\| market\.source === 'sportmonks'/);
+  assert.deepEqual(periods, []);
+  assert.match(frontend, /if \(!Number\.isFinite\(decOdds\)\)/);
+  assert.match(frontend, /if \(decOdds <= 1\)/);
+  assert.match(frontend, /const markets = \(event\.markets \|\| \[\]\)\.filter\(market => market && typeof market === 'object'\)/);
 });
 
 test('detailed event projection preserves every supplied market and selection line', () => {
