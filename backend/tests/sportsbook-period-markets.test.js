@@ -97,3 +97,8 @@ test('HT/FT settlement needs both authorities and both scores', () => {
   assert.equal(evaluateSportsbookLeg(combo, { ...event, settlementAuthority: { ht: false, automaticFt: true } }), null);
   assert.equal(evaluateSportsbookLeg(combo, { ...event, periodScores: {} }), null);
 });
+
+test('member detail-market browser labels HT/FT combo period', () => {
+  const ui = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
+  assert.match(ui, /HT_FT:\s*'HT\/FT/);
+});
