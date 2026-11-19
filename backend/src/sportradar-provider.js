@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 
 const PROVIDER = 'sportradar';
-const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en';
+const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/production/v2/en';
 const PAGE_SIZE = 50;
 const DEFAULT_SPORT_IDS = ['sr:sport:1'];
 
