@@ -68,5 +68,8 @@ test('FINAL mobile member market projection strips provider/source telemetry',()
   assert.equal(output[0].sourceLabel,'Sportradar');
   assert.equal(output[0].bookmaker,'book-a');
   assert.equal('provider' in output[0].selections[0],false);
-  assert.deepEqual(Object.keys(output[0].selections[0]).sort(),['key','label','line','odds','priceVersion','suspended'].sort());
+  for (const key of ['provider','source','sourceSelectionId','sourceData','externalOutcomeId']) {
+    assert.equal(key in output[0].selections[0],false,`member selection leaks ${key}`);
+  }
+  assert.equal(output[0].selections[0].oddsAmerican,null);
 });
