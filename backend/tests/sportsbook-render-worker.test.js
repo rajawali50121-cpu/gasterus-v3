@@ -46,6 +46,7 @@ function event(id = 'sr-event-1') {
         key: 'home',
         label: 'Home',
         odds: 1.9,
+        updatedAt: new Date(NOW).toISOString(),
         suspended: false,
         source: 'sportradar'
       }]
