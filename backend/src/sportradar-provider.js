@@ -137,7 +137,7 @@ function isRemovedFlag(value) {
 function normalizedEventStatus(value) {
   const status = String(value || '').trim().toLowerCase();
   if (['ended', 'aet', 'finished', 'final'].includes(status)) return 'FINISHED';
-  if (['live', 'in_progress', 'inprogress', 'started', '1st_period', '2nd_period', 'period_1', 'period_2', 'halftime', 'half_time', 'extra_time', 'overtime', 'penalties'].includes(status)) return 'LIVE';
+  if (['live', 'in_progress', 'inprogress', 'started', '1st_period', '2nd_period', 'period_1', 'period_2', '1st_half', '2nd_half', 'first_half', 'second_half', 'halftime', 'half_time', 'extra_time', 'overtime', 'penalties', 'penalty_shootout', 'break'].includes(status)) return 'LIVE';
   if (['cancelled', 'canceled', 'abandoned', 'postponed', 'suspended', 'interrupted'].includes(status)) return 'SUSPENDED';
   if (['not_started', 'scheduled', 'pre_match', 'prematch', 'fixture', ''].includes(status)) return 'SCHEDULED';
   return 'UNKNOWN';
@@ -272,7 +272,7 @@ function normalizeOdds(event, raw) {
         return {
           key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? ''),
           label, odds, line,
-          suspended: Boolean(bookRemoved || outcomeRemoved),
+          suspended: Boolean(bookRemoved || outcomeRemoved || market.is_live === true),
           removed: outcomeRemoved,
           outcomeType: outcome.type || null,
           fieldId: outcome.field_id || null,
@@ -306,7 +306,7 @@ function normalizeOdds(event, raw) {
         id: hash('market', event.id, marketId, marketName, book?.id || bookmaker || ''),
         key: marketId, type, label: marketName, period,
         line: selections[0]?.line ?? null,
-        suspended: bookRemoved,
+        suspended: Boolean(bookRemoved || market.is_live === true),
         removed: bookRemoved,
         isLive: market.is_live === true,
         updatedAt: null,
