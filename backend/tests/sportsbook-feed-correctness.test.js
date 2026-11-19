@@ -8,10 +8,12 @@ const feedUtils = readFileSync(new URL('../src/sportsbook-feed-utils.js', import
 const betting = readFileSync(new URL('../src/sportsbook-betting.js', import.meta.url), 'utf8');
 const e2e = readFileSync(new URL('../../scripts/verify-sportsbook-e2e.mjs', import.meta.url), 'utf8');
 
-test('feed closes finished and kickoff-pending markets before bettable counting', () => {
+test('feed and betting are strictly prematch-only and reject live or invalid kickoff events', () => {
   assert.match(feed, /function eventBettingOpen\(event, now = Date\.now\(\)\)/);
-  assert.match(feed, /CLOSED_EVENT_STATUSES/);
-  assert.match(feed, /kickoff \+ Number\(config\.sportsbookPrematchCloseGraceSeconds/);
+  assert.match(feed, /PREMATCH_EVENT_STATUSES/);
+  assert.match(feed, /function isValidPrematchEvent/);
+  assert.match(feed, /event\?\.live === true/);
+  assert.match(feed, /kickoff > now/);
   assert.match(feed, /events = enforceEventBettingWindow\(events, Date\.now\(\)\)/);
   assert.match(feed, /if \(!eventBettingOpen\(event, now\)\) return total/);
 });
@@ -84,3 +86,8 @@ test('E2E enforces expanded event volume and core market coverage without derive
   assert.match(e2e, /const marketPeriodCoverage/);
   assert.doesNotMatch(e2e, /minimumDerivedMarkets|hasDerivedTypes/);
 });
+test('member event detail and quote endpoints fail closed for non-prematch events', () => {
+  assert.match(feed, /if \(!current \|\| !memberVisibleEvent\(current\)\) throw new AppError\(404/);
+  assert.match(feed, /if \(!event \|\| !eventBettingOpen\(event\)\) throw new AppError\(409/);
+});
+
