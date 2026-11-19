@@ -7,7 +7,6 @@ const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const renderDockerfile = read('../../deploy/Dockerfile.sportsbook-render-worker');
 const backendEnv = read('../.env.example');
 const workerEnv = read('../.env.worker.example');
-const proxy = read('../../deploy/member-server.js');
 const app = read('../src/app.js');
 const worker = read('../src/sportsbook-render-worker.js');
 const workerCore = read('../src/sportsbook-render-worker-core.js');
@@ -73,7 +72,12 @@ test('Sportradar trial access is refused in production unless the explicit one-s
       SPORTSBOOK_INGEST_URL: 'http://gasterus-v3.railway.internal/api/internal/sportsbook/ingest',
       SPORTSBOOK_INGEST_HMAC_SECRET: 's'.repeat(48),
       DATABASE_URL: 'postgres://user:password@example.com/db',
-      REDIS_URL: 'redis://example.com:6379'
+      REDIS_URL: 'redis://example.com:6379',
+      MEMBER_PROXY_SECRET: 'm'.repeat(48),
+      ADMIN_PROXY_SECRET: 'a'.repeat(48),
+      OPS_INTERNAL_SECRET: 'o'.repeat(48),
+      SESSION_HMAC_KEY: 's'.repeat(48),
+      API_KEY_PEPPER: 'p'.repeat(48)
     }
   });
   assert.notEqual(result.status, 0);
