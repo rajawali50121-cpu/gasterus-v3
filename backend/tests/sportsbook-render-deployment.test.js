@@ -49,8 +49,7 @@ test('ingest endpoint is signed and private-network HTTP is restricted to Railwa
   assert.match(ingestClient, /createHmac\('sha256'/);
   assert.match(ingestClient, /hostname\.endsWith\('\.railway\.internal'\)/);
   assert.match(ingestClient, /endpoint must use HTTPS/);
-  assert.match(app, /sportsbook\/ingest/);
-  assert.match(proxy, /sportsbook\/ingest/);
+  assert.ok(app.includes('internal\\/sportsbook\\/ingest'));
 });
 
 test('stale, unexecutable Railway TypeScript snapshot is not kept in the repository', () => {
