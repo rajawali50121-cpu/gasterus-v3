@@ -45,10 +45,8 @@ if (config.nodeEnv === 'production') {
   }
   const sportradarPath = new URL(config.sportradarBaseUrl).pathname.replace(/\/+$/, '');
   const productionAccess = /\/production\/v2\/en$/i.test(sportradarPath);
-  const trialAccess = /\/trial\/v2\/en$/i.test(sportradarPath);
-  const trialCronOptIn = cronOnce && String(process.env.SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION || '').trim().toLowerCase() === 'true';
-  if (!productionAccess && !(trialAccess && trialCronOptIn)) {
-    throw new Error('Production sportsbook worker requires production Sportradar access, or explicit trial access in one-shot cron mode.');
+  if (!productionAccess) {
+    throw new Error('Production sportsbook worker requires production Sportradar access.');
   }
 }
 const endpoint = String(process.env.SPORTSBOOK_INGEST_URL || '').trim();
