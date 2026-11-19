@@ -13,7 +13,7 @@ Object.assign(process.env, {
 const [{ fetchSportradar }, { buildSportsbookRenderSnapshot }, { teamKey, publicEvent }, { validateSportsbookSnapshot }] = await Promise.all([
   import('../src/sportradar-provider.js'),
   import('../src/sportsbook-render-worker-core.js'),
-  import('../src/sportsbook-providers.js'),
+  import('../src/sportsbook-feed-utils.js'),
   import('../src/sportsbook-ingestion.js')
 ]);
 
