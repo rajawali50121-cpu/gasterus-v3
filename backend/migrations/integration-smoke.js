@@ -28,7 +28,7 @@ try {
     `SELECT COUNT(DISTINCT u.id)::int AS count
      FROM users u
      JOIN user_roles ur ON ur.user_id=u.id
-     WHERE ur.role_code IN ('OWNER','SUPERVISOR')`
+     WHERE ur.role_code IN ('OWNER','SUPERVISOR') AND u.mfa_enabled=true`
   )).rows[0].count);
 
   const ledger = await verifyLedger({ query });
