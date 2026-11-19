@@ -60,12 +60,20 @@ const MONTHS = Object.freeze({
   november: '11', nov: '11',
   desember: '12', december: '12', des: '12', dec: '12'
 });
+function validCalendarDate(year, month, day) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+function formatValidDate(year, month, day) {
+  if (!validCalendarDate(year, month, day)) return null;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
 export function isoDate(value) {
   const raw = clean(value);
   let match = raw.match(/\b(\d{1,2})[\/-](\d{1,2})[\/-](20\d{2})\b/);
-  if (match) return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+  if (match) return formatValidDate(Number(match[3]), Number(match[2]), Number(match[1]));
   match = normalizeName(raw).match(/(?:senin|selasa|rabu|kamis|jumat|sabtu|minggu|monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*,?\s*(\d{1,2})\s+([a-z]+)\s+(20\d{2})/i);
-  if (match && MONTHS[match[2].toLowerCase()]) return `${match[3]}-${MONTHS[match[2].toLowerCase()]}-${match[1].padStart(2, '0')}`;
+  if (match && MONTHS[match[2].toLowerCase()]) return formatValidDate(Number(match[3]), Number(MONTHS[match[2].toLowerCase()]), Number(match[1]));
   return null;
 }
 function drawTime(value) {
@@ -362,7 +370,7 @@ function parsePoskoBoard(html, alias, source) {
     const dm = text.match(/\b(\d{2})\/(\d{2})\/(20\d{2})\b/);
     if (!dm) continue;
     const day = Number(dm[1]), month = Number(dm[2]), year = Number(dm[3]);
-    if (month < 1 || month > 12 || day < 1 || day > 31) continue;
+    if (!validCalendarDate(year, month, day)) continue;
     const drawDate = `${dm[3]}-${dm[2]}-${dm[1]}`; // Posko menulis DD/MM/YYYY (WIB)
     const digits = [...row.matchAll(/hasil-bola-small[^>]*>\s*(\d)\s*</gi)].map(m => m[1]);
     if (digits.length < 4) continue;
