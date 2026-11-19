@@ -293,23 +293,6 @@ async function readRedisCache() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed.events) || !Array.isArray(parsed.providers)) return null;
-    if (parsed.hardFallback) {
-      logger.warn('Discarding legacy synthetic sportsbook cache', { feedRevision: parsed.revision || null });
-      await redis.del(CACHE_KEY);
-      return null;
-    }
-    const nonSportmonksEvents = parsed.events.filter(event =>
-      !(config.sportmonksPassthrough && (event?._sources || []).includes('sportmonks'))
-    );
-    if (Number(MAX_FEED_EVENTS) > 0 && nonSportmonksEvents.length > Number(MAX_FEED_EVENTS)) {
-      logger.warn('Sportsbook Redis cache exceeds event cap; ignoring cache', {
-        events: nonSportmonksEvents.length,
-        maxEvents: MAX_FEED_EVENTS,
-        dataTruncated: true,
-        envToIncrease: 'SPORTS_FEED_MAX_EVENTS'
-      });
-      return null;
-    }
     if (parsed.lifecycleGeneration !== LIFECYCLE_GENERATION) return null;
     return parsed;
   } catch (error) {
@@ -722,7 +705,6 @@ async function activateUnavailableFeed(error, reason = 'live-feed-unavailable', 
       message: error?.message || 'Live sportsbook feed is unavailable.'
     },
     snapshotFallback: false,
-    hardFallback: false,
     snapshotCapturedAt: null,
     readOnlySource: true,
     pricedMarkets: 0,
