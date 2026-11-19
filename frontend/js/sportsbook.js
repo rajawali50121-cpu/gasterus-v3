@@ -1563,8 +1563,7 @@ function renderOddCell(e, m, s, lineOverride) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
   }
   const decOdds = Number(s.odds);
-  const sportmonksPrice = m.source === 'sportmonks' || s.source === 'sportmonks';
-  if (!Number.isFinite(decOdds) || (decOdds <= 1 && !sportmonksPrice)) {
+  if (!Number.isFinite(decOdds)) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Belum tersedia</span></div>`;
   }
   if (decOdds <= 1) {
@@ -1750,10 +1749,7 @@ function renderMatch(e) {
 }
 
 function renderAllEventMarkets(event) {
-  const markets = (event.markets || []).filter(market =>
-    Array.isArray(market.selections)
-      && (market.selections.length || market.source === 'sportmonks')
-  );
+  const markets = (event.markets || []).filter(market => market && typeof market === 'object');
   if (!markets.length) return '<div class="sb-detail-markets-status">Belum ada pasar odds untuk pertandingan ini.</div>';
   const types = [...new Set(markets.map(market => String(market.type || 'OTHER').toUpperCase()))];
   const periods = [...new Set(markets.map(market => String(market.period || 'FT').toUpperCase()))];
