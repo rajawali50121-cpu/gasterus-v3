@@ -20,7 +20,8 @@ const requiredSecrets = [
   'ADMIN_PROXY_SECRET',
   'OPS_INTERNAL_SECRET',
   'SESSION_HMAC_KEY',
-  'API_KEY_PEPPER'
+  'API_KEY_PEPPER',
+  'MFA_ENCRYPTION_KEY_BASE64'
 ];
 for (const name of requiredSecrets) {
   const value = String(process.env[name] || '').trim();
