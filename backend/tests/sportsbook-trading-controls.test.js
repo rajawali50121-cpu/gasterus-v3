@@ -11,12 +11,11 @@ Object.assign(process.env, {
   OPS_INTERNAL_SECRET: 'o'.repeat(48),
   SESSION_HMAC_KEY: 's'.repeat(48),
   API_KEY_PEPPER: 'p'.repeat(48),
-  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
-  SHARP_API_MAIN_LINES_ONLY: 'false'
+  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
 });
 
 const { __sportsbookTradingPolicy, sportsbookTradingScopeKey } = await import('../src/sportsbook-trading-policy.js');
-const { __sportsbookProviders } = await import('../src/sportsbook-providers.js');
+const { publicEvent } = await import('../src/sportsbook-feed-utils.js');
 
 test('HF6 Phase 2 trading policy inherits event/market/selection stops and strictest stake', () => {
   const controls = [
@@ -50,20 +49,27 @@ test('HF6 Phase 2 operator stop overlays member-visible market without inventing
   assert.equal(event.markets[0].selections[1].suspended,false);
 });
 
-test('HF6 Phase 2 SharpAPI keeps main plus alternate Asian handicap lines', () => {
-  const base={event_id:'alt-1',sport:'soccer',league:'epl',home_team:'Arsenal',away_team:'Chelsea',event_start_time:'2026-08-15T19:00:00Z',sportsbook:'book-a',market_type:'point_spread',market_segment:'full_game',is_active:true,timestamp:'2026-08-14T12:00:00Z'};
-  const rows=[
-    {...base,id:'m-h',selection_type:'home',selection:'Arsenal',odds_decimal:1.91,line:-0.5,is_main_line:true,is_alternate_line:false},
-    {...base,id:'m-a',selection_type:'away',selection:'Chelsea',odds_decimal:1.95,line:0.5,is_main_line:true,is_alternate_line:false},
-    {...base,id:'a-h',selection_type:'home',selection:'Arsenal',odds_decimal:1.84,line:-0.25,is_main_line:false,is_alternate_line:true},
-    {...base,id:'a-a',selection_type:'away',selection:'Chelsea',odds_decimal:2.02,line:0.25,is_main_line:false,is_alternate_line:true}
-  ];
-  const [event]=__sportsbookProviders.normalizeSharpApiRows(rows);
-  const hdp=event.markets.filter(m=>m.type==='HANDICAP'&&m.period==='FT');
-  assert.equal(hdp.length,2);
-  assert.ok(hdp.some(m=>m.mainLine===true));
-  assert.ok(hdp.some(m=>m.mainLine===false));
-  assert.deepEqual(new Set(hdp.map(m=>Number(m.line))),new Set([0.5,0.25]));
+test('Sportradar projection preserves main and alternate market line metadata', () => {
+  const event = {
+    id: 'sr-event-1',
+    sport: 'Football',
+    league: 'Premier League',
+    startTime: '2026-08-15T19:00:00Z',
+    status: 'SCHEDULED',
+    live: false,
+    home: { name: 'Arsenal' },
+    away: { name: 'Chelsea' },
+    _sources: ['sportradar'],
+    markets: [
+      { id: 'main', type: 'HANDICAP', period: 'FT', source: 'sportradar', mainLine: true, line: -0.5, sourceMarketId: 'sr:market:1', selections: [{ key: 'h', label: 'Home', odds: 1.91, source: 'sportradar', line: -0.5 }] },
+      { id: 'alternate', type: 'HANDICAP', period: 'FT', source: 'sportradar', mainLine: false, line: -0.25, sourceMarketId: 'sr:market:2', selections: [{ key: 'a', label: 'Away', odds: 2.02, source: 'sportradar', line: 0.25 }] }
+    ]
+  };
+  const projected = publicEvent(event);
+  assert.equal(projected.markets.length, 2);
+  assert.deepEqual(new Set(projected.markets.map(market => market.mainLine)), new Set([true, false]));
+  assert.deepEqual(new Set(projected.markets.map(market => Number(market.line))), new Set([-0.5, -0.25]));
+  assert.ok(projected.markets.every(market => market.source === 'sportradar'));
 });
 
 test('HF6 Phase 2 acceptance path enforces operator controls before ledger debit', () => {
