@@ -1,7 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { AppError, assert } from './errors.js';
 import { config } from './config.js';
-import { leagueKey, teamKey } from './sportsbook-providers.js';
+import { leagueKey, teamKey } from './sportsbook-feed-utils.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
 const ALLOWED_PROVIDERS = new Set(['sportradar']);
