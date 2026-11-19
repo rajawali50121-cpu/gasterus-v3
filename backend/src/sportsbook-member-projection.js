@@ -46,10 +46,6 @@ export function projectMemberMarkets(markets = [], { includeSourceData = true } 
         suspended: selection.suspended,
         priceVersion: selection.priceVersion,
         ...(market.source === 'sportradar' ? {
-          removed: selection.removed === true,
-          outcomeType: selection.outcomeType || null,
-          fieldId: selection.fieldId || null,
-          externalOutcomeId: selection.externalOutcomeId || null,
           oddsAmerican: selection.oddsAmerican ?? null,
           oddsFraction: selection.oddsFraction ?? null,
           openOddsDecimal: selection.openOddsDecimal ?? null,
@@ -65,7 +61,6 @@ export function projectMemberMarkets(markets = [], { includeSourceData = true } 
           odds7dayDecimal: selection.odds7dayDecimal ?? null,
           odds7dayAmerican: selection.odds7dayAmerican ?? null,
           odds7dayFraction: selection.odds7dayFraction ?? null,
-          playerId: selection.playerId || null,
           playerName: selection.playerName || null,
         } : {})
       });
@@ -80,8 +75,6 @@ export function projectMemberMarkets(markets = [], { includeSourceData = true } 
       suspended: market.suspended,
       mainLine: market.mainLine ?? null,
       bookmaker: market.bookmaker || null,
-      ...(market.source === 'sportradar' ? {
-      } : {}),
       sourceLabel: MEMBER_MARKET_SOURCE_LABELS[clean(market.source).toLowerCase()] || null,
       selections
     });
