@@ -11,11 +11,10 @@ Object.assign(process.env, {
   OPS_INTERNAL_SECRET: 'o'.repeat(48),
   SESSION_HMAC_KEY: 's'.repeat(48),
   API_KEY_PEPPER: 'p'.repeat(48),
-  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
 });
 
 const feedSource = await readFile(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
-const { mergeProviderEvents } = await import('../src/sportsbook-providers.js');
+const { mergeProviderEvents } = await import('../src/sportsbook-feed-utils.js');
 
 test('feed and provider merge retain every market instead of truncating market lists', () => {
   assert.doesNotMatch(feedSource, /capMarketsPerEvent|MAX_MARKETS_PER_EVENT/);
