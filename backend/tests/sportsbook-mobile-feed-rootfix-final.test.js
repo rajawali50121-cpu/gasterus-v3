@@ -34,7 +34,7 @@ test('Sportradar member event list and detail preserve all markets',()=>{
   assert.ok(feed.includes('selectMemberSummaryMarkets(item.markets)'));
   assert.ok(feed.includes('function memberPublicEventDetail(event)'));
   assert.ok(feed.includes('item.markets || []'));
-  assert.ok(feed.includes('includeSportradarFields: true'));
+  assert.ok(feed.includes('includeDetailFields: true'));
 });
 
 test('FINAL mobile frontend bootstraps REST snapshot and reconnects SSE with bounded backoff',()=>{
