@@ -65,9 +65,9 @@ export const config = Object.freeze({
   mfaEncryptionKeyBase64: testSecret('MFA_ENCRYPTION_KEY_BASE64', 40, Buffer.alloc(32, 7).toString('base64')),
   sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
   sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 3600),
-  // Stored/render snapshots may be up to ~1 day old (daily refresh). Read path uses this;
-  // request signature freshness still uses sportsbookIngestMaxAgeSeconds.
-  sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 172800, 180, 604800),
+  // Snapshot render data must expire within 4 hours; ingest request signature freshness
+  // remains governed separately by sportsbookIngestMaxAgeSeconds.
+  sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 14400, 180, 604800),
   sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
   sportsbookDailyRefreshHourWib: int('SPORTSBOOK_DAILY_REFRESH_HOUR_WIB', 0, 0, 23),
   sportsbookDailyRefreshMinuteWib: int('SPORTSBOOK_DAILY_REFRESH_MINUTE_WIB', 5, 0, 59),

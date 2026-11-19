@@ -453,3 +453,13 @@ test('Worker snapshot freshness starts after provider fetches finish', async () 
 
   assert.ok(Date.parse(snapshot.generatedAt) >= startedAt + 20);
 });
+
+
+test('One-shot Cron bypasses the daily refresh gate and fetches immediately', async () => {
+  const workerSource = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
+  );
+  assert.match(workerSource, /if \(config\.sportsbookDailyRefreshEnabled !== false && !cronOnce\)/);
+  assert.match(workerSource, /if \(cronOnce\) \{[\s\S]*?process\.exitCode[\s\S]*?break;/);
+  assert.match(workerSource, /nextSportsbookDailyRefreshMs/);
+});

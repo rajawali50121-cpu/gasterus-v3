@@ -38,6 +38,8 @@ const [
 
 console.log('WORKER_IMPORTS_DONE');
 
+const { nextSportsbookDailyRefreshMs } = await import('./sportsbook-render-worker-core.js');
+
 const cronOnce = String(process.env.SPORTSBOOK_CRON_ONCE || '').trim().toLowerCase() === 'true';
 if (config.nodeEnv === 'production') {
   if (!config.sportradarEnabled) {
@@ -73,7 +75,6 @@ console.info(JSON.stringify({
   ingestPath: ingestUrl.pathname
 }));
 
-const { nextSportsbookDailyRefreshMs } = await import('./sportsbook-render-worker-core.js');
 const snapshotIntervalSeconds = sportsbookRenderIntervalSeconds(config);
 const intervalMs = snapshotIntervalSeconds * 1000;
 const shutdown = new AbortController();
@@ -110,8 +111,8 @@ while (!shutdown.signal.aborted) {
   const cycleStartedAt = Date.now();
   let nextDelayMs = intervalMs;
   try {
-    // Daily mode: only fetch providers once per day at configured WIB slot.
-    if (config.sportsbookDailyRefreshEnabled !== false) {
+    // Daily schedule is retained only for non-Cron long-running mode. One-shot Cron always fetches immediately.
+    if (config.sportsbookDailyRefreshEnabled !== false && !cronOnce) {
       const nowMs = Date.now();
       const todayWib = wibDateKey();
       const forceFirstPull = String(process.env.SPORTSBOOK_FORCE_FIRST_PULL || '').toLowerCase() === 'true';
@@ -139,7 +140,7 @@ while (!shutdown.signal.aborted) {
       secret: config.sportsbookIngestHmacSecret,
     });
     const acceptedAt = Date.now();
-    if (config.sportsbookDailyRefreshEnabled !== false) {
+    if (config.sportsbookDailyRefreshEnabled !== false && !cronOnce) {
       lastDailyRunWibDate = wibDateKey();
       firstPullDone = true;
       consecutiveCycleFailures = 0;
@@ -173,7 +174,7 @@ while (!shutdown.signal.aborted) {
       Math.min(300_000, config.sportsbookIngestMaxAgeSeconds * 500)
     );
     // In daily mode failed/quota-limited runs retry hourly (within quota gate in fetchers), without overwriting stored data.
-    nextDelayMs = config.sportsbookDailyRefreshEnabled !== false
+    nextDelayMs = config.sportsbookDailyRefreshEnabled !== false && !cronOnce
       ? 60 * 60 * 1000
       : Math.min(retryCeilingMs, intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6)));
     console.error(JSON.stringify({
