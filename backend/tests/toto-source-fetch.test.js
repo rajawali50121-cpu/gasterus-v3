@@ -128,3 +128,11 @@ test('mapLimit bounds concurrent TOTO transport work', async () => {
   });
   assert.equal(peak, 2);
 });
+
+
+test('TOTO source fetch does not follow redirects automatically', async () => {
+  let calls = 0;
+  const fakeFetch = async (url, options) => { calls += 1; assert.equal(options.redirect, 'manual'); return response(String(url), '', { status: 302 }); };
+  await assert.rejects(fetchTotoHtml({ code: 'x', name: 'x', url: 'https://poskopaito.com/' }, fakeFetch), /HTTP 302/);
+  assert.equal(calls, 1);
+});
