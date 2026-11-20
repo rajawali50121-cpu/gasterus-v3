@@ -73,6 +73,7 @@ export function projectMemberMarkets(markets = []) {
       period: market.period,
       line: market.line,
       suspended: market.suspended,
+      oddsDisplayOnly: market.oddsDisplayOnly === true,
       mainLine: market.mainLine ?? null,
       bookmaker: market.bookmaker || null,
       sourceLabel: MEMBER_MARKET_SOURCE_LABELS[clean(market.source).toLowerCase()] || null,
