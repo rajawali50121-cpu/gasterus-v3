@@ -192,7 +192,7 @@ export const config = Object.freeze({
   sportsbookMaxEventLiability: int('SPORTSBOOK_MAX_EVENT_LIABILITY', 2000000000, 100000, 2000000000),
   sportsbookMaxMarketLiability: int('SPORTSBOOK_MAX_MARKET_LIABILITY', 1000000000, 100000, 2000000000),
   sportsbookMaxSelectionLiability: int('SPORTSBOOK_MAX_SELECTION_LIABILITY', 500000000, 100000, 2000000000),
-  sportsbookRiskRepricingEnabled: bool('SPORTSBOOK_RISK_REPRICING_ENABLED', true),
+  sportsbookRiskRepricingEnabled: bool('SPORTSBOOK_RISK_REPRICING_ENABLED', false),
   sportsbookRiskRepricingMaxShadeBps: int('SPORTSBOOK_RISK_REPRICING_MAX_SHADE_BPS', 600, 0, 2000),
   // Sportradar supplies odds only. FT settlement requires an explicit operator authority;
   // HT settlement remains unavailable without a separately approved results authority.
