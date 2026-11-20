@@ -73,6 +73,40 @@ test('member sportsbook ships explicit FT/HT controls and does not hard-code bri
   assert.doesNotMatch(feed, /period: 'FT',/);
 });
 
+test('Sportradar maps the same three core market types for FT and HT', () => {
+  const event = { id: 'sr-core-periods', home: { name: 'Home' }, away: { name: 'Away' } };
+  const names = [
+    ['1x2', '1X2', 'FT'],
+    ['Asian Handicap', 'HANDICAP', 'FT'],
+    ['Over/Under', 'TOTALS', 'FT'],
+    ['1st half - 1x2', '1X2', '1H'],
+    ['1st half - Asian Handicap', 'HANDICAP', '1H'],
+    ['1st half - Over/Under', 'TOTALS', '1H'],
+    ['First Half Result', '1X2', '1H']
+  ];
+  const normalized = __sportradarNormalizer.normalizeOdds(event, {
+    markets: names.map(([name], index) => ({
+      id: `core-market-${index}`,
+      name,
+      is_live: false,
+      books: [{
+        id: 'book-core',
+        name: 'Core Book',
+        outcomes: [
+          { id: `home-${index}`, name: 'Home', type: 'home', odds_decimal: '1.91', handicap: '-0.5', total: '2.5' },
+          { id: `away-${index}`, name: 'Away', type: 'away', odds_decimal: '1.91', handicap: '+0.5', total: '2.5' }
+        ]
+      }]
+    }))
+  });
+  for (const [name, type, period] of names) {
+    assert.ok(normalized.markets.some(market =>
+      market.sourceMarketName === name && market.type === type && market.period === period
+      && market.selections.some(selection => selection.odds === 1.91)
+    ), `missing normalized priced market: ${name} -> ${type}/${period}`);
+  }
+});
+
 test('Sportradar normalizes HT/FT combo as one priced market', () => {
   const event = { id: 'sr-test', home: { name: 'Home Team' }, away: { name: 'Away Team' } };
   const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [{
