@@ -158,7 +158,8 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
   }
 
   const providers = new Set();
-  let totalEventRecords = 0;
+  const providerResults = [];
+  const rejectedEvents = [];
   for (const result of snapshot.providerResults) {
     if (!isRecord(result)
       || !ALLOWED_PROVIDERS.has(result.provider)
@@ -168,12 +169,43 @@ export function validateSportsbookSnapshot(snapshot, { now = Date.now(), maxAgeS
       invalid('Hasil provider pada snapshot sportsbook tidak valid.');
     }
     providers.add(result.provider);
-    totalEventRecords += result.events.length;
-    for (const event of result.events) validateEvent(event, result.provider, now);
+    const validEvents = [];
+    for (const event of result.events) {
+      try {
+        validateEvent(event, result.provider, now);
+        validEvents.push(event);
+      } catch (error) {
+        rejectedEvents.push({
+          id: event?.id || null,
+          provider: result.provider,
+          reason: error?.code || 'SPORTSBOOK_EVENT_INVALID',
+          message: String(error?.message || 'Invalid event').slice(0, 500)
+        });
+      }
+    }
+    if (result.events.length > 0 && validEvents.length === 0) {
+      invalid('Seluruh event snapshot gagal validasi; snapshot lama dipertahankan. ' +
+        JSON.stringify({ provider: result.provider, rejectedEventCount: rejectedEvents.length, samples: rejectedEvents.slice(0, 5) }));
+    }
+    providerResults.push({
+      ...result,
+      events: validEvents,
+      ...(rejectedEvents.length ? {
+        diagnostics: {
+          ...(result.diagnostics || {}),
+          backendValidation: {
+            rejectedEventCount: rejectedEvents.length,
+            acceptedEventCount: validEvents.length,
+            samples: rejectedEvents.slice(0, 10)
+          }
+        }
+      } : {})
+    });
   }
 
-  const eventCount = countUniqueFixtures(snapshot.providerResults);
-  return { snapshot, eventCount, providers: [...providers] };
+  const sanitizedSnapshot = { ...snapshot, providerResults };
+  const eventCount = countUniqueFixtures(providerResults);
+  return { snapshot: sanitizedSnapshot, eventCount, providers: [...providers], rejectedEvents };
 }
 
 export function mergeSportsbookSnapshots(incoming, previous, { now = Date.now(), maxAgeSeconds = config.sportsbookIngestMaxAgeSeconds } = {}) {
@@ -263,8 +295,9 @@ export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
       }
 
       const merged = mergeSportsbookSnapshots(incoming, previous, { now, maxAgeSeconds: maxAgeSeconds });
-      validateSportsbookSnapshot(merged, { now, maxAgeSeconds: maxAgeSeconds });
-      const serializedSnapshot = JSON.stringify(merged);
+      const validatedMerged = validateSportsbookSnapshot(merged, { now, maxAgeSeconds: maxAgeSeconds });
+      const safeMerged = validatedMerged.snapshot;
+      const serializedSnapshot = JSON.stringify(safeMerged);
       const rawBody = Buffer.from(serializedSnapshot, 'utf8');
       const timestamp = String(Math.floor(now / 1000));
       const signature = createHmac('sha256', secret)
@@ -276,7 +309,7 @@ export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
       const transaction = redisClient.multi();
       transaction.set(SPORTSBOOK_INGEST_REDIS_KEY, stored, { EX: ttlSeconds });
       const committed = await transaction.exec();
-      if (committed !== null) return merged;
+      if (committed !== null) return safeMerged;
     } finally {
       await redisClient.unwatch().catch(() => {});
     }
@@ -325,7 +358,7 @@ export function verifyStoredSportsbookSnapshot(stored, {
   }
   const validated = validateSportsbookSnapshot(snapshot, { now, maxAgeSeconds });
   return {
-    snapshot,
+    snapshot: validated.snapshot,
     revision,
     receivedAt: new Date(receivedAt).toISOString(),
     providerResults: validated.providers
@@ -362,6 +395,8 @@ export async function acceptSportsbookSnapshot(request, {
     throw new AppError(400, 'Format JSON snapshot tidak valid.', 'SPORTSBOOK_INGEST_JSON_INVALID');
   }
   const validated = validateSportsbookSnapshot(snapshot, { now, maxAgeSeconds });
+  snapshot = validated.snapshot;
+  serializedSnapshot = JSON.stringify(snapshot);
   await storeSnapshot(snapshot, serializedSnapshot, {
     timestamp,
     signature,
