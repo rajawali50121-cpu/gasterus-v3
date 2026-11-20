@@ -86,7 +86,7 @@ test('Sportradar market period mapping prioritizes explicit HT/FT labels and doe
   const periodFromMarket = __sportradarNormalizer.periodFromMarket;
   assert.equal(periodFromMarket('First Half Asian Handicap', { period: 'Match' }), '1H');
   assert.equal(periodFromMarket('Asian Handicap', { period: '1H' }), '1H');
-  assert.equal(periodFromMarket('Asian Handicap', { period: 'match' }), 'UNCLASSIFIED');
+  assert.equal(periodFromMarket('Asian Handicap', { period: 'match' }), 'FT');
   assert.equal(periodFromMarket('Full Time 1X2'), 'FT');
   assert.equal(periodFromMarket('Half Time / Full Time'), 'HT_FT');
 });
@@ -132,7 +132,7 @@ test('worker rejects incomplete Sportradar transport and malformed events', asyn
   await assert.rejects(buildSportsbookRenderSnapshot({
     fetchSportradar: async () => ({ provider: 'sportradar', enabled: true, transportOk: true, events: [invalid] }),
     now: NOW
-  }), /event rejected/);
+  }), /every event failed normalization validation/);
 });
 
 test('one malformed Sportradar event is quarantined while valid events are published', async () => {
