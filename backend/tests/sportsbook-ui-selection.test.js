@@ -68,11 +68,10 @@ test('Asian Handicap primary columns never display a draw outcome', async () => 
   const marketsSource = readFileSync(new URL('../../frontend/js/sportsbook-markets.js', import.meta.url), 'utf8');
   const start = marketsSource.indexOf('export function primaryMarketColumns(');
   assert.ok(start >= 0);
-  const primaryMarketColumns = new Function(
+  const primaryMarketColumns = new Function('MARKET_PRIORITY', 'MARKET_NAMES',
     marketsSource.slice(start).replace('export function primaryMarketColumns', 'function primaryMarketColumns') +
     '; return primaryMarketColumns;'
   )({ HANDICAP: 0, TOTALS: 1, '1X2': 2 }, { HANDICAP: 'Asian Handicap', TOTALS: 'Over / Under', '1X2': '1X2' });
-  const unused = null;
   const columns = primaryMarketColumns({ home: { name: 'Home' }, away: { name: 'Away' }, markets: [{
     id: 'asian', type: 'HANDICAP', period: 'FT', line: -0.5, suspended: false,
     selections: [
