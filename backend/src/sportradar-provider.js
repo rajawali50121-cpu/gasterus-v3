@@ -310,7 +310,11 @@ function normalizeOdds(event, raw) {
         return {
           key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? ''),
           label, odds, line,
-          // is_live describes event context, not suspension.\n          suspended: Boolean(bookRemoved || outcomeRemoved),
+          // A live event is outside this Prematch package's bettable scope.
+          // Keep the provider flag separately; do not mislabel it as provider suspension.
+          suspended: Boolean(bookRemoved || outcomeRemoved || market.is_live === true),
+          providerRemoved: Boolean(bookRemoved || outcomeRemoved),
+          suspensionReason: bookRemoved ? 'book_removed' : outcomeRemoved ? 'outcome_removed' : market.is_live === true ? 'live_market_outside_prematch_scope' : null,
           removed: outcomeRemoved,
           outcomeType: outcome.type || null,
           fieldId: outcome.field_id || null,
@@ -344,7 +348,11 @@ function normalizeOdds(event, raw) {
         id: hash('market', event.id, marketId, marketName, book?.id || bookmaker || ''),
         key: marketId, type, label: marketName, period,
         line: selections[0]?.line ?? null,
-        // Odds Comparison uses book.removed / outcome.removed for removal.\n        // market.is_live is informational and must never suspend a market.\n        suspended: Boolean(bookRemoved),
+        // Odds Comparison has no generic market-suspended flag in this response.
+        // is_live is an event-context flag; the Prematch adapter blocks live offers.
+        suspended: Boolean(bookRemoved || market.is_live === true),
+        providerRemoved: Boolean(bookRemoved),
+        suspensionReason: bookRemoved ? 'book_removed' : market.is_live === true ? 'live_market_outside_prematch_scope' : null,
         removed: bookRemoved,
         isLive: market.is_live === true,
         updatedAt: null,
@@ -361,7 +369,16 @@ function normalizeOdds(event, raw) {
   return { markets, diagnostics };
 }
 
-export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds, normalizedEventStatus, normalizeScheduleEvent, periodScoresFromStatus };
+function resetFeedState() {
+  feedState.events = new Map();
+  feedState.sports = [];
+  feedState.lastFullSyncAt = 0;
+  feedState.lastChangeLogAt = 0;
+  callState.lastCallAt = 0;
+  callState.hourStart = 0;
+  callState.callsThisHour = 0;
+}
+export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds, normalizedEventStatus, normalizeScheduleEvent, periodScoresFromStatus, changeLogEventIds, resetFeedState };
 
 async function discoverSports() {
   const response = await fetchJson(baseUrl() + '/sports.json');
@@ -506,7 +523,8 @@ async function updatePrematchSnapshot(now = Date.now()) {
     const full = await fetchFullPrematchSnapshot();
     feedState.events = full.events;
     feedState.sports = full.selected;
-    feedState.lastFullSyncAt = now;
+    feedState.lastFullSyncAt = Date.now();
+    feedState.lastChangeLogAt = feedState.lastFullSyncAt;
     diagnostics = full.diagnostics;
   } else {
     const response = await fetchJson(baseUrl() + '/sport_event_markets_changelog.json');
