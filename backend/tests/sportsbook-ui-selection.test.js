@@ -71,7 +71,8 @@ test('Asian Handicap primary columns never display a draw outcome', async () => 
   const primaryMarketColumns = new Function(
     marketsSource.slice(start).replace('export function primaryMarketColumns', 'function primaryMarketColumns') +
     '; return primaryMarketColumns;'
-  )();
+  )({ HANDICAP: 0, TOTALS: 1, '1X2': 2 }, { HANDICAP: 'Asian Handicap', TOTALS: 'Over / Under', '1X2': '1X2' });
+  const unused = null;
   const columns = primaryMarketColumns({ home: { name: 'Home' }, away: { name: 'Away' }, markets: [{
     id: 'asian', type: 'HANDICAP', period: 'FT', line: -0.5, suspended: false,
     selections: [
