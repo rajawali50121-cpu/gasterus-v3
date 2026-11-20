@@ -147,3 +147,62 @@
   .sb-header-inner { gap: 4px; }
   .sb-balance-box { padding-inline: 5px; }
 }
+
+/* 2026-11-20 mobile sportsbook polish: full-width layout and readable period controls. */
+@media (max-width: 860px) {
+  .sb-page, .sb-main, .sb-layout, .sb-content, .sb-events,
+  .sb-league-group, .sb-match-list, .sb-match-card {
+    width: 100%; max-width: 100%; min-width: 0;
+  }
+  .sb-main { margin: 0; padding: 10px 8px calc(86px + env(safe-area-inset-bottom, 0px)); }
+  .sb-layout { grid-template-columns: minmax(0, 1fr); }
+  .sb-content { grid-column: 1 / -1; overflow: visible; }
+  .sb-events, .sb-match-list { overflow: visible; }
+  .sb-premium .sb-market-period-tabs {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px; width: 100%; min-width: 0; overflow: visible;
+  }
+  .sb-premium .sb-market-period-tab {
+    width: 100%; min-width: 0; max-width: 100%; min-height: 40px;
+    padding: 6px 5px; white-space: normal; overflow-wrap: anywhere;
+    text-align: center; line-height: 1.2; font-size: clamp(10px, 2.8vw, 12px);
+  }
+  .sb-provider-stack { gap: 3px; justify-content: flex-start; }
+  .sb-provider-chip { padding: 2px 5px; font-size: 8px; }
+  .sb-match-meta-row { align-items: flex-start; gap: 5px; }
+  .sb-match-league { min-width: 0; overflow-wrap: anywhere; }
+}
+@media (max-width: 480px) {
+  .sb-main { padding-inline: 6px; }
+  .sb-premium .sb-market-grid { grid-template-columns: minmax(0, 1fr); }
+  .sb-premium .sb-market-card-title { font-size: 11px; }
+}
+
+@media (max-width: 860px) {
+  .sb-slip-sheet {
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    max-height: min(72dvh, 600px);
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .sb-slip-sheet-tabs {
+    min-width: 0;
+    max-width: calc(100vw - 88px);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sb-slip-sheet-tabs::-webkit-scrollbar { display: none; }
+  .sb-slip-tab {
+    flex: 0 0 auto;
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+  .sb-slip-sheet-body {
+    max-height: calc(min(72dvh, 600px) - 96px);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}

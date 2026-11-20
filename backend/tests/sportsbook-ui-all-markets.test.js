@@ -11,6 +11,7 @@ import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
 const sportsbookCss = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
+const responsiveCss = readFileSync(new URL('../../frontend/css/pages/sportsbook-responsive-hotfix.css', import.meta.url), 'utf8');
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 const realtime = readFileSync(new URL('../src/sportsbook-realtime.js', import.meta.url), 'utf8');
 
@@ -481,4 +482,31 @@ test('odds movement indicators remain readable long enough to identify direction
   assert.match(frontend, /scheduleOddsMovementCleanup\(key, 1800\)/);
   assert.match(styles, /\.sb-odd-cell\.sb-odd-movement-up\s*\{\s*animation: sbOddFlashGreen 1800ms/);
   assert.match(styles, /\.sb-odd-cell\.sb-odd-movement-down\s*\{\s*animation: sbOddFlashRed 1800ms/);
+});
+
+test('primary Asian Handicap slot selects a complete priced line from multi-line markets', () => {
+  const event = { markets: [{
+    id: 'asian-handicap-lines',
+    type: 'HANDICAP',
+    period: 'FT',
+    selections: [
+      { key: 'home-0.25', label: 'Home', line: -0.25, odds: 1.91, suspended: false },
+      { key: 'away-0.25', label: 'Away', line: 0.25, odds: 1.95, suspended: false },
+      { key: 'home-0.5', label: 'Home', line: -0.5, odds: 1.88, suspended: false },
+      { key: 'away-0.5', label: 'Away', line: 0.5, odds: 1.98, suspended: false }
+    ]
+  }] };
+  const handicap = primaryMarketColumns(event, 'FT').find(item => item.type === 'HANDICAP');
+  assert.equal(handicap.outcomes.length, 2);
+  assert.equal(handicap.outcomes.every(([, selection]) => Number(selection?.odds) > 1), true);
+  assert.deepEqual(handicap.outcomes.map(([label]) => label), ['1', '2']);
+  assert.equal(Math.abs(handicap.outcomes[0][1].line), Math.abs(handicap.outcomes[1][1].line));
+});
+
+test('mobile sportsbook CSS forces full-width cards and a two-column compact period switcher', () => {
+  assert.match(responsiveCss, /\.sb-premium \.sb-market-period-tabs\s*\{[^}]*display:\s*grid/s);
+  assert.match(responsiveCss, /\.sb-page, \.sb-main, \.sb-layout, \.sb-content, \.sb-events,[\s\S]*?width:\s*100%/);
+  assert.match(frontend, /MARKET_PERIOD_TAB_LABELS/);
+  assert.match(responsiveCss, /\.sb-slip-sheet\s*\{[^}]*max-height:\s*min\(72dvh, 600px\)/s);
+  assert.match(responsiveCss, /\.sb-slip-sheet-body\s*\{[^}]*overflow-y:\s*auto/s);
 });

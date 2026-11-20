@@ -190,17 +190,16 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
     }
   };
 }
-function marketType(name, outcomeCount = null) {
+export function marketType(name, outcomeCount = null, hasDrawOutcome = false) {
   const value = clean(name, 120).toLowerCase();
-  // HT/FT is a single combination market, not ordinary 1X2.
   if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
-  if (/1x2|money.?line|match.?winner|match.?result|three.?way|first.?half.*result|1st.?half.*result|half.?time.*result/.test(value)) return '1X2';
   if (/european.?handicap|three.?way.?handicap/.test(value)) return 'EUROPEAN_HANDICAP';
+  if (/1x2|money.?line|match.?winner|match.?result|three.?way|first.?half.*result|1st.?half.*result|half.?time.*result/.test(value)) return '1X2';
   if (/asian.?handicap|asian.?spread/.test(value)) return 'HANDICAP';
   if (/handicap|spread/.test(value)) {
-    if (outcomeCount === 3) return 'EUROPEAN_HANDICAP';
-    if (outcomeCount === 2) return 'HANDICAP';
-    return 'OTHER';
+    // More than two outcomes can represent multiple Asian lines, not a draw.
+    if (hasDrawOutcome) return 'EUROPEAN_HANDICAP';
+    return outcomeCount >= 2 ? 'HANDICAP' : 'OTHER';
   }
   if (/team.?total/.test(value)) return 'TEAM_TOTAL';
   if (/total|over.?under|goals/.test(value)) return 'TOTALS';
@@ -213,7 +212,7 @@ function marketType(name, outcomeCount = null) {
   if (/player|scorer|assist|shots/.test(value)) return 'PLAYER_PROP';
   return 'OTHER';
 }
-function periodFromMarket(name, metadata = {}) {
+export function periodFromMarket(name, metadata = {}) {
   const value = clean(name, 240).toLowerCase();
   const candidates = [
     metadata.period, metadata.period_name, metadata.periodName,
@@ -241,7 +240,12 @@ function periodFromMarket(name, metadata = {}) {
     const period = classify(candidate);
     if (period) return period;
   }
-  // The provider's unqualified core match markets are full-time by convention.
+  // Sportradar Odds Comparison uses generic names such as "handicap" and
+  // "handicap {hcp}". marketType() needs outcome count to classify those,
+  // but period detection does not have that context. Without this explicit
+  // fallback they become UNCLASSIFIED and the FT feed drops every AH market.
+  if (/\bhandicap\b|\bspread\b/.test(value)) return 'FT';
+  // The provider's other unqualified core match markets are full-time by convention.
   if (marketType(value) !== 'OTHER') return 'FT';
   return 'UNCLASSIFIED';
 }
@@ -280,7 +284,12 @@ function normalizeOdds(event, raw) {
     const books = Array.isArray(market.books) ? market.books : [];
     const outcomeCount = books.reduce((maximum, book) =>
       Math.max(maximum, Array.isArray(book?.outcomes) ? book.outcomes.length : 0), 0);
-    const type = marketType(marketName, outcomeCount);
+    const hasDrawOutcome = books.some(book => (book?.outcomes || []).some(outcome => {
+      const outcomeType = clean(outcome?.type, 40).toLowerCase();
+      const outcomeName = clean(outcome?.name || outcome?.label, 80).toLowerCase();
+      return outcomeType === 'draw' || outcomeName === 'draw' || outcomeName === 'x';
+    }));
+    const type = marketType(marketName, outcomeCount, hasDrawOutcome);
     const period = periodFromMarket(marketName, market);
     diagnostics.periodCounts[period] = (diagnostics.periodCounts[period] || 0) + 1;
     if (diagnostics.periodSamples.length < 12) {
