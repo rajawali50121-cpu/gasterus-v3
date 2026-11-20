@@ -434,13 +434,6 @@ export async function fetchSportradar({
             continue;
           }
           seenIds.add(event.id);
-
-          const event = normalized.event;
-          if (seenIds.has(event.id)) {
-            diagnostics.eventsSkipped.duplicate_provider_id = (diagnostics.eventsSkipped.duplicate_provider_id || 0) + 1;
-            continue;
-          }
-          seenIds.add(event.id);
           const odds = normalizeOdds(event, item);
           event.markets = odds.markets;
           for (const key of Object.keys(diagnostics.odds)) diagnostics.odds[key] += odds.diagnostics[key] || 0;
