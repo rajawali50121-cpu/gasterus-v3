@@ -194,7 +194,7 @@ function marketType(name) {
   const value = clean(name, 120).toLowerCase();
   // HT/FT is a single combination market, not ordinary 1X2.
   if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
-  if (/1x2|money.?line|match.?winner|match.?result|three.?way/.test(value)) return '1X2';
+  if (/1x2|money.?line|match.?winner|match.?result|three.?way|first.?half.*result|1st.?half.*result|half.?time.*result/.test(value)) return '1X2';
   if (/handicap|spread/.test(value)) return 'HANDICAP';
   if (/team.?total/.test(value)) return 'TEAM_TOTAL';
   if (/total|over.?under|goals/.test(value)) return 'TOTALS';
