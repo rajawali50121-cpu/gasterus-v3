@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { ticketCalculation } from '../src/sportsbook-calculation.js';
+import { mergeProviderEvents } from '../src/sportsbook-feed-utils.js';
 import { systemBetMetrics } from '../../frontend/js/sportsbook-slip-calculation.js';
 import { projectMemberMarkets, selectMemberSummaryMarkets } from '../src/sportsbook-member-projection.js';
 import { __sportsbookFeed } from '../src/sportsbook-feed.js';
@@ -234,16 +235,49 @@ test('invalid or suspended HT markets remain visible as an explicit unavailable 
   assert.equal(primaryMarketColumns(event, '1H')[2].market.suspended, true);
 });
 
+test('HT odds remain visible read-only without HT settlement authority while FT remains unchanged', () => {
+  const [event] = mergeProviderEvents([{
+    provider: 'sportradar',
+    enabled: true,
+    events: [{
+      id: 'sr-event-ht-readonly',
+      sport: 'Football',
+      league: 'Test League',
+      status: 'SCHEDULED',
+      live: false,
+      home: { name: 'Home' },
+      away: { name: 'Away' },
+      _sources: ['sportradar'],
+      _settlementReadySources: ['manual-ops'],
+      markets: [market('ft-main', 'FT'), market('ht-main', '1H', 1.85)]
+    }]
+  }]);
+  const projected = projectMemberMarkets(event.markets);
+  const ft = projected.find(item => item.period === 'FT');
+  const ht = projected.find(item => item.period === '1H');
+  assert.equal(ft.suspended, false);
+  assert.equal(ft.oddsDisplayOnly, false);
+  assert.equal(ht.suspended, true, 'HT remains blocked for wagering');
+  assert.equal(ht.oddsDisplayOnly, true, 'HT prices are marked for read-only display');
+  assert.equal(ht.selections[0].suspended, true, 'HT selections remain non-bettable');
+  assert.ok(availableMarketPeriods({ markets: projected }).includes('1H'));
+  const htColumns = primaryMarketColumns({ home: { name: 'Home' }, away: { name: 'Away' }, markets: projected }, '1H');
+  assert.equal(htColumns.find(item => item.type === '1X2')?.market?.oddsDisplayOnly, true);
+});
+
 test('main market cells show unavailable or suspended status without creating bet buttons', () => {
   const start = frontend.indexOf('function renderOddCell(');
   const end = frontend.indexOf('\nfunction renderMarketColumns(', start);
   assert.ok(start >= 0 && end > start, 'main odd cell renderer must exist');
-  const renderOddCell = new Function(`${frontend.slice(start, end)}; return renderOddCell;`)();
+  const renderOddCell = new Function('formatOdds', 'escapeHtml', 'oddsFormat', `${frontend.slice(start, end)}; return renderOddCell;`)(value => String(value), value => String(value), 'DECIMAL');
   const unavailable = renderOddCell({ id: 'event' }, null, null);
   const suspended = renderOddCell({ id: 'event' }, { id: 'market', suspended: true }, null);
+  const htReadOnly = renderOddCell({ id: 'event' }, { id: 'ht-market', suspended: true, oddsDisplayOnly: true }, { odds: 1.85, suspended: true });
   assert.match(unavailable, /Tidak tersedia/);
   assert.match(suspended, /Ditangguhkan/);
-  assert.doesNotMatch(unavailable + suspended, /<button/);
+  assert.match(htReadOnly, /1\.85/);
+  assert.match(htReadOnly, /informasi saja/);
+  assert.doesNotMatch(unavailable + suspended + htReadOnly, /<button/);
 });
 
 test('premium sportsbook skin separates LIVE and prematch with aligned responsive odds', () => {
