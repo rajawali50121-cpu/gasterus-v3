@@ -215,28 +215,35 @@ function marketType(name, outcomeCount = null) {
 }
 function periodFromMarket(name, metadata = {}) {
   const value = clean(name, 240).toLowerCase();
-  const isHtFt = /\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[\/\-]?\s*ft\b/;
-  if (isHtFt.test(value)) return 'HT_FT';
-
-  // Prefer an explicit, recognizable provider period. Generic metadata such
-  // as "match" must not erase a first-half period encoded in the market name.
   const candidates = [
     metadata.period, metadata.period_name, metadata.periodName,
     metadata.match_period, metadata.matchPeriod, metadata.period_id,
-    metadata.specifiers?.period, metadata.specifiers?.match_period
-  ].map(item => clean(item, 80).toLowerCase()).filter(Boolean);
+    metadata.description, metadata.market_name, metadata.marketName,
+    metadata.specifiers?.period, metadata.specifiers?.match_period,
+    metadata.period?.name, metadata.period?.description, metadata.period?.type,
+    metadata.market_period?.name, metadata.market_period?.description
+  ].map(item => typeof item === 'object' && item !== null
+    ? clean(item.name || item.description || item.type || item.id, 120).toLowerCase()
+    : clean(item, 120).toLowerCase()).filter(Boolean);
+
   const classify = candidate => {
-    if (isHtFt.test(candidate)) return 'HT_FT';
-    if (/second.?half|2nd.?half|\b2h\b|period.?2/.test(candidate)) return '2H';
-    if (/first.?half|1st.?half|half.?time|\b1h\b|period.?1/.test(candidate)) return '1H';
-    if (/full.?time|\bft\b|match.?time|regular.?time/.test(candidate)) return 'FT';
+    if (/half.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[\/-]?\s*ft\b/.test(candidate)) return 'HT_FT';
+    if (/second.?half|2nd.?half|second.?period|2nd.?period|\b2h\b|\bht2\b|period\s*2/.test(candidate)) return '2H';
+    if (/first.?half|1st.?half|half.?time|first.?period|1st.?period|\b1h\b|\bht\b|period\s*1/.test(candidate)) return '1H';
+    if (/full.?time|full.?match|match.?time|regular.?time|\bft\b|\bmatch\b/.test(candidate)) return 'FT';
     return null;
   };
+
+  // A named first-half market always wins over generic metadata such as "match".
+  const namedPeriod = classify(value);
+  if (namedPeriod) return namedPeriod;
   for (const candidate of candidates) {
     const period = classify(candidate);
     if (period) return period;
   }
-  return classify(value) || 'FT';
+  // The provider's unqualified core match markets are full-time by convention.
+  if (marketType(value) !== 'OTHER') return 'FT';
+  return 'UNCLASSIFIED';
 }
 function selectionLabel(outcome, event, type) {
   const value = String(outcome?.type || '').toLowerCase();
@@ -260,7 +267,9 @@ function normalizeOdds(event, raw) {
   const diagnostics = {
     marketsSeen: 0, booksSeen: 0, outcomesSeen: 0,
     removedBooksRetained: 0, removedOutcomesRetained: 0,
-    outcomesWithoutDecimalOddsRetained: 0
+    outcomesWithoutDecimalOddsRetained: 0,
+    periodCounts: {},
+    periodSamples: []
   };
   const markets = [];
   for (const market of (Array.isArray(raw?.markets) ? raw.markets : [])) {
@@ -273,6 +282,16 @@ function normalizeOdds(event, raw) {
       Math.max(maximum, Array.isArray(book?.outcomes) ? book.outcomes.length : 0), 0);
     const type = marketType(marketName, outcomeCount);
     const period = periodFromMarket(marketName, market);
+    diagnostics.periodCounts[period] = (diagnostics.periodCounts[period] || 0) + 1;
+    if (diagnostics.periodSamples.length < 12) {
+      diagnostics.periodSamples.push({
+        marketId,
+        marketName,
+        normalizedPeriod: period,
+        providerPeriod: market.period ?? market.period_name ?? market.period_id ?? null,
+        specifiers: market.specifiers ?? null
+      });
+    }
     const marketSourceData = Object.fromEntries(Object.entries(market).filter(([key]) => key !== 'books'));
 
     // The API's removed lifecycle is on book/outcome, not a reason to erase history.
@@ -387,7 +406,9 @@ export async function fetchSportradar({
     eventsSkipped: {}, odds: {
       marketsSeen: 0, booksSeen: 0, outcomesSeen: 0,
       removedBooksRetained: 0, removedOutcomesRetained: 0,
-      outcomesWithoutDecimalOddsRetained: 0
+      outcomesWithoutDecimalOddsRetained: 0,
+      periodCounts: {},
+      periodSamples: []
     }
   };
 
@@ -426,7 +447,17 @@ export async function fetchSportradar({
           seenIds.add(event.id);
           const odds = normalizeOdds(event, item);
           event.markets = odds.markets;
-          for (const key of Object.keys(diagnostics.odds)) diagnostics.odds[key] += odds.diagnostics[key] || 0;
+          for (const key of Object.keys(diagnostics.odds)) {
+            if (key === 'periodCounts') {
+              for (const [period, count] of Object.entries(odds.diagnostics.periodCounts || {})) {
+                diagnostics.odds.periodCounts[period] = (diagnostics.odds.periodCounts[period] || 0) + count;
+              }
+            } else if (key === 'periodSamples') {
+              diagnostics.odds.periodSamples.push(...(odds.diagnostics.periodSamples || []).slice(0, Math.max(0, 20 - diagnostics.odds.periodSamples.length)));
+            } else {
+              diagnostics.odds[key] += odds.diagnostics[key] || 0;
+            }
+          }
           allEvents.push(event);
           diagnostics.eventsAccepted += 1;
         }

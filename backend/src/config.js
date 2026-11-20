@@ -123,6 +123,9 @@ export const config = Object.freeze({
   // Background feed/collector process is separate from settlement (feed-worker.js).
   sportsSourceBackgroundPollEnabled: bool('SPORTS_SOURCE_BACKGROUND_POLL_ENABLED', true),
   feedWorkerEnabled: bool('FEED_WORKER_ENABLED', true),
+  // Explicit feed cadence/freshness settings consumed by sportsbook-feed.js.
+  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 90, 15, 3600),
+  sportsFeedStaleSeconds: int('SPORTS_FEED_STALE_SECONDS', 900, 60, 7200),
   // Event dan payload TIDAK dibatasi di sisi feed; semua event dari provider
   // lewat tanpa potongan. Batas fisik (memori worker, Redis) tetap berlaku.
   // Zero = no cap; pagination dihabiskan sampai halaman terakhir API.

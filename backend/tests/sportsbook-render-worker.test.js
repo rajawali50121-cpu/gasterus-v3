@@ -18,6 +18,7 @@ const {
   sportsbookRenderIntervalSeconds
 } = await import('../src/sportsbook-render-worker-core.js');
 const { validateSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
+const { __sportradarNormalizer } = await import('../src/sportradar-provider.js');
 
 const NOW = Date.UTC(2026, 10, 19, 0, 0, 0);
 
@@ -55,6 +56,40 @@ function event(id = 'sr-event-1') {
     _sources: ['sportradar']
   };
 }
+
+test('backend quarantines one invalid event and preserves valid events in the accepted snapshot', () => {
+  const invalid = event('sr-event-invalid');
+  invalid.markets[0].selections[0].updatedAt = 'not-a-date';
+  const valid = event('sr-event-valid');
+  const result = validateSportsbookSnapshot({
+    schemaVersion: 1,
+    generatedAt: new Date(NOW).toISOString(),
+    providerResults: [{ provider: 'sportradar', enabled: true, events: [invalid, valid] }]
+  }, { now: NOW });
+  assert.deepEqual(result.snapshot.providerResults[0].events.map(item => item.id), ['sr-event-valid']);
+  assert.equal(result.eventCount, 1);
+  assert.equal(result.rejectedEvents.length, 1);
+  assert.match(result.rejectedEvents[0].message, /Selection/);
+});
+
+test('backend refuses to replace the stored snapshot when every incoming event is invalid', () => {
+  const invalid = event('sr-event-invalid');
+  invalid.live = true;
+  assert.throws(() => validateSportsbookSnapshot({
+    schemaVersion: 1,
+    generatedAt: new Date(NOW).toISOString(),
+    providerResults: [{ provider: 'sportradar', enabled: true, events: [invalid] }]
+  }, { now: NOW }), /Seluruh event snapshot gagal validasi/);
+});
+
+test('Sportradar market period mapping prioritizes explicit HT/FT labels and does not guess FT', () => {
+  const periodFromMarket = __sportradarNormalizer.periodFromMarket;
+  assert.equal(periodFromMarket('First Half Asian Handicap', { period: 'Match' }), '1H');
+  assert.equal(periodFromMarket('Asian Handicap', { period: '1H' }), '1H');
+  assert.equal(periodFromMarket('Asian Handicap', { period: 'match' }), 'FT');
+  assert.equal(periodFromMarket('Full Time 1X2'), 'FT');
+  assert.equal(periodFromMarket('Half Time / Full Time'), 'HT_FT');
+});
 
 test('worker snapshot calls only Sportradar and does not impose artificial event/page limits', async () => {
   let options;
@@ -97,7 +132,37 @@ test('worker rejects incomplete Sportradar transport and malformed events', asyn
   await assert.rejects(buildSportsbookRenderSnapshot({
     fetchSportradar: async () => ({ provider: 'sportradar', enabled: true, transportOk: true, events: [invalid] }),
     now: NOW
-  }), /event rejected/);
+  }), /every event failed normalization validation/);
+});
+
+test('one malformed Sportradar event is quarantined while valid events are published', async () => {
+  const invalid = event('sr-event-invalid');
+  invalid.status = '';
+  const valid = event('sr-event-valid');
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportradar: async () => ({
+      provider: 'sportradar', enabled: true, transportOk: true, events: [invalid, valid]
+    }),
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 1);
+  assert.deepEqual(snapshot.providerResults[0].events.map(item => item.id), ['sr-event-valid']);
+  assert.equal(snapshot.diagnostics.eventValidation.rejectedEventCount, 1);
+  assert.ok(snapshot.diagnostics.eventValidation.samples[0].issues.includes('status:unsupported'));
+  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).providers[0], 'sportradar');
+});
+
+test('worker accepts a Sportradar schedule event with an explicit UNKNOWN status', async () => {
+  const item = event('sr-event-unknown-status');
+  item.status = 'UNKNOWN';
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportradar: async () => ({
+      provider: 'sportradar', enabled: true, transportOk: true, events: [item]
+    }),
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 1);
+  assert.equal(snapshot.providerResults[0].events[0].status, 'UNKNOWN');
 });
 
 test('worker publishes a valid empty Sportradar schedule without fabricating fixtures', async () => {
