@@ -220,6 +220,20 @@ test('valid FT and HT odds create selectable tabs and render the selected period
   assert.match(frontend, /selectedEventPeriods\.set\(match\.dataset\.evid, periodButton\.dataset\.matchPeriod\);\s*renderAll\(\)/);
 });
 
+test('priced read-only HT bookmaker row wins over an earlier unpriced HT row', () => {
+  const event = {
+    markets: [
+      { ...market('ht-unpriced-first', '1H', null), suspended: true, oddsDisplayOnly: true,
+        selections: [{ key: 'HOME', label: 'Home', odds: null, suspended: true }] },
+      { ...market('ht-priced-second', '1H', 1.85), suspended: true, oddsDisplayOnly: true,
+        selections: market('ht-priced-second', '1H', 1.85).selections.map(selection => ({ ...selection, suspended: true })) }
+    ]
+  };
+  const columns = primaryMarketColumns(event, '1H');
+  assert.equal(columns.find(item => item.type === '1X2')?.market?.id, 'ht-priced-second');
+  assert.equal(columns.find(item => item.type === '1X2')?.outcomes.find(([label]) => label === '1')?.[1]?.odds, 1.85);
+});
+
 test('invalid or suspended HT markets remain visible as an explicit unavailable or suspended primary slot', () => {
   const event = {
     markets: [
