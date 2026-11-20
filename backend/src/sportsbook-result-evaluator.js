@@ -1,3 +1,5 @@
+import { config } from './config.js';
+
 const text = value => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 const rawStatus = value => String(value ?? '').replace(/\s+/g, '').trim().toUpperCase();
 const numericOrNull = value => value === null || value === undefined || String(value).trim() === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;
@@ -59,9 +61,10 @@ function halfScoreReady(event) {
 }
 function settlementAuthorityReady(event, isHalf, isHtFt = false) {
   const authority = event?.settlementAuthority;
+  if (isHalf) return config.htBettingEnabled && authority?.ht === true;
   if (!authority || typeof authority !== 'object') return !isHtFt;
-  if (isHtFt) return authority.ht === true && authority.automaticFt === true;
-  return isHalf ? authority.ht === true : authority.automaticFt === true;
+  if (isHtFt) return config.htBettingEnabled && authority.ht === true && authority.automaticFt === true;
+  return authority.automaticFt === true;
 }
 
 function providerSettlementDisposition(event) {
