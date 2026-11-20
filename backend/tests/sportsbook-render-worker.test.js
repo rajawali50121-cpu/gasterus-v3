@@ -100,6 +100,23 @@ test('worker rejects incomplete Sportradar transport and malformed events', asyn
   }), /event rejected/);
 });
 
+test('one malformed Sportradar event is quarantined while valid events are published', async () => {
+  const invalid = event('sr-event-invalid');
+  invalid.status = 'UNKNOWN';
+  const valid = event('sr-event-valid');
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportradar: async () => ({
+      provider: 'sportradar', enabled: true, transportOk: true, events: [invalid, valid]
+    }),
+    now: NOW
+  });
+  assert.equal(snapshot.eventCount, 1);
+  assert.deepEqual(snapshot.providerResults[0].events.map(item => item.id), ['sr-event-valid']);
+  assert.equal(snapshot.diagnostics.eventValidation.rejectedEventCount, 1);
+  assert.ok(snapshot.diagnostics.eventValidation.samples[0].issues.includes('status:unsupported'));
+  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).providers[0], 'sportradar');
+});
+
 test('worker publishes a valid empty Sportradar schedule without fabricating fixtures', async () => {
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportradar: async () => ({ provider: 'sportradar', enabled: true, transportOk: true, events: [] }),
