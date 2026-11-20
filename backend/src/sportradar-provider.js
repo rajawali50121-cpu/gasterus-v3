@@ -209,20 +209,28 @@ function marketType(name) {
 }
 function periodFromMarket(name, metadata = {}) {
   const value = clean(name, 240).toLowerCase();
-  if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[\/\-]?\s*ft\b/.test(value)) return 'HT_FT';
+  const isHtFt = /\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[\/\-]?\s*ft\b/;
+  if (isHtFt.test(value)) return 'HT_FT';
 
-  // Sportradar may identify a period in market metadata while keeping a
-  // generic market name such as "Asian Handicap" or "Over/Under".
-  const explicit = [
+  // Prefer an explicit, recognizable provider period. Generic metadata such
+  // as "match" must not erase a first-half period encoded in the market name.
+  const candidates = [
     metadata.period, metadata.period_name, metadata.periodName,
     metadata.match_period, metadata.matchPeriod, metadata.period_id,
     metadata.specifiers?.period, metadata.specifiers?.match_period
-  ].map(item => clean(item, 80).toLowerCase()).filter(Boolean).join(' ');
-  const period = explicit || value;
-  if (/second.?half|2nd.?half|\b2h\b|period.?2/.test(period)) return '2H';
-  if (/first.?half|1st.?half|half.?time|\b1h\b|period.?1/.test(period)) return '1H';
-  if (/full.?time|\bft\b|match.?time|regular.?time/.test(period)) return 'FT';
-  return 'FT';
+  ].map(item => clean(item, 80).toLowerCase()).filter(Boolean);
+  const classify = candidate => {
+    if (isHtFt.test(candidate)) return 'HT_FT';
+    if (/second.?half|2nd.?half|\b2h\b|period.?2/.test(candidate)) return '2H';
+    if (/first.?half|1st.?half|half.?time|\b1h\b|period.?1/.test(candidate)) return '1H';
+    if (/full.?time|\bft\b|match.?time|regular.?time/.test(candidate)) return 'FT';
+    return null;
+  };
+  for (const candidate of candidates) {
+    const period = classify(candidate);
+    if (period) return period;
+  }
+  return classify(value) || 'FT';
 }
 function selectionLabel(outcome, event, type) {
   const raw = clean(outcome?.name || outcome?.label, 120);
