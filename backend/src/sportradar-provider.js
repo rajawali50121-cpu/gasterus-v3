@@ -390,7 +390,7 @@ export async function fetchSportradar({
     sportsDiscovered: availableSports.length,
     sportsFeedGeneratedAt: sportsResponse.data?.generated_at || null,
     sportsSelected: selectedSports.map(sport => ({ id: sport.id, name: sport.name, type: sport.type })),
-    datesRequested: dates.length, pagesFetched: 0, eventsSeen: 0, eventsAccepted: 0,
+    datesRequested: dates.length, pagesFetched: 0, marketBoardsFetched: 0, eventsSeen: 0, eventsAccepted: 0,
     eventsSkipped: {}, odds: {
       marketsSeen: 0, booksSeen: 0, outcomesSeen: 0,
       removedBooksRetained: 0, removedOutcomesRetained: 0,
@@ -402,12 +402,15 @@ export async function fetchSportradar({
     for (const date of dates) {
       let start = 0;
       while (true) {
-        const url = new URL(`${baseUrl()}/sports/${encodeURIComponent(sport.id)}/schedules/${date}/sport_event_markets.json`);
+        // Odds Comparison Prematch uses Daily Schedules for the slate.
+        // Market boards are a separate per-event feed; the similarly named
+        // Daily Sport Event Markets endpoint belongs to the Live Odds package.
+        const url = new URL(`${baseUrl()}/sports/${encodeURIComponent(sport.id)}/schedules/${date}/schedules.json`);
         url.searchParams.set('limit', String(PAGE_SIZE));
         url.searchParams.set('start', String(start));
         const { data, headers: responseHeaders } = await fetchJson(url.toString());
         diagnostics.pagesFetched += 1;
-        const items = Array.isArray(data?.sport_schedule_sport_event_markets) ? data.sport_schedule_sport_event_markets : [];
+        const items = Array.isArray(data?.schedules) ? data.schedules : [];
         const maxResultsHeader = responseHeaders?.get?.('x-max-results');
         const maxResults = maxResultsHeader === null || maxResultsHeader === undefined ? null : Number(maxResultsHeader);
         if (!items.length) {
@@ -431,9 +434,27 @@ export async function fetchSportradar({
             continue;
           }
           seenIds.add(event.id);
-          const odds = normalizeOdds(event, item);
+
+          // The schedule feed contains fixtures, not the complete odds board.
+          // Fetch the documented Sport Event Markets feed for every event.
+          const eventMarketsUrl = `${baseUrl()}/sport_events/${encodeURIComponent(event.id)}/sport_event_markets.json`;
+          const { data: marketData } = await fetchJson(eventMarketsUrl);
+          const marketEvent = marketData?.sport_event || {};
+          const providerStatus = clean(marketEvent.status, 40) || event.providerStatus;
+          const mappedStatus = normalizedEventStatus(providerStatus);
+          event.providerStatus = providerStatus;
+          event.status = mappedStatus;
+          event.state = mappedStatus;
+          event.live = mappedStatus === 'LIVE';
+          event.sourceData = {
+            ...event.sourceData,
+            sportEvent: marketEvent.id ? marketEvent : event.sourceData?.sportEvent,
+            marketGeneratedAt: marketData?.generated_at || null
+          };
+          const odds = normalizeOdds(event, marketData);
           event.markets = odds.markets;
           for (const key of Object.keys(diagnostics.odds)) diagnostics.odds[key] += odds.diagnostics[key] || 0;
+          diagnostics.marketBoardsFetched = (diagnostics.marketBoardsFetched || 0) + 1;
           allEvents.push(event);
           diagnostics.eventsAccepted += 1;
         }
@@ -450,11 +471,11 @@ export async function fetchSportradar({
 
   const result = {
     provider: PROVIDER, enabled: true, events: allEvents, errors: [], transportOk: true,
-    diagnostics: { ...diagnostics, calls: diagnostics.pagesFetched + 1 }
+    diagnostics: { ...diagnostics, calls: diagnostics.pagesFetched + diagnostics.marketBoardsFetched + 1 }
   };
   logger.info('Sportradar prematch ingestion completed', {
     events: diagnostics.eventsAccepted, sports: diagnostics.sportsSelected.length,
-    pages: diagnostics.pagesFetched, diagnostics
+    schedulePages: diagnostics.pagesFetched, marketBoards: diagnostics.marketBoardsFetched, diagnostics
   });
   return result;
 }
