@@ -18,6 +18,7 @@ const {
   sportsbookRenderIntervalSeconds
 } = await import('../src/sportsbook-render-worker-core.js');
 const { validateSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
+const { __sportradarNormalizer } = await import('../src/sportradar-provider.js');
 
 const NOW = Date.UTC(2026, 10, 19, 0, 0, 0);
 
@@ -79,6 +80,15 @@ test('backend refuses to replace the stored snapshot when every incoming event i
     generatedAt: new Date(NOW).toISOString(),
     providerResults: [{ provider: 'sportradar', enabled: true, events: [invalid] }]
   }, { now: NOW }), /Seluruh event snapshot gagal validasi/);
+});
+
+test('Sportradar market period mapping prioritizes explicit HT/FT labels and does not guess FT', () => {
+  const periodFromMarket = __sportradarNormalizer.periodFromMarket;
+  assert.equal(periodFromMarket('First Half Asian Handicap', { period: 'Match' }), '1H');
+  assert.equal(periodFromMarket('Asian Handicap', { period: '1H' }), '1H');
+  assert.equal(periodFromMarket('Asian Handicap', { period: 'match' }), 'UNCLASSIFIED');
+  assert.equal(periodFromMarket('Full Time 1X2'), 'FT');
+  assert.equal(periodFromMarket('Half Time / Full Time'), 'HT_FT');
 });
 
 test('worker snapshot calls only Sportradar and does not impose artificial event/page limits', async () => {
