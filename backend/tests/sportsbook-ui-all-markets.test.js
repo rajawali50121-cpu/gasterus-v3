@@ -506,4 +506,6 @@ test('mobile sportsbook CSS forces full-width cards and a two-column compact per
   assert.match(responsiveCss, /\.sb-premium \.sb-market-period-tabs\s*\{[^}]*display:\s*grid/s);
   assert.match(responsiveCss, /\.sb-page, \.sb-main, \.sb-layout, \.sb-content, \.sb-events,[\s\S]*?width:\s*100%/);
   assert.match(frontend, /MARKET_PERIOD_TAB_LABELS/);
+  assert.match(responsiveCss, /\.sb-slip-sheet\s*\{[^}]*max-height:\s*min\(72dvh, 600px\)/s);
+  assert.match(responsiveCss, /\.sb-slip-sheet-body\s*\{[^}]*overflow-y:\s*auto/s);
 });
