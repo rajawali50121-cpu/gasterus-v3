@@ -1429,7 +1429,8 @@ function scoreText(score) {
 }
 
 function formatLeagueLabel(event, fallback = 'Match') {
-  const league = String(event?.league || fallback).trim();
+  let league = String(event?.league || fallback).trim();
+  if (/^unclassified competition$/i.test(league)) league = 'Kompetisi belum terklasifikasi';
   const category = typeof event?.category === 'string'
     ? event.category
     : event?.category?.name || event?.category?.label;
@@ -1532,6 +1533,10 @@ const MARKET_PERIOD_LABELS = {
 function eventMarketPeriods() {
   return ['FT', '1H'];
 }
+const MARKET_PERIOD_TAB_LABELS = {
+  FT: 'FT · Babak Penuh',
+  '1H': 'HT · Babak Pertama'
+};
 
 function findMarketSelection(market, aliases, fallbackIndex, allowPrefix = false) {
   const selections = Array.isArray(market?.selections) ? market.selections : [];
@@ -1722,7 +1727,7 @@ function renderMatch(e) {
       <div class="sb-market-period-tabs" role="group" aria-label="Periode odds">
         ${availablePeriods.map(period => `<button type="button" class="sb-market-period-tab${period === activePeriod ? ' active' : ''}"
           data-match-period="${escapeHtml(period)}" aria-pressed="${period === activePeriod ? 'true' : 'false'}">
-          ${escapeHtml(MARKET_PERIOD_LABELS[period] || period)}
+          ${escapeHtml(MARKET_PERIOD_TAB_LABELS[period] || period)}
         </button>`).join('')}
       </div>
 
