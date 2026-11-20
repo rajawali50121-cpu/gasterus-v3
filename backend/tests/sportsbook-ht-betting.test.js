@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 Object.assign(process.env, {
   NODE_ENV: 'test',
   HT_BETTING_ENABLED: 'true',
+  SPORTRADAR_HT_RESULTS_ENABLED: 'true',
   DATABASE_URL: 'postgresql://user:pass@example.com/db',
   REDIS_URL: 'redis://example.com:6379',
   MEMBER_PROXY_SECRET: 'm'.repeat(48),
@@ -43,6 +44,7 @@ const leg = (type, label, line, period = '1H') => ({
 
 test('HT_BETTING_ENABLED is explicitly enabled for this test suite', () => {
   assert.equal(config.htBettingEnabled, true);
+  assert.equal(config.sportradarHtResultsEnabled, true);
 });
 
 test('HT markets become bettable behind flag while FT settlement policy remains unchanged', () => {
