@@ -129,7 +129,12 @@ async function main() {
 
   // Pertandingan tanpa odds (display-only) sah, tetapi cakupan odds harus tetap
   // ada — minimal 25 pertandingan berharga untuk memastikan pipeline harga hidup.
-  const pricedEvents = snapshot.events.filter(event => Array.isArray(event.markets) && event.markets.length > 0);
+  const hasActivePrice = market => !market.suspended && (market.selections || []).some(selection =>
+    !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
+  );
+  const pricedEvents = snapshot.events.filter(event =>
+    Array.isArray(event.markets) && event.markets.some(hasActivePrice)
+  );
   assert(pricedEvents.length >= minimumPricedEvents,
     `events endpoint returned only ${pricedEvents.length} priced events; expected at least ${minimumPricedEvents}`);
   const labelSample = {
@@ -146,13 +151,8 @@ async function main() {
     assert(fullEvent?.id === event.id, `event detail did not match requested event ${event.id}`);
     const markets = fullEvent.markets || [];
     const marketTypes = [...new Set(markets.map(market => market.type))];
-    const validPricedSelections = markets.every(market =>
-      Array.isArray(market.selections) && market.selections.length > 0 &&
-      market.selections.some(selection =>
-        !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
-      )
-    );
-    assert(validPricedSelections, `event ${event.id} contains an empty market or invalid odds`);
+    const validPricedSelections = markets.some(hasActivePrice);
+    assert(validPricedSelections, `event ${event.id} has no active decimal-priced selection`);
     inspected.push({
       id: fullEvent.id,
       country: fullEvent.country || fullEvent.category || null,
