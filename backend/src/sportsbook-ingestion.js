@@ -294,7 +294,9 @@ export async function storeMergedSportsbookSnapshot(redisClient, incoming, {
         }
       }
 
-      const merged = mergeSportsbookSnapshots(incoming, previous, { now, maxAgeSeconds: maxAgeSeconds });
+      // Validate/quarantine the sender batch before mergeSportsbookSnapshots reads fixture fields.
+      const validatedIncoming = validateSportsbookSnapshot(incoming, { now, maxAgeSeconds: maxAgeSeconds });
+      const merged = mergeSportsbookSnapshots(validatedIncoming.snapshot, previous, { now, maxAgeSeconds: maxAgeSeconds });
       const validatedMerged = validateSportsbookSnapshot(merged, { now, maxAgeSeconds: maxAgeSeconds });
       const safeMerged = validatedMerged.snapshot;
       const serializedSnapshot = JSON.stringify(safeMerged);
