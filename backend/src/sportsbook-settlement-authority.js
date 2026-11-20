@@ -1,3 +1,5 @@
+import { config } from './config.js';
+
 function cleanSource(value) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -7,13 +9,14 @@ export function eventSettlementAuthority(event) {
     ? event._settlementReadySources
     : (Array.isArray(event?._sources) ? event._sources : []);
   const sources = [...new Set(readySources.map(cleanSource).filter(Boolean))];
-  // Sportradar Odds Comparison is an odds feed, not an independent results authority.
-  // FT settlement remains operator-authorized; HT settlement remains unavailable.
+  // Sportradar is the unified event + market + odds source. HT is independently
+  // enabled by an explicit flag; FT remains operator-authorized and unchanged.
   const automaticFt = false;
+  const htEnabled = config.htBettingEnabled && sources.includes('sportradar');
   const manualFt = sources.includes('manual-ops');
   return {
     ft: automaticFt || manualFt,
-    ht: false,
+    ht: htEnabled,
     automaticFt,
     manualFt,
     mode: automaticFt ? 'AUTOMATIC' : manualFt ? 'MANUAL_FALLBACK' : 'NONE',
