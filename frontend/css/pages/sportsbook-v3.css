@@ -3407,3 +3407,241 @@ body.sb-page {
 @media (prefers-reduced-motion: reduce) {
   .sb-premium .sb-odd-cell { transition:none; }
 }
+
+/* Mobile viewport and hierarchy correction — kept in the canonical stylesheet. */
+html,
+body.sb-page {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+}
+.sb-premium,
+.sb-premium * {
+  min-width: 0;
+}
+.sb-premium .sb-header-inner,
+.sb-premium .sb-subheader-inner,
+.sb-premium .sb-category-inner,
+.sb-premium .sb-action-inner,
+.sb-premium .sb-main,
+.sb-premium .sb-layout,
+.sb-premium .sb-content,
+.sb-premium .sb-events,
+.sb-premium .sb-league-group,
+.sb-premium .sb-match-card {
+  max-width: 100%;
+}
+.sb-premium .sb-board-heading h1 {
+  color: #f0d17c;
+  text-shadow: 0 1px 2px rgba(0,0,0,.35);
+}
+.sb-premium .sb-board-eyebrow {
+  color: #d8b75c;
+}
+.sb-premium .sb-board-timezone {
+  color: #bdcdbf;
+}
+.sb-premium .sb-match-info,
+.sb-premium .sb-match-market-head,
+.sb-premium .sb-market-grid,
+.sb-premium .sb-matrix-table {
+  min-width: 0;
+  max-width: 100%;
+}
+.sb-premium .sb-card-banner,
+.sb-premium .sb-match-meta-row {
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.sb-premium .sb-provider-stack {
+  min-width: 0;
+  max-width: 100%;
+  justify-content: flex-start;
+}
+.sb-premium .sb-teams-row {
+  min-width: 0;
+  width: 100%;
+}
+.sb-premium .sb-score-col {
+  width: 100%;
+  padding-top: 2px;
+  color: #d8e5da;
+}
+.sb-premium .sb-match-kickoff {
+  color: #d5e6d8;
+}
+.sb-premium .sb-match-date {
+  color: #b2c4b5;
+}
+.sb-premium .sb-market-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.sb-premium .sb-market-card,
+.sb-premium .sb-market-outcomes,
+.sb-premium .sb-market-outcome,
+.sb-premium .sb-odd-cell {
+  min-width: 0;
+  max-width: 100%;
+}
+.sb-premium .sb-slip-sheet,
+.sb-premium .sb-slip-sheet-head,
+.sb-premium .sb-slip-sheet-tabs,
+.sb-premium .sb-slip-sheet-body {
+  min-width: 0;
+  max-width: 100%;
+}
+@media (max-width: 860px) {
+  .sb-premium .sb-header-inner {
+    display: grid;
+    grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);
+    align-items: center;
+    gap: 5px;
+    padding-inline: 8px;
+  }
+  .sb-premium .sb-header-left {
+    grid-column: 1;
+    min-width: 0;
+    gap: 5px;
+  }
+  .sb-premium .sb-logo-center {
+    grid-column: 2;
+    margin: 0;
+    justify-content: center;
+  }
+  .sb-premium .sb-header-right {
+    grid-column: 3;
+    justify-content: flex-end;
+    min-width: 0;
+    margin: 0;
+  }
+  .sb-premium .sb-balance-box {
+    min-width: 0;
+    max-width: 100%;
+    gap: 3px;
+    padding-inline: 5px;
+    font-size: 9px;
+  }
+  .sb-premium .sb-balance-val {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 76px;
+  }
+  .sb-premium .sb-subheader-inner {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 7px;
+    padding: 6px 10px;
+  }
+  .sb-premium .sb-sport-selector {
+    flex: 1 1 150px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .sb-premium .sb-parlay-pill {
+    flex: 0 0 auto;
+    max-width: 100%;
+    padding-inline: 10px;
+  }
+  .sb-premium .sb-action-inner {
+    display: grid;
+    grid-template-columns: auto auto minmax(0,1fr);
+    gap: 6px;
+    padding: 7px 8px;
+  }
+  .sb-premium .sb-search-wrap {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+  .sb-premium .sb-odds-format {
+    min-width: 0;
+    padding-inline: 3px;
+  }
+  .sb-premium .sb-rt-status {
+    justify-self: end;
+    min-width: 0;
+    margin: 0;
+  }
+  .sb-premium .sb-main {
+    padding: 10px 8px calc(82px + env(safe-area-inset-bottom,0px));
+  }
+  .sb-premium .sb-layout {
+    grid-template-columns: minmax(0,1fr);
+  }
+  .sb-premium .sb-match-card {
+    display: grid;
+    grid-template-columns: minmax(0,1fr);
+    overflow: hidden;
+  }
+  .sb-premium .sb-match-info {
+    grid-column: 1;
+    grid-row: auto;
+    padding: 10px;
+    border-right: 0;
+  }
+  .sb-premium .sb-match-market-head,
+  .sb-premium .sb-matrix-table,
+  .sb-premium .sb-detail-markets-wrapper,
+  .sb-premium .sb-card-footer {
+    grid-column: 1;
+    width: 100%;
+  }
+  .sb-premium .sb-slip-sheet {
+    left: 0;
+    right: 0;
+    bottom: calc(58px + env(safe-area-inset-bottom,0px));
+    width: 100%;
+    max-width: 100vw;
+    max-height: min(76dvh, 620px);
+    padding-bottom: env(safe-area-inset-bottom,0px);
+  }
+  .sb-premium .sb-slip-sheet-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 10px 0;
+  }
+  .sb-premium .sb-slip-sheet-tabs {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: repeat(3,minmax(0,1fr));
+    gap: 3px;
+    padding: 3px;
+  }
+  .sb-premium .sb-slip-tab {
+    min-width: 0;
+    min-height: 36px;
+    justify-content: center;
+    gap: 3px;
+    padding: 6px 4px;
+    font-size: 10px;
+  }
+  .sb-premium .sb-slip-sheet-right {
+    flex: 0 0 auto;
+  }
+  .sb-premium .sb-slip-sheet-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    padding: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+@media (max-width: 520px) {
+  .sb-premium .sb-main { padding-inline: 6px; }
+  .sb-premium .sb-market-grid { grid-template-columns: minmax(0,1fr); }
+  .sb-premium .sb-match-meta-row { padding-inline: 9px; }
+  .sb-premium .sb-team-col,
+  .sb-premium .sb-team-col.away { width: 100%; }
+}
+@media (max-width: 360px) {
+  .sb-premium .sb-header-inner { grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); gap: 3px; padding-inline: 5px; }
+  .sb-premium .sb-logo-img.sb-logo-v2 { max-width: 92px; }
+  .sb-premium .sb-balance-box { font-size: 8px; }
+  .sb-premium .sb-slip-tab { font-size: 9px; }
+}
