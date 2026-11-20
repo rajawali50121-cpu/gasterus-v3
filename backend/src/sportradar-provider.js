@@ -240,7 +240,12 @@ function periodFromMarket(name, metadata = {}) {
     const period = classify(candidate);
     if (period) return period;
   }
-  // The provider's unqualified core match markets are full-time by convention.
+  // Sportradar Odds Comparison uses generic names such as "handicap" and
+  // "handicap {hcp}". marketType() needs outcome count to classify those,
+  // but period detection does not have that context. Without this explicit
+  // fallback they become UNCLASSIFIED and the FT feed drops every AH market.
+  if (/\bhandicap\b|\bspread\b/.test(value)) return 'FT';
+  // The provider's other unqualified core match markets are full-time by convention.
   if (marketType(value) !== 'OTHER') return 'FT';
   return 'UNCLASSIFIED';
 }
