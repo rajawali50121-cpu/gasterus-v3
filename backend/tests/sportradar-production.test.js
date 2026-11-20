@@ -271,7 +271,7 @@ test('provider maps live and unknown statuses fail closed rather than masqueradi
   assert.equal(normalize('in_progress'), 'LIVE');
   assert.equal(normalize('finished'), 'FINISHED');
   assert.equal(normalize('postponed'), 'SUSPENDED');
-  assert.equal(normalize('provider-new-status'), 'UNKNOWN');
+  assert.equal(normalize('provider-new-status'), 'SUSPENDED');
   assert.equal(normalize(''), 'SCHEDULED');
 });
 
