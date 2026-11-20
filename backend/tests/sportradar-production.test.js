@@ -109,7 +109,6 @@ function apiEvent(index) {
 
 test('Sportradar pagination imports 121 fixtures and retains every bookmaker and supported/unknown market', async () => {
   __sportradarNormalizer.resetFeedState();
-  __sportradarNormalizer.resetFeedState();
   const wibToday = todayWibKey();
   const scheduleDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
   const allItems = Array.from({ length: 121 }, (_, index) => apiEvent(index));
@@ -162,9 +161,9 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(removedBookMarket.selections[0].removed, true);
   assert.equal(removedBookMarket.isLive, true, 'documented is_live market flag is preserved');
   assert.equal(removedBookMarket.providerRemoved, true);
+  const liveOnlyMarket = first.markets.find(market => market.sourceMarketId === 'market-live-only-0');
   assert.equal(liveOnlyMarket?.providerRemoved, false, 'is_live is not a provider removal signal');
   assert.equal(liveOnlyMarket?.suspensionReason, 'live_market_outside_prematch_scope');
-  const liveOnlyMarket = first.markets.find(market => market.sourceMarketId === 'market-live-only-0');
   assert.ok(liveOnlyMarket?.suspended, 'live markets are blocked by the Prematch adapter scope');
   assert.ok(liveOnlyMarket?.selections.every(selection => selection.suspended), 'live selections are blocked by the Prematch adapter scope');
 
@@ -190,6 +189,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
 });
 
 test('Sportradar partial page response is rejected rather than published as a complete snapshot', async () => {
+  __sportradarNormalizer.resetFeedState();
   const wibToday = todayWibKey();
   const scheduleDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
   globalThis.fetch = async input => {
@@ -293,7 +293,7 @@ test('Sportradar incremental polling refreshes only events reported by the chang
         markets: event.markets
       }), text: async () => '' };
     }
-    const date = url.pathname.match(/schedules\\/(\\d{4}-\\d{2}-\\d{2})\\//)?.[1];
+    const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const items = date === scheduleDate ? [apiEvent(0)] : [];
     return { ok: true, status: 200, headers: new Headers({ 'x-max-results': String(items.length) }), json: async () => ({
       generated_at: '2026-11-20T10:00:00Z',
