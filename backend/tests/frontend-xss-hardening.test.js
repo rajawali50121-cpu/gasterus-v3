@@ -39,11 +39,14 @@ test('halaman pasang wager gagal tertutup dan tidak pernah membuat angka palsu',
   assert.doesNotMatch(mp, /using fallback data/);
   assert.doesNotMatch(mp, /period:\s*'2982'/);
   assert.doesNotMatch(mp, /closeAt:\s*new Date\(/);
-  // Validasi yang menentukan boleh atau tidak dipasang wajib ada.
-  assert.match(mp, /function isMarketBettable/);
-  assert.match(mp, /bettingStatus \|\| ''\)\.toUpperCase\(\) !== 'OPEN'/);
-  assert.match(mp, /!String\(market\.period \|\| ''\)\.trim\(\)/);
-  assert.match(mp, /Number\.isFinite\(closeMs\) && closeMs > now/);
+  // Guard readiness dipisah agar aturan dapat diuji tanpa DOM.
+  assert.match(mp, /import \{ isMarketBettable \} from '\.\/market-readiness\.js'/);
+  const readiness = read('frontend/js/market-readiness.js');
+  assert.match(readiness, /function isMarketBettable/);
+  assert.match(readiness, /market\.authorityReady !== true/);
+  assert.match(readiness, /bettingStatus \|\| ''\)\.toUpperCase\(\) !== 'OPEN'/);
+  assert.match(readiness, /!String\(market\.period \|\| ''\)\.trim\(\)/);
+  assert.match(readiness, /Number\.isFinite\(closeMs\) && closeMs > now/);
   // Saat data gagal dimuat, pasar harus dinyatakan tidak tersedia.
   assert.match(mp, /bettingStatus: 'UNAVAILABLE'/);
   assert.match(mp, /Pasaran sedang tidak tersedia/);
