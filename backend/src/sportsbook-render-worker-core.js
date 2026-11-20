@@ -60,34 +60,41 @@ export function combineSportsbookProviderResults(providerResults, { maxEvents = 
   };
 }
 
-function isValidSportradarEvent(event) {
-  if (!event || typeof event !== 'object') return false;
-  if (typeof event.id !== 'string' || !event.id.trim()) return false;
-  if (typeof event.sport !== 'string' || !event.sport.trim()) return false;
-  if (event.league !== null && typeof event.league !== 'string') return false;
-  if (event.country !== null && (typeof event.country !== 'string' || !event.country.trim())) return false;
-  if (typeof event.startTime !== 'string' || !Number.isFinite(Date.parse(event.startTime))) return false;
-  if (!['SCHEDULED', 'LIVE', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID'].includes(event.status)) return false;
-  if (typeof event.live !== 'boolean') return false;
-  if (!event.home || typeof event.home.name !== 'string' || !event.home.name.trim()) return false;
-  if (!event.away || typeof event.away.name !== 'string' || !event.away.name.trim()) return false;
-  if (!Array.isArray(event.markets)) return false;
-  if (event._refs?.sportradar === undefined || !String(event._refs.sportradar).trim()) return false;
-  if (!Array.isArray(event._sources) || event._sources.length !== 1 || event._sources[0] !== 'sportradar') return false;
-  for (const market of event.markets) {
-    if (!market || typeof market.id !== 'string' || !market.id.trim()) return false;
-    if (typeof market.type !== 'string' || !market.type.trim()) return false;
-    if (typeof market.period !== 'string' || !market.period.trim()) return false;
-    if (market.source !== 'sportradar' || typeof market.suspended !== 'boolean') return false;
-    if (!Array.isArray(market.selections)) return false;
-    for (const selection of market.selections) {
-      if (!selection || typeof selection.key !== 'string' || !selection.key.trim()) return false;
-      if (typeof selection.label !== 'string' || !selection.label.trim()) return false;
-      if (!(selection.odds === null || selection.odds === undefined || Number.isFinite(selection.odds))) return false;
-      if (typeof selection.suspended !== 'boolean' || selection.source !== 'sportradar') return false;
+export function sportradarEventValidationProblems(event) {
+  const problems = [];
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return ['event:not-object'];
+  if (typeof event.id !== 'string' || !event.id.trim()) problems.push('event.id');
+  if (typeof event.sport !== 'string' || !event.sport.trim()) problems.push('event.sport');
+  if (event.league !== null && typeof event.league !== 'string') problems.push('event.league');
+  if (event.country !== null && (typeof event.country !== 'string' || !event.country.trim())) problems.push('event.country');
+  if (typeof event.startTime !== 'string' || !Number.isFinite(Date.parse(event.startTime))) problems.push('event.startTime');
+  if (!['SCHEDULED', 'LIVE', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID'].includes(event.status)) problems.push('event.status');
+  if (typeof event.live !== 'boolean') problems.push('event.live');
+  if (!event.home || typeof event.home.name !== 'string' || !event.home.name.trim()) problems.push('event.home.name');
+  if (!event.away || typeof event.away.name !== 'string' || !event.away.name.trim()) problems.push('event.away.name');
+  if (!Array.isArray(event.markets)) problems.push('event.markets');
+  if (event._refs?.sportradar === undefined || !String(event._refs.sportradar).trim()) problems.push('event._refs.sportradar');
+  if (!Array.isArray(event._sources) || event._sources.length !== 1 || event._sources[0] !== 'sportradar') problems.push('event._sources');
+  for (const [marketIndex, market] of (Array.isArray(event.markets) ? event.markets : []).entries()) {
+    const prefix = 'markets[' + marketIndex + ']';
+    if (!market || typeof market !== 'object' || Array.isArray(market)) { problems.push(prefix + ':not-object'); continue; }
+    if (typeof market.id !== 'string' || !market.id.trim()) problems.push(prefix + '.id');
+    if (typeof market.type !== 'string' || !market.type.trim()) problems.push(prefix + '.type');
+    if (typeof market.period !== 'string' || !market.period.trim()) problems.push(prefix + '.period');
+    if (market.source !== 'sportradar') problems.push(prefix + '.source');
+    if (typeof market.suspended !== 'boolean') problems.push(prefix + '.suspended');
+    if (!Array.isArray(market.selections)) { problems.push(prefix + '.selections'); continue; }
+    for (const [selectionIndex, selection] of market.selections.entries()) {
+      const selectionPrefix = prefix + '.selections[' + selectionIndex + ']';
+      if (!selection || typeof selection !== 'object' || Array.isArray(selection)) { problems.push(selectionPrefix + ':not-object'); continue; }
+      if (typeof selection.key !== 'string' || !selection.key.trim()) problems.push(selectionPrefix + '.key');
+      if (typeof selection.label !== 'string' || !selection.label.trim()) problems.push(selectionPrefix + '.label');
+      if (!(selection.odds === null || selection.odds === undefined || Number.isFinite(selection.odds))) problems.push(selectionPrefix + '.odds');
+      if (typeof selection.suspended !== 'boolean') problems.push(selectionPrefix + '.suspended');
+      if (selection.source !== 'sportradar') problems.push(selectionPrefix + '.source');
     }
   }
-  return true;
+  return problems;
 }
 
 export async function buildSportsbookRenderSnapshot({
@@ -115,36 +122,50 @@ export async function buildSportsbookRenderSnapshot({
   }
 
   const combined = combineSportsbookProviderResults([result], { maxEvents });
-  const providerResults = combined.providerResults.map(providerResult => ({
-    ...providerResult,
-    events: providerResult.events.map(event => {
-      if (!isValidSportradarEvent(event)) {
-        throw new Error('Sportradar event rejected before publish: ' + JSON.stringify({
-          provider: providerResult.provider,
-          id: event?.id || null,
-          reason: 'invalid-structure'
-        }));
+  const invalidEvents = [];
+  const providerResults = combined.providerResults.map(providerResult => {
+    const events = [];
+    for (const event of providerResult.events) {
+      const problems = sportradarEventValidationProblems(event);
+      if (problems.length) {
+        invalidEvents.push({ id: event?.id || null, problems });
+        continue;
       }
-      return {
+      events.push({
         ...event,
         _sources: ['sportradar'],
         _refs: { sportradar: event._refs.sportradar }
-      };
-    })
-  }));
+      });
+    }
+    return { ...providerResult, events };
+  });
+  const validEventCount = providerResults.reduce((sum, providerResult) => sum + providerResult.events.length, 0);
+  const invalidLimit = Math.max(1, Math.floor(combined.eventCount * 0.02));
+  if (validEventCount === 0 && combined.eventCount > 0) {
+    throw new Error('No Sportradar events passed structural validation: ' + JSON.stringify(invalidEvents.slice(0, 10)));
+  }
+  if (invalidEvents.length > invalidLimit) {
+    throw new Error('Sportradar snapshot quarantined because invalid-event count exceeded safety threshold: ' + JSON.stringify({
+      invalidCount: invalidEvents.length,
+      invalidLimit,
+      sample: invalidEvents.slice(0, 10)
+    }));
+  }
 
   return {
     schemaVersion: 1,
     generatedAt: new Date(now ?? Date.now()).toISOString(),
     providerResults,
-    eventCount: combined.eventCount,
-    ...(combined.truncatedEventCount > 0 ? {
-      diagnostics: {
+    eventCount: validEventCount,
+    diagnostics: {
+      ...(combined.truncatedEventCount > 0 ? {
         eventLimit: {
           dataTruncated: true,
           omittedUniqueEvents: combined.truncatedEventCount
         }
-      }
-    } : {})
+      } : {}),
+      invalidEventCount: invalidEvents.length,
+      invalidEvents: invalidEvents.slice(0, 20)
+    }
   };
 }
