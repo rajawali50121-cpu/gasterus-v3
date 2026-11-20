@@ -396,7 +396,7 @@ export async function acceptSportsbookSnapshot(request, {
   }
   const validated = validateSportsbookSnapshot(snapshot, { now, maxAgeSeconds });
   snapshot = validated.snapshot;
-  serializedSnapshot = JSON.stringify(snapshot);
+  // Keep the original signed bytes intact; the stored record's HMAC covers the sender payload.
   await storeSnapshot(snapshot, serializedSnapshot, {
     timestamp,
     signature,
