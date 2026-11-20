@@ -140,7 +140,8 @@ function normalizedEventStatus(value) {
   if (['live', 'in_progress', 'inprogress', 'started', '1st_period', '2nd_period', 'period_1', 'period_2', '1st_half', '2nd_half', 'first_half', 'second_half', 'halftime', 'half_time', 'extra_time', 'overtime', 'penalties', 'penalty_shootout', 'break'].includes(status)) return 'LIVE';
   if (['cancelled', 'canceled', 'abandoned', 'postponed', 'suspended', 'interrupted'].includes(status)) return 'SUSPENDED';
   if (['not_started', 'scheduled', 'pre_match', 'prematch', 'fixture', ''].includes(status)) return 'SCHEDULED';
-  return 'UNKNOWN';
+  // Unknown provider statuses must fail closed as suspended, not invalidate the entire snapshot.
+  return 'SUSPENDED';
 }
 function periodScoresFromStatus(status) {
   const rawRows = status?.period_scores?.period_score ?? status?.period_scores ?? [];
