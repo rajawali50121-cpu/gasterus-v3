@@ -29,13 +29,21 @@ const LIFECYCLE_GENERATION = 'sportradar-worker-only-v3';
 const CACHE_KEY = 'sportsbook:aggregated-feed:v17';
 const LIFECYCLE_KEY = 'sportsbook:provider-lifecycle:v6';
 const MARKET_LIFECYCLE_KEY = 'sportsbook:market-lifecycle:v6';
-const REFRESH_MS = config.sportsFeedRefreshSeconds * 1000;
-const STALE_MS = config.sportsFeedStaleSeconds * 1000;
+// Guard config values at the consumer too: undefined/NaN would make Redis PX invalid
+// and would disable stale-cache comparisons (NaN comparisons are always false).
+const REFRESH_SECONDS = Number.isSafeInteger(Number(config.sportsFeedRefreshSeconds))
+  ? Math.max(15, Number(config.sportsFeedRefreshSeconds))
+  : 90;
+const STALE_SECONDS = Number.isSafeInteger(Number(config.sportsFeedStaleSeconds))
+  ? Math.max(60, Number(config.sportsFeedStaleSeconds))
+  : 900;
+const REFRESH_MS = REFRESH_SECONDS * 1000;
+const STALE_MS = STALE_SECONDS * 1000;
 // Cross-process single-flight (worker & core are SEPARATE Node processes; the module-level
 // `inFlight` promise only coalesces callers inside ONE process). One SET NX + TTL lock makes
 // sure at most one provider fan-out runs across the whole deployment at any time.
 const REFRESH_LOCK_KEY = 'sportsbook:feed-refresh-lock:v1';
-const REFRESH_LOCK_TTL_MS = Math.max(180000, REFRESH_MS);
+const REFRESH_LOCK_TTL_MS = Math.max(180000, Math.ceil(REFRESH_MS));
 // Keep request-triggered refresh contention well below the 30s proxy timeout.
 const REFRESH_LOCK_WAIT_MS = 5000;
 const REFRESH_LOCK_RENEW_MS = 60000;
