@@ -107,6 +107,24 @@ test('Sportradar maps the same three core market types for FT and HT', () => {
   }
 });
 
+test('Sportradar reads HT/FT period from provider metadata when market name is generic', () => {
+  const event = { id: 'sr-explicit-period', home: { name: 'Home' }, away: { name: 'Away' } };
+  const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [
+    { id: 'ah-ht', name: 'Asian Handicap', period: '1H', books: [{ id: 'b1', outcomes: [
+      { id: 'h1', name: 'Home -0.5', odds_decimal: '1.90' },
+      { id: 'a1', name: 'Away +0.5', odds_decimal: '1.90' }
+    ] }] },
+    { id: 'ou-ht', name: 'Over/Under', specifiers: { period: 'first_half' }, books: [{ id: 'b1', outcomes: [
+      { id: 'o1', name: 'Over 1.0', odds_decimal: '1.88' },
+      { id: 'u1', name: 'Under 1.0', odds_decimal: '1.92' }
+    ] }] }
+  ] });
+  assert.ok(normalized.markets.some(m => m.type === 'HANDICAP' && m.period === '1H'
+    && m.selections.some(selection => selection.odds === 1.9)));
+  assert.ok(normalized.markets.some(m => m.type === 'TOTALS' && m.period === '1H'
+    && m.selections.some(selection => selection.odds === 1.88)));
+});
+
 test('Sportradar normalizes HT/FT combo as one priced market', () => {
   const event = { id: 'sr-test', home: { name: 'Home Team' }, away: { name: 'Away Team' } };
   const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [{
