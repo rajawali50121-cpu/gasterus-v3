@@ -227,20 +227,22 @@ function periodFromMarket(name, metadata = {}) {
     : clean(item, 120).toLowerCase()).filter(Boolean);
 
   const classify = candidate => {
-    if (/half.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\\bht\\s*[\\/\\-]?\\s*ft\\b/.test(candidate)) return 'HT_FT';
-    if (/second.?half|2nd.?half|second.?period|2nd.?period|\\b2h\\b|\\bht2\\b|period\\s*2/.test(candidate)) return '2H';
-    if (/first.?half|1st.?half|half.?time|first.?period|1st.?period|\\b1h\\b|\\bht\\b|period\\s*1/.test(candidate)) return '1H';
-    if (/full.?time|full.?match|match.?time|regular.?time|\\bft\\b/.test(candidate)) return 'FT';
+    if (/half.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[\/-]?\s*ft\b/.test(candidate)) return 'HT_FT';
+    if (/second.?half|2nd.?half|second.?period|2nd.?period|\b2h\b|\bht2\b|period\s*2/.test(candidate)) return '2H';
+    if (/first.?half|1st.?half|half.?time|first.?period|1st.?period|\b1h\b|\bht\b|period\s*1/.test(candidate)) return '1H';
+    if (/full.?time|full.?match|match.?time|regular.?time|\bft\b|\bmatch\b/.test(candidate)) return 'FT';
     return null;
   };
 
-  // Specific market-name periods outrank generic provider metadata such as "match".
+  // A named first-half market always wins over generic metadata such as "match".
   const namedPeriod = classify(value);
   if (namedPeriod) return namedPeriod;
   for (const candidate of candidates) {
     const period = classify(candidate);
     if (period) return period;
   }
+  // The provider's unqualified core match markets are full-time by convention.
+  if (marketType(value) !== 'OTHER') return 'FT';
   return 'UNCLASSIFIED';
 }
 function selectionLabel(outcome, event, type) {
