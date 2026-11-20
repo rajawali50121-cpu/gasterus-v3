@@ -499,7 +499,8 @@ test('primary Asian Handicap slot selects a complete priced line from multi-line
   const handicap = primaryMarketColumns(event, 'FT').find(item => item.type === 'HANDICAP');
   assert.equal(handicap.outcomes.length, 2);
   assert.equal(handicap.outcomes.every(([, selection]) => Number(selection?.odds) > 1), true);
-  assert.equal(new Set(handicap.outcomes.map(([, selection]) => selection.line)).size, 2);
+  assert.deepEqual(handicap.outcomes.map(([label]) => label), ['1', '2']);
+  assert.equal(Math.abs(handicap.outcomes[0][1].line), Math.abs(handicap.outcomes[1][1].line));
 });
 
 test('mobile sportsbook CSS forces full-width cards and a two-column compact period switcher', () => {
