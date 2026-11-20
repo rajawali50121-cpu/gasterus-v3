@@ -265,7 +265,9 @@ function normalizeOdds(event, raw) {
   const diagnostics = {
     marketsSeen: 0, booksSeen: 0, outcomesSeen: 0,
     removedBooksRetained: 0, removedOutcomesRetained: 0,
-    outcomesWithoutDecimalOddsRetained: 0
+    outcomesWithoutDecimalOddsRetained: 0,
+    periodCounts: {},
+    periodSamples: []
   };
   const markets = [];
   for (const market of (Array.isArray(raw?.markets) ? raw.markets : [])) {
@@ -278,6 +280,16 @@ function normalizeOdds(event, raw) {
       Math.max(maximum, Array.isArray(book?.outcomes) ? book.outcomes.length : 0), 0);
     const type = marketType(marketName, outcomeCount);
     const period = periodFromMarket(marketName, market);
+    diagnostics.periodCounts[period] = (diagnostics.periodCounts[period] || 0) + 1;
+    if (diagnostics.periodSamples.length < 12) {
+      diagnostics.periodSamples.push({
+        marketId,
+        marketName,
+        normalizedPeriod: period,
+        providerPeriod: market.period ?? market.period_name ?? market.period_id ?? null,
+        specifiers: market.specifiers ?? null
+      });
+    }
     const marketSourceData = Object.fromEntries(Object.entries(market).filter(([key]) => key !== 'books'));
 
     // The API's removed lifecycle is on book/outcome, not a reason to erase history.
@@ -392,7 +404,9 @@ export async function fetchSportradar({
     eventsSkipped: {}, odds: {
       marketsSeen: 0, booksSeen: 0, outcomesSeen: 0,
       removedBooksRetained: 0, removedOutcomesRetained: 0,
-      outcomesWithoutDecimalOddsRetained: 0
+      outcomesWithoutDecimalOddsRetained: 0,
+      periodCounts: {},
+      periodSamples: []
     }
   };
 
@@ -431,7 +445,17 @@ export async function fetchSportradar({
           seenIds.add(event.id);
           const odds = normalizeOdds(event, item);
           event.markets = odds.markets;
-          for (const key of Object.keys(diagnostics.odds)) diagnostics.odds[key] += odds.diagnostics[key] || 0;
+          for (const key of Object.keys(diagnostics.odds)) {
+            if (key === 'periodCounts') {
+              for (const [period, count] of Object.entries(odds.diagnostics.periodCounts || {})) {
+                diagnostics.odds.periodCounts[period] = (diagnostics.odds.periodCounts[period] || 0) + count;
+              }
+            } else if (key === 'periodSamples') {
+              diagnostics.odds.periodSamples.push(...(odds.diagnostics.periodSamples || []).slice(0, Math.max(0, 20 - diagnostics.odds.periodSamples.length)));
+            } else {
+              diagnostics.odds[key] += odds.diagnostics[key] || 0;
+            }
+          }
           allEvents.push(event);
           diagnostics.eventsAccepted += 1;
         }
