@@ -1556,13 +1556,19 @@ function renderOddCell(e, m, s, lineOverride) {
   if (!m) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
   }
-  if (m.suspended || s?.suspended) {
-    return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Ditangguhkan</span></div>`;
-  }
   if (!s) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
   }
   const decOdds = Number(s.odds);
+  if (m.oddsDisplayOnly === true) {
+    if (!Number.isFinite(decOdds) || decOdds <= 1) {
+      return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Belum tersedia</span></div>`;
+    }
+    return `<div class="sb-odd-cell disabled sb-odd-cell-readonly" aria-disabled="true" title="Odds HT ditampilkan untuk informasi; taruhan HT belum diizinkan"><span class="sb-cell-odds">${escapeHtml(formatOdds(decOdds, oddsFormat))}</span><small>HT · informasi saja</small></div>`;
+  }
+  if (m.suspended || s?.suspended) {
+    return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Ditangguhkan</span></div>`;
+  }
   if (!Number.isFinite(decOdds)) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Belum tersedia</span></div>`;
   }
