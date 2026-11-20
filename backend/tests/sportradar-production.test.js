@@ -117,16 +117,29 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
     if (url.pathname.endsWith('/sports.json')) {
       return { ok: true, status: 200, headers: new Headers(), json: async () => ({ generated_at: '2026-11-17T18:59:00Z', sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
     }
-    const date = url.pathname.split('/schedules/')[1]?.split('/')[0];
-    const start = Number(url.searchParams.get('start') || 0);
-    calls.push({ date, start });
-    const items = date === scheduleDate ? allItems.slice(start, start + 50) : [];
-    const maxResults = date === scheduleDate ? allItems.length : 0;
+    if (url.pathname.includes('/schedules/')) {
+      const date = url.pathname.split('/schedules/')[1]?.split('/')[0];
+      const start = Number(url.searchParams.get('start') || 0);
+      calls.push({ date, start });
+      const items = date === scheduleDate ? allItems.slice(start, start + 50).map(item => ({ sport_event: item.sport_event })) : [];
+      const maxResults = date === scheduleDate ? allItems.length : 0;
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'x-max-results': String(maxResults) }),
+        json: async () => ({ generated_at: '2026-11-17T19:00:00Z', schedules: items }),
+        text: async () => ''
+      };
+    }
+    const eventId = url.pathname.match(/sport_events\/(sr:sport_event:bulk-\d+)\//)?.[1];
+    const index = Number(eventId?.split('-').at(-1));
+    const item = allItems[index];
+    if (!item) throw new Error(`unexpected market endpoint: ${url.pathname}`);
     return {
       ok: true,
       status: 200,
-      headers: new Headers({ 'x-max-results': String(maxResults) }),
-      json: async () => ({ generated_at: '2026-11-17T19:00:00Z', sport_schedule_sport_event_markets: items }),
+      headers: new Headers(),
+      json: async () => ({ generated_at: '2026-11-17T19:01:00Z', sport_event: item.sport_event, markets: item.markets }),
       text: async () => ''
     };
   };
@@ -135,7 +148,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(result.enabled, true);
   assert.equal(result.transportOk, true);
   assert.equal(result.events.length, 121);
-  assert.equal(calls.filter(call => call.date === undefined).length, 0);
+  assert.equal(result.diagnostics.marketBoardsFetched, 121);
   assert.equal(result.diagnostics.eventsAccepted, 121);
   assert.equal(calls.filter(call => call.date === scheduleDate).length, 3);
   assert.equal(calls.filter(call => call.date === scheduleDate).map(call => call.start).join(','), '0,50,100');
@@ -146,6 +159,7 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.ok(first.markets.some(market => market.sourceMarketId === `market-1x2-0` && market.sourceMarketName === '1st half - 1x2' && market.period === '1H'));
   assert.equal(result.events[0].status, 'FINISHED', 'documented event statuses are retained instead of status-filtered');
   assert.equal(result.events[0].sourceData.generatedAt, '2026-11-17T19:00:00Z');
+  assert.equal(result.events[0].sourceData.marketGeneratedAt, '2026-11-17T19:01:00Z');
   assert.equal(result.diagnostics.sportsFeedGeneratedAt, '2026-11-17T18:59:00Z');
   assert.equal(result.events[0].replacedBy, 'sr:sport_event:replacement-0');
   assert.ok(first.markets.some(market => market.type === 'TOTALS'));
@@ -195,12 +209,12 @@ test('Sportradar partial page response is rejected rather than published as a co
     const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
     const start = Number(url.searchParams.get('start') || 0);
     if (date !== scheduleDate) {
-      return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '0' }), json: async () => ({ generated_at: '2026-11-17T19:00:00Z', sport_schedule_sport_event_markets: [] }), text: async () => '' };
+      return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '0' }), json: async () => ({ generated_at: '2026-11-17T19:00:00Z', schedules: [] }), text: async () => '' };
     }
     if (start > 0) {
-      return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '60' }), json: async () => ({ sport_schedule_sport_event_markets: [] }), text: async () => '' };
+      return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '60' }), json: async () => ({ schedules: [] }), text: async () => '' };
     }
-    return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '60' }), json: async () => ({ generated_at: '2026-11-17T19:00:00Z', sport_schedule_sport_event_markets: Array.from({ length: 50 }, (_, index) => apiEvent(index)) }), text: async () => '' };
+    return { ok: true, status: 200, headers: new Headers({ 'x-max-results': '60' }), json: async () => ({ generated_at: '2026-11-17T19:00:00Z', schedules: Array.from({ length: 50 }, (_, index) => ({ sport_event: apiEvent(index).sport_event })) }), text: async () => '' };
   };
   await assert.rejects(fetchSportradar({ daysAhead: 7 }), /empty page at offset 50 while x-max-results reports 60/);
 });
@@ -234,9 +248,12 @@ test('Sportradar removed lifecycle accepts documented boolean and string true va
     if (url.pathname.endsWith('/sports.json')) {
       return { ok: true, status: 200, headers: new Headers(), json: async () => ({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
     }
-    const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
-    const items = date === wibDate ? [event] : [];
-    return { ok: true, status: 200, headers: new Headers({ 'x-max-results': String(items.length) }), json: async () => ({ sport_schedule_sport_event_markets: items }), text: async () => '' };
+    if (url.pathname.includes('/schedules/')) {
+      const date = url.pathname.match(/schedules\/(\d{4}-\d{2}-\d{2})\//)?.[1];
+      const items = date === wibDate ? [{ sport_event: event.sport_event }] : [];
+      return { ok: true, status: 200, headers: new Headers({ 'x-max-results': String(items.length) }), json: async () => ({ schedules: items }), text: async () => '' };
+    }
+    return { ok: true, status: 200, headers: new Headers(), json: async () => ({ sport_event: event.sport_event, markets: event.markets }), text: async () => '' };
   };
   const result = await fetchSportradar({ daysAhead: 1 });
   const market = result.events[0].markets[0];
