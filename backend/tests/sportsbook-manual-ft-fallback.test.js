@@ -54,7 +54,7 @@ function event({ live = false, status = 'SCHEDULED', markets = [market('FT'), ma
   };
 }
 
-test('healthy Sportradar prematch FT prices get operator settlement only; HT stays suspended', () => {
+test('healthy Sportradar prematch FT and priced HT markets are bettable with explicit manual settlement', () => {
   const [merged] = mergeProviderEvents([{
     provider: 'sportradar',
     enabled: true,
@@ -62,7 +62,9 @@ test('healthy Sportradar prematch FT prices get operator settlement only; HT sta
   }], { enabled: true });
   assert.deepEqual(merged._settlementReadySources, ['sportradar', 'manual-ops']);
   assert.equal(merged.markets.find(item => item.period === 'FT').suspended, false);
-  assert.equal(merged.markets.find(item => item.period === '1H').suspended, true);
+  assert.equal(merged.markets.find(item => item.period === '1H').suspended, false);
+  assert.equal(merged.markets.find(item => item.period === '1H').oddsDisplayOnly, false);
+  assert.equal(merged._settlementMode, 'MANUAL_FT_HT_FALLBACK');
   const authority = eventSettlementAuthority(merged);
   assert.equal(authority.ft, true);
   assert.equal(authority.ht, false);
@@ -115,7 +117,7 @@ test('duplicate Sportradar fixture records preserve distinct bookmaker market pr
   assert.equal(merged.markets.length, 2);
 });
 
-test('manual settlement cannot fabricate automatic scores or HT authority', () => {
+test('manual operator HT betting never becomes automatic HT settlement authority', () => {
   const ftLeg = { market_period: 'FT', selection_label: 'Home', home_team: 'Arsenal', away_team: 'Chelsea', market_type: '1X2' };
   const htLeg = { market_period: '1H', selection_label: 'Home', home_team: 'Arsenal', away_team: 'Chelsea', market_type: '1X2' };
   const result = { status: 'FINISHED', homeScore: 2, awayScore: 0 };
