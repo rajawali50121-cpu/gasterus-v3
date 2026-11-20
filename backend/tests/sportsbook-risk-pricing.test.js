@@ -7,6 +7,7 @@ process.env.ADMIN_PROXY_SECRET ||= 'a'.repeat(40);
 process.env.OPS_INTERNAL_SECRET ||= 'o'.repeat(40);
 process.env.SESSION_HMAC_KEY ||= 's'.repeat(40);
 process.env.API_KEY_PEPPER ||= 'p'.repeat(40);
+process.env.SPORTSBOOK_RISK_REPRICING_ENABLED = 'true';
 const { applySportsbookRiskRepricing } = await import('../src/sportsbook-risk-pricing.js');
 
 function fixture() {
