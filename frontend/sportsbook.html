@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/loader-3d.css?v=20260925-1">
   <meta name="description" content="Sportsbook Gasterus dengan odds pertandingan dari provider, feed realtime, dan taruhan yang divalidasi server.">
+
   <link rel="stylesheet" href="/css/tokens.css?v=20261014-svg-ui-r1">
   <link rel="stylesheet" href="/css/base.css?v=20261014-svg-ui-r1">
   <link rel="stylesheet" href="/css/layout.css?v=20261014-svg-ui-r1">
@@ -16,7 +17,7 @@
   <link rel="stylesheet" href="/css/animations.css?v=20261012-animations-r1">
   <link rel="stylesheet" href="/css/mobile.css?v=20261014-svg-ui-r1">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="/css/pages/sportsbook-v3.css?v=20261120-mobile-market-r2">
+  <link rel="stylesheet" href="/css/pages/sportsbook-v3.css?v=20261102-max-speed-r1">
   <link rel="stylesheet" href="/css/pages/sportsbook-responsive-hotfix.css?v=20261120-responsive-r1">
   <meta property="og:title" content="GASTERUS Sportsbook | Pertandingan & Odds">
   <meta property="og:description" content="Jelajahi pertandingan, market, odds, dan betslip GASTERUS Sportsbook.">
@@ -34,6 +35,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script>
+  // Self-heal stale caches from old service workers
   if ('caches' in window) {
     caches.keys().then(function(keys) {
       keys.forEach(function(k) {
@@ -52,7 +54,9 @@
 </script>
 </head>
 <body class="sb-page sb-premium">
+
   <script type="module" src="/js/loader-3d.js?v=20260925-1"></script>
+  <!-- Header Top Bar -->
   <header class="sb-header">
     <div class="sb-header-inner">
       <div class="sb-header-left">
@@ -63,80 +67,325 @@
           <span class="sb-balance-val" id="header-balance">0.00</span>
         </div>
       </div>
+
       <div class="sb-logo-center">
-        <a href="/index.html"><span class="logo-shine-wrap"><img src="/assets/logo.png?v=20260912-logo-v4" alt="GASTERUS" class="sb-logo-img sb-logo-v2" fetchpriority="high" decoding="async"></span></a>
+        <a href="/index.html">
+          <span class="logo-shine-wrap"><img src="/assets/logo.png?v=20260912-logo-v4" alt="GASTERUS" class="sb-logo-img sb-logo-v2" fetchpriority="high" decoding="async"></span>
+        </a>
       </div>
+      
       <div class="sb-header-right">
         <div class="sb-coin-badge" title="Poin Bonus">
           <span class="sb-coin-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#coin"></use></svg></span>
           <span class="sb-coin-val">--</span>
           <span class="sb-mail-icon" title="Pesan">✉</span>
         </div>
-        <a href="/member.html" class="sb-user-avatar" id="header-username" title="Profil Member"><span class="sb-avatar-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#user"></use></svg></span></a>
+        <a href="/member.html" class="sb-user-avatar" id="header-username" title="Profil Member">
+          <span class="sb-avatar-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#user"></use></svg></span>
+        </a>
       </div>
     </div>
   </header>
+
+  <!-- Sub-Header: Sport & Mix Parlay -->
   <div class="sb-subheader">
     <div class="sb-subheader-inner">
       <div class="sb-sport-selector" id="sb-sport-dropdown-trigger">
         <span class="sb-breadcrumb">Olahraga › <strong id="current-sport-label">Semua Olahraga</strong></span>
         <span class="sb-chevron-down">▾</span>
-        <div class="sb-sport-menu" id="sb-sport-menu" hidden></div>
+        <div class="sb-sport-menu" id="sb-sport-menu" hidden>
+        </div>
       </div>
       <button type="button" class="sb-parlay-pill" id="btn-toggle-parlay">Mix Parlay</button>
     </div>
   </div>
+
+  <!-- Prematch-only category tabs (Semua, Hari Ini, Pasar Awal); live betting disabled -->
   <div class="sb-category-bar">
     <div class="sb-category-inner" id="sb-primary-tabs">
-      <button type="button" class="sb-cat-tab active" data-filter="all">Semua</button>
-      <button type="button" class="sb-cat-tab" data-filter="today">Hari Ini (Today)</button>
-      <button type="button" class="sb-cat-tab" data-filter="early">Akan Datang (Early/Upcoming)</button>
+      <button type="button" class="sb-cat-tab active" data-filter="all">
+        Semua
+      </button>
+      <button type="button" class="sb-cat-tab" data-filter="today">
+        Hari Ini (Today)
+      </button>
+      <button type="button" class="sb-cat-tab" data-filter="early">
+        Akan Datang (Early/Upcoming)
+      </button>
     </div>
   </div>
+
+  <!-- Action Bar: Tampilkan Liga & Filter -->
   <div class="sb-action-bar">
     <div class="sb-action-inner">
-      <button type="button" class="sb-btn-action sb-btn-league" id="btn-show-leagues"><span class="sb-icon-arrows">⇅</span> Tampilkan Liga</button>
-      <button type="button" class="sb-btn-action sb-btn-filter" id="btn-filter-toggle" aria-label="Tampilkan liga favorit" aria-pressed="false" title="Liga favorit"><span aria-hidden="true">★</span></button>
-      <div class="sb-search-wrap"><input type="search" id="sb-search" placeholder="Cari tim / liga…" autocomplete="off" aria-label="Cari tim atau liga"></div>
-      <label class="sb-odds-format"><span>Odds</span><select id="sb-odds-format" aria-label="Format odds"><option value="DECIMAL">Decimal</option><option value="INDONESIAN">Indo</option><option value="HONG_KONG">Hong Kong</option><option value="MALAY">Malay</option></select></label>
-      <div class="sb-rt-status" title="Status Feed"><span class="sb-rt-dot" id="rt-dot"></span><span id="rt-label">Connecting…</span></div>
+      <button type="button" class="sb-btn-action sb-btn-league" id="btn-show-leagues">
+        <span class="sb-icon-arrows">⇅</span> Tampilkan Liga
+      </button>
+      <button type="button" class="sb-btn-action sb-btn-filter" id="btn-filter-toggle" aria-label="Tampilkan liga favorit" aria-pressed="false" title="Liga favorit">
+        <span aria-hidden="true">★</span>
+      </button>
+      <div class="sb-search-wrap">
+        <input type="search" id="sb-search" placeholder="Cari tim / liga…" autocomplete="off" aria-label="Cari tim atau liga">
+      </div>
+      <label class="sb-odds-format">
+        <span>Odds</span>
+        <select id="sb-odds-format" aria-label="Format odds">
+          <option value="DECIMAL">Decimal</option>
+          <option value="INDONESIAN">Indo</option>
+          <option value="HONG_KONG">Hong Kong</option>
+          <option value="MALAY">Malay</option>
+        </select>
+      </label>
+      <div class="sb-rt-status" title="Status Feed">
+        <span class="sb-rt-dot" id="rt-dot"></span>
+        <span id="rt-label">Connecting…</span>
+      </div>
     </div>
   </div>
+
+  <!-- Navigation Drawer -->
   <div class="nav-drawer-backdrop" id="navBackdrop"></div>
   <nav class="nav-drawer" id="site-nav-drawer" aria-label="Main navigation">
-    <div class="nav-drawer-head"><span class="nav-drawer-title">Menu Gasterus</span><button type="button" class="nav-drawer-close" data-nav-close aria-label="Tutup Menu">✕</button></div>
+    <div class="nav-drawer-head">
+      <span class="nav-drawer-title">Menu Gasterus</span>
+      <button type="button" class="nav-drawer-close" data-nav-close aria-label="Tutup Menu">✕</button>
+    </div>
     <div class="nav-drawer-body nav-drawer-links">
-      <a class="nav-drawer-link" href="/index.html">Beranda</a><a class="nav-drawer-link" href="/member.html">Togel &amp; Slot</a><a class="nav-drawer-link active" href="/sportsbook.html">Sportsbook</a><a class="nav-drawer-link" href="/number-history.html">Hasil</a><a class="nav-drawer-link" href="/bet-history.html">Riwayat Taruhan</a><a class="nav-drawer-link" href="/notifications.html">Notifikasi</a><a class="nav-drawer-link" href="/wallet-ledger.html">Mutasi Saldo</a><a class="nav-drawer-link" href="/gaming-history.html">Riwayat Permainan</a><a class="nav-drawer-link" href="/cashout.html">Cash Out</a><a class="nav-drawer-link" href="/support.html">Pusat Bantuan</a><a class="nav-drawer-link" href="/deposit.html">Setor</a><a class="nav-drawer-link" href="/withdraw.html">Tarik</a><a class="nav-drawer-link" href="/promotion.html">Promo</a><a class="nav-drawer-link" href="/referral.html">Referral</a>
-      <div style="margin-top:16px;border-top:1px solid #1e293b;padding-top:12px"><a class="nav-drawer-link" href="/rules.html">Cara Bermain</a><a class="nav-drawer-link" href="/privacy.html">Privasi</a><a class="nav-drawer-link" href="/terms.html">Ketentuan</a></div>
+      <a class="nav-drawer-link" href="/index.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Beranda</a>
+      <a class="nav-drawer-link" href="/member.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Togel &amp; Slot</a>
+      <a class="nav-drawer-link active" href="/sportsbook.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Sportsbook</a>
+      <a class="nav-drawer-link" href="/number-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Hasil</a>
+      <a class="nav-drawer-link" href="/bet-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Riwayat Taruhan</a>
+      <a class="nav-drawer-link" href="/notifications.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Notifikasi</a>
+      <a class="nav-drawer-link" href="/wallet-ledger.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Mutasi Saldo</a>
+      <a class="nav-drawer-link" href="/gaming-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Riwayat Permainan</a>
+      <a class="nav-drawer-link" href="/cashout.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Cash Out</a>
+      <a class="nav-drawer-link" href="/support.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Pusat Bantuan</a>
+      <a class="nav-drawer-link" href="/deposit.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Setor</a>
+      <a class="nav-drawer-link" href="/withdraw.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Tarik</a>
+      <a class="nav-drawer-link" href="/promotion.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Promo</a>
+      <a class="nav-drawer-link" href="/referral.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Referral</a>
+      <div style="margin-top:16px; border-top:1px solid #1e293b; padding-top:12px;">
+        <a class="nav-drawer-link" href="/rules.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Cara Bermain</a>
+        <a class="nav-drawer-link" href="/privacy.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Privasi</a>
+        <a class="nav-drawer-link" href="/terms.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Ketentuan</a>
+      </div>
     </div>
   </nav>
+
+  <!-- League Selector Modal / Drawer -->
   <div class="sb-league-modal-backdrop" id="league-modal-backdrop" hidden>
-    <div class="sb-league-modal" id="league-modal"><div class="sb-league-modal-head"><span>Pilih Liga</span><button type="button" class="sb-close-btn" id="btn-close-league-modal">✕</button></div><div class="sb-league-modal-search"><input type="search" id="league-search-input" placeholder="Cari nama liga…"></div><div class="sb-league-modal-list" id="league-modal-list"></div><div class="sb-league-modal-actions"><button type="button" class="sb-btn sb-btn-ghost" id="btn-league-select-all">Pilih Semua</button><button type="button" class="sb-btn sb-btn-primary" id="btn-league-apply">Terapkan</button></div></div>
+    <div class="sb-league-modal" id="league-modal">
+      <div class="sb-league-modal-head">
+        <span>Pilih Liga</span>
+        <button type="button" class="sb-close-btn" id="btn-close-league-modal">✕</button>
+      </div>
+      <div class="sb-league-modal-search">
+        <input type="search" id="league-search-input" placeholder="Cari nama liga…">
+      </div>
+      <div class="sb-league-modal-list" id="league-modal-list"></div>
+      <div class="sb-league-modal-actions">
+        <button type="button" class="sb-btn sb-btn-ghost" id="btn-league-select-all">Pilih Semua</button>
+        <button type="button" class="sb-btn sb-btn-primary" id="btn-league-apply">Terapkan</button>
+      </div>
+    </div>
   </div>
+
   <main class="sb-main">
     <div class="sb-layout">
-      <aside class="sb-sidebar" id="sb-sidebar"><div class="sb-sidebar-title">Sepak Bola</div><nav id="sport-nav" class="sb-sport-nav" aria-label="Sport"></nav><div class="sb-sidebar-title sb-sidebar-sub">Liga &amp; Negara</div><nav id="league-nav" class="sb-league-nav" aria-label="Negara dan liga sepak bola"></nav><div class="sb-sidebar-status" id="sidebar-status"></div></aside>
+
+      <!-- LEFT: Desktop Sports / League nav -->
+      <aside class="sb-sidebar" id="sb-sidebar">
+        <div class="sb-sidebar-title">Sepak Bola</div>
+        <nav id="sport-nav" class="sb-sport-nav" aria-label="Sport"></nav>
+        <div class="sb-sidebar-title sb-sidebar-sub">Liga &amp; Negara</div>
+        <nav id="league-nav" class="sb-league-nav" aria-label="Negara dan liga sepak bola"></nav>
+        <div class="sb-sidebar-status" id="sidebar-status"></div>
+      </aside>
+
+      <!-- CENTER: Matches & Featured Live -->
       <section class="sb-content">
-        <div class="sb-board-heading"><div><span class="sb-board-eyebrow">SPORTSBOOK</span><h1>Pertandingan &amp; Odds</h1></div><div class="sb-board-heading-right"><label class="sb-odds-format-wrap" title="Format tampilan odds"><span class="sb-odds-format-label">Format Odds</span><select id="sb-odds-format" class="sb-odds-format-select" aria-label="Format tampilan odds"><option value="decimal">Decimal</option><option value="american">American</option><option value="hk">HK</option><option value="indo">Indo</option><option value="malay">Malay</option></select></label><span class="sb-board-timezone">Waktu pertandingan · WIB</span></div></div>
-        <div class="sb-feed-overview" id="sb-feed-overview" aria-live="polite"><div><strong id="sb-feed-status">Menghubungkan feed</strong><span id="sb-max-speed-status" class="sb-max-speed-status" data-state="connecting" aria-live="polite">MAX SPEED FEED · Menunggu sinkronisasi</span><span id="sb-feed-updated"></span></div><div><strong id="sb-feed-events-count">0</strong><span>Pertandingan</span></div><div><strong id="sb-feed-markets-count">0</strong><span>Pasar ber-odds</span></div></div>
-        <div id="sb-stale-banner" class="sb-stale-banner" hidden></div><div id="sb-error" class="sb-error" hidden></div>
-        <section class="sb-live-featured-section" id="sb-live-section" hidden><div class="sb-section-title"><span>Pantau Pertandingan Live</span></div><div class="sb-live-carousel" id="sb-live-carousel"></div></section>
-        <div id="sb-skeleton" class="sb-skeleton-list"></div><div id="sb-events" class="sb-events" aria-live="polite"></div>
-        <div id="sb-pagination" class="sb-events-load-more" aria-live="polite" aria-busy="false" hidden><p id="sb-pagination-stats">Menampilkan 0 dari 0 Pertandingan</p><button type="button" data-load-more-events>Muat Lebih Banyak Pertandingan</button></div><div id="sb-empty" class="sb-empty" hidden></div>
+        <div class="sb-board-heading">
+          <div>
+            <span class="sb-board-eyebrow">SPORTSBOOK</span>
+            <h1>Pertandingan &amp; Odds</h1>
+          </div>
+          <div class="sb-board-heading-right">
+            <label class="sb-odds-format-wrap" title="Format tampilan odds">
+              <span class="sb-odds-format-label">Format Odds</span>
+              <select id="sb-odds-format" class="sb-odds-format-select" aria-label="Format tampilan odds">
+                <option value="decimal">Decimal</option>
+                <option value="american">American</option>
+                <option value="hk">HK</option>
+                <option value="indo">Indo</option>
+                <option value="malay">Malay</option>
+              </select>
+            </label>
+            <span class="sb-board-timezone">Waktu pertandingan · WIB</span>
+          </div>
+        </div>
+        <div class="sb-feed-overview" id="sb-feed-overview" aria-live="polite">
+          <div><strong id="sb-feed-status">Menghubungkan feed</strong><span id="sb-max-speed-status" class="sb-max-speed-status" data-state="connecting" aria-live="polite">MAX SPEED FEED · Menunggu sinkronisasi</span><span id="sb-feed-updated"></span></div>
+          <div><strong id="sb-feed-events-count">0</strong><span>Pertandingan</span></div>
+          <div><strong id="sb-feed-markets-count">0</strong><span>Pasar ber-odds</span></div>
+        </div>
+        <div id="sb-stale-banner" class="sb-stale-banner" hidden></div>
+        <div id="sb-error" class="sb-error" hidden></div>
+
+        <!-- Featured Live Matches Section -->
+        <section class="sb-live-featured-section" id="sb-live-section" hidden>
+          <div class="sb-section-title">
+            <span>Pantau Pertandingan Live</span>
+          </div>
+          <div class="sb-live-carousel" id="sb-live-carousel"></div>
+        </section>
+
+        <!-- Skeleton -->
+        <div id="sb-skeleton" class="sb-skeleton-list"></div>
+
+        <!-- Main Events Feed -->
+        <div id="sb-events" class="sb-events" aria-live="polite"></div>
+        <div id="sb-pagination" class="sb-events-load-more" aria-live="polite" aria-busy="false" hidden>
+          <p id="sb-pagination-stats">Menampilkan 0 dari 0 Pertandingan</p>
+          <button type="button" data-load-more-events>Muat Lebih Banyak Pertandingan</button>
+        </div>
+        <div id="sb-empty" class="sb-empty" hidden></div>
       </section>
-      <aside class="sb-betslip" id="sb-betslip-desktop"><div class="sb-betslip-tabs"><button type="button" class="sb-bs-tab active" id="bstab-single" data-bstab="single">Single</button><button type="button" class="sb-bs-tab" id="bstab-parlay" data-bstab="parlay">Mix Parlay</button><button type="button" class="sb-bs-tab" id="bstab-system" data-bstab="system">System</button><span class="sb-betslip-mode" id="betslip-mode" aria-hidden="true"></span></div><div id="betslip-body" class="sb-betslip-body"></div></aside>
+
+      <!-- RIGHT: Desktop Betslip -->
+      <aside class="sb-betslip" id="sb-betslip-desktop">
+        <!-- Desktop Betslip Tabs -->
+        <div class="sb-betslip-tabs">
+          <button type="button" class="sb-bs-tab active" id="bstab-single" data-bstab="single">Single</button>
+          <button type="button" class="sb-bs-tab" id="bstab-parlay" data-bstab="parlay">Mix Parlay</button>
+          <button type="button" class="sb-bs-tab" id="bstab-system" data-bstab="system">System</button>
+          <span class="sb-betslip-mode" id="betslip-mode" aria-hidden="true"></span>
+        </div>
+        <div id="betslip-body" class="sb-betslip-body"></div>
+      </aside>
     </div>
   </main>
+
+  <!-- ================================================================
+       MOBILE BETSLIP SLIDE-UP SHEET (SBOBET/WAM Style)
+       Opens from bottom nav Slip Parlay button
+       ================================================================ -->
   <div class="sb-slip-overlay" id="sb-slip-overlay" aria-hidden="true"></div>
-  <div class="sb-slip-sheet" id="sb-slip-sheet" role="dialog" aria-modal="true" aria-label="Betslip" aria-hidden="true"><div class="sb-slip-handle-bar"></div><div class="sb-slip-sheet-head"><div class="sb-slip-sheet-tabs"><button type="button" class="sb-slip-tab active" id="mbs-tab-single" data-slip-tab="single">Single</button><button type="button" class="sb-slip-tab" id="mbs-tab-parlay" data-slip-tab="parlay">Mix Parlay</button><button type="button" class="sb-slip-tab" id="mbs-tab-system" data-slip-tab="system">System</button></div><div class="sb-slip-sheet-right"><span class="sb-slip-count-badge" id="slip-sheet-count" hidden>0</span><button type="button" class="sb-slip-sheet-close" id="btn-close-slip-sheet" aria-label="Tutup betslip">✕</button></div></div><div class="sb-slip-sheet-body" id="sb-mobile-sheet"></div></div>
+  <div class="sb-slip-sheet" id="sb-slip-sheet" role="dialog" aria-modal="true" aria-label="Betslip" aria-hidden="true">
+    <!-- Sheet Handle -->
+    <div class="sb-slip-handle-bar"></div>
+    <!-- Sheet Header -->
+    <div class="sb-slip-sheet-head">
+      <div class="sb-slip-sheet-tabs">
+        <button type="button" class="sb-slip-tab active" id="mbs-tab-single" data-slip-tab="single">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          Single
+        </button>
+        <button type="button" class="sb-slip-tab" id="mbs-tab-parlay" data-slip-tab="parlay">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Mix Parlay
+        </button>
+        <button type="button" class="sb-slip-tab" id="mbs-tab-system" data-slip-tab="system">System</button>
+      </div>
+      <div class="sb-slip-sheet-right">
+        <span class="sb-slip-count-badge" id="slip-sheet-count" hidden>0</span>
+        <button type="button" class="sb-slip-sheet-close" id="btn-close-slip-sheet" aria-label="Tutup betslip">✕</button>
+      </div>
+    </div>
+    <!-- Sheet Body -->
+    <div class="sb-slip-sheet-body" id="sb-mobile-sheet"></div>
+  </div>
+
+  <!-- Bottom Navigation Bar (Fixed SBOBET/WAM Style) -->
   <nav class="sb-bottom-nav" id="sb-bottom-nav">
-    <button type="button" class="sb-bnav-item" id="bnav-slip"><span class="sb-bnav-icon-wrap"><svg class="sb-bnav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><span class="sb-bnav-badge" id="bnav-slip-count" hidden>0</span></span><span class="sb-bnav-label">Slip Taruhan</span></button>
-    <button type="button" class="sb-bnav-item" id="bnav-my-matches"><svg class="sb-bnav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="sb-bnav-label">Pertandingan Saya</span></button>
-    <button type="button" class="sb-bnav-item" id="bnav-my-bets"><svg class="sb-bnav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg><span class="sb-bnav-label">Taruhan Saya</span></button>
-    <button type="button" class="sb-bnav-item" id="bnav-cashout"><svg class="sb-bnav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span class="sb-bnav-label">Cash Out</span></button>
+    <button type="button" class="sb-bnav-item" id="bnav-slip">
+      <span class="sb-bnav-icon-wrap">
+        <svg class="sb-bnav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+          <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+        </svg>
+        <span class="sb-bnav-badge" id="bnav-slip-count" hidden>0</span>
+      </span>
+      <span class="sb-bnav-label">Slip Taruhan</span>
+    </button>
+    <button type="button" class="sb-bnav-item" id="bnav-my-matches">
+      <svg class="sb-bnav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      <span class="sb-bnav-label">Pertandingan Saya</span>
+    </button>
+    <button type="button" class="sb-bnav-item" id="bnav-my-bets">
+      <svg class="sb-bnav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+        <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+      </svg>
+      <span class="sb-bnav-label">Taruhan Saya</span>
+    </button>
+    <button type="button" class="sb-bnav-item" id="bnav-cashout">
+      <svg class="sb-bnav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+      <span class="sb-bnav-label">Cash Out</span>
+    </button>
   </nav>
-  <div class="sb-modal-backdrop" id="sb-user-bets-backdrop" hidden><div class="sb-modal sb-bets-modal" id="sb-user-bets-modal" role="dialog" aria-modal="true"><div class="sb-modal-head"><span id="sb-user-bets-title">Taruhan Saya</span><button type="button" class="sb-close-btn" id="btn-close-user-bets">✕</button></div><div class="sb-modal-body" id="sb-user-bets-body"></div></div></div>
-  <div id="sb-toast-region" aria-live="polite" aria-atomic="true"></div>
-  <script type="module" src="/js/sportsbook.js?v=20261120-mobile-ui-r3"></script>
+
+  <!-- My Bets / Cashout Dialog Modal -->
+  <div class="sb-modal-backdrop" id="sb-user-bets-backdrop" hidden>
+    <div class="sb-modal sb-bets-modal" id="sb-user-bets-modal" role="dialog" aria-modal="true">
+      <div class="sb-modal-head">
+        <span id="sb-user-bets-title">Taruhan Saya</span>
+        <button type="button" class="sb-close-btn" id="btn-close-bets-modal">✕</button>
+      </div>
+      <div class="sb-modal-body" id="sb-user-bets-body">
+        <div class="sb-empty">Memuat data taruhan…</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="sb-toast-region"></div>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <div class="footer-links">
+      <a href="privacy.html">Privacy</a>
+      <a href="rules.html">Cara Bermain</a>
+      <a href="terms.html">Terms</a>
+    </div>
+    <div class="container footer-bottom">
+      &copy; 2026 GASTERUS V3. Platform Togel Resmi &amp; Sportsbook.
+    </div>
+  </footer>
+
+  <noscript><div class="sb-error">Javascript diperlukan untuk menampilkan sportsbook.</div></noscript>
+
+  <script type="module" src="/js/sportsbook.js?v=20261120-core-markets-r1"></script>
+
+  <script>
+    (function () {
+      function openNav() {
+        var drawer = document.getElementById('site-nav-drawer');
+        var backdrop = document.getElementById('navBackdrop');
+        if (drawer) drawer.classList.add('open');
+        if (backdrop) backdrop.classList.add('show');
+        document.body.classList.add('nav-open');
+      }
+      function closeNav() {
+        var drawer = document.getElementById('site-nav-drawer');
+        var backdrop = document.getElementById('navBackdrop');
+        if (drawer) drawer.classList.remove('open');
+        if (backdrop) backdrop.classList.remove('show');
+        document.body.classList.remove('nav-open');
+      }
+      document.querySelectorAll('[data-nav-open]').forEach(function (trigger) {
+        trigger.addEventListener('click', function (e) { e.preventDefault(); openNav(); });
+      });
+      document.querySelectorAll('[data-nav-close]').forEach(function (el) {
+        el.addEventListener('click', closeNav);
+      });
+      document.getElementById('navBackdrop')?.addEventListener('click', closeNav);
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeNav();
+      });
+    })();
+  </script>
+
 </body>
 </html>
