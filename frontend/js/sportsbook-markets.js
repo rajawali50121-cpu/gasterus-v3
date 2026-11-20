@@ -55,7 +55,7 @@ export function primaryMarketColumns(event, period) {
       // tidak melebar menjadi belasan kolom sempit yang membuat teks
       // line & odds saling bertumpuk. Pilih line dengan jumlah pilihan
       // paling lengkap (prefer 2 arah), lalu line terkecil sebagai main line.
-      if (type === 'TOTALS' && selections.length > 2) {
+      if ((type === 'TOTALS' || type === 'HANDICAP') && selections.length > 2) {
         const byLine = new Map();
         for (const selection of selections) {
           const key = selection?.line ?? market.line ?? '';
@@ -64,9 +64,12 @@ export function primaryMarketColumns(event, period) {
           byLine.set(key, list);
         }
         const ranked = [...byLine.entries()].sort((a, b) => {
+          const priced = list => list.filter(selection => !selection?.suspended && Number.isFinite(Number(selection?.odds)) && Number(selection.odds) > 1).length;
+          const priceDiff = priced(b[1]) - priced(a[1]);
+          if (priceDiff) return priceDiff;
           const countDiff = b[1].length - a[1].length;
           if (countDiff) return countDiff;
-          return Number(a[0]) - Number(b[0]) || String(a[0]).localeCompare(String(b[0]));
+          return Math.abs(Number(a[0])) - Math.abs(Number(b[0])) || Number(a[0]) - Number(b[0]) || String(a[0]).localeCompare(String(b[0]));
         });
         selections = ranked[0]?.[1] || selections;
       }
