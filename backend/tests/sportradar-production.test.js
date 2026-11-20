@@ -27,7 +27,7 @@ function eventTimeTomorrowWib() {
 function apiEvent(index) {
   return {
     sport_event: {
-      id: `sr:sport_event:bulk-${index}`,
+      id: `sr:sport_event:${100000 + index}`,
       start_time: eventTimeTomorrowWib(),
       status: index === 0 ? 'ended' : 'not_started',
       replaced_by: index === 0 ? 'sr:sport_event:replacement-0' : undefined,
@@ -267,7 +267,7 @@ test('Sportradar change log parser reads documented changes and deduplicates eve
 
 test('Sportradar incremental polling refreshes only events reported by the change log', async () => {
   __sportradarNormalizer.resetFeedState();
-  const eventId = 'sr:sport_event:bulk-0';
+  const eventId = 'sr:sport_event:100000';
   const scheduleDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
   let marketPrice = '2.10';
   const paths = [];
