@@ -68,7 +68,7 @@ function sportradarEventValidationIssues(event) {
   if (event.league !== null && typeof event.league !== 'string') issues.push('league:invalid-type');
   if (event.country !== null && (typeof event.country !== 'string' || !event.country.trim())) issues.push('country:invalid');
   if (typeof event.startTime !== 'string' || !Number.isFinite(Date.parse(event.startTime))) issues.push('startTime:invalid');
-  if (!['SCHEDULED', 'LIVE', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID'].includes(event.status)) issues.push('status:unsupported');
+  if (!['SCHEDULED', 'LIVE', 'FINISHED', 'SUSPENDED', 'CANCELLED', 'CANCELED', 'ABANDONED', 'POSTPONED', 'VOID', 'UNKNOWN'].includes(event.status)) issues.push('status:unsupported');
   if (typeof event.live !== 'boolean') issues.push('live:invalid-type');
   if (!event.home || typeof event.home.name !== 'string' || !event.home.name.trim()) issues.push('home.name:missing');
   if (!event.away || typeof event.away.name !== 'string' || !event.away.name.trim()) issues.push('away.name:missing');
