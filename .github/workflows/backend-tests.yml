@@ -15,7 +15,7 @@ on:
       - "package.json"
       - "package-lock.json"
   push:
-    branches: [master, railway-migration-fix-039, feat/ht-betting-settlement]
+    branches: [master, railway-migration-fix-039, feat/ht-betting-settlement, feat/sportradar-native-sportsbook]
     paths:
       - "backend/**"
       - "frontend/**"
