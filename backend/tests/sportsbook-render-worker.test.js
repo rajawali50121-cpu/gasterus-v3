@@ -127,3 +127,12 @@ test('worker cadence follows Sportradar freshness or the daily WIB schedule', ()
     sportsbookIngestMaxAgeSeconds: 60
   }), 30);
 });
+
+test('One-shot Cron bypasses the daily refresh gate and fetches immediately', async () => {
+  const workerSource = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
+  );
+  assert.match(workerSource, /if \(config\.sportsbookDailyRefreshEnabled !== false && !cronOnce\)/);
+  assert.match(workerSource, /if \(cronOnce\) \{[\s\S]*?process\.exitCode[\s\S]*?break;/);
+  assert.match(workerSource, /nextSportsbookDailyRefreshMs/);
+});

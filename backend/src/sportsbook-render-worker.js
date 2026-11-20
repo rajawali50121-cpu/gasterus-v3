@@ -61,7 +61,7 @@ console.info(JSON.stringify({
   service: 'sportsbook-render-worker',
   event: 'worker-config',
   cronOnce,
-  dailyRefreshEnabled: config.sportsbookDailyRefreshEnabled !== false,
+  dailyRefreshEnabled: config.sportsbookDailyRefreshEnabled !== false && !cronOnce,
   sportradarEnabled: config.sportradarEnabled,
   sportradarAccessLevel: /\/trial\//i.test(sportradarUrl.pathname) ? 'trial' : /\/production\//i.test(sportradarUrl.pathname) ? 'production' : 'other',
   sportIds: config.sportradarSportIds || null,
@@ -107,7 +107,7 @@ while (!shutdown.signal.aborted) {
   let nextDelayMs = intervalMs;
   try {
     // Daily mode: only fetch providers once per day at configured WIB slot.
-    if (config.sportsbookDailyRefreshEnabled !== false) {
+    if (config.sportsbookDailyRefreshEnabled !== false && !cronOnce) {
       const nowMs = Date.now();
       const todayWib = wibDateKey();
       const forceFirstPull = String(process.env.SPORTSBOOK_FORCE_FIRST_PULL || '').toLowerCase() === 'true';
@@ -134,7 +134,7 @@ while (!shutdown.signal.aborted) {
       secret: config.sportsbookIngestHmacSecret,
     });
     const acceptedAt = Date.now();
-    if (config.sportsbookDailyRefreshEnabled !== false) {
+    if (config.sportsbookDailyRefreshEnabled !== false && !cronOnce) {
       lastDailyRunWibDate = wibDateKey();
       firstPullDone = true;
       consecutiveCycleFailures = 0;
@@ -168,7 +168,7 @@ while (!shutdown.signal.aborted) {
       Math.min(300_000, config.sportsbookIngestMaxAgeSeconds * 500)
     );
     // In daily mode failed/quota-limited runs retry hourly (within quota gate in fetchers), without overwriting stored data.
-    nextDelayMs = config.sportsbookDailyRefreshEnabled !== false
+    nextDelayMs = config.sportsbookDailyRefreshEnabled !== false && !cronOnce
       ? 60 * 60 * 1000
       : Math.min(retryCeilingMs, intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6)));
     console.error(JSON.stringify({
