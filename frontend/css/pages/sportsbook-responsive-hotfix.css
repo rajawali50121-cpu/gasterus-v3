@@ -177,3 +177,32 @@
   .sb-premium .sb-market-grid { grid-template-columns: minmax(0, 1fr); }
   .sb-premium .sb-market-card-title { font-size: 11px; }
 }
+
+@media (max-width: 860px) {
+  .sb-slip-sheet {
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    max-height: min(72dvh, 600px);
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .sb-slip-sheet-tabs {
+    min-width: 0;
+    max-width: calc(100vw - 88px);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sb-slip-sheet-tabs::-webkit-scrollbar { display: none; }
+  .sb-slip-tab {
+    flex: 0 0 auto;
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+  .sb-slip-sheet-body {
+    max-height: calc(min(72dvh, 600px) - 96px);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
