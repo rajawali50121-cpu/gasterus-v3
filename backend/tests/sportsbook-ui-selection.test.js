@@ -62,3 +62,25 @@ test('odds UI locks suspended quick selections and exposes signed odds acceptanc
   assert.match(source, /oddsChangePolicy,\s*selections:/);
   assert.match(source, /const lineClass = Number\(lineVal\) < 0 \? 'kei-negative' : 'kei-positive'/);
 });
+
+
+test('Asian Handicap primary columns never display a draw outcome', async () => {
+  const marketsSource = readFileSync(new URL('../../frontend/js/sportsbook-markets.js', import.meta.url), 'utf8');
+  const start = marketsSource.indexOf('export function primaryMarketColumns(');
+  assert.ok(start >= 0);
+  const primaryMarketColumns = new Function('MARKET_PRIORITY', 'MARKET_NAMES',
+    marketsSource.slice(start).replace('export function primaryMarketColumns', 'function primaryMarketColumns') +
+    '; return primaryMarketColumns;'
+  )({ HANDICAP: 0, TOTALS: 1, '1X2': 2 }, { HANDICAP: 'Asian Handicap', TOTALS: 'Over / Under', '1X2': '1X2' });
+  const columns = primaryMarketColumns({ home: { name: 'Home' }, away: { name: 'Away' }, markets: [{
+    id: 'asian', type: 'HANDICAP', period: 'FT', line: -0.5, suspended: false,
+    selections: [
+      { key: 'home', label: 'Home -0.5', line: -0.5, odds: 1.9, suspended: false },
+      { key: 'draw', label: 'Draw {hcp}', line: -0.5, odds: 3.2, suspended: false },
+      { key: 'away', label: 'Away +0.5', line: 0.5, odds: 1.9, suspended: false }
+    ]
+  }] }, 'FT');
+  const handicap = columns.find(item => item.type === 'HANDICAP');
+  assert.deepEqual(handicap.outcomes.map(([label]) => label), ['1', '2']);
+  assert.equal(handicap.outcomes.some(([label]) => /draw/i.test(label)), false);
+});

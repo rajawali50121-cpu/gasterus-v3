@@ -190,12 +190,18 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
     }
   };
 }
-function marketType(name) {
+function marketType(name, outcomeCount = null) {
   const value = clean(name, 120).toLowerCase();
   // HT/FT is a single combination market, not ordinary 1X2.
   if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
   if (/1x2|money.?line|match.?winner|match.?result|three.?way|first.?half.*result|1st.?half.*result|half.?time.*result/.test(value)) return '1X2';
-  if (/handicap|spread/.test(value)) return 'HANDICAP';
+  if (/european.?handicap|three.?way.?handicap/.test(value)) return 'EUROPEAN_HANDICAP';
+  if (/asian.?handicap|asian.?spread/.test(value)) return 'HANDICAP';
+  if (/handicap|spread/.test(value)) {
+    if (outcomeCount === 3) return 'EUROPEAN_HANDICAP';
+    if (outcomeCount === 2) return 'HANDICAP';
+    return 'OTHER';
+  }
   if (/team.?total/.test(value)) return 'TEAM_TOTAL';
   if (/total|over.?under|goals/.test(value)) return 'TOTALS';
   if (/both.?teams|btts/.test(value)) return 'BTTS';
@@ -233,10 +239,11 @@ function periodFromMarket(name, metadata = {}) {
   return classify(value) || 'FT';
 }
 function selectionLabel(outcome, event, type) {
+  const value = String(outcome?.type || '').toLowerCase();
+  if (type === 'EUROPEAN_HANDICAP' && ['home', 'draw', 'away'].includes(value)) return value.toUpperCase();
   const raw = clean(outcome?.name || outcome?.label, 120);
   if (raw) return raw;
-  const value = String(outcome?.type || '').toLowerCase();
-  if (type === '1X2') {
+  if (type === '1X2' || type === 'EUROPEAN_HANDICAP') {
     if (value === 'home') return 'HOME';
     if (value === 'draw') return 'DRAW';
     if (value === 'away') return 'AWAY';
@@ -261,9 +268,11 @@ function normalizeOdds(event, raw) {
     diagnostics.marketsSeen += 1;
     const marketName = clean(market.name || market.id || 'Unlabelled market', 240);
     const marketId = String(market.id || marketName);
-    const type = marketType(marketName);
-    const period = periodFromMarket(marketName, market);
     const books = Array.isArray(market.books) ? market.books : [];
+    const outcomeCount = books.reduce((maximum, book) =>
+      Math.max(maximum, Array.isArray(book?.outcomes) ? book.outcomes.length : 0), 0);
+    const type = marketType(marketName, outcomeCount);
+    const period = periodFromMarket(marketName, market);
     const marketSourceData = Object.fromEntries(Object.entries(market).filter(([key]) => key !== 'books'));
 
     // The API's removed lifecycle is on book/outcome, not a reason to erase history.

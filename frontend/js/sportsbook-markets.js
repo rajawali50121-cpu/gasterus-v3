@@ -55,7 +55,7 @@ export function primaryMarketColumns(event, period) {
       // tidak melebar menjadi belasan kolom sempit yang membuat teks
       // line & odds saling bertumpuk. Pilih line dengan jumlah pilihan
       // paling lengkap (prefer 2 arah), lalu line terkecil sebagai main line.
-      if ((type === 'HANDICAP' || type === 'TOTALS') && selections.length > 2) {
+      if (type === 'TOTALS' && selections.length > 2) {
         const byLine = new Map();
         for (const selection of selections) {
           const key = selection?.line ?? market.line ?? '';
@@ -80,8 +80,10 @@ export function primaryMarketColumns(event, period) {
           const awayName = String(event?.away?.name || '').trim().toLowerCase();
           let label = selection.label || selection.key || `Pilihan ${index + 1}`;
           if (type === 'HANDICAP') {
+            // Asian Handicap is two-way; a draw outcome is European Handicap.
             label = tokens.includes('home') || tokens.includes('1') || (homeName && text.includes(homeName)) ? '1' :
-              tokens.includes('away') || tokens.includes('2') || (awayName && text.includes(awayName)) ? '2' : label;
+              tokens.includes('away') || tokens.includes('2') || (awayName && text.includes(awayName)) ? '2' :
+                tokens.includes('draw') || tokens.includes('x') ? '__INVALID_DRAW__' : label;
           } else if (type === 'TOTALS') {
             // Hindari false-positive token satu huruf ('o'/'u'): hanya
             // petakan kata utuh over/under, atau label satu huruf O/U.
@@ -94,7 +96,7 @@ export function primaryMarketColumns(event, period) {
                 tokens.includes('away') || tokens.includes('2') || (awayName && text.includes(awayName)) ? '2' : label;
           }
           return [label, selection];
-        })
+        }).filter(([label]) => label !== '__INVALID_DRAW__')
       };
     })
     .filter(item => coreTypes.includes(String(item.market.type || '').toUpperCase()));
