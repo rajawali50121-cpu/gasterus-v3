@@ -8,6 +8,7 @@ const halfPeriod = value => ['1h', 'ht', 'first half', '1st half', 'half time'].
 const result = (status, resultValue) => ({ status, resultValue });
 
 function scoreForPeriod(leg, event) {
+  if (text(leg.market_period) === 'ht_ft') return [scoreValue(event.home?.score), scoreValue(event.away?.score), 'HT/FT'];
   if (finalPeriod(leg.market_period)) return [scoreValue(event.home?.score), scoreValue(event.away?.score), 'FT'];
   if (halfPeriod(leg.market_period)) {
     const half = event.periodScores?.['1H'] || event.periodScores?.HT || event.score?.halftime || null;
@@ -56,16 +57,16 @@ function halfScoreReady(event) {
   if (!provider) return event.status === 'FINISHED';
   return !['1H', 'LIVE', 'NS', 'TBD'].includes(provider);
 }
-function settlementAuthorityReady(event, isHalf) {
+function settlementAuthorityReady(event, isHalf, isHtFt = false) {
   const authority = event?.settlementAuthority;
-  if (!authority || typeof authority !== 'object') return true;
-  return isHalf ? authority.ht === true : authority.ft === true;
+  if (!authority || typeof authority !== 'object') return !isHtFt;
+  if (isHtFt) return authority.ht === true && authority.automaticFt === true;
+  return isHalf ? authority.ht === true : authority.automaticFt === true;
 }
 
 function providerSettlementDisposition(event) {
   const provider = rawStatus(event.providerStatus);
-  // Safety: status administratif Sportmonks (CANCL/Cancelled, POSTP/Postponed,
-  // ABAND/Abandoned, WO/AWARD) tidak boleh pernah masuk settlement normal.
+  // Administrative cancellation/postponement statuses never enter normal settlement.
   if (['CANC', 'CANCL', 'CANCELED', 'CANCELLED'].includes(provider)) return 'VOID';
   if (['PST', 'POSTP', 'POSTPONED', 'SUSP', 'ABD', 'ABAND', 'ABANDONED', 'INT', 'TBD', 'WO', 'AWARD', 'WALKOVER', 'AWARDED'].includes(provider)) return 'PENDING';
   if (event.status === 'SUSPENDED') return 'PENDING';
@@ -79,12 +80,12 @@ export function evaluateSportsbookLeg(leg, event) {
   if (disposition === 'PENDING') return null;
 
   const isHalf = halfPeriod(leg.market_period);
-  if (!settlementAuthorityReady(event, isHalf)) return null;
-  if (isHalf) {
+  const isHtFt = text(leg.market_period) === 'ht_ft';
+  if (!settlementAuthorityReady(event, isHalf, isHtFt)) return null;
+  if (isHalf || isHtFt) {
     if (!halfScoreReady(event)) return null;
-  } else if (event.status !== 'FINISHED') {
-    return null;
   }
+  if (event.status !== 'FINISHED') return null;
 
   const [home, away, resolvedPeriod] = scoreForPeriod(leg, event);
   if (!resolvedPeriod) return result('VOID', 'Periode market belum didukung auto-settlement');

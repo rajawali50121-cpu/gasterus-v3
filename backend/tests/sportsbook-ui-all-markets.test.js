@@ -44,7 +44,7 @@ test('member REST snapshot projection retains valid FT and HT markets without du
   assert.equal(result.find(item => item.id === 'ht-main').selections.some(item => item.key === 'HOME'), true);
 });
 
-test('Sportradar member projection preserves bookmaker, source ids, and timestamps', () => {
+test('Sportradar member projection preserves bookmaker and strips provider identifiers', () => {
   const projected = projectMemberMarkets([{
     id: 'sr-market-1',
     type: '1X2',
@@ -68,12 +68,13 @@ test('Sportradar member projection preserves bookmaker, source ids, and timestam
   assert.equal(projected.length, 1);
   assert.equal(projected[0].sourceLabel, 'Sportradar');
   assert.equal(projected[0].bookmaker, 'Bookmaker A');
-  assert.equal(projected[0].sourceMarketId, 'sr:market:1');
-  assert.equal(projected[0].selections[0].source, 'sportradar');
-  assert.equal(projected[0].selections[0].sourceSelectionId, 'sr:outcome:1');
+  assert.equal('sourceMarketId' in projected[0], false);
+  assert.equal('updatedAt' in projected[0], false);
+  assert.equal('source' in projected[0].selections[0], false);
+  assert.equal('sourceSelectionId' in projected[0].selections[0], false);
 });
 
-test('Sportradar full member event detail preserves all documented source fields end to end', () => {
+test('Sportradar detail preserves useful price metadata but strips raw provider payloads', () => {
   const event = {
     id: 'sr:sport_event:fixture-1',
     sport: 'Soccer',
@@ -140,13 +141,15 @@ test('Sportradar full member event detail preserves all documented source fields
   };
 
   const detail = __sportsbookFeed.memberPublicEventDetail(event);
-  assert.equal(detail.sportId, 'sr:sport:1');
-  assert.equal(detail.replacedBy, 'sr:sport_event:replacement-1');
-  assert.equal(detail.sourceData.sportEvent.id, 'sr:sport_event:fixture-1');
+  assert.equal(detail.sportId, undefined);
+  assert.equal(detail.replacedBy, undefined);
+  assert.equal(detail.sourceData, undefined);
+  assert.equal(detail.providerStatus, undefined);
   const market = detail.markets[0];
-  assert.equal(market.sourceMarketName, 'Match Result');
-  assert.equal(market.sourceBookId, 'sr:book:1');
-  assert.equal(market.sourceData.book.id, 'sr:book:1');
+  assert.equal(market.sourceMarketName, undefined);
+  assert.equal(market.sourceBookId, undefined);
+  assert.equal(market.sourceData, undefined);
+  assert.equal(market.sourceMarketId, undefined);
   const selection = market.selections[0];
   assert.equal(selection.oddsAmerican, '+110');
   assert.equal(selection.openOddsDecimal, 2);
@@ -154,20 +157,23 @@ test('Sportradar full member event detail preserves all documented source fields
   assert.equal(selection.handicap, 0.5);
   assert.equal(selection.total, 2.5);
   assert.equal(selection.playerName, 'Player One');
-  assert.equal(selection.sourceData.odds_decimal, '2.10');
+  assert.equal(selection.sourceData, undefined);
+  assert.equal(selection.sourceSelectionId, undefined);
+  assert.equal(selection.source, undefined);
 });
 
-test('Sportmonks finite odds outside the bettable range remain visible but disabled', () => {
+test('Sportradar prices outside the bettable range are not selectable but remain in detail data', () => {
   const periods = availableMarketPeriods({
     markets: [{
-      source: 'sportmonks',
+      source: 'sportradar',
       period: 'FT',
-      selections: [{ odds: 1, source: 'sportmonks', suspended: false }]
+      selections: [{ odds: 1, source: 'sportradar', suspended: false }]
     }]
   });
-  assert.deepEqual(periods, ['FT']);
-  assert.match(frontend, /sportmonksPrice[\s\S]*decOdds <= 1[\s\S]*formatOdds\(decOdds, oddsFormat\)/);
-  assert.match(frontend, /market\.selections\.length \|\| market\.source === 'sportmonks'/);
+  assert.deepEqual(periods, []);
+  assert.match(frontend, /if \(!Number\.isFinite\(decOdds\)\)/);
+  assert.match(frontend, /if \(decOdds <= 1\)/);
+  assert.match(frontend, /const markets = \(event\.markets \|\| \[\]\)\.filter\(market => market && typeof market === 'object'\)/);
 });
 
 test('detailed event projection preserves every supplied market and selection line', () => {
@@ -267,8 +273,10 @@ test('member sportsbook lazy-loads complete event market details and retains all
   assert.match(frontend, /const FEED_DETAIL_URL = \(id\) => `\/api\/member\/sportsbook\/events\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(frontend, /await api\.get\(FEED_DETAIL_URL\(eventId\)\)/);
   assert.match(frontend, /function renderAllEventMarkets\(event\)[\s\S]*event\.markets[\s\S]*market\.selections\.map/);
-  assert.match(feed, /function memberPublicEvent\(event\)[\s\S]*const isSportmonks[\s\S]*const markets = isSportmonks[\s\S]*item\.markets[\s\S]*selectMemberSummaryMarkets\(item\.markets\)[\s\S]*memberEventShape\(item, markets/);
-  assert.match(feed, /function memberPublicEventDetail\(event\)[\s\S]*item\.markets \|\| \[\], \{[\s\S]*includeProviderFields/);
+  assert.ok(feed.includes('function memberPublicEvent(event)'));
+  assert.ok(feed.includes('selectMemberSummaryMarkets(item.markets)'));
+  assert.ok(feed.includes('function memberPublicEventDetail(event)'));
+  assert.ok(feed.includes('includeDetailFields: true'));
 });
 
 test('detailed markets are refreshed by feed revision and stale odds cannot place a bet during refresh', () => {

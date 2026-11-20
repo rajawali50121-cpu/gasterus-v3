@@ -10,204 +10,124 @@ Object.assign(process.env, {
   OPS_INTERNAL_SECRET: process.env.OPS_INTERNAL_SECRET || 'o'.repeat(48),
   SESSION_HMAC_KEY: process.env.SESSION_HMAC_KEY || 's'.repeat(48),
   API_KEY_PEPPER: process.env.API_KEY_PEPPER || 'p'.repeat(48),
-  MFA_ENCRYPTION_KEY_BASE64: process.env.MFA_ENCRYPTION_KEY_BASE64 || Buffer.alloc(32, 1).toString('base64'),
-  SPORTMONKS_PASSTHROUGH: 'false',
-  SPORTS_FEED_MAX_CACHE_BYTES: '300000'
 });
 
-const [{ loadRenderProviderSnapshot, resolveSportsbookProviderResults }, ingestion, { createSportsbookIngestRequest }, providers, feed] = await Promise.all([
-  import('../src/sportsbook-feed-source.js'),
-  import('../src/sportsbook-ingestion.js'),
-  import('../src/sportsbook-ingest-client.js'),
-  import('../src/sportsbook-providers.js'),
-  import('../src/sportsbook-feed.js')
-]);
-const SECRET = 'feed-staging-test-secret-'.padEnd(48, 'x');
+const { resolveSportsbookProviderResults, loadRenderProviderSnapshot } = await import('../src/sportsbook-feed-source.js');
+const { createStoredSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
+const { createSportsbookIngestRequest } = await import('../src/sportsbook-ingest-client.js');
 
-function normalizedEvent(provider, { id, kickoff = Date.now() + 3600000, home = 'Arsenal FC', away = 'Chelsea FC' } = {}) {
-  const startTime = new Date(kickoff).toISOString();
+const SECRET = 'test-sportsbook-ingest-secret'.padEnd(48, 'x');
+const NOW = Date.UTC(2026, 10, 19, 0, 0, 0);
+
+function payload(provider = 'sportradar') {
   return {
-    id,
-    sport: 'Football',
-    league: 'Premier League',
-    country: 'England',
-    startTime,
-    status: 'SCHEDULED',
-    live: false,
-    home: { name: home, score: null, logo: null },
-    away: { name: away, score: null, logo: null },
-    markets: [{
-      id: `market-${provider}`,
-      key: 'fulltime-result',
-      type: '1X2',
-      label: '1X2',
-      period: 'FT',
-      line: null,
-      suspended: false,
-      updatedAt: startTime,
-      source: provider,
-      selections: [{
-        key: `selection-${provider}`,
-        label: 'Home',
-        odds: 2.0,
-        suspended: false,
-        source: provider,
-        updatedAt: startTime
+    schemaVersion: 1,
+    generatedAt: new Date(NOW).toISOString(),
+    providerResults: [{
+      provider,
+      enabled: true,
+      transportOk: true,
+      events: [{
+        id: 'sr-event-1',
+        sport: 'Football',
+        league: 'Premier League',
+        country: 'England',
+        startTime: new Date(NOW + 3600000).toISOString(),
+        status: 'SCHEDULED',
+        live: false,
+        home: { name: 'Arsenal' },
+        away: { name: 'Chelsea' },
+        markets: [{
+          id: 'sr-market-1',
+          type: '1X2',
+          period: 'FT',
+          source: provider,
+          suspended: false,
+          selections: [{
+            key: 'home',
+            label: 'Home',
+            odds: 1.9,
+            updatedAt: new Date(NOW).toISOString(),
+            source: provider,
+            suspended: false
+          }]
+        }],
+        _refs: { [provider]: 'sr:sport_event:123' },
+        _sources: [provider]
       }]
-    }],
-    _refs: { [provider]: `provider-${provider}` },
-    _sources: [provider]
+    }]
   };
 }
 
-function signedStagingRecord(snapshot, now) {
-  const request = createSportsbookIngestRequest(snapshot, SECRET, { timestamp: Math.floor(now / 1000) });
-  return ingestion.createStoredSportsbookSnapshot({
-    serializedSnapshot: request.body.toString('utf8'),
-    timestamp: request.headers['x-sportsbook-timestamp'],
-    signature: request.headers['x-sportsbook-signature'],
-    receivedAt: now
+function storedSnapshot(value) {
+  const signed = createSportsbookIngestRequest(value, SECRET, {
+    timestamp: Math.floor(NOW / 1000)
+  });
+  return createStoredSportsbookSnapshot({
+    serializedSnapshot: signed.body.toString('utf8'),
+    timestamp: signed.headers['x-sportsbook-timestamp'],
+    signature: signed.headers['x-sportsbook-signature'],
+    receivedAt: NOW
   });
 }
 
-function snapshot(now) {
+function redisWith(value) {
   return {
-    schemaVersion: 1,
-    generatedAt: new Date(now).toISOString(),
-    providerResults: [
-      { provider: 'sportmonks', enabled: true, events: [normalizedEvent('sportmonks', { id: 'sm-event', kickoff: now + 3600000 })] },
-      { provider: 'sharpapi', enabled: true, events: [normalizedEvent('sharpapi', { id: 'sharp-event', kickoff: now + 3660000, home: 'Arsenal', away: 'Chelsea' })] }
-    ]
+    isOpen: true,
+    async get() { return typeof value === 'string' ? value : JSON.stringify(value); }
   };
 }
 
-test('aggregator loads only a fresh staging snapshot with a valid HMAC and revision', async () => {
-  const now = Date.now();
-  const stored = signedStagingRecord(snapshot(now), now);
-  const result = await loadRenderProviderSnapshot(
-    { isOpen: true, async get() { return stored; } },
-    { secret: SECRET, now }
-  );
+const logger = { warn() {}, info() {}, error() {} };
 
-  assert.ok(result);
-  assert.equal(result.providerResults.length, 2);
-  assert.equal(result.generatedAt, new Date(now).toISOString());
-  assert.match(result.revision, /^[a-f0-9]{64}$/);
-  assert.equal(result.receivedAt, new Date(now).toISOString());
+test('backend resolves only a fresh verified Sportradar worker snapshot', async () => {
+  const redis = redisWith(storedSnapshot(payload()));
+  const resolved = await resolveSportsbookProviderResults(redis, {
+    logger,
+    now: NOW,
+    secret: SECRET,
+    maxAgeSeconds: 600
+  });
+  assert.equal(resolved.source, 'render');
+  assert.deepEqual(resolved.renderSnapshot.providerResults.map(item => item.provider), ['sportradar']);
+  assert.equal(resolved.settled[0].result.provider, 'sportradar');
 });
 
-test('aggregator rejects expired or altered staging data so caller can fall back to local providers', async () => {
-  const now = Date.now();
-  // Daily stored mode keeps snapshots readable for retention window; only truly expired/altered rejected.
-  const oldSnapshot = snapshot(now - 172801000);
-  const expiredRecord = signedStagingRecord(oldSnapshot, now - 172801000);
-  const expired = await loadRenderProviderSnapshot(
-    { isOpen: true, async get() { return expiredRecord; } },
-    { secret: SECRET, now }
-  );
-  assert.equal(expired, null);
-
-  const tampered = JSON.parse(signedStagingRecord(snapshot(now), now));
-  tampered.rawBody = tampered.rawBody.replace('sm-event', 'xx-event');
-  const altered = await loadRenderProviderSnapshot(
-    { isOpen: true, async get() { return JSON.stringify(tampered); } },
-    { secret: SECRET, now }
-  );
-  assert.equal(altered, null);
-});
-
-test('aggregator selects local fetching when staging is absent or invalid', async () => {
-  const now = Date.now();
-  // Valid stored snapshot within retention is served directly (no provider fetch on read/restart).
-  const validStored = signedStagingRecord(snapshot(now - 3600000), now - 3600000);
-  let fallbackCalls = 0;
-  const fromStored = await resolveSportsbookProviderResults(
-    { isOpen: true, async get() { return validStored; } },
-    {
-      secret: SECRET,
-      now,
-      fetchLocalProviders: async () => {
-        fallbackCalls += 1;
-        return [{ result: { provider: 'sportmonks', enabled: true, events: [] }, elapsedMs: 12 }];
-      }
-    }
-  );
-  assert.equal(fromStored.source, 'render');
-  assert.equal(fallbackCalls, 0);
-
-  fallbackCalls = 0;
-  const resolved = await resolveSportsbookProviderResults(
-    { isOpen: true, async get() { return null; } },
-    {
-      secret: SECRET,
-      now,
-      fetchLocalProviders: async () => {
-        fallbackCalls += 1;
-        return [{ result: { provider: 'sportmonks', enabled: true, events: [] }, elapsedMs: 12 }];
-      }
-    }
-  );
-  assert.equal(resolved.source, 'local');
-  assert.equal(resolved.renderSnapshot, null);
-  assert.equal(fallbackCalls, 1);
-  assert.equal(resolved.settled[0].result.provider, 'sportmonks');
-});
-
-test('Railway provider merge deduplicates the same cross-provider fixture before final cache bounds', async () => {
-  const now = Date.now();
-  const loaded = await loadRenderProviderSnapshot(
-    { isOpen: true, async get() { return signedStagingRecord(snapshot(now), now); } },
-    { secret: SECRET, now }
-  );
-  const events = providers.mergeProviderEvents(loaded.providerResults);
-  assert.equal(events.length, 1);
-  assert.deepEqual(new Set(events[0]._sources), new Set(['sportmonks', 'sharpapi']));
-  assert.equal(events[0]._refs.sportmonks, 'provider-sportmonks');
-  assert.equal(events[0]._refs.sharpapi, 'provider-sharpapi');
-
-  const authorityPayload = snapshot(now);
-  authorityPayload.providerResults[0].events[0]._settlementReadySources = ['sharpapi'];
-  authorityPayload.providerResults[0].events[0]._settlementMode = 'UNTRUSTED_WORKER_OVERRIDE';
-  authorityPayload.providerResults[0].events[0].markets[0].lifecycleState = 'ACTIVE';
-  authorityPayload.providerResults[0].events[0].markets[0].selections[0].priceVersion = 'untrusted-version';
-  const sanitized = await loadRenderProviderSnapshot(
-    { isOpen: true, async get() { return signedStagingRecord(authorityPayload, now); } },
-    { secret: SECRET, now }
-  );
-  const safeEvent = sanitized.providerResults[0].events[0];
-  assert.equal('_settlementReadySources' in safeEvent, false, 'Worker cannot grant settlement authority');
-  assert.equal('_settlementMode' in safeEvent, false, 'Worker cannot choose settlement mode');
-  assert.equal('lifecycleState' in safeEvent.markets[0], false, 'Railway retains market lifecycle ownership');
-  assert.equal('priceVersion' in safeEvent.markets[0].selections[0], false, 'Railway derives feed price versions');
-
-  const feedValue = {
-    lifecycleGeneration: 'render-ingest-multisource-v2',
-    events: Array.from({ length: 60 }, (_, index) => ({
-      ...normalizedEvent('sportmonks', {
-        id: `large-event-${index}`,
-        kickoff: now + (index + 1) * 3600000,
-        home: `Home ${index}`,
-        away: `Away ${index}`
-      }),
-      markets: Array.from({ length: 10 }, (_, marketIndex) => ({
-        id: `market-${index}-${marketIndex}`,
-        type: 'OTHER',
-        period: marketIndex % 2 ? '1H' : 'FT',
-        selections: Array.from({ length: 5 }, (_, selectionIndex) => ({
-          key: `selection-${index}-${marketIndex}-${selectionIndex}`,
-          label: `Selection ${selectionIndex}`,
-          odds: 1.5 + selectionIndex / 10,
-          suspended: false
-        }))
-      })),
-      padding: 'x'.repeat(12000)
-    }))
+test('missing or invalid worker staging fails closed and never calls a local fetch callback', async () => {
+  let localCalls = 0;
+  const options = {
+    logger,
+    now: NOW,
+    secret: SECRET,
+    fetchLocalProviders: async () => { localCalls += 1; return []; }
   };
-  const bounded = feed.__sportsbookFeed.cacheWithinLimit(feedValue);
-  const bytes = Buffer.byteLength(JSON.stringify(bounded), 'utf8');
-  // Tidak ada batas byte: semua event dan market lolos cacheWithinLimit.
-  assert.equal(bounded.events.length, 60, 'semua event harus lolos tanpa batas byte');
-  assert.ok(bounded.events.every(event => event.markets.length === 10
-    && event.markets.every(market => market.selections.length === 5)),
-  'cache harus menyimpan seluruh market dan seleksi tanpa potongan');
+  await assert.rejects(
+    resolveSportsbookProviderResults({ isOpen: true, async get() { return null; } }, options),
+    error => error.code === 'SPORTS_SNAPSHOT_REQUIRED' && error.status === 503
+  );
+  await assert.rejects(
+    resolveSportsbookProviderResults(redisWith('invalid-json'), options),
+    error => error.code === 'SPORTS_SNAPSHOT_REQUIRED' && error.status === 503
+  );
+  assert.equal(localCalls, 0);
+});
+
+test('legacy provider snapshots are rejected before storage and cannot be consumed by backend', async () => {
+  const invalid = storedSnapshot(payload('sportmonks'));
+  const resolved = await loadRenderProviderSnapshot(redisWith(invalid), {
+    logger,
+    now: NOW,
+    secret: SECRET,
+    maxAgeSeconds: 600
+  });
+  assert.equal(resolved, null);
+  await assert.rejects(
+    resolveSportsbookProviderResults(redisWith(invalid), {
+      logger,
+      now: NOW,
+      secret: SECRET,
+      maxAgeSeconds: 600
+    }),
+    error => error.code === 'SPORTS_SNAPSHOT_REQUIRED'
+  );
 });

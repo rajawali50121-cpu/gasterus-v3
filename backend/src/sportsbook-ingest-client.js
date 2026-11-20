@@ -24,13 +24,25 @@ export function createSportsbookIngestRequest(snapshot, secret, {
   };
 }
 
+export function validateSportsbookIngestEndpoint(endpoint) {
+  const url = new URL(endpoint);
+  if (url.username || url.password) {
+    throw new Error('Sportsbook ingestion endpoint must not contain URL credentials.');
+  }
+  if (url.protocol === 'https:') return url;
+  // Railway private service-to-service traffic uses HTTP on the private network.
+  // Permit that transport only for Railway's internal DNS suffix; public HTTP
+  // endpoints remain rejected so the HMAC secret is never sent over plaintext.
+  if (url.protocol === 'http:' && url.hostname.endsWith('.railway.internal')) return url;
+  throw new Error('Sportsbook ingestion endpoint must use HTTPS, or HTTP on a Railway private .railway.internal hostname.');
+}
+
 export async function postSportsbookSnapshot(endpoint, snapshot, {
   secret,
   fetchImpl = fetch,
   timeoutMs = 15000
 } = {}) {
-  const url = new URL(endpoint);
-  if (url.protocol !== 'https:') throw new Error('Sportsbook ingestion endpoint must use HTTPS.');
+  const url = validateSportsbookIngestEndpoint(endpoint);
   const request = createSportsbookIngestRequest(snapshot, secret);
   const response = await fetchImpl(url, {
     method: 'POST',

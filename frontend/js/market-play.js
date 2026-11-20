@@ -5,6 +5,7 @@
 import api from './api.js';
 import auth from './auth.js';
 import { formatNumber, formatRupiah, getTimeRemaining, showToast, escapeHtml } from './utils.js';
+import { isMarketBettable } from './market-readiness.js';
 
 // Generate idempotency key yang konsisten dan unik per kiriman
 function generateIdempotencyKey() {
@@ -16,18 +17,6 @@ let currentMarketConfig = null;
 let betRows = [];
 let rowIdCounter = 1;
 
-// Pasar hanya boleh dianggap bisa dipertaruhkan bila backend memang mengirim
-// bettingStatus OPEN, periode terisi, dan waktu tutup masih di masa depan.
-// Tanpa ketiga syarat itu, pasar ditampilkan tertutup. Tidak ada nilai
-// periode maupun waktu tutup yang dibuat di sisi klien.
-function isMarketBettable(market, now = Date.now()) {
-  if (!market || typeof market !== 'object') return false;
-  if (market.available === false) return false;
-  if (String(market.bettingStatus || '').toUpperCase() !== 'OPEN') return false;
-  if (!String(market.period || '').trim()) return false;
-  const closeMs = Date.parse(String(market.closeAt || ''));
-  return Number.isFinite(closeMs) && closeMs > now;
-}
 
 function isMarketClosed(market) {
   const status = String(market?.bettingStatus || '').toUpperCase();

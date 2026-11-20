@@ -10,7 +10,7 @@ export function availableMarketPeriods(event) {
       const odds = Number(selection?.odds);
       return !selection?.suspended
         && Number.isFinite(odds)
-        && (odds > 1 || market.source === 'sportmonks');
+        && odds > 1;
     })) continue;
     periods.add(String(market.period || 'FT').toUpperCase());
   }

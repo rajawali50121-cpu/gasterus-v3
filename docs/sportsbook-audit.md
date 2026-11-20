@@ -1,148 +1,71 @@
-# Audit menyeluruh sportsbook
+# Sportsbook architecture and audit baseline
 
-**Jenis audit:** baca-saja, statis ditambah fixture offline.
-**Tanggal pemeriksaan:** 2026-11-13.
-**Batas:** tidak ada provider API yang dipanggil, tidak ada database/Redis yang dibaca atau ditulis, tidak ada kode produksi yang diubah, dan tidak ada commit. Skrip baru di `backend/scripts/audit/sportsbook-funnel.js` hanya membuat fixture di memori dan memanggil fungsi lokal. Worktree sudah berisi perubahan lokal sebelum dokumen ini dibuat; perubahan itu tidak direset.
+Status: migration preparation; not production cutover.
+Canonical deployment source: `railway-migration-fix-039`.
+Active cleanup branch: `chore/sportradar-only-final`.
 
-## Cara membaca bukti dan peringkat
+## Source ownership
 
-- **Terbukti dari kode** berarti kondisi dan akibatnya langsung terlihat di file/baris yang dirujuk.
-- **Dugaan** berarti dampak terhadap pertandingan yang benar-benar hilang belum dapat dibuktikan tanpa konfigurasi dan data provider produksi.
-- Peringkat mengurutkan **potensi titik hilang berdasarkan luas cakupan dan batas kode**, bukan pengukuran volume produksi. Karena tidak ada data provider nyata, urutan 1–20 adalah urutan investigasi awal, bukan klaim jumlah kehilangan.
-- “Event”, “market”, dan “odds” di funnel adalah jumlah record; odds berarti selection record, bukan harga unik.
+- Sportradar Odds Comparison is the sole external sportsbook fixtures-and-odds source.
+- The isolated Railway `sportsbook-render-worker` owns the Sportradar credential, fetches all required pages, normalizes the response, and sends a signed snapshot over Railway private networking.
+- The Railway backend has no odds-provider adapter and performs no external odds fetch. It validates and consumes only a fresh, signed Sportradar snapshot.
+- TheSportsDB integration is limited to team artwork metadata. It does not provide fixtures, odds, scores, or settlement authority.
+- Sportradar is not treated as a match-results authority. FT settlement requires explicit operator authority; HT settlement remains unavailable until a separately approved results authority is implemented. Automatic sportsbook settlement remains disabled by default.
+- Internal market lifecycle, risk repricing, trading controls, quote validation, wallet ledger, and TOTO logic remain application-owned and must not be removed as part of provider cleanup.
 
-## A. Peta alur
+## Required runtime flow
 
-```text
-API provider / cache provider
-  ├─ Sportmonks ─────────────── backend/src/sportsbook-providers.js
-  ├─ SharpAPI ───────────────── backend/src/sportsbook-providers.js
-  ├─ API-Sports ─────────────── backend/src/sportsbook-providers.js
-  └─ OddsPapi ───────────────── backend/src/sportsbook-oddspapi.js
-        ↓ normalisasi event/market/selection, filter, dedupe, cache
-worker gabungan + ranking + cap event + budget byte
-        backend/src/sportsbook-render-worker-core.js
-        ↓ snapshot HMAC melalui internal ingest
-validasi provider/struktur/umur/batas + merge snapshot
-        backend/src/sportsbook-ingestion.js
-        ↓ Redis staging snapshot
-baca/validasi snapshot worker; bila gagal, fallback lokal
-        backend/src/sportsbook-feed-source.js
-        ↓ provider lifecycle + penggabungan event/market
-        backend/src/sportsbook-feed.js
-        backend/src/sportsbook-providers.js
-        ↓ feed safety, jendela taruhan, live-price freshness,
-          validasi/quarantine, market lifecycle, trading controls,
-          batas event dan cache byte/TTL
-        backend/src/sportsbook-feed.js
-        backend/src/sportsbook-market-lifecycle.js
-        backend/src/sportsbook-trading-policy.js
-        ↓ filter soccer/status/horizon + sort + cap + paginasi
-API GET /api/member/sportsbook/events
-        backend/src/app.js
-        backend/src/sportsbook-feed.js
-        ↓ ringkasan market atau detail event
-        backend/src/sportsbook-member-projection.js
-        ↓ snapshot/SSE, filter klien, kartu utama dan panel detail
-        frontend/js/sportsbook.js
-        frontend/js/sportsbook-feed-state.js
-        frontend/js/sportsbook-markets.js
-```
+1. Worker requests Sportradar prematch data using its own secret.
+2. Worker completes pagination and validates the full response. A partial/failed fetch is not published as a healthy snapshot.
+3. Worker signs the exact serialized JSON body and posts to the backend's private ingest route.
+4. Backend verifies HMAC, timestamp, provider allowlist, schema, event, market, and selection fields.
+5. Backend stores the accepted snapshot in Redis and serves the member feed from that snapshot.
+6. If the snapshot is missing, stale, invalid, or Redis is unavailable, the feed becomes unavailable/read-only. It must not fabricate fixtures, use a local adapter, or silently switch sources.
 
-Worker memanggil empat provider tersebut; provider hanya berkontribusi bila aktif dan tersedia konfigurasinya. Daftar pengambilan lokal berbeda: OddsPapi dicantumkan sebagai descriptor tanpa fetcher, sehingga tidak dipanggil saat fallback lokal (temuan D16). Worker menangani snapshot sendiri, tidak melewati daftar provider lokal.
+## Data and deployment boundaries
 
-## B. Titik pembuangan
+- Cloudflare Pages remains the frontend.
+- Railway owns the backend API, PostgreSQL, Redis, and the isolated Sportradar worker.
+- The old Railway project remains live until final data sync and explicit cutover approval.
+- The new Railway project must use one documented source branch and commit for backend and worker.
+- Historical database migrations are immutable. Retiring provider code does not authorize deleting applied migration files or dropping tables before backup, dependency audit, and row-count verification.
 
-**Urutan tabel = peringkat sementara tertinggi ke terendah. ★ menandai 10 teratas.**
-Kolom “dicatat” menyebut log/penghitung yang tampak pada jalur kode; “diam-diam” berarti tidak ada penghitung/log spesifik untuk kehilangan tersebut.
+## Release gates
 
-| ID / peringkat | Tahap; file:baris | Kondisi persis dan yang dibuang | Sifat; dampak potensial | Log/penghitung | Arah perbaikan (tidak diterapkan) |
-|---|---|---|---|---|---|
-| **D1 ★ 1** | Provider: OddsPapi; `backend/src/sportsbook-oddspapi.js:14-18, 230-257, 290-318, 342-348, 459-495` | Hanya soccer; pemilihan turnamen menghitung fixture `statusId===0`, `hasOdds===true`, kickoff mendatang ≤7 hari, tetapi request fixture hanya 3 hari dan normalisasi event hanya ≤3 hari. Maksimal 2 turnamen per refresh (default ID `17` diprioritaskan), satu bookmaker (default `pinnacle`), market hanya 1X2/totals/Asian handicap FT/1H dengan panjang dan outcomes lengkap; line handicap/totals harus valid dan absolut ≤20. Event di luar syarat, market tidak dikenal, periode lain, atau outcome tidak lengkap tidak masuk/terlewat. Refresh default 8 jam dan kuota default 8 request/hari (`sportsbook-oddspapi.js:28-32, 74`). | Pengaman/biaya provider dan cakupan produk yang disengaja; **Tinggi** bila provider diharapkan mencakup turnamen/market luas. | Beberapa kegagalan request melempar error; tidak ada hitungan terstruktur per fixture/market/outcome yang ditolak. **Sebagian besar diam-diam.** | Tampilkan hitungan per alasan serta bandingkan coverage turnamen/bookmaker terhadap kebutuhan produk sebelum mengubah batas. |
-| **D2 ★ 2** | Provider: API-Sports; `backend/src/config.js:147-159`, `backend/src/sportsbook-providers.js:1645-1677, 1785-1848` | Fixture prematch diminta sampai default 14 hari, tetapi odds prematch diminta hanya untuk tanggal hari ini dan default 2 halaman. Event fixture tanpa odds terkait tetap dinormalisasi sebagai event tanpa market (baris 1810-1813). Odds diubah ke market melalui `marketType`; odds tidak lolos `safeOdds` dibuang, market tanpa selection valid menjadi null. Maksimum 500 event/provider; API-Sports daily quota maksimum konfigurasi 100 dan monthly 3100. | Umumnya pengaman kuota/paginasi; rentang fixture jauh lebih lebar daripada rentang odds merupakan potensi coverage gap. **Tinggi** untuk “event ada, odds hilang”; **Sedang** untuk event hilang. | Kesalahan request dikumpulkan (`errors`), tetapi tidak ada penghitung per market/selection yang ditolak atau nomor halaman berikutnya yang tidak diminta. | Ukur join fixture→odds per tanggal/halaman; pisahkan metrik “fixture tanpa odds” dari kegagalan fetch. |
-| **D3 ★ 3** | Worker: batas event dan ranking; `backend/src/sportsbook-render-worker-core.js:4-6, 25-66, 69-138, 324-329` | Mode non-passthrough membatasi group fixture non-Sportmonks hingga `maxEvents` (default 500; maksimum 500); fixture diprioritaskan live, liga prioritas, kickoff lebih awal, lalu prioritas provider. Dalam passthrough, group Sportmonks tidak dibatasi kecuali cap khusus >0; provider lain tetap dibatasi. Group setelah batas dibuang utuh. | Batas sumber daya yang disengaja, tetapi ranking dapat menyingkirkan liga/event valid; **Tinggi**. | Ya: `snapshot-event-limit-trimmed` dan `diagnostics.eventLimit` menyimpan jumlah event yang hilang. | Catat daftar ringkas liga/status/provider yang terbuang dan bandingkan dengan urutan prioritas bisnis. |
-| **D4 ★ 4** | Provider: Sportmonks tanggal/halaman/status; `backend/src/config.js:16, 180-211`, `backend/src/sportsbook-providers.js:1326-1424, 1440-1475` | Default `SPORTMONKS_PASSTHROUGH=true`: horizon default 365 hari, halaman/event cap bernilai 0 (tanpa cap), 50 MB response per halaman; filter status dan kickoff lama hanya berjalan saat passthrough **false**. Non-passthrough menerima hanya SCHEDULED/LIVE dan membuang kickoff >3 jam lewat, lalu menyimpan ranked candidates berdasarkan prioritas liga/kickoff. Page budget habis membuat hasil parsial; kegagalan halaman mengisolasi tanggal itu. Tidak ditemukan filter liga yang menolak liga; prioritas liga memengaruhi ranking hanya saat dibatasi. | Mode tanpa filter meningkatkan cakupan tetapi berisiko membuat snapshot besar; mode terbatas dapat membuang event yang sah. **Tinggi**, sangat bergantung nilai Railway. | Ya: diagnostics melaporkan fetched/filtered/skipped/page budget/event cap/failed pages. | Ambil konfigurasi aktual terlebih dahulu; bandingkan jumlah per hari, status, liga dan page-budget sebelum menyetel horizon/cap. |
-| **D5 ★ 5** | Worker: trimming payload; `backend/src/sportsbook-render-worker-core.js:201-248, 407-420` | Jika JSON snapshot > budget, binary search mempertahankan awalan group fixture berperingkat dan membuang fixture terbawah secara utuh, bukan memangkas market/selection. Jika bahkan satu group tidak muat, error. Budget default non-passthrough 6,291,456 byte; passthrough punya batas Sportmonks terpisah default 100 MB. | Proteksi 413 dan menjaga event utuh; event valid bisa terbuang karena ukurannya/posisi ranking. **Tinggi** bila payload dekat limit. | Ya: worker mencatat `snapshot-payload-trimmed`, jumlah event, byte dan diagnostik omission; jika satu fixture saja tak muat, error eksplisit. | Pertimbangkan payload aktual dan ukuran per fixture sebelum menaikkan limit; ukur p95/p99 dan fixture yang paling besar. |
-| **D6 ★ 6** | Feed/provider merge: deduplikasi event dan pemilihan market; `backend/src/sportsbook-providers.js:1893-1900, 1902-1921, 1954-1968, 1973-1998, 2038-2119` | Event sama jika sport, league, urutan nama tim yang dinormalisasi cocok, dan kickoff ≤3 jam (country juga harus cocok bila keduanya terisi di feed merge). Jika nama/league/country atau kickoff berbeda, duplikat bisa lolos sebagai event terpisah; jika mirip tetapi sebenarnya beda, bisa salah digabung. Market identity mencakup type/period/line/label/bookmaker (kecuali Sportmonks passthrough pakai ID); satu market diganti berdasarkan availability, prioritas source, atau selection count—bukan gabungan seluruh selection. Event non-Sportmonks setelah 500 di provider merge dilewati tanpa counter spesifik. | Dedupe/pemilihan satu harga disengaja; pencocokan salah dapat menghilangkan event/market atau menciptakan duplikat. **Tinggi**. | Log input dan agregat provider, serta jumlah merged events; tidak ada counter khusus event yang `continue` pada batas, market yang diganti, atau alasan gagal match. **Sebagian diam-diam.** | Ukur match rate dan mismatch identitas; tambahkan alasan/count untuk merge, split dan market replacement. |
-| **D7 ★ 7** | Provider: SharpAPI; `backend/src/config.js:159-170`, `backend/src/sportsbook-providers.js:452-500, 552-642, 669-690` | Maksimal default produksi 5 halaman × 200 baris; exact sport harus cocok (default soccer); bila `sharpApiMainLinesOnly=true`, alternate line dibuang. Per event hanya satu sportsbook dipilih; sportsbook eksplisit yang tidak hadir membuat event tanpa sportsbook dan dibuang. Market harus punya jumlah selection minimum (1X2/Double Chance 3; sebagian besar market 2), 1X2 wajib home/draw/away. Event tanpa market valid dibuang; return maksimal 500 event. | Pembatasan request/book/alternate dan market parsial disengaja, tetapi selection bookmaker lain atau market yang belum lengkap dapat hilang. **Tinggi**. | Ya, SharpAPI normalization log menghitung sebagian besar alasan (sport, alternate, required fields, no sportsbook, incomplete market, invalid selection, limit return). | Tampilkan diagnostik SharpAPI pada status operasi dan validasi apakah satu bookmaker/main-line-only memang sesuai coverage yang diharapkan. |
-| **D8 ★ 8** | Ingest validasi: `backend/src/sportsbook-ingestion.js:8-12, 118-171, 173-224` | Hanya allowlist 4 provider, satu record/provider, maksimum 4 hasil; status harus termasuk allowlist, `LIVE` harus konsisten dengan `live`, struktur event/market/selection harus cocok. Non-passthrough menolak market kosong dan odds ≤1 atau >10000; passthrough Sportmonks menerima lebih longgar. Snapshot basi (>180 detik default), masa depan >30 detik, record >2000 (non-Sportmonks) atau unique event >500 (non-Sportmonks) ditolak; payload/record lebih besar menghasilkan 413. | Pengaman integritas/ukuran yang disengaja; **Tinggi** bila batas terlewati, karena snapshot ditolak utuh. | Ya: AppError dengan kode/penjelasan; jumlah event envelope diverifikasi. | Pastikan alert memisahkan 413, stale dan struktur invalid; pertahankan batas fail-closed dan ukur ukuran payload. |
-| **D9 ★ 9** | Ingest merge provider-results; `backend/src/sportsbook-ingestion.js:229-287` | Merge menerima provider masuk hanya bila `transportOk !== false` dan `stale !== true`; provider yang tidak masuk dapat dipertahankan dari snapshot lama selama umur maksimum 180 detik. Group non-Sportmonks lebih dari 500 dibuang. | Menghindari snapshot gagal menggantikan provider sehat dan membatasi feed; data/provider valid bisa hilang saat cap tercapai. **Sedang–Tinggi**. | Ya, omission dicatat `ingestMerge` dan warning. Label `envToIncrease` selalu menyebut payload byte, padahal kondisi ini event cap—petunjuk operasional yang salah. | Catat provider stale/transport failure dan gunakan nama knob yang sesuai dengan batas event. |
-| **D10 ★ 10** | Feed safety: olahraga/status/kickoff/horizon/cap; `backend/src/sportsbook-feed.js:183-260, 338-374, 1548-1577`, `backend/src/config.js:136, 245-248, 267` | `boundedEvents` non-passthrough hanya soccer, buang closed event di luar retention 6 jam dan prematch kickoff lebih dari grace 30 detik; member horizon default 30 hari, cap event 500. Passthrough Sportmonks melewati filter soccer/status/kickoff/horizon dan cap non-Sportmonks tetap berlaku terpisah. Filter event API juga hanya menerima soccer. | Status/horizon/cap disengaja; mismatch sport/status atau horizon dapat menyembunyikan data sah. **Tinggi**. | Ya: `boundedEvents diagnostics` menghitung sport/status/kickoff/visibility/cap. Pengurangan member horizon terlihat pada hasil/count tetapi tidak ada counter alasan terpisah di response. | Bandingkan event tersaring per alasan, terutama perbedaan nilai passthrough dan horizon frontend/member. |
-| **D11** | Feed Redis/cache: `backend/src/sportsbook-feed.js:263-333, 708-777`; config `backend/src/config.js:60-61, 136-138, 180-195, 245` | Jika payload cache melewati batas, cache write mempertahankan event berurutan sampai byte cap; event yang tidak muat dilewati. Default 6,291,456 byte; Sportmonks passthrough default 100 MB cache, Redis staging default 150 MB. TTL feed maksimum diperketat berdasarkan max(stale, 2×refresh, 180 detik); staging snapshot maksimal 180 detik default. Data basi staging ditolak; feed stale dapat tetap disajikan read-only dalam STALE window (default 180 detik), dengan odds disuspensi. | Proteksi memori/ukuran dan anti-stale; event besar atau stale dapat tidak muncul/ditangguhkan. **Sedang–Tinggi**. | Ya: log cache omission/oversize dan omitted count; stale/provider failures dicatat. | Pantau jumlah bytes, event yang tersisih, umur snapshot dan fallback read-only secara bersamaan. |
-| **D12** | Feed quarantine odds; `backend/src/sportsbook-feed.js:19-22, 34-140` | Market non-Sportmonks dikarantina/dihapus bila line handicap/totals bukan quarter-line valid, odds aktif non-finite atau di luar 1.20–100, overround 1X2 atau handicap (bila 3/2 pilihan aktif lengkap) di luar 1.00–1.25, handicap parsial, handicap dua odds berbeda >3x, atau pick’em safeguard gagal. Market yang punya satu alasan dibuang utuh; event tetap ada. Sportmonks passthrough hanya diberi warning, tidak dikarantina. | Pengaman kualitas/risk yang disengaja; **Sedang**, dapat tinggi bagi provider yang format/price convention-nya berbeda. | Ya: logger mencatat total quarantine, alasan dan Sportmonks warnings. | Jangan melonggarkan sebelum distribusi odds dan line mentah per provider dibandingkan dengan rejection reason. |
-| **D13** | Status betting, harga live, lifecycle dan operator controls; `backend/src/sportsbook-providers.js:1923-1950`, `backend/src/sportsbook-feed.js:338-360, 876-890, 984-1000`, `backend/src/sportsbook-market-lifecycle.js:57-120, 183-244`, `backend/src/sportsbook-trading-policy.js:75-98` | Event finished/suspended atau prematch kickoff lewat ditutup/suspensi pada non-passthrough. Live price tanpa timestamp/lebih tua dari default 90 detik disuspensi, bukan dihapus dari papan. Provider lifecycle yang tidak `bettingAllowed` mensuspensi semua market. Market lifecycle non-passthrough memberi status CLOSED/SUSPENDED/REOPENING dan meminta 2 observasi sukses default sebelum reopen. Trading control operator menambah suspension/stake limit pada event/market/selection; tidak menghapus event dari proyeksi. Sportmonks passthrough dikecualikan dari sebagian gate ini. | **Pengaman taruhan yang harus dipertahankan**, bukan penyebab event hilang; bisa membuat odds terlihat tetapi tidak bettable. **Tinggi untuk keselamatan; Rendah sebagai penghilangan event**. | Ya: provider/lifecycle transitions dan status operasi dihitung/logged; event betting-window tidak selalu punya penghitung khusus per alasan. | Bedakan “tidak tampil” dengan “tampil suspended”; audit harga stale dan lifecycle sebelum menyebutnya data terbuang. |
-| **D14** | API/member projection; `backend/src/sportsbook-feed.js:1500-1512, 1548-1577`, `backend/src/sportsbook-member-projection.js:3-5, 11-68, 87-92` | Untuk provider non-Sportmonks, list summary hanya mengirim 1X2/HANDICAP/TOTALS periode FT/1H. Market lain tetap tersedia di endpoint detail event. Proyeksi juga dedupe market/selection dengan key/line; beberapa metadata provider/source/updatedAt tidak dikirim non-passthrough. Sportmonks passthrough mendapat seluruh market dan field provider tambahan. | Pilihan payload/UI disengaja; dapat tampak seperti market hilang di halaman list padahal ada di detail. **Sedang**. | Diam-diam pada projection; tidak ada penghitung market yang dikeluarkan. | Tampilkan jumlah summary vs detail dan pastikan pengguna memahami panel “Semua pasar”. |
-| **D15** | UI utama/detail; `frontend/js/sportsbook-markets.js:1-115`, `frontend/js/sportsbook.js:32-33, 1386-1387, 1555-1572, 1655-1670, 1752-1844, 1896` | Kartu utama hanya slot HANDICAP/TOTALS/1X2 untuk periode aktif; untuk handicap/totals lebih dari 2 selection, pilih satu line. Market tambahan dirender pada panel detail yang dimuat saat dibuka. Odds non-finite atau ≤1 (kecuali Sportmonks masih tetap disabled saat ≤1) tidak dapat dipasang; suspended juga disabled. Carousel live hanya 6 event. | Layout/lazy loading dan keselamatan odds disengaja; bisa disalahartikan sebagai market/event hilang. **Sedang**. | Tidak ada penghitung tersembunyi UI; detail fetch error terlihat lewat mekanisme UI, tetapi render per market tidak menghitung yang tidak tampil. | Audit kartu dan detail terpisah; ukur market provider yang tidak punya slot utama dan klik detail untuk memastikan tersedia. |
-| **D16** | Fallback lokal provider; `backend/src/sportsbook-feed.js:477-490, 900-930`, `backend/src/sportsbook-feed-source.js:36-116` | Fallback lokal hanya memasukkan descriptor yang `fetcher`-nya fungsi; descriptor OddsPapi secara eksplisit `fetcher: null`, sehingga OddsPapi tidak dipanggil. Snapshot worker valid dapat memuat OddsPapi; jika worker snapshot gagal/habis umur dan feed jatuh ke fallback lokal, coverage OddsPapi hilang. | Perbedaan implementasi fallback yang berpotensi tidak disengaja; **Sedang**, hanya saat fallback lokal dan provider aktif. | Log fallback lokal dan snapshot rejection ada; tidak ada hitungan “OddsPapi terlewat karena fetcher null”. | Samakan kemampuan jalur fallback dengan worker atau tandai eksplisit provider yang tidak tersedia pada fallback. |
-| **D17** | Member pagination/filter; `backend/src/sportsbook-feed.js:1410-1435, 1548-1577`, `backend/src/sportsbook-feed-revisions.js:1-36`, `backend/src/app.js:118, 125` | Server menerapkan soccer, sport/live/league/country/tab/search; kemudian sort kickoff, batas member 500, lalu paginate. API default maksimal 500 per halaman; frontend meminta 30 dan memuat halaman selanjutnya. Event di luar halaman bukan hilang dari katalog, tetapi belum dimuat. | Perilaku UX/payload disengaja; filter aktif dapat menyaring semua event. **Sedang**. | Response berisi total/hasMore; tidak ada log filter per pengguna. | Verifikasi query/filter, `total`, `offset`, `hasMore` sebelum menyimpulkan cap kehilangan event. |
-| **D18** | Browser-side filter/state; `frontend/js/sportsbook-feed-state.js:1-23, 94-124`, `frontend/js/sportsbook.js:1280-1285, 1320-1342` | Client dedupe event berdasarkan ID, normalisasi record invalid, lalu menerapkan sport/league/country/live/today/early/favorites/search. Paginasi “load more” berhenti bila response hasMore false atau page kurang dari 30. | Filter dan dedupe disengaja; ID collision atau state/pagination stale berpotensi menyembunyikan data. **Rendah–Sedang**. | Tidak ada penghitung dedupe/filter pada halaman; errors render memakai fallback. | Bandingkan jumlah server response dengan jumlah setelah normalize/filter di browser. |
-| **D19** | Validasi struktur worker dan count envelope; `backend/src/sportsbook-render-worker-core.js:334-404` | Worker memfilter event yang gagal `isValidEvent` (warning `EVENT_DROP invalid-structure`), tetapi envelope `eventCount` diambil dari `combined.eventCount` sebelum filter. Jika setidaknya satu event invalid dan event lain valid, `validateSportsbookSnapshot` menghitung ulang unique fixtures dan menolak ketidakcocokan `eventCount`. | Bug potensial yang dapat menolak seluruh snapshot karena satu event invalid; **Sedang**. Tidak ada bukti fixture produksi memicunya. | Invalid event per-record di-log; dampak envelope mismatch dicatat ingest sebagai invalid, bukan counter khusus. | Hitung ulang `eventCount` setelah filter dan tambah tes fixture satu-invalid/one-valid sebelum perbaikan. |
-| **D20** | Label diagnostik payload worker; `backend/src/sportsbook-render-worker-core.js:211-215, 239-248` | Kode memilih label `SPORTMONKS_INGEST_MAX_PAYLOAD_BYTES` bila providerResults memuat Sportmonks, tanpa memeriksa `config.sportmonksPassthrough`. Saat passthrough false tetapi Sportmonks ada, batas ingest aktual adalah fallback sportsbook standar; label saran bisa salah. Tidak mengubah data, hanya petunjuk operator. | Kesalahan diagnosis, bukan kehilangan langsung; **Rendah**. | Muncul hanya bila payload trim terjadi; label masuk log diagnostik. | Pilih nama env dengan predicate batas yang sama persis seperti `sportsbookPayloadLimit`. |
+1. Reconcile the Sportradar-only code onto the agreed Railway deployment branch without overwriting TOTO, wallet, settlement, or unrelated work.
+2. Verify worker pagination, normalization, signing, private-network delivery, and backend rejection of non-Sportradar snapshots.
+3. Verify read-only/unavailable behavior when the snapshot is absent, stale, malformed, or unsigned.
+4. Run the complete backend test suite and frontend tests under the repository's supported Node version.
+5. Verify the worker produces an accepted production-access snapshot and record event/market counts, timestamps, and payload bytes.
+6. Take a consistent source database backup during the approved maintenance window. Restore to the new target only after target safety is established.
+7. Compare all tables and actual row counts, then validate wallet balances against ledger entries, pending transactions, owner/admin access, and critical business records.
+8. Run application smoke tests against the restored target, including TOTO, sportsbook read/quote, operator settlement, deposits, withdrawals, and authentication.
+9. Keep the old Railway environment untouched until the new environment passes every gate.
+10. Cut over only after explicit approval. Preserve the old environment for rollback.
 
-### Provider dan konfigurasi yang diperiksa
+## Verified migration audit (19 November 2026)
 
-| Provider | Batas/permintaan terlihat di kode | Normalisasi dan catatan coverage |
-|---|---|---|
-| Sportmonks | Horizon 365 hari, unlimited page/event sentinel saat passthrough; non-passthrough horizon 30 hari, hingga 120 page, 500 event; response default 50 MB per halaman. | Passthrough mempertahankan unknown market sebagai `OTHER`; odds numerik tidak dibatasi rentang `safeOdds` pada cabang itu, tetapi odds tidak terbaca dilewati dan diberi counter. Tanpa nama tim event ditolak; event tanpa odds/market dapat tetap tampil. |
-| SharpAPI | Default produksi 5 halaman, 200 baris/page, 500 event; sport soccer; market parameter kosong di produksi; satu sportsbook dipilih; alternate line hanya dibuang jika flag aktif. | Ada counter normalisasi detail. Satu sportsbook terpilih berarti harga/market dari sportsbook lain tidak ikut event yang sama. |
-| API-Sports | Fixture live dan prematch (default 14 hari), odds live dan 2 halaman odds tanggal hari ini; batas kuota default 100/hari. | Fixture yang tidak punya odds tetap bisa disertakan. Satu market duplicate per identity dipilih dengan implied total paling rendah pada normalizer fixture; tidak ada range odds di luar helper normalizer. |
-| OddsPapi | Default nonaktif; default tournament ID `17`, bookmaker `pinnacle`, refresh 8 jam, kuota 8/hari. Fixture 3 hari; sampai 2 turnamen per refresh. | Hanya soccer prematch dan katalog 1X2/totals/Asian handicap yang lolos mapping; odds basi/invalid tidak dipakai dan market parsial disuspensi. |
+A read-only count audit was executed from the new Railway migration service against the old source database, the intermediate `gasterus_import` database, and the new primary target. It did not modify any database.
 
-`theSportsDB` juga ada di konfigurasi untuk metadata, tetapi bukan salah satu dari empat fetcher worker sportsbook yang dipanggil pada `sportsbook-render-worker-core.js:275-279`. Ia tidak dihitung sebagai provider odds pada audit ini.
+- Source and import each have 63 public base tables.
+- Every source/import table count matches except `market_result_history`: source 1,398, import 1,389 (9-row difference). This is consistent with a point-in-time import while the old production database continues receiving writes; it still requires final synchronization.
+- Source and import both report 48 `schema_migrations` records.
+- New target has 63 public base tables but only 44 `schema_migrations` records. It is not a data-complete production target.
+- Source/import have 10 users, 16 ledger accounts, 1 wallet request, 1 QRIS deposit order, 4,102 sportsbook lifecycle rows, 26,145 lifecycle-history rows, 742 provider incident rows, 22 quota-period rows, 949 quota-reservation rows, and 71 security-event rows.
+- Target currently has 0 users, 0 wallet requests, 0 QRIS deposit orders, 0 ledger entries, 0 ledger transactions, 0 sportsbook tickets, 0 sportsbook lifecycle rows, and 0 lifecycle-history rows. It has 6 ledger accounts and 1 sportsbook provider incident row.
+- The source and import both currently report 0 ledger entries and 0 ledger transactions. That is not proof of wallet integrity; account balances, legacy balance sources, and pending payment records still need an explicit financial reconciliation before restore/cutover.
+- The read-only audit command was removed from the migration service afterward; the service's normal schema-check command was restored. No source or target rows were changed.
 
-## C. Peringkat
+## Current blockers
 
-Urutan D1–D20 pada tabel adalah peringkat potensi kehilangan. ★ adalah sepuluh titik pertama yang paling layak diukur. Dasarnya: cakupan tanggal/turnamen/provider, peluang mempengaruhi banyak record, dan letaknya sebelum response member. **Tidak ada data nyata untuk mengurutkan berdasarkan jumlah record yang benar-benar terbuang.** Titik berupa presentasi (D14/D15) dan batas UX (D17/D18) berada lebih bawah karena market/event biasanya masih tersedia di detail/pagination.
+- This cleanup branch is not yet merged into the deployment branch or deployed.
+- Worker production ingestion was verified from the 19 November logs: 207 events fetched over 10 pages, 1,024 markets, 5,620 books, and 12,921 outcomes; backend accepted the signed snapshot and served 203 filtered events with 5,335 bettable markets.
+- The running Railway backend/worker are still on the previous deployment commit. The cleanup branch must pass CI before deployment.
+- Full wallet/ledger integrity, owner/admin access, pending payment reconciliation, and TOTO financial-state verification are not yet complete.
+- The import is a point-in-time copy, and the source remains live. A final consistent backup and restore is still required during an approved maintenance window.
+- The new target is not populated with production user and transaction data. Do not point traffic at it.
+- No final cutover or traffic change has been performed.
 
-## D. Pembuangan diam-diam / tanpa counter spesifik
+## Audit recording format
 
-1. **D1 OddsPapi:** tidak ada hitungan per tournament, market yang tidak dikenal, outcome yang tidak lengkap, harga basi, atau selection yang dilewati. Error request mungkin tercatat, tetapi bukan jumlah data normal yang difilter.
-2. **D2 API-Sports:** tidak ada counter khusus market/odds yang gagal normalisasi atau fixture tanpa odds; jumlah halaman dibatasi tanpa counter “halaman berikut tidak diminta”.
-3. **D6 provider merge:** jumlah input/hasil akhir dicatat, tetapi tidak ada jumlah event yang dilewati cap, market yang ditimpa, atau alasan dua fixture tidak cocok.
-4. **D14 ringkasan member:** filter tipe/period market dan dedupe tidak menghasilkan counter dropped-market.
-5. **D15/D18 frontend:** filter pasar utama, dedupe event client, filter UI, dan render tidak menghitung jumlah data yang tidak ditampilkan.
-6. **D16 fallback:** tidak ada counter yang menyebut OddsPapi dilewati karena `fetcher:null`.
-
-Sebaliknya, Sportmonks dan SharpAPI punya diagnostik normalisasi relatif rinci; worker event/payload cap dan cache/feed bounded stage juga mencatat jumlah yang dibuang. `boundedEvents` mencatat status/kickoff/soccer/cap. Quarantine odds memiliki summary per alasan.
-
-## E. Yang tidak bisa dipastikan tanpa data produksi
-
-- Nilai env aktual (provider aktif, `SPORTMONKS_PASSTHROUGH`, horizon/caps, sportsbook/turnamen, payload/cache bytes, freshness); nilai default kode bukan bukti nilai Railway.
-- Jumlah event tiap provider, jumlah halaman yang benar-benar tersedia/diambil, kelengkapan odds per event, kuota tersisa, freshness feed, ukuran fixture, serta proporsi 413/cache truncation.
-- Akurasi event matching pada perbedaan ejaan, alias klub, liga, timezone/kickoff atau metadata country; kode menunjukkan aturan, bukan false match nyata.
-- Apakah pengguna hanya melihat summary/card atau membuka detail, query filter/tab yang aktif, pagination yang sudah dimuat, dan error request frontend.
-- Dampak aktual terhadap betting controls, lifecycle, closed league/event/market. Repository ini membuktikan trading controls mensuspensi taruhan; tidak ditemukan pada jalur yang ditelusuri rule admin generik yang menghapus liga/event dari feed member.
-
-**Cara ukur yang aman:** jalankan `node backend/scripts/audit/sportsbook-funnel.js` untuk fixture offline; untuk produksi, instrumentasikan counter per provider/page/date/status/league/bookmaker/market/reason dan bandingkan snapshot worker → ingest → merge → bounded feed/cache → member summary/detail. Gunakan key asli hanya pada proses operasional yang disetujui pemilik sistem; skrip audit ini sengaja tidak menerima key dan tidak melakukan request. Rekam `payload bytes`, stale age, provider state, event/market/selection count, alasan quarantine, cache omission, member `pagination.total/hasMore`, dan selisih jumlah detail vs summary.
-
-## F. Hipotesis akar masalah (belum terbukti sebagai penyebab aktual)
-
-1. **Cakupan odds provider tidak selaras dengan cakupan fixture. Keyakinan: tinggi pada ketidaksamaan kode, sedang pada dampak aktual.** API-Sports fixture prematch default 14 hari namun odds prematch hanya tanggal hari ini/dua halaman; OddsPapi hanya tiga hari, ≤2 turnamen dan satu bookmaker; SharpAPI satu sportsbook. Bukti D1–D2 dan D7.
-2. **Batas worker/payload/cache menghapus fixture yang valid. Keyakinan: tinggi bahwa mekanisme ada, rendah–sedang untuk terpicu di deployment.** Non-Sportmonks dibatasi 500; payload dan cache punya byte cap; konfigurasi Sportmonks passthrough dapat mengubah skala batas. Bukti D3–D5 dan D11.
-3. **Pengguna menganggap market detail yang tidak ada di kartu utama sebagai market hilang. Keyakinan: tinggi bahwa perbedaan presentasi ada, sedang untuk kasus pengguna.** Summary non-Sportmonks hanya 1X2/handicap/totals FT/1H, sedangkan detail event menyajikan market lain; kartu utama hanya tiga tipe dan memilih satu line. Bukti D14–D15.
-4. **Event berhasil masuk tanpa odds atau dengan odds/market yang tidak dipetakan. Keyakinan: tinggi bahwa state ini diperbolehkan, sedang untuk dampak aktual.** Sportmonks mempertahankan event aktif tanpa odds; API-Sports mempertahankan fixture tanpa odds; OddsPapi menolak market tidak dikenal/incomplete. Market non-core dapat menjadi `OTHER`/hilang dari summary. Bukti D1–D4.
-5. **Fallback lokal mengurangi coverage dibanding snapshot worker. Keyakinan: tinggi untuk OddsPapi pada kode, rendah untuk frekuensi fallback.** Saat snapshot worker tidak tersedia, descriptor OddsPapi tidak memiliki fetcher. Bukti D16 dan logging snapshot fallback.
-
-## G. Corong data fixture sintetis
-
-Perintah yang dijalankan: `node backend/scripts/audit/sportsbook-funnel.js`. Ini **bukan satu hari tipikal produksi**. Fixture dibuat normal dan seragam (6 market, 14 selection per event), memakai mode non-passthrough agar batas 500 dan validasi standar dapat diuji. Angka input provider dipatok di skrip: Sportmonks 120, SharpAPI 200, API-Sports 180, OddsPapi 160; 50 identitas event dibuat overlap lintas provider. Payload worker memakai default non-passthrough 6,291,456 byte.
-
-| Tahap fixture | Event record / unik | Market | Odds | Catatan |
-|---|---:|---:|---:|---|
-| Fixture masuk dari 4 adapter tiruan | 660 / 510 unik | 3,960 | 9,240 | Semua sudah dinormalisasi; tidak menguji request, filter provider mentah, API pagination, atau quota. |
-| Worker event cap | 650 / 500 unik | 3,900 | 9,100 | 10 unique fixture terbuang; log `snapshot-event-limit-trimmed`. Payload 3,575,708 byte, di bawah 6,291,456 sehingga tidak ada trim byte di run ini. |
-| Validasi ingest + merge snapshot | 650 / 500 unik | 3,900 | 9,100 | Empat provider lolos allowlist/struktur; tidak ada omission tambahan. |
-| Penggabungan provider | 500 / 500 unik | 3,000 | 7,000 | Record fixture overlap disatukan; 3 market/7 odds duplikat per tiap overlap lain tidak ditampilkan berulang. |
-| Safety, lifecycle, controls kosong, cache | 500 / 500 unik | 3,000 | 7,000 | Fixture sengaja valid, fresh, future kickoff, dan controls kosong; tidak memicu quarantine/suspension/cache omission. |
-| Member summary sebelum pagination | 500 / 500 unik | 1,500 | 3,500 | Hanya 3 dari 6 market per event (1X2, handicap, totals); market lain tetap ada di detail. |
-| Halaman pertama + slot UI utama | 30 / 30 | 90 | 210 | Pagination limit 30; 3 slot utama/event. Detail event pertama: 6 market, 14 odds. `hasMore=true`, total=500. |
-
-**Interpretasi batas:** run ini membuktikan batas 500 event aktif pada konfigurasi non-passthrough yang diuji; bukan membuktikan 500 adalah batas universal deployment. Dalam passthrough default kode, event Sportmonks tidak memakai cap 500 yang sama kecuali `SPORTMONKS_MAX_TOTAL_EVENTS` ditetapkan >0, sedangkan provider non-Sportmonks tetap dibatasi. Jika payload/cache melebihi budget, fixture utuh dapat terbuang; pada fixture run ini budget tidak terlampaui. Tidak ada hitungan “hari tipikal” yang jujur tanpa feed produksi.
-
-Tes yang mendukung jalur dan safeguard mencakup `backend/tests/sportsbook-render-worker.test.js`, `backend/tests/sportsbook-ingestion.test.js`, `backend/tests/sportsbook-feed-safety.test.js`, `backend/tests/sportsbook-validation.test.js`, `backend/tests/sportsbook-oddspapi.test.js`, `backend/tests/sportsbook-ui-all-markets.test.js`, dan `backend/tests/sportsbook-global-pagination.test.js`. Pada run terpilih yang tersedia di sesi audit, 74 tes backend lulus; subprocess tes UI pada run gabungan tidak mendapat `DATABASE_URL`, lalu dijalankan ulang dengan nilai env dummy dan 29 tes UI lulus. Itu kendala konfigurasi runner, bukan bukti bug runtime. Tes-tes menggunakan fixture dan tidak mengukur volume provider produksi.
-
-## Kesimpulan akhir
-
-1. **Tahap yang paling banyak membuang data?** Tidak dapat ditentukan untuk produksi tanpa counter/feed nyata. Berdasarkan struktur kode, prioritas ukur pertama adalah cakupan provider (terutama jendela fixture-vs-odds dan batas OddsPapi), kemudian worker 500/payload/cache, lalu proyeksi summary/UI. Pada fixture sintetis ini, jumlah terbesar sebelum merge adalah 10 unique event worker cap; pengurangan event record/market/odds pada merge terutama deduplikasi event yang sama.
-2. **Apakah ada pembuangan yang merugikan padahal datanya sah?** Ada risiko yang jelas: cap event/ranking/payload/cache, jendela odds provider, satu bookmaker, filter market summary, dan fallback OddsPapi. Belum ada bukti bahwa data produksi yang sah benar-benar menjadi korban atau berapa jumlahnya.
-3. **Apakah ada pembuangan yang melindungi taruhan dan tidak boleh disentuh?** Ya: quarantine odds/line/overround, penolakan struktur snapshot, freshness live (≤90 detik default), jendela kickoff, lifecycle suspension/reopen, dan operator trading controls. Itu harus dipertahankan sebagai gate keselamatan; ukur false positive dan kalibrasi berbasis provider, jangan menonaktifkannya untuk menaikkan jumlah odds.
+For each release gate, record the exact branch, commit SHA, service, deployment ID, database, command/test, observed result, and remaining blocker. Distinguish configured, deployed, running, tested, and production-serving. A successful deployment alone is not evidence of correct ingestion or data parity.

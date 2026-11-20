@@ -13,7 +13,7 @@ Object.assign(process.env, {
   OPS_INTERNAL_SECRET: 'o'.repeat(48),
   SESSION_HMAC_KEY: 's'.repeat(48),
   API_KEY_PEPPER: 'p'.repeat(48),
-  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
+
 });
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -174,14 +174,23 @@ test('rename markets hanya menyentuh kolom slug (tidak menimpa data hasil)', () 
   }
 });
 
-test('migrasi 039 batalkan diri bila slug kanonik sudah ada (anti duplikat)', () => {
+test('migrasi 039 hanya membatalkan jika slug lama dan kanonik sama-sama ada', () => {
   const sql = read('backend/migrations/039_canonicalize_market_slugs.sql');
   const guardAt = sql.indexOf('RAISE EXCEPTION');
   const firstRename = sql.indexOf('UPDATE markets SET slug');
   assert.ok(guardAt > -1, 'harus ada pre-flight guard');
   assert.ok(firstRename > -1, 'harus ada rename');
   assert.ok(guardAt < firstRename, 'guard duplikat harus mendahului rename');
-  assert.match(sql, /JOIN markets m ON m\.slug = t\.target/);
+  assert.ok(sql.includes('JOIN markets legacy_m ON legacy_m.slug = t.legacy'));
+  assert.ok(sql.includes('JOIN markets canonical_m ON canonical_m.slug = t.target'));
+});
+
+test('migrasi 039 tidak mewajibkan slug kanonik sebelum seed pada database kosong', () => {
+  const sql = read('backend/migrations/039_canonicalize_market_slugs.sql');
+  assert.ok(sql.includes('SELECT COUNT(*) INTO jumlah_kanonik FROM markets'));
+  assert.ok(sql.includes('IF jumlah_kanonik > 0 AND jumlah_kanonik < 5 THEN'));
+  assert.ok(sql.includes('lima pool kanonik belum ada'));
+
 });
 
 test('migrasi 039 menutup diri dengan verifikasi akhir', () => {

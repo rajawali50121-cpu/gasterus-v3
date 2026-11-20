@@ -91,6 +91,12 @@ export function connectionState(hasSnapshot, streamConnected, feedStatus = '') {
   return hasSnapshot ? 'snapshot' : 'connecting';
 }
 
+const PREMATCH_STATUS = new Set(['SCHEDULED', 'UPCOMING', 'NOT_STARTED', 'PREMATCH', 'PRE-MATCH']);
+function isValidPrematchEvent(event, now = Date.now()) {
+  if (event?.live === true || !PREMATCH_STATUS.has(String(event?.status || '').toUpperCase())) return false;
+  const kickoff = Date.parse(event?.startTime || '');
+  return Number.isFinite(kickoff) && kickoff > now;
+}
 export function filterVisibleEvents(events, {
   sport = 'all',
   league = 'all',
@@ -101,15 +107,15 @@ export function filterVisibleEvents(events, {
   favMatches = new Set(),
   isLive = event => Boolean(event?.live) || String(event?.status || '').toUpperCase() === 'LIVE',
   isToday = () => false,
-  isFuture = () => false
+  isFuture = event => Number.isFinite(Date.parse(event?.startTime || '')) && Date.parse(event.startTime) > Date.now()
 } = {}) {
-  let list = Array.isArray(events) ? events.filter(isRecord) : [];
+  let list = Array.isArray(events) ? events.filter(event => isRecord(event) && isValidPrematchEvent(event)) : [];
   if (sport !== 'all') list = list.filter(event => String(event.sport || '').toLowerCase() === String(sport).toLowerCase());
   if (league !== 'all') list = list.filter(event => String(event.league || '') === league);
   if (country !== 'all') list = list.filter(event => String(event.country || '') === country);
 
-  if (filter === 'live') list = list.filter(isLive);
-  else if (filter === 'today') list = list.filter(event => isToday(event) || isLive(event));
+  if (filter === 'live') list = [];
+  else if (filter === 'today') list = list.filter(isToday);
   else if (filter === 'early') list = list.filter(isFuture);
   else if (filter === 'fav') list = list.filter(event => favLeagues.has(String(event.league || 'Liga Internasional')) || favMatches.has(String(event.id)));
 

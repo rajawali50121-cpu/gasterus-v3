@@ -46,3 +46,18 @@ test('auto settlement memakai jalur settlement yang sudah ada dan bisa dimatikan
   assert.match(worker, /autoSettleTotoPeriods\(\)/, 'worker harus menjalankan siklus auto settlement');
   assert.match(worker, /totoAutoSettlementEnabled && Date\.now\(\) - lastTotoSettlement/, 'siklus harus bisa dimatikan lewat config');
 });
+
+
+test('auto settlement requires VERIFIED market and execution-time authority revalidation',()=>{
+  const source = moduleSource();
+  const worker = read('backend/src/worker.js');
+  const candidate = source.slice(source.indexOf('const CANDIDATE_SQL'), source.indexOf('const CATCHUP_SQL'));
+  const catchup = source.slice(source.indexOf('const CATCHUP_SQL'), source.indexOf('async function queueSettlementRun'));
+  assert.match(candidate, /m\.verification_status='VERIFIED'/);
+  assert.match(catchup, /m\.verification_status='VERIFIED'/);
+  assert.match(worker, /run\.mode === 'SETTLE' && !run\.approval_id && !run\.requested_by/);
+  assert.match(worker, /m\.status='open' AND m\.verification_status='VERIFIED'/);
+  assert.match(worker, /FOR UPDATE OF m/);
+  assert.match(worker, /String\(authority\.result\) !== String\(run\.result_value\)/);
+  assert.match(worker, /cancelledAutoRun\) return 'failed'/);
+});

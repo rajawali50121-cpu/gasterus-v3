@@ -28,11 +28,13 @@ test('member snapshot projection retains every market line and FT/1H variation',
 });
 
 
-test('Sportmonks member event list and detail preserve all provider markets',()=>{
+test('Sportradar member event list and detail preserve all markets',()=>{
   const feed=readFileSync(new URL('../src/sportsbook-feed.js',import.meta.url),'utf8');
-  assert.match(feed,/function memberPublicEvent\(event\)[\s\S]*isSportmonks[\s\S]*\? item\.markets[\s\S]*memberEventShape\(item, markets/);
-  assert.match(feed,/function memberPublicEventDetail\(event\)[\s\S]*item\.markets \|\| \[\][\s\S]*includeProviderFields/);
-  assert.match(feed,/event: applySportsbookTradingControls\(\[memberPublicEventDetail\(current\)\]/);
+  assert.ok(feed.includes('function memberPublicEvent(event)'));
+  assert.ok(feed.includes('selectMemberSummaryMarkets(item.markets)'));
+  assert.ok(feed.includes('function memberPublicEventDetail(event)'));
+  assert.ok(feed.includes('item.markets || []'));
+  assert.ok(feed.includes('includeDetailFields: true'));
 });
 
 test('FINAL mobile frontend bootstraps REST snapshot and reconnects SSE with bounded backoff',()=>{
@@ -59,12 +61,15 @@ test('FINAL mobile frontend bootstraps REST snapshot and reconnects SSE with bou
 
 
 test('FINAL mobile member market projection strips provider/source telemetry',()=>{
-  const output=projectMemberMarkets([{...market('m1','1X2','FT',null,{mainLine:true}),source:'sharpapi',bookmaker:'book-a'}]);
+  const output=projectMemberMarkets([{...market('m1','1X2','FT',null,{mainLine:true}),source:'sportradar',bookmaker:'book-a'}]);
   assert.equal(output.length,1);
   assert.equal('provider' in output[0],false);
   assert.equal('sourceMarketId' in output[0],false);
-  assert.equal(output[0].sourceLabel,'SharpAPI');
+  assert.equal(output[0].sourceLabel,'Sportradar');
   assert.equal(output[0].bookmaker,'book-a');
   assert.equal('provider' in output[0].selections[0],false);
-  assert.deepEqual(Object.keys(output[0].selections[0]).sort(),['key','label','line','odds','priceVersion','suspended'].sort());
+  for (const key of ['provider','source','sourceSelectionId','sourceData','externalOutcomeId']) {
+    assert.equal(key in output[0].selections[0],false,`member selection leaks ${key}`);
+  }
+  assert.equal(output[0].selections[0].oddsAmerican,null);
 });

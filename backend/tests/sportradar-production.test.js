@@ -10,10 +10,10 @@ Object.assign(process.env, {
   SPORTSBOOK_PREMATCH_WINDOW_DAYS: '7'
 });
 
-const [{ fetchSportradar }, { buildSportsbookRenderSnapshot }, { teamKey, publicEvent }, { validateSportsbookSnapshot }] = await Promise.all([
+const [{ fetchSportradar, __sportradarNormalizer }, { buildSportsbookRenderSnapshot }, { teamKey, publicEvent }, { validateSportsbookSnapshot }] = await Promise.all([
   import('../src/sportradar-provider.js'),
   import('../src/sportsbook-render-worker-core.js'),
-  import('../src/sportsbook-providers.js'),
+  import('../src/sportsbook-feed-utils.js'),
   import('../src/sportsbook-ingestion.js')
 ]);
 
@@ -93,7 +93,16 @@ function apiEvent(index) {
           { id: `removed-${index}`, type: 'home', odds_decimal: '1.00', removed: true },
           { id: `removed-no-price-${index}`, type: 'away', removed: true }
         ] }]
-      }
+      },
+      {
+        id: `market-live-only-${index}`,
+        name: 'live market only',
+        is_live: true,
+        books: [{ id: 'book-live', name: 'Bookmaker Live', outcomes: [
+          { id: `live-home-${index}`, type: 'home', odds_decimal: '2.10' },
+          { id: `live-away-${index}`, type: 'away', odds_decimal: '3.10' }
+        ] }]
+      },
     ]
   };
 }
@@ -150,6 +159,9 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(removedBookMarket.selections[1].odds, null);
   assert.equal(removedBookMarket.selections[0].removed, true);
   assert.equal(removedBookMarket.isLive, true, 'documented is_live market flag is preserved');
+  const liveOnlyMarket = first.markets.find(market => market.sourceMarketId === 'market-live-only-0');
+  assert.ok(liveOnlyMarket?.suspended, 'live markets are disabled in prematch mode');
+  assert.ok(liveOnlyMarket?.selections.every(selection => selection.suspended), 'live selections are disabled in prematch mode');
 
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportradar: async () => result,
@@ -233,3 +245,16 @@ test('Sportradar removed lifecycle accepts documented boolean and string true va
   assert.equal(market.selections[0].removed, true);
   assert.equal(market.selections[0].suspended, true);
 });
+
+test('provider maps live and unknown statuses fail closed rather than masquerading as scheduled', () => {
+  const normalize = __sportradarNormalizer.normalizedEventStatus;
+  assert.equal(normalize('not_started'), 'SCHEDULED');
+  assert.equal(normalize('scheduled'), 'SCHEDULED');
+  assert.equal(normalize('live'), 'LIVE');
+  assert.equal(normalize('in_progress'), 'LIVE');
+  assert.equal(normalize('finished'), 'FINISHED');
+  assert.equal(normalize('postponed'), 'SUSPENDED');
+  assert.equal(normalize('provider-new-status'), 'UNKNOWN');
+  assert.equal(normalize(''), 'SCHEDULED');
+});
+

@@ -9,7 +9,7 @@ const finishedEvent = (home, away, halfHome = null, halfAway = null) => ({
   home: { score: home },
   away: { score: away },
   periodScores: halfHome === null ? {} : { '1H': { home: halfHome, away: halfAway } },
-  settlementAuthority: { ft: true, ht: true }
+  settlementAuthority: { ft: true, ht: true, automaticFt: true }
 });
 const leg = (marketType, selectionLabel, marketLine = null, marketPeriod = 'FT') => ({
   market_type: marketType,
@@ -45,11 +45,11 @@ test('derived HT/FT settlement uses both authoritative half-time and full-time s
   assert.equal(evaluateSportsbookLeg(leg('HT_FT', 'Away / Home'), missingHalfScore), null);
   assert.equal(evaluateSportsbookLeg(leg('HT_FT', 'Away / Home'), {
     ...event,
-    settlementAuthority: { ft: false, ht: true }
+    settlementAuthority: { ft: false, ht: true, automaticFt: false }
   }), null);
   assert.equal(evaluateSportsbookLeg(leg('1X2', 'Home', null, '1H'), {
     ...event,
-    settlementAuthority: { ft: true, ht: false }
+    settlementAuthority: { ft: true, ht: false, automaticFt: true }
   }), null);
 });
 

@@ -29,12 +29,16 @@
 -- 2. Hanya kolom markets.slug yang disentuh. result, verification_status,
 --    period, draw_time, source_updated_at, dan updated_at TIDAK diubah, sehingga
 --    usia data yang membeku tetap terlihat jujur dan tidak disamarkan.
--- 3. Sebelum mengubah, migrasi memeriksa apakah slug kanonik sudah ada. Kalau
---    ternyata sudah ada, migrasi DIBATALKAN (RAISE EXCEPTION) dan tidak
---    menggabungkan dua baris secara diam-diam. Pilihan itu milik operator.
--- 4. auto_reopen_blocked hanya dilepas pada lima baris hasil rename, dan hanya
+-- 3. Sebelum mengubah, migrasi hanya membatalkan bila baris slug lama DAN baris
+--    slug kanoniknya sama-sama ada. Baris kanonik tanpa pasangan slug lama adalah
+--    kondisi valid dan tidak boleh dianggap konflik.
+-- 4. Pada database baru, markets masih kosong saat migrasi berjalan karena
+--    seed.js dieksekusi setelah seluruh migrasi. Dalam kondisi kosong, verifikasi
+--    keberadaan lima slug ditunda ke seed; migrasi tetap memverifikasi tidak ada
+--    slug lama yang tertinggal.
+-- 5. auto_reopen_blocked hanya dilepas pada lima baris hasil rename, dan hanya
 --    bila memang sedang TRUE. Nilai lain tidak ditulis ulang.
--- 5. betting_status sengaja tidak diubah. Pasar tetap SUSPENDED sampai
+-- 6. betting_status sengaja tidak diubah. Pasar tetap SUSPENDED sampai
 --    reconcileCashBettingWindows menghitungkan jendela betting yang aman dari
 --    histori terverifikasi — fail-closed tetap terjaga.
 --
@@ -42,7 +46,7 @@
 
 BEGIN;
 
--- (1) PRE-FLIGHT: batalkan kalau slug kanonik sudah ada di markets.
+-- (1) PRE-FLIGHT: batalkan hanya bila slug lama dan kanonik sama-sama ada.
 DO $$
 DECLARE
   bentrok TEXT;
@@ -55,11 +59,12 @@ BEGIN
     ('washingtonmd-pool', 'washington-md-pool'),
     ('washingtonev-pool', 'washington-ev-pool')
   ) AS t(legacy, target)
-  JOIN markets m ON m.slug = t.target;
+  JOIN markets legacy_m ON legacy_m.slug = t.legacy
+  JOIN markets canonical_m ON canonical_m.slug = t.target;
 
   IF bentrok IS NOT NULL THEN
     RAISE EXCEPTION
-      'Migrasi 039 dibatalkan: slug kanonik sudah ada di markets (%). Tidak ada data yang diubah; periksa dan putuskan manual sebelum menjalankan ulang.',
+      'Migrasi 039 dibatalkan: slug lama dan kanonik sama-sama ada di markets (%). Tidak ada data yang diubah; periksa dan putuskan manual sebelum menjalankan ulang.',
       bentrok;
   END IF;
 END $$;
@@ -91,11 +96,12 @@ WHERE c.market_id = m.id
   AND c.auto_reopen_blocked
   AND m.slug IN ('newjersey-mid-pool','tennessee-mid-pool','tennessee-eve-pool','washington-md-pool','washington-ev-pool');
 
--- (5) VERIFIKASI: slug lama habis, slug kanonik hadir, tidak ada duplikat.
+-- (5) VERIFIKASI: slug lama habis; identitas kanonik lengkap bila sudah ada.
 DO $$
 DECLARE
   sisa_lama INTEGER;
   hilang TEXT;
+  jumlah_kanonik INTEGER;
 BEGIN
   SELECT COUNT(*) INTO sisa_lama FROM markets
   WHERE slug IN ('newjerseymid-pool','tennesse-mid-pool','tennesse-eve-pool','washingtonmd-pool','washingtonev-pool');
@@ -103,22 +109,31 @@ BEGIN
     RAISE EXCEPTION 'Migrasi 039 gagal: masih ada % baris dengan slug lama', sisa_lama;
   END IF;
 
-  SELECT string_agg(t.target, ', ') INTO hilang
-  FROM (VALUES
-    ('newjersey-mid-pool'),
-    ('tennessee-mid-pool'),
-    ('tennessee-eve-pool'),
-    ('washington-md-pool'),
-    ('washington-ev-pool')
-  ) AS t(target)
-  LEFT JOIN markets m ON m.slug = t.target
-  WHERE m.id IS NULL;
+  SELECT COUNT(*) INTO jumlah_kanonik FROM markets
+  WHERE slug IN ('newjersey-mid-pool','tennessee-mid-pool','tennessee-eve-pool','washington-md-pool','washington-ev-pool');
 
-  IF hilang IS NOT NULL THEN
-    RAISE EXCEPTION 'Migrasi 039 gagal: slug kanonik berikut tidak ditemukan setelah rename: %', hilang;
+  -- Fresh database already contains a few markets from migration 032, but the
+  -- five canonical pools are inserted by seed.js only AFTER all migrations.
+  -- Allow zero canonical rows here; reject partial sets and preserve full sets.
+  IF jumlah_kanonik > 0 AND jumlah_kanonik < 5 THEN
+    SELECT string_agg(t.target, ', ') INTO hilang
+    FROM (VALUES
+      ('newjersey-mid-pool'),
+      ('tennessee-mid-pool'),
+      ('tennessee-eve-pool'),
+      ('washington-md-pool'),
+      ('washington-ev-pool')
+    ) AS t(target)
+    LEFT JOIN markets m ON m.slug = t.target
+    WHERE m.id IS NULL;
+
+    RAISE EXCEPTION 'Migrasi 039 gagal: slug kanonik berikut belum lengkap: %', hilang;
   END IF;
 
-  RAISE NOTICE 'Migration 039: lima slug kanonik terpasang; tidak ada duplikat dan tidak ada data hasil yang ditimpa';
+  IF jumlah_kanonik = 0 THEN
+    RAISE NOTICE 'Migration 039: lima pool kanonik belum ada; seed.js akan membuatnya setelah migrasi';
+  ELSE
+    RAISE NOTICE 'Migration 039: lima slug kanonik lengkap; tidak ada data hasil yang ditimpa';
+  END IF;
 END $$;
-
 COMMIT;

@@ -10,7 +10,7 @@ Object.assign(process.env, {
   OPS_INTERNAL_SECRET: 'o'.repeat(48),
   SESSION_HMAC_KEY: 's'.repeat(48),
   API_KEY_PEPPER: 'p'.repeat(48),
-  MFA_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64')
+
 });
 
 const core = await import('../src/toto-collector-core.js');
@@ -289,4 +289,14 @@ test('source federation global-board parser can address every canonical market w
   };
   const covered = __totoCollector.MARKET_MAP.filter(mapping => __totoCollector.observationsForMapping(mapping, [board]).length === 1);
   assert.equal(covered.length, __totoCollector.MARKET_MAP.length);
+});
+
+
+test('parser rejects impossible calendar dates and accepts leap day', () => {
+  for (const date of ['31-02-2026','31/04/2026','29 Februari 2025']) {
+    const html = `<table><tr><td>Example</td><td>${date}</td><td>1234</td></tr></table>`;
+    assert.equal(__totoCollector.parseObservation(html, 'Example', { code: 'test', name: 'Test' }), null, date);
+  }
+  const valid = '<table><tr><td>Example</td><td>29 Februari 2024</td><td>1234</td></tr></table>';
+  assert.equal(__totoCollector.parseObservation(valid, 'Example', { code: 'test', name: 'Test' }).drawDate, '2024-02-29');
 });

@@ -10,7 +10,6 @@ process.env.ADMIN_PROXY_SECRET = 'a'.repeat(48);
 process.env.OPS_INTERNAL_SECRET = 'o'.repeat(48);
 process.env.SESSION_HMAC_KEY = 's'.repeat(48);
 process.env.API_KEY_PEPPER = 'p'.repeat(48);
-process.env.MFA_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
 
 const { __totoDrawScheduler } = await import('../src/toto-draw-scheduler.js');
 const { syncJobs, dueJobs, markPolled, applyPollResult, pollerSnapshot, __totoDrawPoller } = await import('../src/toto-draw-poller.js');

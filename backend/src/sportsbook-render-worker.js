@@ -1,7 +1,7 @@
+import { randomBytes } from 'node:crypto';
 process.on('uncaughtException', (e) => { console.error('WORKER_UNCAUGHT', e && e.stack ? e.stack : String(e)); process.exit(1); });
 process.on('unhandledRejection', (e) => { console.error('WORKER_UNHANDLED', e && e.stack ? e.stack : String(e)); process.exit(1); });
 console.log('WORKER_BOOT');
-import { randomBytes } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { sportsbookWorkerStorageAvailable } from './sportsbook-render-worker-runtime.js';
 
@@ -13,24 +13,22 @@ function configureProviderOnlyRuntime() {
     'ADMIN_PROXY_SECRET',
     'OPS_INTERNAL_SECRET',
     'SESSION_HMAC_KEY',
-    'API_KEY_PEPPER'
+    'API_KEY_PEPPER',
+    'MFA_ENCRYPTION_KEY_BASE64'
   ]) {
     process.env[name] = randomBytes(32).toString('base64url');
   }
-  process.env.MFA_ENCRYPTION_KEY_BASE64 = randomBytes(32).toString('base64');
 }
 
 configureProviderOnlyRuntime();
 
 const [
   { config },
-  { teamKey },
   { fetchSportradar },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
-  import('./sportsbook-providers.js'),
   import('./sportradar-provider.js'),
   import('./sportsbook-ingest-client.js'),
   import('./sportsbook-render-worker-core.js')
@@ -48,10 +46,8 @@ if (config.nodeEnv === 'production') {
   }
   const sportradarPath = new URL(config.sportradarBaseUrl).pathname.replace(/\/+$/, '');
   const productionAccess = /\/production\/v2\/en$/i.test(sportradarPath);
-  const trialAccess = /\/trial\/v2\/en$/i.test(sportradarPath);
-  const trialCronOptIn = cronOnce && String(process.env.SPORTRADAR_ALLOW_TRIAL_IN_PRODUCTION || '').trim().toLowerCase() === 'true';
-  if (!productionAccess && !(trialAccess && trialCronOptIn)) {
-    throw new Error('Production sportsbook worker requires production Sportradar access, or explicit trial access in one-shot cron mode.');
+  if (!productionAccess) {
+    throw new Error('Production sportsbook worker requires production Sportradar access.');
   }
 }
 const endpoint = String(process.env.SPORTSBOOK_INGEST_URL || '').trim();
@@ -65,7 +61,7 @@ console.info(JSON.stringify({
   service: 'sportsbook-render-worker',
   event: 'worker-config',
   cronOnce,
-  dailyRefreshEnabled: config.sportsbookDailyRefreshEnabled !== false,
+  dailyRefreshEnabled: config.sportsbookDailyRefreshEnabled !== false && !cronOnce,
   sportradarEnabled: config.sportradarEnabled,
   sportradarAccessLevel: /\/trial\//i.test(sportradarUrl.pathname) ? 'trial' : /\/production\//i.test(sportradarUrl.pathname) ? 'production' : 'other',
   sportIds: config.sportradarSportIds || null,
@@ -111,7 +107,7 @@ while (!shutdown.signal.aborted) {
   let nextDelayMs = intervalMs;
   try {
     // Daily mode: only fetch providers once per day at configured WIB slot.
-    if (config.sportsbookDailyRefreshEnabled !== false) {
+    if (config.sportsbookDailyRefreshEnabled !== false && !cronOnce) {
       const nowMs = Date.now();
       const todayWib = wibDateKey();
       const forceFirstPull = String(process.env.SPORTSBOOK_FORCE_FIRST_PULL || '').toLowerCase() === 'true';
@@ -132,14 +128,13 @@ while (!shutdown.signal.aborted) {
       fetchSportradar: () => fetchSportradar({}),
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
-      teamKey
     });
     const snapshotBuiltAt = Date.now();
     const accepted = await postSportsbookSnapshot(endpoint, snapshot, {
       secret: config.sportsbookIngestHmacSecret,
     });
     const acceptedAt = Date.now();
-    if (config.sportsbookDailyRefreshEnabled !== false) {
+    if (config.sportsbookDailyRefreshEnabled !== false && !cronOnce) {
       lastDailyRunWibDate = wibDateKey();
       firstPullDone = true;
       consecutiveCycleFailures = 0;
@@ -173,7 +168,7 @@ while (!shutdown.signal.aborted) {
       Math.min(300_000, config.sportsbookIngestMaxAgeSeconds * 500)
     );
     // In daily mode failed/quota-limited runs retry hourly (within quota gate in fetchers), without overwriting stored data.
-    nextDelayMs = config.sportsbookDailyRefreshEnabled !== false
+    nextDelayMs = config.sportsbookDailyRefreshEnabled !== false && !cronOnce
       ? 60 * 60 * 1000
       : Math.min(retryCeilingMs, intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6)));
     console.error(JSON.stringify({
