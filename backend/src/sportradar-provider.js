@@ -212,7 +212,7 @@ export function marketType(name, outcomeCount = null, hasDrawOutcome = false) {
   if (/player|scorer|assist|shots/.test(value)) return 'PLAYER_PROP';
   return 'OTHER';
 }
-function periodFromMarket(name, metadata = {}) {
+export function periodFromMarket(name, metadata = {}) {
   const value = clean(name, 240).toLowerCase();
   const candidates = [
     metadata.period, metadata.period_name, metadata.periodName,
