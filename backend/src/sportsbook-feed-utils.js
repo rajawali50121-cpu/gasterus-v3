@@ -94,6 +94,7 @@ function applySettlementSafety(event) {
     return {
       ...market,
       suspended: true,
+      oddsDisplayOnly: period === '1H' && !authority.ht,
       selections: (market.selections || []).map(selection => ({ ...selection, suspended: true }))
     };
   });
@@ -175,6 +176,7 @@ export function publicEvent(event) {
       period: market.period,
       line: market.line,
       suspended: market.suspended,
+      oddsDisplayOnly: market.oddsDisplayOnly === true,
       updatedAt: market.updatedAt,
       source: market.source || null,
       sourceMarketId: market.sourceMarketId || null,
