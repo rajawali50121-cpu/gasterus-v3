@@ -1556,6 +1556,9 @@ function renderOddCell(e, m, s, lineOverride) {
   if (!m) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
   }
+  if (m.suspended && m.oddsDisplayOnly !== true) {
+    return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Ditangguhkan</span></div>`;
+  }
   if (!s) {
     return `<div class="sb-odd-cell disabled"><span class="sb-cell-odds">Tidak tersedia</span></div>`;
   }

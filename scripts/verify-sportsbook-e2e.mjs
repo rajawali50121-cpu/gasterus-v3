@@ -99,6 +99,17 @@ function coreMarketState(markets, type, period) {
   return 'UNAVAILABLE';
 }
 
+function coreMarketOddsState(markets, type, period) {
+  const matching = markets.filter(market =>
+    String(market.type || '').toUpperCase() === type &&
+    String(market.period || 'FT').toUpperCase() === period
+  );
+  if (matching.some(market => !market.suspended && (market.selections || []).some(selection =>
+    !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
+  ))) return 'PRICED';
+  return matching.length ? 'UNPRICED' : 'MISSING';
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -118,7 +129,12 @@ async function main() {
 
   // Pertandingan tanpa odds (display-only) sah, tetapi cakupan odds harus tetap
   // ada — minimal 25 pertandingan berharga untuk memastikan pipeline harga hidup.
-  const pricedEvents = snapshot.events.filter(event => Array.isArray(event.markets) && event.markets.length > 0);
+  const hasActivePrice = market => !market.suspended && (market.selections || []).some(selection =>
+    !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
+  );
+  const pricedEvents = snapshot.events.filter(event =>
+    Array.isArray(event.markets) && event.markets.some(hasActivePrice)
+  );
   assert(pricedEvents.length >= minimumPricedEvents,
     `events endpoint returned only ${pricedEvents.length} priced events; expected at least ${minimumPricedEvents}`);
   const labelSample = {
@@ -135,12 +151,8 @@ async function main() {
     assert(fullEvent?.id === event.id, `event detail did not match requested event ${event.id}`);
     const markets = fullEvent.markets || [];
     const marketTypes = [...new Set(markets.map(market => market.type))];
-    const validPricedSelections = markets.every(market =>
-      Array.isArray(market.selections) && market.selections.every(selection =>
-        Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
-      )
-    );
-    assert(validPricedSelections, `event ${event.id} contains an empty market or invalid odds`);
+    const validPricedSelections = markets.some(hasActivePrice);
+    assert(validPricedSelections, `event ${event.id} has no active decimal-priced selection`);
     inspected.push({
       id: fullEvent.id,
       country: fullEvent.country || fullEvent.category || null,
@@ -151,12 +163,23 @@ async function main() {
       marketPeriods: [...new Set(markets.map(market => `${market.type}:${market.period || 'FT'}`))],
       coreMarketCoverage: Object.fromEntries(requiredCoreMarkets.map(({ key, type, period }) =>
         [key, coreMarketState(markets, type, period)]
+      )),
+      coreMarketOddsCoverage: Object.fromEntries(requiredCoreMarkets.map(({ key, type, period }) =>
+        [key, coreMarketOddsState(markets, type, period)]
       ))
     });
   }
 
   assert(inspected.length >= minimumInspectedEvents,
     `Only ${inspected.length} events could be inspected; expected at least ${minimumInspectedEvents}`);
+  const missingCoreOdds = inspected.flatMap(event =>
+    requiredCoreMarkets
+      .filter(({ key }) => event.coreMarketOddsCoverage[key] !== 'PRICED')
+      .map(({ key }) => `${event.id}:${key}=${event.coreMarketOddsCoverage[key]}`)
+  );
+  assert(missingCoreOdds.length === 0,
+    `Inspected matches are missing priced FT/HT core markets: ${missingCoreOdds.slice(0, 20).join(', ')}`);
+
   const marketCoverage = Object.fromEntries([...new Set(inspected.flatMap(event => event.marketTypes))]
     .sort()
     .map(type => [type, inspected.filter(event => event.marketTypes.includes(type)).length]));
@@ -168,6 +191,14 @@ async function main() {
     .filter(key => !marketPeriodCoverage[key]);
   assert(missingCoreMarkets.length === 0,
     `Core market mapping missing from inspected events: ${missingCoreMarkets.join(', ')}`);
+  const coreMarketOddsCoverageSummary = Object.fromEntries(requiredCoreMarkets.map(({ key }) => [
+    key,
+    {
+      priced: inspected.filter(event => event.coreMarketOddsCoverage[key] === 'PRICED').length,
+      unpriced: inspected.filter(event => event.coreMarketOddsCoverage[key] === 'UNPRICED').length,
+      missing: inspected.filter(event => event.coreMarketOddsCoverage[key] === 'MISSING').length
+    }
+  ]));
   const coreMarketCoverageSummary = Object.fromEntries(requiredCoreMarkets.map(({ key }) => [
     key,
     {
@@ -185,6 +216,7 @@ async function main() {
     marketCoverage,
     marketPeriodCoverage,
     coreMarketCoverageSummary,
+    coreMarketOddsCoverageSummary,
     periodCoverage,
     sourceMode: snapshot.source?.mode || null,
     leagueLabel: labelSample,
@@ -197,7 +229,8 @@ async function main() {
       marketTypes: event.marketTypes,
       periods: event.periods,
       marketPeriods: event.marketPeriods,
-      coreMarketCoverage: event.coreMarketCoverage
+      coreMarketCoverage: event.coreMarketCoverage,
+      coreMarketOddsCoverage: event.coreMarketOddsCoverage
     }))
   }, null, 2));
 }
