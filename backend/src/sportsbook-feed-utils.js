@@ -90,7 +90,13 @@ function applySettlementSafety(event) {
       : period === 'HT_FT'
         ? !(authority.ht && authority.ft)
         : !authority.ft;
-    if (!mustSuspend) return market;
+    if (!mustSuspend) {
+      return {
+        ...market,
+        suspended: market.suspended === true,
+        oddsDisplayOnly: false
+      };
+    }
     return {
       ...market,
       suspended: true,
