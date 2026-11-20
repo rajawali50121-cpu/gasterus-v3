@@ -12,7 +12,7 @@ export function eventSettlementAuthority(event) {
   // Sportradar is the unified event + market + odds source. HT is independently
   // enabled by an explicit flag; FT remains operator-authorized and unchanged.
   const automaticFt = false;
-  const htEnabled = config.htBettingEnabled && sources.includes('sportradar');
+  const htEnabled = config.htBettingEnabled && config.sportradarHtResultsEnabled && sources.includes('sportradar');
   const manualFt = sources.includes('manual-ops');
   return {
     ft: automaticFt || manualFt,
