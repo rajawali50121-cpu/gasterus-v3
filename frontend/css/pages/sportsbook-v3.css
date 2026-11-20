@@ -3645,3 +3645,62 @@ body.sb-page {
   .sb-premium .sb-balance-box { font-size: 8px; }
   .sb-premium .sb-slip-tab { font-size: 9px; }
 }
+
+
+/* Mobile betslip: keep the full tab row and scrollable content above bottom nav. */
+@media (max-width: 860px) {
+  .sb-premium .sb-bottom-nav {
+    height: calc(58px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+
+  .sb-premium .sb-slip-sheet {
+    left: 0;
+    right: 0;
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    width: 100%;
+    height: min(76dvh, 620px);
+    max-height: calc(100dvh - 66px - env(safe-area-inset-bottom, 0px));
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    padding-bottom: 0;
+    overflow: hidden;
+  }
+
+  .sb-premium .sb-slip-handle-bar,
+  .sb-premium .sb-slip-sheet-head {
+    flex: 0 0 auto;
+  }
+
+  .sb-premium .sb-slip-sheet-head {
+    min-height: 54px;
+    padding: 9px 10px 7px;
+    align-items: center;
+  }
+
+  .sb-premium .sb-slip-sheet-tabs {
+    min-height: 42px;
+    align-items: stretch;
+  }
+
+  .sb-premium .sb-slip-tab {
+    min-height: 38px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .sb-premium .sb-slip-sheet-body {
+    flex: 1 1 0;
+    min-height: 0;
+    height: auto;
+    max-height: none;
+    padding: 10px 10px calc(12px + env(safe-area-inset-bottom, 0px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
