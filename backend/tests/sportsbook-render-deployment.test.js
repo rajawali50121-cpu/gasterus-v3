@@ -30,7 +30,7 @@ test('Sportradar credential and base URL exist only in the worker environment ex
   assert.match(workerEnv, /^SPORTRADAR_API_KEY=/m);
   assert.match(workerEnv, /^SPORTRADAR_BASE_URL=https:\/\/api\.sportradar\.com\/oddscomparison-prematch\/production\/v2\/en$/m);
   assert.match(workerEnv, /^SPORTSBOOK_INGEST_URL=http:\/\/gasterus-v3\.railway\.internal\/api\/internal\/sportsbook\/ingest$/m);
-  assert.match(workerEnv, /^SPORTSBOOK_CRON_ONCE=true$/m);
+  assert.match(workerEnv, /^SPORTSBOOK_CRON_ONCE=false$/m);
   assert.match(worker, /MFA_ENCRYPTION_KEY_BASE64/);
 });
 
@@ -89,5 +89,5 @@ test('automatic sportsbook settlement is disabled by default without an approved
   assert.match(config, /sportsbookAutoSettlementEnabled: bool\('SPORTSBOOK_AUTO_SETTLEMENT_ENABLED', false\)/);
   assert.match(read('../src/sportsbook-settlement-authority.js'), /const automaticFt = false/);
   assert.match(config, /htBettingEnabled: bool\('HT_BETTING_ENABLED', false\)/);
-  assert.match(read('../src/sportsbook-settlement-authority.js'), /const htEnabled = config\.htBettingEnabled && sources\.includes\('sportradar'\)/);
+  assert.match(read('../src/sportsbook-settlement-authority.js'), /const htEnabled = config\.htBettingEnabled && config\.sportradarHtResultsEnabled && sources\.includes\('sportradar'\)/);
 });
