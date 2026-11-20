@@ -207,11 +207,21 @@ function marketType(name) {
   if (/player|scorer|assist|shots/.test(value)) return 'PLAYER_PROP';
   return 'OTHER';
 }
-function periodFromMarket(name) {
-  const value = clean(name, 120).toLowerCase();
-  if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
-  if (/first.?half|1st.?half|half.?time|1h/.test(value)) return '1H';
-  if (/second.?half|2nd.?half|2h/.test(value)) return '2H';
+function periodFromMarket(name, metadata = {}) {
+  const value = clean(name, 240).toLowerCase();
+  if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[\/\-]?\s*ft\b/.test(value)) return 'HT_FT';
+
+  // Sportradar may identify a period in market metadata while keeping a
+  // generic market name such as "Asian Handicap" or "Over/Under".
+  const explicit = [
+    metadata.period, metadata.period_name, metadata.periodName,
+    metadata.match_period, metadata.matchPeriod, metadata.period_id,
+    metadata.specifiers?.period, metadata.specifiers?.match_period
+  ].map(item => clean(item, 80).toLowerCase()).filter(Boolean).join(' ');
+  const period = explicit || value;
+  if (/second.?half|2nd.?half|\b2h\b|period.?2/.test(period)) return '2H';
+  if (/first.?half|1st.?half|half.?time|\b1h\b|period.?1/.test(period)) return '1H';
+  if (/full.?time|\bft\b|match.?time|regular.?time/.test(period)) return 'FT';
   return 'FT';
 }
 function selectionLabel(outcome, event, type) {
@@ -244,7 +254,7 @@ function normalizeOdds(event, raw) {
     const marketName = clean(market.name || market.id || 'Unlabelled market', 240);
     const marketId = String(market.id || marketName);
     const type = marketType(marketName);
-    const period = periodFromMarket(marketName);
+    const period = periodFromMarket(marketName, market);
     const books = Array.isArray(market.books) ? market.books : [];
     const marketSourceData = Object.fromEntries(Object.entries(market).filter(([key]) => key !== 'books'));
 
