@@ -108,6 +108,8 @@ function apiEvent(index) {
 }
 
 test('Sportradar pagination imports 121 fixtures and retains every bookmaker and supported/unknown market', async () => {
+  __sportradarNormalizer.resetFeedState();
+  __sportradarNormalizer.resetFeedState();
   const wibToday = todayWibKey();
   const scheduleDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
   const allItems = Array.from({ length: 121 }, (_, index) => apiEvent(index));
@@ -159,9 +161,12 @@ test('Sportradar pagination imports 121 fixtures and retains every bookmaker and
   assert.equal(removedBookMarket.selections[1].odds, null);
   assert.equal(removedBookMarket.selections[0].removed, true);
   assert.equal(removedBookMarket.isLive, true, 'documented is_live market flag is preserved');
+  assert.equal(removedBookMarket.providerRemoved, true);
+  assert.equal(liveOnlyMarket?.providerRemoved, false, 'is_live is not a provider removal signal');
+  assert.equal(liveOnlyMarket?.suspensionReason, 'live_market_outside_prematch_scope');
   const liveOnlyMarket = first.markets.find(market => market.sourceMarketId === 'market-live-only-0');
-  assert.ok(liveOnlyMarket?.suspended, 'live markets are disabled in prematch mode');
-  assert.ok(liveOnlyMarket?.selections.every(selection => selection.suspended), 'live selections are disabled in prematch mode');
+  assert.ok(liveOnlyMarket?.suspended, 'live markets are blocked by the Prematch adapter scope');
+  assert.ok(liveOnlyMarket?.selections.every(selection => selection.suspended), 'live selections are blocked by the Prematch adapter scope');
 
   const snapshot = await buildSportsbookRenderSnapshot({
     fetchSportradar: async () => result,
@@ -206,6 +211,7 @@ test('Sportradar partial page response is rejected rather than published as a co
 });
 
 test('Sportradar removed lifecycle accepts documented boolean and string true values', async () => {
+  __sportradarNormalizer.resetFeedState();
   const event = {
     sport_event: {
       id: 'sr:sport_event:removed-string',
@@ -244,6 +250,69 @@ test('Sportradar removed lifecycle accepts documented boolean and string true va
   assert.equal(market.suspended, true);
   assert.equal(market.selections[0].removed, true);
   assert.equal(market.selections[0].suspended, true);
+});
+
+test('Sportradar change log parser reads documented changes and deduplicates event IDs', () => {
+  const ids = __sportradarNormalizer.changeLogEventIds({
+    generated_at: '2026-11-20T10:00:00Z',
+    status: { from: 1, to: 2 },
+    changes: [
+      { type: 'sport_event', id: 'sr:sport_event:100' },
+      { type: 'sport_event', id: 'sr:sport_event:100' },
+      { type: 'player', id: 'sr:player:200' }
+    ]
+  });
+  assert.deepEqual(ids, ['sr:sport_event:100']);
+});
+
+test('Sportradar incremental polling refreshes only events reported by the change log', async () => {
+  __sportradarNormalizer.resetFeedState();
+  const eventId = 'sr:sport_event:bulk-0';
+  const scheduleDate = new Date(Date.parse(eventTimeTomorrowWib())).toISOString().slice(0, 10);
+  let marketPrice = '2.10';
+  const paths = [];
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    paths.push(url.pathname);
+    if (url.pathname.endsWith('/sports.json')) {
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] }), text: async () => '' };
+    }
+    if (url.pathname.endsWith('/sport_event_markets_changelog.json')) {
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({
+        generated_at: '2026-11-20T10:04:00Z',
+        status: { from: 1, to: 2 },
+        changes: [{ type: 'sport_event', id: eventId, sport_event_markets_odds_change: 2 }]
+      }), text: async () => '' };
+    }
+    if (url.pathname.includes('/sport_events/')) {
+      const event = apiEvent(0);
+      event.markets[0].books[0].outcomes[0].odds_decimal = marketPrice;
+      return { ok: true, status: 200, headers: new Headers(), json: async () => ({
+        generated_at: '2026-11-20T10:04:01Z',
+        sport_event: event.sport_event,
+        markets: event.markets
+      }), text: async () => '' };
+    }
+    const date = url.pathname.match(/schedules\\/(\\d{4}-\\d{2}-\\d{2})\\//)?.[1];
+    const items = date === scheduleDate ? [apiEvent(0)] : [];
+    return { ok: true, status: 200, headers: new Headers({ 'x-max-results': String(items.length) }), json: async () => ({
+      generated_at: '2026-11-20T10:00:00Z',
+      sport_schedule_sport_event_markets: items
+    }), text: async () => '' };
+  };
+
+  const first = await fetchSportradar();
+  assert.equal(first.diagnostics.mode, 'full-sync');
+  assert.equal(first.events.length, 1);
+  marketPrice = '2.35';
+  const second = await fetchSportradar();
+  assert.equal(second.diagnostics.mode, 'change-log');
+  assert.equal(second.diagnostics.changesReported, 1);
+  assert.equal(second.diagnostics.eventBoardsRefreshed, 1);
+  assert.ok(paths.some(path => path.endsWith('/sport_event_markets_changelog.json')));
+  assert.ok(paths.some(path => path.includes('/sport_events/')));
+  const home = second.events[0].markets.find(market => market.sourceMarketName === '1x2').selections.find(selection => selection.label === 'HOME');
+  assert.equal(home.odds, 2.35);
 });
 
 test('provider maps live and unknown statuses fail closed rather than masquerading as scheduled', () => {
