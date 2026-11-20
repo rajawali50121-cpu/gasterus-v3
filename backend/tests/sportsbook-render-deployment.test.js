@@ -36,6 +36,7 @@ test('Sportradar credential and base URL exist only in the worker environment ex
   assert.match(backendEnv, /^SPORTSBOOK_DAILY_REFRESH_ENABLED=false$/m);
   assert.match(config, /sportsbookDailyRefreshEnabled: bool\('SPORTSBOOK_DAILY_REFRESH_ENABLED', false\)/);
   assert.match(config, /sportsbookRiskRepricingEnabled: bool\('SPORTSBOOK_RISK_REPRICING_ENABLED', false\)/);
+  assert.match(backendEnv, /^SPORTSBOOK_RISK_REPRICING_ENABLED=false$/m);
   assert.match(worker, /MFA_ENCRYPTION_KEY_BASE64/);
 });
 
