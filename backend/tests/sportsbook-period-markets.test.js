@@ -12,6 +12,7 @@ Object.assign(process.env, {
   SESSION_HMAC_KEY: 's'.repeat(48),
   API_KEY_PEPPER: 'p'.repeat(48),
   HT_BETTING_ENABLED: 'true',
+  SPORTRADAR_HT_RESULTS_ENABLED: 'true',
 
 });
 
