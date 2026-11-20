@@ -46,7 +46,7 @@ export const config = Object.freeze({
   // Snapshot render data must expire within 4 hours; ingest request signature freshness
   // remains governed separately by sportsbookIngestMaxAgeSeconds.
   sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 14400, 180, 604800),
-  sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
+  sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', false),
   sportsbookDailyRefreshHourWib: int('SPORTSBOOK_DAILY_REFRESH_HOUR_WIB', 0, 0, 23),
   sportsbookDailyRefreshMinuteWib: int('SPORTSBOOK_DAILY_REFRESH_MINUTE_WIB', 5, 0, 59),
   sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 7, 1, 365),
@@ -135,6 +135,8 @@ export const config = Object.freeze({
 
   // HT trading and HT settlement are opt-in; FT behavior is intentionally independent.
   htBettingEnabled: bool('HT_BETTING_ENABLED', false),
+  // Odds Comparison Prematch does not contractually provide period result scores. HT settlement stays disabled until a Sportradar results feed/UOF authority is verified.
+  sportradarHtResultsEnabled: bool('SPORTRADAR_HT_RESULTS_ENABLED', false),
 
   // Sportradar is the sole production sportsbook event, market, and odds source.
   // Its credential exists only on the isolated worker.
