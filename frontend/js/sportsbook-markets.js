@@ -5,10 +5,10 @@ const MARKET_PERIOD_ORDER = ['FT', '1H', '2H', 'Q1', 'Q2', 'Q3', 'Q4'];
 export function availableMarketPeriods(event) {
   const periods = new Set();
   for (const market of Array.isArray(event?.markets) ? event.markets : []) {
-    if (!market || typeof market !== 'object' || market.suspended || !Array.isArray(market.selections)) continue;
+    if (!market || typeof market !== 'object' || (market.suspended && market.oddsDisplayOnly !== true) || !Array.isArray(market.selections)) continue;
     if (!market.selections.some(selection => {
       const odds = Number(selection?.odds);
-      return !selection?.suspended
+      return (market.oddsDisplayOnly === true || !selection?.suspended)
         && Number.isFinite(odds)
         && odds > 1;
     })) continue;
