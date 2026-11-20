@@ -105,7 +105,14 @@ async function localReady(port, path='/ready') {
 }
 
 const server = createServer(async (req,res) => {
-  const url = new URL(req.url || '/', 'http://gateway.internal');
+  let url;
+  try {
+    url = new URL(req.url || '/', 'http://gateway.internal');
+  } catch {
+    // Malformed request targets (commonly sent by scanners) must never crash the gateway.
+    req.resume();
+    return text(res,400,'Bad Request');
+  }
   if (url.pathname === '/healthz') {
     const coreHealthy = await localReady(Number(process.env.CORE_INTERNAL_PORT || 8083), '/healthz');
     return json(res, coreHealthy ? 200 : 503, {status: coreHealthy ? 'ok' : 'degraded'});
