@@ -15,7 +15,7 @@ on:
       - "package.json"
       - "package-lock.json"
   push:
-    branches: [master, railway-migration-fix-039]
+    branches: [master, railway-migration-fix-039, feat/ht-betting-settlement]
     paths:
       - "backend/**"
       - "frontend/**"
