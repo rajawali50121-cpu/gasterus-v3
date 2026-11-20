@@ -124,7 +124,8 @@ async function main() {
         if (!byId.has(id)) byId.set(id, { event, row });
       }
       start += rows.length;
-      const maxResults = Number(result.headers.get('x-max-results'));
+      const maxResultsHeader = result.headers.get('x-max-results');
+      const maxResults = maxResultsHeader === null ? null : Number(maxResultsHeader);
       if ((Number.isFinite(maxResults) && start >= maxResults) || rows.length < PAGE_SIZE) break;
     }
   }
