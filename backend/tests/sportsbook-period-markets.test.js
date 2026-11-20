@@ -107,6 +107,25 @@ test('Sportradar maps the same three core market types for FT and HT', () => {
   }
 });
 
+test('Sportradar distinguishes two-way Asian Handicap from three-way European Handicap', () => {
+  const event = { id: 'sr-handicap-kind', home: { name: 'Home' }, away: { name: 'Away' } };
+  const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [
+    { id: 'asian', name: 'Asian Handicap', books: [{ id: 'book', outcomes: [
+      { id: 'ah-home', name: 'Home -0.5', type: 'home', odds_decimal: '1.91', handicap: '-0.5' },
+      { id: 'ah-away', name: 'Away +0.5', type: 'away', odds_decimal: '1.91', handicap: '+0.5' }
+    ] }] },
+    { id: 'european', name: 'European Handicap', books: [{ id: 'book', outcomes: [
+      { id: 'eh-home', name: 'Home', type: 'home', odds_decimal: '2.10', handicap: '-1' },
+      { id: 'eh-draw', name: 'Draw {hcp}', type: 'draw', odds_decimal: '3.40', handicap: '-1' },
+      { id: 'eh-away', name: 'Away', type: 'away', odds_decimal: '3.20', handicap: '-1' }
+    ] }] }
+  ] });
+  assert.ok(normalized.markets.some(m => m.type === 'HANDICAP' && m.selections.length === 2));
+  assert.ok(normalized.markets.some(m => m.type === 'EUROPEAN_HANDICAP' && m.selections.length === 3));
+  const european = normalized.markets.find(m => m.type === 'EUROPEAN_HANDICAP');
+  assert.deepEqual(european.selections.map(s => s.label), ['HOME', 'DRAW', 'AWAY']);
+});
+
 test('Sportradar reads HT/FT period from provider metadata when market name is generic', () => {
   const event = { id: 'sr-explicit-period', home: { name: 'Home' }, away: { name: 'Away' } };
   const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [
