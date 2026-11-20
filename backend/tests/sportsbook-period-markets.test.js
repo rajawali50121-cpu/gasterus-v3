@@ -156,3 +156,21 @@ test('member detail-market browser labels HT/FT combo period', () => {
   const ui = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
   assert.match(ui, /HT_FT:\s*'HT\/FT/);
 });
+
+test('Sportradar generic metadata does not override HT encoded in market name', () => {
+  const event = { id: 'sr-period-precedence', home: { name: 'Home' }, away: { name: 'Away' } };
+  const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [
+    { id: 'ah-ht-match-meta', name: '1st Half - Asian Handicap', period: 'match', books: [{ id: 'b1', outcomes: [
+      { id: 'h1', name: 'Home -0.5', odds_decimal: '1.90' },
+      { id: 'a1', name: 'Away +0.5', odds_decimal: '1.90' }
+    ] }] },
+    { id: 'ou-ht-period-meta', name: 'Over/Under', period_name: 'first_half', books: [{ id: 'b1', outcomes: [
+      { id: 'o1', name: 'Over 1.0', odds_decimal: '1.88' },
+      { id: 'u1', name: 'Under 1.0', odds_decimal: '1.92' }
+    ] }] }
+  ] });
+  assert.ok(normalized.markets.some(m => m.type === 'HANDICAP' && m.period === '1H'
+    && m.selections.some(selection => selection.odds === 1.9)));
+  assert.ok(normalized.markets.some(m => m.type === 'TOTALS' && m.period === '1H'
+    && m.selections.some(selection => selection.odds === 1.88)));
+});
