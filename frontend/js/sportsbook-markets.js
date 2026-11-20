@@ -58,18 +58,30 @@ export function primaryMarketColumns(event, period) {
       if ((type === 'TOTALS' || type === 'HANDICAP') && selections.length > 2) {
         const byLine = new Map();
         for (const selection of selections) {
-          const key = selection?.line ?? market.line ?? '';
+          const rawLine = selection?.line ?? market.line ?? '';
+          const numericLine = Number(rawLine);
+          // For Asian Handicap the home and away selections carry opposite
+          // signs for the same line (e.g. -0.25/+0.25). Group by magnitude.
+          const key = type === 'HANDICAP' && Number.isFinite(numericLine)
+            ? String(Math.abs(numericLine))
+            : String(rawLine);
           const list = byLine.get(key) || [];
           list.push(selection);
           byLine.set(key, list);
         }
         const ranked = [...byLine.entries()].sort((a, b) => {
-          const priced = list => list.filter(selection => !selection?.suspended && Number.isFinite(Number(selection?.odds)) && Number(selection.odds) > 1).length;
+          const priced = list => list.filter(selection =>
+            !selection?.suspended &&
+            Number.isFinite(Number(selection?.odds)) &&
+            Number(selection.odds) > 1
+          ).length;
           const priceDiff = priced(b[1]) - priced(a[1]);
           if (priceDiff) return priceDiff;
           const countDiff = b[1].length - a[1].length;
           if (countDiff) return countDiff;
-          return Math.abs(Number(a[0])) - Math.abs(Number(b[0])) || Number(a[0]) - Number(b[0]) || String(a[0]).localeCompare(String(b[0]));
+          return Math.abs(Number(a[0])) - Math.abs(Number(b[0])) ||
+            Number(a[0]) - Number(b[0]) ||
+            String(a[0]).localeCompare(String(b[0]));
         });
         selections = ranked[0]?.[1] || selections;
       }
