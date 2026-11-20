@@ -55,7 +55,7 @@ export function primaryMarketColumns(event, period) {
       // tidak melebar menjadi belasan kolom sempit yang membuat teks
       // line & odds saling bertumpuk. Pilih line dengan jumlah pilihan
       // paling lengkap (prefer 2 arah), lalu line terkecil sebagai main line.
-      if ((type === 'HANDICAP' || type === 'TOTALS') && selections.length > 2) {
+      if (type === 'TOTALS' && selections.length > 2) {
         const byLine = new Map();
         for (const selection of selections) {
           const key = selection?.line ?? market.line ?? '';
