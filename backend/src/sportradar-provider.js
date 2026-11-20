@@ -193,8 +193,8 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
 export function marketType(name, outcomeCount = null, hasDrawOutcome = false) {
   const value = clean(name, 120).toLowerCase();
   if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
-  if (/1x2|money.?line|match.?winner|match.?result|three.?way|first.?half.*result|1st.?half.*result|half.?time.*result/.test(value)) return '1X2';
   if (/european.?handicap|three.?way.?handicap/.test(value)) return 'EUROPEAN_HANDICAP';
+  if (/1x2|money.?line|match.?winner|match.?result|three.?way|first.?half.*result|1st.?half.*result|half.?time.*result/.test(value)) return '1X2';
   if (/asian.?handicap|asian.?spread/.test(value)) return 'HANDICAP';
   if (/handicap|spread/.test(value)) {
     // More than two outcomes can represent multiple Asian lines, not a draw.
