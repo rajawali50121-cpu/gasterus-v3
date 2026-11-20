@@ -3365,8 +3365,8 @@ body.sb-page {
   .sb-premium .sb-layout { display:grid; width:100%; grid-template-columns:minmax(0,1fr); gap:0; }
   .sb-premium .sb-content { width:100%; min-width:0; grid-column:1/-1; overflow:visible; }
   .sb-premium .sb-events { width:100%; overflow:visible; }
-  .sb-premium .sb-sidebar,
-  .sb-premium .sb-betslip { display:none !important; }
+  .sb-premium .sb-sidebar { display:none !important; }
+  .sb-betslip { display:none !important; }
   .sb-premium .sb-header-inner { width:100%; min-width:0; display:flex; justify-content:space-between; gap:6px; padding-inline:8px; }
   .sb-premium .sb-header-left,
   .sb-premium .sb-header-right { min-width:0; flex:0 1 auto; }
