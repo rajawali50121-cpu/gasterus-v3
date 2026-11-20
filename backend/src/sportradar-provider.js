@@ -242,7 +242,7 @@ function selectionLabel(outcome, event, type) {
   const raw = clean(outcome?.name || outcome?.label, 120);
   if (raw) return raw;
   const value = String(outcome?.type || '').toLowerCase();
-  if (type === '1X2') {
+  if (type === '1X2' || type === 'EUROPEAN_HANDICAP') {
     if (value === 'home') return 'HOME';
     if (value === 'draw') return 'DRAW';
     if (value === 'away') return 'AWAY';
@@ -267,9 +267,11 @@ function normalizeOdds(event, raw) {
     diagnostics.marketsSeen += 1;
     const marketName = clean(market.name || market.id || 'Unlabelled market', 240);
     const marketId = String(market.id || marketName);
-    const type = marketType(marketName);
-    const period = periodFromMarket(marketName, market);
     const books = Array.isArray(market.books) ? market.books : [];
+    const outcomeCount = books.reduce((maximum, book) =>
+      Math.max(maximum, Array.isArray(book?.outcomes) ? book.outcomes.length : 0), 0);
+    const type = marketType(marketName, outcomeCount);
+    const period = periodFromMarket(marketName, market);
     const marketSourceData = Object.fromEntries(Object.entries(market).filter(([key]) => key !== 'books'));
 
     // The API's removed lifecycle is on book/outcome, not a reason to erase history.
