@@ -104,12 +104,16 @@ export function primaryMarketColumns(event, period) {
       .filter(item => String(item.market.type || '').toUpperCase() === type)
       .sort((a, b) => {
         const rank = item => {
-          if (item.market.suspended) return 1;
           const selections = item.market.selections || [];
-          if (selections.some(selection =>
-            !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
-          )) return 2;
-          if (selections.length && selections.every(selection => selection.suspended)) return 1;
+          const hasValidOdds = selections.some(selection =>
+            (item.market.oddsDisplayOnly === true || !selection.suspended) &&
+            Number.isFinite(Number(selection.odds)) &&
+            Number(selection.odds) > 1
+          );
+          // HT is deliberately suspended for wagering, but priced odds must
+          // outrank empty/unpriced bookmaker rows so the member sees the quote.
+          if (hasValidOdds) return 2;
+          if (item.market.suspended || (selections.length && selections.every(selection => selection.suspended))) return 1;
           return 0;
         };
         return rank(b) - rank(a);
