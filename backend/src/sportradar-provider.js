@@ -142,6 +142,18 @@ function normalizedEventStatus(value) {
   if (['not_started', 'scheduled', 'pre_match', 'prematch', 'fixture', ''].includes(status)) return 'SCHEDULED';
   return 'UNKNOWN';
 }
+function periodScoresFromStatus(status) {
+  const rawRows = status?.period_scores?.period_score ?? status?.period_scores ?? [];
+  const rows = Array.isArray(rawRows) ? rawRows : (rawRows && typeof rawRows === 'object' ? [rawRows] : []);
+  const firstHalf = rows.find(row => {
+    const type = clean(row?.type || row?.period_name || row?.name, 80).toLowerCase();
+    return Number(row?.number) === 1 || /first.?half|1st.?half|half.?time/.test(type);
+  });
+  if (!firstHalf) return {};
+  const home = number(firstHalf.home_score ?? firstHalf.home);
+  const away = number(firstHalf.away_score ?? firstHalf.away);
+  return home === null || away === null ? {} : { '1H': { home, away } };
+}
 function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = null) {
   if (!raw || typeof raw !== 'object' || !raw.id) return { event: null, reason: 'missing-documented-event-id' };
   const startTime = iso(raw.start_time);
@@ -170,6 +182,10 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
   country = country || clean(context.category?.country || context.competition?.country, 80) || null;
   const status = clean(raw.status, 40) || 'unknown';
   const mappedStatus = normalizedEventStatus(status);
+  const resultStatus = raw.sport_event_status || item?.sport_event_status || null;
+  const periodScores = periodScoresFromStatus(resultStatus);
+  const homeScore = number(resultStatus?.home_score);
+  const awayScore = number(resultStatus?.away_score);
   return {
     reason: null,
     event: {
@@ -177,15 +193,15 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
       sport: clean(sport?.name || sport?.id || 'Unknown sport', 40),
       sportId: sport?.id || null,
       league: leagueName(raw, item), country, startTime,
-      state: mappedStatus, status: mappedStatus, live: false,
+      state: mappedStatus, status: mappedStatus, live: mappedStatus === 'LIVE',
       providerStatus: status, replacedBy: raw.replaced_by || null,
       startTimeConfirmed: raw.start_time_confirmed ?? null,
       resumeTime: iso(raw.resume_time),
-      sourceData: { sportEvent: raw, sportEventContext: context, sport, generatedAt, scheduleItem },
+      sourceData: { sportEvent: raw, sportEventStatus: resultStatus, sportEventContext: context, sport, generatedAt, scheduleItem },
       clock: null,
-      home: { name: home, score: null, logo: null },
-      away: { name: away, score: null, logo: null },
-      homeScore: null, awayScore: null, markets: [],
+      home: { name: home, score: homeScore, logo: null },
+      away: { name: away, score: awayScore, logo: null },
+      homeScore, awayScore, periodScores, markets: [],
       _refs: { [PROVIDER]: id }, _sources: [PROVIDER]
     }
   };
