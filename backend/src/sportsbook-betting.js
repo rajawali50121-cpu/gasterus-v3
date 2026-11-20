@@ -480,7 +480,7 @@ export async function createSportsbookBet(session, input, { ip = '' } = {}) {
         quoteIssuedAt: verifiedQuote?.issuedAt || null,
         quoteExpiresAt: verifiedQuote?.expiresAt || null,
         settlementModes: [...new Set(freshLegs.map(leg => leg.event?._settlementMode || null).filter(Boolean))],
-        manualSettlementRequired: freshLegs.some(leg => leg.event?._settlementMode === 'MANUAL_FT_FALLBACK')
+        manualSettlementRequired: freshLegs.some(leg => ['MANUAL_FT_FALLBACK', 'MANUAL_FT_HT_FALLBACK'].includes(leg.event?._settlementMode))
       })
     ]);
 
