@@ -13,6 +13,23 @@ process.env.DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL 
 process.env.REDIS_URL = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || process.env.REDIS_PUBLIC_URL || '';
 if (process.env.RAILWAY_ENVIRONMENT_ID || process.env.RAILWAY_DEPLOYMENT_ID) process.env.NODE_ENV = 'production';
 
+// Production credentials must be explicitly provisioned in Railway.
+// Never silently substitute predictable defaults: doing so would make a
+// missing secret look healthy while weakening authentication and encryption.
+const requiredSecrets = [
+  'MEMBER_PROXY_SECRET',
+  'ADMIN_PROXY_SECRET',
+  'OPS_INTERNAL_SECRET',
+  'SESSION_HMAC_KEY',
+  'API_KEY_PEPPER',
+  'MFA_ENCRYPTION_KEY_BASE64'
+];
+for (const name of requiredSecrets) {
+  const value = String(process.env[name] || '').trim();
+  if (value.length < 32) {
+    throw new Error(`[security] ${name} is missing or too short; configure a unique secret in Railway.`);
+  }
+}
 const children = new Map();
 let stopping = false;
 let fatalReason = null;
@@ -76,6 +93,9 @@ async function waitReady(url,timeoutMs=120000){const until=Date.now()+timeoutMs;
 
 const coreDir=resolve(ROOT,'backend'),deployDir=resolve(ROOT,'deploy'),adminDir=resolve(ROOT,'admin');
 const coreUrl=`http://127.0.0.1:${CORE_INTERNAL_PORT}`;
+if (String(process.env.ADMIN_PROXY_SECRET || '').trim().length < 32) {
+  throw new Error('[security] ADMIN_PROXY_SECRET is missing or too short; configure a unique secret in Railway.');
+}
 const internalCommon={HOST:'127.0.0.1',CORE_HOST:'127.0.0.1',CORE_PORT:String(CORE_INTERNAL_PORT),PUBLIC_PROTO:process.env.PUBLIC_PROTO || (process.env.NODE_ENV==='production'?'https':'http'),ADMIN_PROXY_SECRET:process.env.ADMIN_PROXY_SECRET};
 const onRailway=Boolean(process.env.RAILWAY_DEPLOYMENT_ID || process.env.RAILWAY_ENVIRONMENT_ID);
 const runStartupMigrations=bool('RUN_STARTUP_MIGRATIONS', !onRailway);

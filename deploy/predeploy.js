@@ -3,6 +3,23 @@ process.env.DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL 
 process.env.REDIS_URL = process.env.REDIS_URL || process.env.REDIS_PRIVATE_URL || process.env.REDIS_PUBLIC_URL || '';
 if (process.env.RAILWAY_ENVIRONMENT_ID || process.env.RAILWAY_DEPLOYMENT_ID) process.env.NODE_ENV = 'production';
 
+// Production credentials must be explicitly provisioned in Railway.
+// Never silently substitute predictable defaults: doing so would make a
+// missing secret look healthy while weakening authentication and encryption.
+const requiredSecrets = [
+  'MEMBER_PROXY_SECRET',
+  'ADMIN_PROXY_SECRET',
+  'OPS_INTERNAL_SECRET',
+  'SESSION_HMAC_KEY',
+  'API_KEY_PEPPER',
+  'MFA_ENCRYPTION_KEY_BASE64'
+];
+for (const name of requiredSecrets) {
+  const value = String(process.env[name] || '').trim();
+  if (value.length < 32) {
+    throw new Error(`[security] ${name} is missing or too short; configure a unique secret in Railway.`);
+  }
+}
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 

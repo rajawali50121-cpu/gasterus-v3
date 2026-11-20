@@ -37,6 +37,7 @@ JOIN LATERAL (
   LIMIT 1
 ) h ON TRUE
 WHERE m.status='open'
+  AND m.verification_status='VERIFIED'
   AND c.betting_period IS NOT NULL AND btrim(c.betting_period)<>''
   AND c.close_at IS NOT NULL AND c.close_at<=now()
   AND EXISTS (SELECT 1 FROM bet_orders o WHERE o.market_id=c.market_id AND o.period=c.betting_period AND o.status IN('ACCEPTED','SETTLEMENT_PENDING'))
@@ -66,6 +67,7 @@ JOIN LATERAL (
   LIMIT 1
 ) h ON TRUE
 WHERE m.status='open'
+  AND m.verification_status='VERIFIED'
   AND o.period IS NOT NULL AND btrim(o.period)<>''
   AND o.status IN('ACCEPTED','SETTLEMENT_PENDING')
   AND NOT EXISTS (SELECT 1 FROM settlement_runs r WHERE r.market_id=o.market_id AND r.period=o.period AND r.mode='SETTLE')

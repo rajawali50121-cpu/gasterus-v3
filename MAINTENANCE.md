@@ -267,42 +267,26 @@ tertentu, berguna saat menelusuri masalah memori.
 
 ## ⚽ SCRAPER SPORTSBOOK DI RAILWAY (Odds Real, Anti-OOM)
 
-Scrape odds dijalankan sebagai **service Railway terpisah**
-(`.railway/railway.ts` → `sportsbook-render-worker`, image
-`deploy/Dockerfile.sportsbook-render-worker`) — beban scrape tidak pernah
-menyentuh memori service `web`. Redis tetap ber-`--maxmemory 128mb
-volatile-lru`. Pengaman memori worker:
+Sportsbook ingestion berjalan sebagai **service Railway terpisah**:
+`sportsbook-render-worker` menggunakan `deploy/Dockerfile.sportsbook-render-worker`.
+Worker memiliki credential Sportradar dan mengambil seluruh halaman data sesuai kontrak API.
 
-- **Heap V8 dikunci 224MB** (`NODE_OPTIONS=--max-old-space-size=224`) di bawah
-  ukuran container (~512MB); V8 GC agresif jauh sebelum OOM.
-- Render worker hanya memanggil provider yang secara eksplisit di-wire.
-  Saat ini Sportmonks digunakan sebagai sumber utama dan SharpAPI bersifat
-  opsional sesuai konfigurasi/key provider.
-- Cache provider berbatas byte (10MB total), payload stale guard 429 ikut
-  dalam batas yang sama; snapshot berbatas 500 event / 6MB per push.
-- Secret & URL diwariskan dari `web` (`${{web.*}}`) — tidak diduplikasi.
-- **Railway** (`web`) hanya menerima snapshot di
-  `/api/internal/sportsbook/ingest` (HMAC + jendela timestamp + cap payload),
-  menyimpannya ke Redis; fallback lokal tetap Sportmonks terbatas
-  (12 halaman) bila snapshot absen. 
-
-- **Worker** (`backend/src/sportsbook-render-worker.js`) mengambil data dari
-  provider yang di-wire (Sportmonks dan SharpAPI opsional), membangun snapshot
-  maksimal 500 event, lalu mengirim HMAC-signed ke `web` setiap interval
-  refresh yang dibatasi freshness ingest.
-- **The Odds API tidak aktif dan tidak dipanggil oleh render worker**. Adapter
-  lama yang masih ada di modul provider bukan bagian dari jalur runtime; jangan
-  menambahkan key/config worker atau memasang fetcher provider tersebut kembali.
-- Market live dengan harga yang lebih tua dari
-  `SPORTSBOOK_MAX_LIVE_PRICE_AGE_SECONDS` otomatis di-suspend fail-closed oleh
-  feed. Seluruh odds tetap perlu lulus validasi freshness sebelum placement.
-
----
+- **Worker** hanya memanggil Sportradar, memvalidasi data, menyusun snapshot, lalu mengirim body JSON yang ditandatangani HMAC ke backend melalui Railway private networking.
+- **Backend** tidak memiliki adapter odds provider dan tidak melakukan fetch odds eksternal. Backend hanya menerima snapshot Sportradar yang segar, terverifikasi, dan sesuai schema.
+- **Unavailable/read-only** adalah perilaku wajib saat snapshot hilang, stale, tidak valid, atau Redis tidak tersedia. Tidak boleh ada fixture sintetis atau fallback odds lokal.
+- **Sportradar adalah sumber odds, bukan otoritas hasil pertandingan.** FT settlement memerlukan otorisasi operator; HT settlement tetap ditutup sampai ada otoritas hasil yang disetujui. Auto-settlement sportsbook dinonaktifkan secara default.
+- Cache, payload, pagination, dan resource limits tetap memiliki guard yang eksplisit. Nilai nol pada batas event/halaman berarti tidak menerapkan pemotongan buatan; batas provider/quota dan memori tetap berlaku.
+- TheSportsDB hanya digunakan untuk metadata artwork tim. Integrasi ini tidak menyediakan fixtures, odds, scores, atau settlement.
+- Logika TOTO, wallet ledger, trading controls, lifecycle market, dan settlement internal tidak boleh dihapus saat membersihkan adapter provider sportsbook.
 
 ## 📝 LOG PERUBAHAN
 
-| Tanggal | File | Perubahan | Oleh |
-|---------|------|-----------|------|
+| Tanggal | File | Perubahan |
+|---------|------|-----------|
+| 19 Nov 2026 | sportsbook feed / worker / ingestion | Backend worker-only; Sportradar menjadi satu-satunya sumber odds; snapshot HMAC; tidak ada fallback odds lokal |
+| 19 Nov 2026 | settlement authority / evaluator | FT hanya melalui otoritas operator; HT tidak otomatis; auto-settlement sportsbook dinonaktifkan secara default |
+| 19 Nov 2026 | docs / deployment | Memperbarui arsitektur Railway dan gerbang migrasi database; tidak melakukan cutover |
+---------|------|-----------|------|
 | 09 Sep 2026 | Semua 21 file | +3113/-525 baris belum di-commit | Cline |
 | 09 Sep 2026 | MAINTENANCE.md | Dibuat pertama kali | Claude/Antigravity |
 | 10 Okt 2026 | MAINTENANCE.md | Tambah bagian "ENV RUNTIME, MEMORI & ANTI-OOM" (`TREE_RSS_LIMIT_MB`, `SPORTS_SOURCE_BROWSER_EXECUTABLE`, kontrol spawn Chromium, state Redis TOTO) | Cline |

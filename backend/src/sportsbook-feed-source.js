@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { AppError } from './errors.js';
 import { SPORTSBOOK_INGEST_REDIS_KEY, verifyStoredSportsbookSnapshot } from './sportsbook-ingestion.js';
 
 function stripRailwayAuthority(event) {
@@ -48,7 +49,7 @@ export async function loadRenderProviderSnapshot(redisClient, {
   maxAgeSeconds = config.sportsbookDailyRefreshEnabled ? (config.sportsbookStoredSnapshotMaxAgeSeconds || config.sportsbookIngestMaxAgeSeconds) : config.sportsbookIngestMaxAgeSeconds
 } = {}) {
   if (!redisClient?.isOpen) {
-    logger?.warn('Sportsbook worker snapshot unavailable; Redis is not connected, using local provider fetch');
+    logger?.warn('Sportsbook worker snapshot unavailable; Redis is not connected, backend-side odds fetching is disabled');
     return null;
   }
 
@@ -56,7 +57,7 @@ export async function loadRenderProviderSnapshot(redisClient, {
   try {
     raw = await redisClient.get(SPORTSBOOK_INGEST_REDIS_KEY);
   } catch (error) {
-    logger?.warn('Sportsbook worker snapshot read failed; using local provider fetch', { error: error.message });
+    logger?.warn('Sportsbook worker snapshot read failed; backend-side odds fetching is disabled', { error: error.message });
     return null;
   }
   if (!raw) return null;
@@ -74,7 +75,7 @@ export async function loadRenderProviderSnapshot(redisClient, {
       diagnostics: verified.snapshot.diagnostics || null
     };
   } catch (error) {
-    logger?.warn('Sportsbook worker snapshot rejected; using local provider fetch', {
+    logger?.warn('Sportsbook worker snapshot rejected; backend-side odds fetching is disabled', {
       code: error.code || 'SPORTSBOOK_INGEST_STAGING_INVALID',
       error: error.message
     });
@@ -83,11 +84,12 @@ export async function loadRenderProviderSnapshot(redisClient, {
 }
 
 export async function resolveSportsbookProviderResults(redisClient, {
-  fetchLocalProviders,
   logger,
   now = Date.now(),
   secret = config.sportsbookIngestHmacSecret,
-  maxAgeSeconds = config.sportsbookDailyRefreshEnabled ? (config.sportsbookStoredSnapshotMaxAgeSeconds || config.sportsbookIngestMaxAgeSeconds) : config.sportsbookIngestMaxAgeSeconds
+  maxAgeSeconds = config.sportsbookDailyRefreshEnabled
+    ? (config.sportsbookStoredSnapshotMaxAgeSeconds || config.sportsbookIngestMaxAgeSeconds)
+    : config.sportsbookIngestMaxAgeSeconds
 } = {}) {
   const renderSnapshot = await loadRenderProviderSnapshot(redisClient, {
     logger,
@@ -95,22 +97,31 @@ export async function resolveSportsbookProviderResults(redisClient, {
     secret,
     maxAgeSeconds
   });
-  if (renderSnapshot) {
-    return {
-      source: 'render',
-      renderSnapshot,
-      settled: renderSnapshot.providerResults.map(result => ({
-        result: { ...result, transportOk: result.transportOk !== false },
-        elapsedMs: 0
-      }))
-    };
+
+  if (!renderSnapshot) {
+    throw new AppError(
+      503,
+      'Snapshot Sportradar terverifikasi belum tersedia; backend tidak mengambil odds dari provider langsung.',
+      'SPORTS_SNAPSHOT_REQUIRED'
+    );
   }
-  if (typeof fetchLocalProviders !== 'function') {
-    throw new Error('Local sportsbook provider fallback is unavailable.');
+
+  const unexpectedProviders = renderSnapshot.providerResults
+    .filter(result => result.provider !== 'sportradar');
+  if (unexpectedProviders.length) {
+    throw new AppError(
+      503,
+      'Snapshot ditolak karena memuat sumber odds selain Sportradar.',
+      'SPORTSBOOK_PROVIDER_NOT_ALLOWED'
+    );
   }
+
   return {
-    source: 'local',
-    renderSnapshot: null,
-    settled: await fetchLocalProviders()
+    source: 'render',
+    renderSnapshot,
+    settled: renderSnapshot.providerResults.map(result => ({
+      result: { ...result, transportOk: result.transportOk !== false },
+      elapsedMs: 0
+    }))
   };
 }

@@ -1,8 +1,9 @@
 # Gasterus production architecture and Railway operations
 
 Status: migration preparation; NOT cut over to the new Railway account.
-Last reviewed: 2026-11-18.
+Last reviewed: 2026-11-19.
 Canonical repository: `rajawali50121-cpu/gasterus-v3`.
+Canonical deployment source: `railway-migration-fix-039`. 
 
 ## 1. Service boundaries
 
@@ -21,8 +22,8 @@ Do not move application/business logic between these layers without a reviewed c
 
 - Sportradar is the only production sportsbook fixtures-and-odds provider.
 - The production render worker calls only `fetchSportradar`.
-- Do not activate, configure, or route production odds through SharpAPI, SportMonks, OddsPapi, The Rundown, or another fallback provider.
-- Do not copy old Railway provider flags or credentials merely because they exist in the old environment.
+- No secondary odds provider or local backend odds adapter is part of the production sportsbook path.
+- Do not copy legacy provider flags or credentials merely because they exist in the old environment.
 - Provider access level must match the intended production contract. Trial access is not production access; the worker permits trial only for an explicitly opted-in one-shot cron run.
 - Preserve complete pagination and provider data. API quota and physical resource limits, not arbitrary event/page caps, are the real ceilings.
 
@@ -90,7 +91,7 @@ For each audit, inspect in this order:
 
 Always record the project, environment, service, commit SHA, deployment ID, observed status, evidence, and any remaining blocker. Distinguish clearly between configured, deployed, running, tested, and production-serving. A successful backend deployment alone does not prove the worker, data migration, frontend routing, or cutover is complete.
 
-## 8. Current migration checkpoint (verified 2026-11-18)
+## 8. Current migration checkpoint (verified 2026-11-19)
 
 ### Old Railway — source production (must remain untouched until cutover)
 - Project: `amiable-sparkle` (`72b7f370-4029-4860-9f0c-cb1bc7b870ea`), environment: `production` (`ddab77fd-fd61-4f44-95de-675953659381`).
@@ -101,23 +102,24 @@ Always record the project, environment, service, commit SHA, deployment ID, obse
 ### New Railway — migration target (not yet production-serving)
 - Project: `unique-possibility` (`12c25d56-2f12-4d26-ad30-0b822389d8b0`), environment: `production` (`18c05d2e-db87-419c-a2e5-ce43591e1d4f`).
 - Live services: `gasterus-v3`, `Postgres`, `Redis`, `sportsbook-render-worker`, and one-shot `gasterus-db-migration`. All latest deployments report `SUCCESS`; backend, Postgres and Redis are online, worker is cron-ready.
-- Backend and worker are deployed from `railway-migration-fix-039` at commit `e8906f2432c99ca58c4b36d9a0e2eb7c30bbf674`.
+- Both services are configured for branch `railway-migration-fix-039`. Their service source configuration reports commit pin `e8906f2432c99ca58c4b36d9a0e2eb7c30bbf674`, while the latest successful backend and worker deployments report build commit `9187c42d52a57dbfc5c4bb37e8ef9d3d2c9aca01`. This source/deployment SHA discrepancy must be reconciled before final release.
 - New backend variable inventory is clean of legacy provider flags. New worker variable inventory includes Sportradar settings and the ingestion credentials/URL names. The connected Railway account redacts variable values, so presence is verified but exact reference targets and secret validity are not independently verified here.
-- Worker cron is `5 17 * * *` UTC (00:05 WIB). The worker deployment is successful and cron-ready; a successful scheduled Sportradar ingestion run and accepted event/market counts have not yet been verified.
+- Worker cron is `5 17 * * *` UTC (00:05 WIB). The 19 November scheduled run used Sportradar production access and fetched 207 events over 10 pages, 1,024 markets, 5,620 books, and 12,921 outcomes. Backend logs confirm the signed snapshot was accepted; after feed filtering, 203 events and 5,335 bettable markets were served. This verifies the worker-to-backend ingestion path for that run, not ongoing uptime or final deployment parity.
 - No Railway-generated service domain or custom domain is attached to the new backend. Keep routing unchanged until the final cutover gate.
 
 ### Database migration — incomplete; do not cut over
 - The old PostgreSQL remains the live write source.
-- A point-in-time copy of the old database exists separately as `gasterus_import` on the new PostgreSQL. The previously recorded comparison found 131 tables in both source and import; this snapshot is not current because the old production database continues receiving writes.
-- The new PostgreSQL's primary `railway` database has its own application schema/migration ledger. The one-shot `gasterus-db-migration` service currently runs only a migration-ledger inspection; it does not copy `gasterus_import` into `railway`.
-- Latest ledger inspection: SOURCE = 48 rows, IMPORT = 48 rows, TARGET (`railway`) = 44 rows. The target ledger corresponds to the current 44 migration files; the source/import ledger retains four legacy/duplicate historical entries. Do not treat these counts alone as proof of business-data parity.
-- Final consistent dump/restore into the target primary database, row-count comparison, wallet/ledger integrity checks, owner/admin verification, and application smoke tests are still outstanding.
+- A point-in-time copy of the old database exists separately as `gasterus_import` on the new PostgreSQL. The 19 November read-only audit found 63 public base tables in source and import. All table counts match except `market_result_history` (source 1,398; import 1,389), a 9-row difference while the source remains live.
+- The new PostgreSQL's primary `railway` database has its own application schema/migration ledger. The one-shot `gasterus-db-migration` service remains a read-only schema-check service; it does not copy `gasterus_import` into `railway`.
+- Latest ledger counts: SOURCE = 48, IMPORT = 48, TARGET (`railway`) = 44. The target ledger corresponds to the current 44 migration files; source/import retain four historical entries. Do not treat these counts alone as proof of business-data parity.
+- The target has 63 public base tables but is not populated with production data: users 0, wallet requests 0, QRIS orders 0, ledger entries 0, ledger transactions 0, sportsbook tickets 0, sportsbook lifecycle rows 0, and lifecycle-history rows 0. Source/import each have 10 users, 16 ledger accounts, 1 wallet request, 1 QRIS order, 4,102 sportsbook lifecycle rows, 26,145 lifecycle-history rows, 742 provider incidents, 22 quota periods, 949 quota reservations, and 71 security events.
+- Source/import currently report 0 ledger entries and 0 ledger transactions. This is not proof of wallet integrity; source account balances and pending-payment state still require explicit financial reconciliation. Final consistent dump/restore, critical-record verification, owner/admin checks, and application smoke tests remain outstanding.
 - Three historical backend deployments failed while migration `039_canonicalize_market_slugs.sql` rejected five expected pool slugs. The current latest backend deployment is successful; preserve those failed deployments as audit history and do not erase them.
 - No production cutover has occurred. Old Railway remains the active production system.
 
 ### Required next sequence
 1. Keep old Railway production untouched.
-2. Verify the new worker's next scheduled run against Sportradar and confirm the signed private ingest is accepted by the new backend; record event/market counts and Redis snapshot freshness.
+2. Reconcile the source/deployment commit SHA discrepancy. Verify the cleanup branch in CI, then deploy the same reviewed commit to backend and worker and confirm the signed private ingest remains accepted.
 3. Schedule a maintenance window and stop old-application writes.
 4. Take a final consistent source PostgreSQL dump, validate it, and restore it into the new primary `railway` database. Do not overwrite the live target or use destructive restore flags without a verified backup and explicit migration plan.
 5. Compare source and target table counts plus critical user, wallet, transaction, bet, settlement and audit records. Resolve any schema/migration mismatch before startup.

@@ -1,21 +1,25 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { AppError, assert } from './errors.js';
 import { config } from './config.js';
-import { leagueKey, teamKey } from './sportsbook-providers.js';
+import { leagueKey, teamKey } from './sportsbook-feed-utils.js';
 
 export const SPORTSBOOK_INGEST_REDIS_KEY = 'sportsbook:render-ingest-snapshot:v1';
-const ALLOWED_PROVIDERS = new Set(['sportradar', 'sportmonks', 'sharpapi', 'oddspapi']);
+const ALLOWED_PROVIDERS = new Set(['sportradar']);
 const MAX_FUTURE_SKEW_SECONDS = 30;
+const MAX_INGEST_BODY_BYTES = 32 * 1024 * 1024;
 
 function invalid(message, code = 'SPORTSBOOK_INGEST_INVALID') {
   throw new AppError(400, message, code);
 }
 
-async function readRequestBytes(request, maxBytes) {
+async function readRequestBytes(request, maxBytes = MAX_INGEST_BODY_BYTES) {
   const contentLength = request.headers['content-length'];
   if (contentLength !== undefined) {
     if (!/^\d+$/.test(String(contentLength))) {
       throw new AppError(400, 'Content-Length tidak valid.', 'SPORTSBOOK_INGEST_CONTENT_LENGTH_INVALID');
+    }
+    if (Number(contentLength) > maxBytes) {
+      throw new AppError(413, 'Payload ingestion sportsbook melebihi batas ukuran.', 'SPORTSBOOK_INGEST_BODY_TOO_LARGE');
     }
   }
 
@@ -23,6 +27,9 @@ async function readRequestBytes(request, maxBytes) {
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
+    if (size > maxBytes) {
+      throw new AppError(413, 'Payload ingestion sportsbook melebihi batas ukuran.', 'SPORTSBOOK_INGEST_BODY_TOO_LARGE');
+    }
     chunks.push(chunk);
   }
   return Buffer.concat(chunks, size);
@@ -343,7 +350,7 @@ export async function acceptSportsbookSnapshot(request, {
   const timestamp = String(request.headers['x-sportsbook-timestamp'] || '');
   const signature = String(request.headers['x-sportsbook-signature'] || '');
   validateTimestamp(timestamp, Math.floor(now / 1000), maxAgeSeconds);
-  const rawBody = await readRequestBytes(request);
+  const rawBody = await readRequestBytes(request, MAX_INGEST_BODY_BYTES);
   verifySignature(rawBody, timestamp, signature, secret);
 
   let snapshot;

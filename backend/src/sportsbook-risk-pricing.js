@@ -20,7 +20,7 @@ export function applySportsbookRiskRepricing(events = [], exposures = [], { now 
     ...event,
     markets: (event.markets || []).map(market => {
       const selections = market.selections || [];
-      if (market.source !== 'public-market' || selections.length < 2) return market;
+      if (market.source !== 'sportradar' || selections.length < 2) return market;
       const implied = selections.map(selection => 1 / Number(selection.odds));
       if (implied.some(value => !Number.isFinite(value) || value <= 0)) return market;
       const totalImplied = implied.reduce((a, b) => a + b, 0);
@@ -38,14 +38,15 @@ export function applySportsbookRiskRepricing(events = [], exposures = [], { now 
           ...item.selection,
           baseOdds: Number(item.selection.baseOdds || item.selection.odds),
           odds,
-          updatedAt: repricedAt,
+          // Repricing time is not a provider update time. Keep source freshness timestamps intact.
+          riskRepricedAt: repricedAt,
           anchorUpdatedAt: item.selection.anchorUpdatedAt || item.selection.updatedAt || market.updatedAt || null,
           pricingModel: 'GASTERUS_RISK_SHADE_V1',
           riskLiability: Math.trunc(item.liability),
           riskShadeBps: Math.round(item.shade * 10000)
         };
       });
-      return { ...market, updatedAt: repricedAt, selections: nextSelections, pricingModel: 'GASTERUS_RISK_SHADE_V1' };
+      return { ...market, riskRepricedAt: repricedAt, selections: nextSelections, pricingModel: 'GASTERUS_RISK_SHADE_V1' };
     })
   }));
 }

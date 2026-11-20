@@ -3,7 +3,7 @@ import { config } from './config.js';
 import { logger } from './logger.js';
 
 const PROVIDER = 'sportradar';
-const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en';
+const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/production/v2/en';
 const PAGE_SIZE = 50;
 const DEFAULT_SPORT_IDS = ['sr:sport:1'];
 
@@ -135,10 +135,12 @@ function isRemovedFlag(value) {
   return value === true || String(value ?? '').trim().toLowerCase() === 'true';
 }
 function normalizedEventStatus(value) {
-  const status = String(value || '').toLowerCase();
+  const status = String(value || '').trim().toLowerCase();
   if (['ended', 'aet', 'finished', 'final'].includes(status)) return 'FINISHED';
+  if (['live', 'in_progress', 'inprogress', 'started', '1st_period', '2nd_period', 'period_1', 'period_2', '1st_half', '2nd_half', 'first_half', 'second_half', 'halftime', 'half_time', 'extra_time', 'overtime', 'penalties', 'penalty_shootout', 'break'].includes(status)) return 'LIVE';
   if (['cancelled', 'canceled', 'abandoned', 'postponed', 'suspended', 'interrupted'].includes(status)) return 'SUSPENDED';
-  return 'SCHEDULED';
+  if (['not_started', 'scheduled', 'pre_match', 'prematch', 'fixture', ''].includes(status)) return 'SCHEDULED';
+  return 'UNKNOWN';
 }
 function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = null) {
   if (!raw || typeof raw !== 'object' || !raw.id) return { event: null, reason: 'missing-documented-event-id' };
@@ -190,6 +192,8 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
 }
 function marketType(name) {
   const value = clean(name, 120).toLowerCase();
+  // HT/FT is a single combination market, not ordinary 1X2.
+  if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
   if (/1x2|money.?line|match.?winner|match.?result|three.?way/.test(value)) return '1X2';
   if (/handicap|spread/.test(value)) return 'HANDICAP';
   if (/team.?total/.test(value)) return 'TEAM_TOTAL';
@@ -205,6 +209,7 @@ function marketType(name) {
 }
 function periodFromMarket(name) {
   const value = clean(name, 120).toLowerCase();
+  if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
   if (/first.?half|1st.?half|half.?time|1h/.test(value)) return '1H';
   if (/second.?half|2nd.?half|2h/.test(value)) return '2H';
   return 'FT';
@@ -267,7 +272,7 @@ function normalizeOdds(event, raw) {
         return {
           key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? ''),
           label, odds, line,
-          suspended: Boolean(bookRemoved || outcomeRemoved),
+          suspended: Boolean(bookRemoved || outcomeRemoved || market.is_live === true),
           removed: outcomeRemoved,
           outcomeType: outcome.type || null,
           fieldId: outcome.field_id || null,
@@ -301,7 +306,7 @@ function normalizeOdds(event, raw) {
         id: hash('market', event.id, marketId, marketName, book?.id || bookmaker || ''),
         key: marketId, type, label: marketName, period,
         line: selections[0]?.line ?? null,
-        suspended: bookRemoved,
+        suspended: Boolean(bookRemoved || market.is_live === true),
         removed: bookRemoved,
         isLive: market.is_live === true,
         updatedAt: null,
@@ -317,6 +322,8 @@ function normalizeOdds(event, raw) {
   }
   return { markets, diagnostics };
 }
+
+export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds, normalizedEventStatus };
 
 export async function fetchSportradar({
   maxEvents = 0,
