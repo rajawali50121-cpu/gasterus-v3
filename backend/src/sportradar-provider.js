@@ -357,7 +357,7 @@ function normalizeOdds(event, raw) {
   return { markets, diagnostics };
 }
 
-export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds, normalizedEventStatus };
+export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds, normalizedEventStatus, normalizeScheduleEvent, periodScoresFromStatus };
 
 export async function fetchSportradar({
   maxEvents = 0,
