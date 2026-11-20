@@ -7,7 +7,7 @@ const read = relative => readFileSync(new URL(relative, import.meta.url), 'utf8'
 test('R6.9.0.12 accepted ticket records manual FT/HT operator settlement requirement in durable metadata', () => {
   const betting = read('../src/sportsbook-betting.js');
   assert.match(betting, /settlementModes:\s*\[\.\.\.new Set\(/);
-  assert.match(betting, /manualSettlementRequired:\\s*freshLegs\\.some\\(leg => \\['MANUAL_FT_FALLBACK', 'MANUAL_FT_HT_FALLBACK'\\]\\.includes\\(leg\\.event\\?\\._settlementMode\\)\\)/);
+  assert.match(betting, /manualSettlementRequired:\s*freshLegs\.some\(leg => \['MANUAL_FT_FALLBACK', 'MANUAL_FT_HT_FALLBACK'\]\.includes\(leg\.event\?\._settlementMode\)\)/);
   assert.match(betting, /metadata:\s*row\.metadata && typeof row\.metadata === 'object' \? row\.metadata : \{\}/);
 });
 
