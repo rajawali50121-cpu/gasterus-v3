@@ -104,8 +104,8 @@ function coreMarketOddsState(markets, type, period) {
     String(market.type || '').toUpperCase() === type &&
     String(market.period || 'FT').toUpperCase() === period
   );
-  if (matching.some(market => (market.selections || []).some(selection =>
-    Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
+  if (matching.some(market => !market.suspended && (market.selections || []).some(selection =>
+    !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
   ))) return 'PRICED';
   return matching.length ? 'UNPRICED' : 'MISSING';
 }
@@ -147,8 +147,9 @@ async function main() {
     const markets = fullEvent.markets || [];
     const marketTypes = [...new Set(markets.map(market => market.type))];
     const validPricedSelections = markets.every(market =>
-      Array.isArray(market.selections) && market.selections.every(selection =>
-        Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
+      Array.isArray(market.selections) && market.selections.length > 0 &&
+      market.selections.some(selection =>
+        !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
       )
     );
     assert(validPricedSelections, `event ${event.id} contains an empty market or invalid odds`);
