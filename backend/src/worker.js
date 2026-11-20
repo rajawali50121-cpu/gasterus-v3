@@ -203,6 +203,7 @@ async function processJob(job) {
     return 'retry';
   }
 
+  let cancelledAutoRun = false;
   try {
     await tx(async client => {
       const run = (
@@ -210,6 +211,34 @@ async function processJob(job) {
       ).rows[0];
 
       if (!run || run.status === 'SUCCESS') return;
+      // Auto settlement must revalidate authority and result under market lock.
+      if (run.mode === 'SETTLE' && !run.approval_id && !run.requested_by) {
+        const authority = (await client.query(
+          `SELECT m.verification_status,m.status,h.result,h.source_name
+           FROM markets m
+           JOIN LATERAL (
+             SELECT h2.result,h2.source_name FROM market_result_history h2
+             WHERE h2.market_id=m.id AND h2.period=$2
+               AND (h2.source_name LIKE 'OFFICIAL:%' OR h2.source_name LIKE 'CONSENSUS:%')
+             ORDER BY h2.created_at DESC
+             LIMIT 1
+           ) h ON TRUE
+           WHERE m.id=$1 AND m.status='open' AND m.verification_status='VERIFIED'
+           FOR UPDATE OF m`,
+          [run.market_id, run.period]
+        )).rows[0];
+        if (!authority || String(authority.result) !== String(run.result_value)) {
+          const reason = 'Auto settlement authority/result changed or is no longer VERIFIED before execution';
+          await client.query(
+            `UPDATE settlement_runs SET status='FAILED',error_message=$1,finished_at=now()
+             WHERE id=$2 AND status='QUEUED'`,
+            [reason, run.id]
+          );
+          cancelledAutoRun = true;
+          logger.warn('Auto settlement cancelled: authority changed before worker execution', { runId: run.id, marketId: run.market_id, period: run.period });
+          return;
+        }
+      }
       if (run.status === 'RUNNING') {
         throw new Error('Settlement run is already marked RUNNING and requires operator review.');
       }
@@ -416,6 +445,7 @@ async function processJob(job) {
       );
     }, { isolation: 'SERIALIZABLE' });
 
+    if (cancelledAutoRun) return 'failed';
     logger.info('Settlement job completed', { runId: job.runId, mode: job.mode });
     return 'success';
   } catch (error) {

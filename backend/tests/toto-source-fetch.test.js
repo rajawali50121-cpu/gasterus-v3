@@ -56,7 +56,7 @@ test('TOTO memakai VegasNet sebagai satu-satunya sumber (label & jadwal tampil u
   assert.match(requested, /show_id=1,2,3/);
   assert.match(requested, /171/);
   assert.equal(calls.length, Math.ceil(vegasnet.showIds.length / vegasnet.batchSize));
-  assert.equal(calls.every(call => call.options.redirect === 'follow'), true);
+  assert.equal(calls.every(call => call.options.redirect === 'manual'), true);
   const byHost = new Map(calls.map(call => [new URL(call.url).hostname.replace(/^www\./, ''), call.options.headers]));
   assert.match(byHost.get('widgets.vegasnet.info')['user-agent'], /ASEAN777-Result-Collector\/6\.8\.14/);
 });
@@ -127,4 +127,12 @@ test('mapLimit bounds concurrent TOTO transport work', async () => {
     return value;
   });
   assert.equal(peak, 2);
+});
+
+
+test('TOTO source fetch does not follow redirects automatically', async () => {
+  let calls = 0;
+  const fakeFetch = async (url, options) => { calls += 1; assert.equal(options.redirect, 'manual'); return response(String(url), '', { status: 302 }); };
+  await assert.rejects(fetchTotoHtml({ code: 'x', name: 'x', url: 'https://poskopaito.com/' }, fakeFetch), /HTTP 302/);
+  assert.equal(calls, 1);
 });
