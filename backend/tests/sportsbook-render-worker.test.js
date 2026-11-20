@@ -97,7 +97,7 @@ test('worker rejects incomplete Sportradar transport and malformed events', asyn
   await assert.rejects(buildSportsbookRenderSnapshot({
     fetchSportradar: async () => ({ provider: 'sportradar', enabled: true, transportOk: true, events: [invalid] }),
     now: NOW
-  }), /event rejected/);
+  }), /No Sportradar events passed structural validation/);
 });
 
 test('worker publishes a valid empty Sportradar schedule without fabricating fixtures', async () => {
