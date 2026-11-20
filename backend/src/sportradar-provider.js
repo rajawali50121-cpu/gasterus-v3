@@ -190,7 +190,7 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
     }
   };
 }
-function marketType(name, outcomeCount = null, hasDrawOutcome = false) {
+export function marketType(name, outcomeCount = null, hasDrawOutcome = false) {
   const value = clean(name, 120).toLowerCase();
   if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
   if (/1x2|money.?line|match.?winner|match.?result|three.?way|first.?half.*result|1st.?half.*result|half.?time.*result/.test(value)) return '1X2';
