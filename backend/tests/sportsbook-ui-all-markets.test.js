@@ -11,7 +11,7 @@ import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
 const sportsbookCss = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
-const responsiveCss = readFileSync(new URL('../../frontend/css/pages/sportsbook-responsive-hotfix.css', import.meta.url), 'utf8');
+const responsiveCss = sportsbookCss;
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 const realtime = readFileSync(new URL('../src/sportsbook-realtime.js', import.meta.url), 'utf8');
 
@@ -300,13 +300,13 @@ test('premium sportsbook skin separates LIVE and prematch with aligned responsiv
   assert.match(frontend, /class="sb-match-card \$\{isLive \? 'is-live' : 'is-prematch'\}"/);
   assert.match(frontend, /const isLive = Boolean\(e\.live\) \|\| String\(e\.status \|\| ''\)\.toUpperCase\(\) === 'LIVE'/);
   assert.ok(sportsbookCss.includes('.sb-premium .sb-match-card.is-live {'));
-  assert.ok(sportsbookCss.includes('background: linear-gradient(145deg, #fff 0%, #fff4f6 100%)'));
+  assert.ok(sportsbookCss.includes('--sb-gold: #e7bd55;'));
   assert.ok(sportsbookCss.includes('.sb-premium .sb-match-card.is-prematch {'));
-  assert.ok(sportsbookCss.includes('background: linear-gradient(145deg, #fff 0%, #f1f7ff 100%)'));
-  assert.ok(sportsbookCss.includes('min-height: 48px;'));
+  assert.ok(sportsbookCss.includes('--sb-bg: #08130f;'));
+  assert.ok(sportsbookCss.includes('min-height: 46px;'));
   assert.ok(sportsbookCss.includes('grid-template-columns: repeat(3, minmax(0, 1fr));'));
   assert.ok(sportsbookCss.includes('@media (max-width: 860px)'));
-  assert.ok(sportsbookCss.includes('@media (max-width: 480px)'));
+  assert.ok(sportsbookCss.includes('@media (max-width: 520px)'));
   assert.ok(sportsbookCss.includes('.sb-market-period-tab[data-match-period="1H"].active'));
 });
 
@@ -505,8 +505,8 @@ test('primary Asian Handicap slot selects a complete priced line from multi-line
 
 test('mobile sportsbook CSS forces full-width cards and a two-column compact period switcher', () => {
   assert.match(responsiveCss, /\.sb-premium \.sb-market-period-tabs\s*\{[^}]*display:\s*grid/s);
-  assert.match(responsiveCss, /\.sb-page, \.sb-main, \.sb-layout, \.sb-content, \.sb-events,[\s\S]*?width:\s*100%/);
+  assert.match(responsiveCss, /\.sb-premium \.sb-main\s*\{[^}]*width:\s*100%/s);
   assert.match(frontend, /MARKET_PERIOD_TAB_LABELS/);
-  assert.match(responsiveCss, /\.sb-slip-sheet\s*\{[^}]*max-height:\s*min\(72dvh, 600px\)/s);
-  assert.match(responsiveCss, /\.sb-slip-sheet-body\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(responsiveCss, /\.sb-premium \.sb-slip-sheet\s*\{[^}]*max-height:\s*min\(72dvh,600px\)/s);
+  assert.match(responsiveCss, /\.sb-premium \.sb-slip-sheet-body\s*\{[^}]*overflow-y:\s*auto/s);
 });
