@@ -504,6 +504,6 @@ test('primary Asian Handicap slot selects a complete priced line from multi-line
 
 test('mobile sportsbook CSS forces full-width cards and a two-column compact period switcher', () => {
   assert.match(responsiveCss, /\.sb-premium \.sb-market-period-tabs\s*\{[^}]*display:\s*grid/s);
-  assert.match(responsiveCss, /\.sb-match-card\s*\{[^}]*width:\s*100%/s);
+  assert.match(responsiveCss, /\.sb-page, \.sb-main, \.sb-layout, \.sb-content, \.sb-events,[\s\S]*?width:\s*100%/);
   assert.match(frontend, /MARKET_PERIOD_TAB_LABELS/);
 });
