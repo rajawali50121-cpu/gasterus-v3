@@ -11,6 +11,7 @@ import { availableMarketPeriods, primaryMarketColumns, selectMarketPeriod } from
 const frontend = readFileSync(new URL('../../frontend/js/sportsbook.js', import.meta.url), 'utf8');
 const page = readFileSync(new URL('../../frontend/sportsbook.html', import.meta.url), 'utf8');
 const sportsbookCss = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
+const responsiveCss = readFileSync(new URL('../../frontend/css/pages/sportsbook-responsive-hotfix.css', import.meta.url), 'utf8');
 const feed = readFileSync(new URL('../src/sportsbook-feed.js', import.meta.url), 'utf8');
 const realtime = readFileSync(new URL('../src/sportsbook-realtime.js', import.meta.url), 'utf8');
 
@@ -502,7 +503,7 @@ test('primary Asian Handicap slot selects a complete priced line from multi-line
 });
 
 test('mobile sportsbook CSS forces full-width cards and a two-column compact period switcher', () => {
-  assert.match(sportsbookCss, /\.sb-premium \.sb-market-period-tabs\s*\{[^}]*display:\s*grid/s);
-  assert.match(sportsbookCss, /\.sb-match-card\s*\{[^}]*width:\s*100%/s);
+  assert.match(responsiveCss, /\.sb-premium \.sb-market-period-tabs\s*\{[^}]*display:\s*grid/s);
+  assert.match(responsiveCss, /\.sb-match-card\s*\{[^}]*width:\s*100%/s);
   assert.match(frontend, /MARKET_PERIOD_TAB_LABELS/);
 });
