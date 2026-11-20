@@ -193,7 +193,7 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
 function marketType(name, outcomeCount = null) {
   const value = clean(name, 120).toLowerCase();
   // HT/FT is a single combination market, not ordinary 1X2.
-  if (/\\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\\bht\\s*[/\\-]?\\s*ft\\b/.test(value)) return 'HT_FT';
+  if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
   if (/1x2|money.?line|match.?winner|match.?result|three.?way|first.?half.*result|1st.?half.*result|half.?time.*result/.test(value)) return '1X2';
   if (/european.?handicap|three.?way.?handicap/.test(value)) return 'EUROPEAN_HANDICAP';
   if (/asian.?handicap|asian.?spread/.test(value)) return 'HANDICAP';
@@ -239,9 +239,10 @@ function periodFromMarket(name, metadata = {}) {
   return classify(value) || 'FT';
 }
 function selectionLabel(outcome, event, type) {
+  const value = String(outcome?.type || '').toLowerCase();
+  if (type === 'EUROPEAN_HANDICAP' && ['home', 'draw', 'away'].includes(value)) return value.toUpperCase();
   const raw = clean(outcome?.name || outcome?.label, 120);
   if (raw) return raw;
-  const value = String(outcome?.type || '').toLowerCase();
   if (type === '1X2' || type === 'EUROPEAN_HANDICAP') {
     if (value === 'home') return 'HOME';
     if (value === 'draw') return 'DRAW';
