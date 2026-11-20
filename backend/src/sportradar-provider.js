@@ -215,28 +215,33 @@ function marketType(name, outcomeCount = null) {
 }
 function periodFromMarket(name, metadata = {}) {
   const value = clean(name, 240).toLowerCase();
-  const isHtFt = /\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[\/\-]?\s*ft\b/;
-  if (isHtFt.test(value)) return 'HT_FT';
-
-  // Prefer an explicit, recognizable provider period. Generic metadata such
-  // as "match" must not erase a first-half period encoded in the market name.
   const candidates = [
     metadata.period, metadata.period_name, metadata.periodName,
     metadata.match_period, metadata.matchPeriod, metadata.period_id,
-    metadata.specifiers?.period, metadata.specifiers?.match_period
-  ].map(item => clean(item, 80).toLowerCase()).filter(Boolean);
+    metadata.description, metadata.market_name, metadata.marketName,
+    metadata.specifiers?.period, metadata.specifiers?.match_period,
+    metadata.period?.name, metadata.period?.description, metadata.period?.type,
+    metadata.market_period?.name, metadata.market_period?.description
+  ].map(item => typeof item === 'object' && item !== null
+    ? clean(item.name || item.description || item.type || item.id, 120).toLowerCase()
+    : clean(item, 120).toLowerCase()).filter(Boolean);
+
   const classify = candidate => {
-    if (isHtFt.test(candidate)) return 'HT_FT';
-    if (/second.?half|2nd.?half|\b2h\b|period.?2/.test(candidate)) return '2H';
-    if (/first.?half|1st.?half|half.?time|\b1h\b|period.?1/.test(candidate)) return '1H';
-    if (/full.?time|\bft\b|match.?time|regular.?time/.test(candidate)) return 'FT';
+    if (/half.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\\bht\\s*[\\/\\-]?\\s*ft\\b/.test(candidate)) return 'HT_FT';
+    if (/second.?half|2nd.?half|second.?period|2nd.?period|\\b2h\\b|\\bht2\\b|period\\s*2/.test(candidate)) return '2H';
+    if (/first.?half|1st.?half|half.?time|first.?period|1st.?period|\\b1h\\b|\\bht\\b|period\\s*1/.test(candidate)) return '1H';
+    if (/full.?time|full.?match|match.?time|regular.?time|\\bft\\b/.test(candidate)) return 'FT';
     return null;
   };
+
+  // Specific market-name periods outrank generic provider metadata such as "match".
+  const namedPeriod = classify(value);
+  if (namedPeriod) return namedPeriod;
   for (const candidate of candidates) {
     const period = classify(candidate);
     if (period) return period;
   }
-  return classify(value) || 'FT';
+  return 'UNCLASSIFIED';
 }
 function selectionLabel(outcome, event, type) {
   const value = String(outcome?.type || '').toLowerCase();
