@@ -56,6 +56,31 @@ function event(id = 'sr-event-1') {
   };
 }
 
+test('backend quarantines one invalid event and preserves valid events in the accepted snapshot', () => {
+  const invalid = event('sr-event-invalid');
+  invalid.markets[0].selections[0].updatedAt = 'not-a-date';
+  const valid = event('sr-event-valid');
+  const result = validateSportsbookSnapshot({
+    schemaVersion: 1,
+    generatedAt: new Date(NOW).toISOString(),
+    providerResults: [{ provider: 'sportradar', enabled: true, events: [invalid, valid] }]
+  }, { now: NOW });
+  assert.deepEqual(result.snapshot.providerResults[0].events.map(item => item.id), ['sr-event-valid']);
+  assert.equal(result.eventCount, 1);
+  assert.equal(result.rejectedEvents.length, 1);
+  assert.match(result.rejectedEvents[0].message, /Selection/);
+});
+
+test('backend refuses to replace the stored snapshot when every incoming event is invalid', () => {
+  const invalid = event('sr-event-invalid');
+  invalid.live = true;
+  assert.throws(() => validateSportsbookSnapshot({
+    schemaVersion: 1,
+    generatedAt: new Date(NOW).toISOString(),
+    providerResults: [{ provider: 'sportradar', enabled: true, events: [invalid] }]
+  }, { now: NOW }), /Seluruh event snapshot gagal validasi/);
+});
+
 test('worker snapshot calls only Sportradar and does not impose artificial event/page limits', async () => {
   let options;
   const snapshot = await buildSportsbookRenderSnapshot({
