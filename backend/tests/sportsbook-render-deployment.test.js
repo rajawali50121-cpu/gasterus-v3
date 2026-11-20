@@ -88,5 +88,6 @@ test('Sportradar trial access is always refused in production', () => {
 test('automatic sportsbook settlement is disabled by default without an approved results authority', () => {
   assert.match(config, /sportsbookAutoSettlementEnabled: bool\('SPORTSBOOK_AUTO_SETTLEMENT_ENABLED', false\)/);
   assert.match(read('../src/sportsbook-settlement-authority.js'), /const automaticFt = false/);
-  assert.match(read('../src/sportsbook-settlement-authority.js'), /const ht = false|ht: false/);
+  assert.match(config, /htBettingEnabled: bool\('HT_BETTING_ENABLED', false\)/);
+  assert.match(read('../src/sportsbook-settlement-authority.js'), /const htEnabled = config\.htBettingEnabled && sources\.includes\('sportradar'\)/);
 });
