@@ -13,7 +13,7 @@
 import api from './api.js';
 import auth from './auth.js';
 import { formatRupiah, showToast, escapeHtml } from './utils.js';
-import { primaryMarketColumns, selectMarketPeriod } from './sportsbook-markets.js?v=20261103-primary-markets-r1';
+import { primaryMarketColumns, selectMarketPeriod } from './sportsbook-markets.js?v=20261120-primary-markets-r1';
 import { chooseCombinations, systemBetMetrics } from './sportsbook-slip-calculation.js';
 import { formatOdds, oddsColorClass } from './sportsbook-odds.js';
 import {
@@ -414,7 +414,7 @@ function setStatus(state) {
 // SSE stream — manual client so the Authorization header can be sent.
 // EventSource cannot set headers, and the member session may be Bearer-based.
 // ---------------------------------------------------------------------------
-const SB_BUILD = 'sb8';
+const SB_BUILD = 'sb9';
 window.__SB_BUILD = SB_BUILD;
 console.info(`[GASTERUS] sportsbook build ${SB_BUILD}`);
 
