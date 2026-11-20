@@ -139,8 +139,8 @@ function isRemovedFlag(value) {
 }
 function normalizedEventStatus(value) {
   const status = String(value || '').trim().toLowerCase();
-  if (['ended', 'aet', 'finished', 'final'].includes(status)) return 'FINISHED';
-  if (['live', 'in_progress', 'inprogress', 'started', '1st_period', '2nd_period', 'period_1', 'period_2', '1st_half', '2nd_half', 'first_half', 'second_half', 'halftime', 'half_time', 'extra_time', 'overtime', 'penalties', 'penalty_shootout', 'break'].includes(status)) return 'LIVE';
+  if (['ended', 'closed', 'aet', 'finished', 'final', 'after_extra_time'].includes(status)) return 'FINISHED';
+  if (['live', 'in_progress', 'inprogress', 'started', '1st_period', '2nd_period', 'period_1', 'period_2', '1st_half', '2nd_half', 'first_half', 'second_half', 'halftime', 'half_time', 'extra_time', 'overtime', 'penalties', 'penalty_shootout', 'awaiting_penalties', 'break'].includes(status)) return 'LIVE';
   if (['cancelled', 'canceled', 'abandoned', 'postponed', 'suspended', 'interrupted'].includes(status)) return 'SUSPENDED';
   if (['not_started', 'scheduled', 'pre_match', 'prematch', 'fixture', ''].includes(status)) return 'SCHEDULED';
   // Unknown provider statuses must fail closed as suspended, not invalidate the entire snapshot.
