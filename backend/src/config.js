@@ -136,8 +136,8 @@ export const config = Object.freeze({
   // HT trading and HT settlement are opt-in; FT behavior is intentionally independent.
   htBettingEnabled: bool('HT_BETTING_ENABLED', false),
 
-  // Sportradar is the sole sportsbook odds provider. Its credential exists only on the isolated worker.
-  // Sportradar is the sole production sportsbook fixtures and odds provider.
+  // Sportradar is the sole production sportsbook event, market, and odds source.
+  // Its credential exists only on the isolated worker.
   sportradarApiKey: optionalSecret('SPORTRADAR_API_KEY'),
   sportradarEnabled: bool('SPORTRADAR_ENABLED', true),
   sportradarBaseUrl: text('SPORTRADAR_BASE_URL', 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en'),
