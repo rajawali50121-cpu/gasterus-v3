@@ -75,9 +75,15 @@ function applyManualFtSettlementFallback(event, {
     && !market.suspended
     && (market.selections || []).some(selection => !selection.suspended && Number(selection.odds) > 1)
   );
+  const hasHealthyPrematchHt = (event.markets || []).some(market =>
+    market.period === '1H'
+    && market.source === 'sportradar'
+    && !market.suspended
+    && (market.selections || []).some(selection => !selection.suspended && Number(selection.odds) > 1)
+  );
   if (!hasHealthyPrematchFt) return event;
   event._settlementReadySources = [...new Set([...readySources, 'manual-ops'])];
-  event._settlementMode = 'MANUAL_FT_FALLBACK';
+  event._settlementMode = hasHealthyPrematchHt ? 'MANUAL_FT_HT_FALLBACK' : 'MANUAL_FT_FALLBACK';
   return event;
 }
 
@@ -85,8 +91,12 @@ function applySettlementSafety(event) {
   const authority = eventSettlementAuthority(event);
   event.markets = (event.markets || []).map(market => {
     const period = String(market.period || 'FT').toUpperCase();
+    const manualHtBetting = period === '1H'
+      && event._settlementMode === 'MANUAL_FT_HT_FALLBACK'
+      && event.status === 'SCHEDULED'
+      && event.live !== true;
     const mustSuspend = period === '1H'
-      ? !authority.ht
+      ? !authority.ht && !manualHtBetting
       : period === 'HT_FT'
         ? !(authority.ht && authority.ft)
         : !authority.ft;
