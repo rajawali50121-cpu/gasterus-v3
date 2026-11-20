@@ -99,6 +99,17 @@ function coreMarketState(markets, type, period) {
   return 'UNAVAILABLE';
 }
 
+function coreMarketOddsState(markets, type, period) {
+  const matching = markets.filter(market =>
+    String(market.type || '').toUpperCase() === type &&
+    String(market.period || 'FT').toUpperCase() === period
+  );
+  if (matching.some(market => (market.selections || []).some(selection =>
+    Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
+  ))) return 'PRICED';
+  return matching.length ? 'UNPRICED' : 'MISSING';
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -151,12 +162,23 @@ async function main() {
       marketPeriods: [...new Set(markets.map(market => `${market.type}:${market.period || 'FT'}`))],
       coreMarketCoverage: Object.fromEntries(requiredCoreMarkets.map(({ key, type, period }) =>
         [key, coreMarketState(markets, type, period)]
+      )),
+      coreMarketOddsCoverage: Object.fromEntries(requiredCoreMarkets.map(({ key, type, period }) =>
+        [key, coreMarketOddsState(markets, type, period)]
       ))
     });
   }
 
   assert(inspected.length >= minimumInspectedEvents,
     `Only ${inspected.length} events could be inspected; expected at least ${minimumInspectedEvents}`);
+  const missingCoreOdds = inspected.flatMap(event =>
+    requiredCoreMarkets
+      .filter(({ key }) => event.coreMarketOddsCoverage[key] !== 'PRICED')
+      .map(({ key }) => `${event.id}:${key}=${event.coreMarketOddsCoverage[key]}`)
+  );
+  assert(missingCoreOdds.length === 0,
+    `Inspected matches are missing priced FT/HT core markets: ${missingCoreOdds.slice(0, 20).join(', ')}`);
+
   const marketCoverage = Object.fromEntries([...new Set(inspected.flatMap(event => event.marketTypes))]
     .sort()
     .map(type => [type, inspected.filter(event => event.marketTypes.includes(type)).length]));
@@ -168,6 +190,14 @@ async function main() {
     .filter(key => !marketPeriodCoverage[key]);
   assert(missingCoreMarkets.length === 0,
     `Core market mapping missing from inspected events: ${missingCoreMarkets.join(', ')}`);
+  const coreMarketOddsCoverageSummary = Object.fromEntries(requiredCoreMarkets.map(({ key }) => [
+    key,
+    {
+      priced: inspected.filter(event => event.coreMarketOddsCoverage[key] === 'PRICED').length,
+      unpriced: inspected.filter(event => event.coreMarketOddsCoverage[key] === 'UNPRICED').length,
+      missing: inspected.filter(event => event.coreMarketOddsCoverage[key] === 'MISSING').length
+    }
+  ]));
   const coreMarketCoverageSummary = Object.fromEntries(requiredCoreMarkets.map(({ key }) => [
     key,
     {
@@ -185,6 +215,7 @@ async function main() {
     marketCoverage,
     marketPeriodCoverage,
     coreMarketCoverageSummary,
+    coreMarketOddsCoverageSummary,
     periodCoverage,
     sourceMode: snapshot.source?.mode || null,
     leagueLabel: labelSample,
@@ -197,7 +228,8 @@ async function main() {
       marketTypes: event.marketTypes,
       periods: event.periods,
       marketPeriods: event.marketPeriods,
-      coreMarketCoverage: event.coreMarketCoverage
+      coreMarketCoverage: event.coreMarketCoverage,
+      coreMarketOddsCoverage: event.coreMarketOddsCoverage
     }))
   }, null, 2));
 }
