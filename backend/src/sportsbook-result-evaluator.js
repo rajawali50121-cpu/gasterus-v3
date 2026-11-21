@@ -22,7 +22,7 @@ function selectedSide(leg) {
   const tokens = label.split(/[^a-z0-9]+/).filter(Boolean);
   const home = text(leg.home_team);
   const away = text(leg.away_team);
-  if (label === 'x' || tokens.includes('draw') || label.includes('seri')) return 'DRAW';
+  if (label === 'x' || tokens.includes('x') || tokens.includes('draw') || label.includes('seri')) return 'DRAW';
   if (label === '1' || tokens.includes('home') || label === home || (home && label.includes(home))) return 'HOME';
   if (label === '2' || tokens.includes('away') || label === away || (away && label.includes(away))) return 'AWAY';
   return null;
