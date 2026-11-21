@@ -225,6 +225,13 @@ async function init() {
   const title = el('casino-title');
   const description = el('casino-description');
   const filters = el('casino-filters');
+  const selectedProvider = new URLSearchParams(window.location.search).get('provider');
+  if (selectedProvider) {
+    showProviderGames();
+    if (title) title.textContent = selectedProvider;
+    if (description) description.textContent = 'Memuat permainan dari provider ' + selectedProvider + '...';
+    if (statusBox) statusBox.textContent = '';
+  }
   if (slotsView) {
     document.title = 'Slot - GASTERUS V3';
     if (title) title.textContent = 'Lobby Slot';
@@ -246,10 +253,16 @@ async function init() {
     state.categories = [...new Set(state.providers.map((provider) => provider.category))].sort();
     renderFilters(state.categories);
     renderProviders();
-    const selectedProvider = new URLSearchParams(window.location.search).get('provider');
     if (selectedProvider) {
       const match = state.providers.find((provider) => provider.code.toLowerCase() === selectedProvider.toLowerCase());
-      if (match) await loadGames(match.code);
+      if (match) {
+        if (title) title.textContent = match.name || match.code;
+        if (description) description.textContent = 'Pilih permainan dari provider ' + (match.name || match.code) + '.';
+        if (statusBox) statusBox.textContent = '';
+        await loadGames(match.code);
+      } else {
+        restoreProviderListView();
+      }
     }
     if (statusBox) statusBox.textContent = 'Terhubung: ' + state.providers.length + (slotsView ? ' provider Slot' : ' provider Casino') + (state.launchMode === 'REAL_NOT_CONFIGURED' ? ' · saldo game belum dikonfigurasi' : '');
   } catch (e) {
