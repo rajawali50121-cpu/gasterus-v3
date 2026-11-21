@@ -1,5 +1,5 @@
-const MARKET_PRIORITY = { HANDICAP: 0, TOTALS: 1, '1X2': 2 };
-const MARKET_NAMES = { HANDICAP: 'Asian Handicap', TOTALS: 'Over / Under', '1X2': '1X2' };
+const MARKET_PRIORITY = { HANDICAP: 0, EUROPEAN_HANDICAP: 1, TOTALS: 2, '1X2': 3 };
+const MARKET_NAMES = { HANDICAP: 'Asian Handicap', EUROPEAN_HANDICAP: 'European Handicap (3-Way)', TOTALS: 'Over / Under', '1X2': '1X2' };
 const MARKET_PERIOD_ORDER = ['FT', '1H', '2H', 'Q1', 'Q2', 'Q3', 'Q4'];
 
 export function availableMarketPeriods(event) {
@@ -33,6 +33,7 @@ export function primaryMarketColumns(event, period) {
   const markets = Array.isArray(event?.markets) ? event.markets : [];
   const expectedOutcomes = {
     HANDICAP: ['1', '2'],
+    EUROPEAN_HANDICAP: ['1', 'X', '2'],
     TOTALS: ['O', 'U'],
     '1X2': ['1', 'X', '2']
   };
@@ -55,7 +56,7 @@ export function primaryMarketColumns(event, period) {
       // tidak melebar menjadi belasan kolom sempit yang membuat teks
       // line & odds saling bertumpuk. Pilih line dengan jumlah pilihan
       // paling lengkap (prefer 2 arah), lalu line terkecil sebagai main line.
-      if ((type === 'TOTALS' || type === 'HANDICAP') && selections.length > 2) {
+      if ((type === 'TOTALS' || type === 'HANDICAP' || type === 'EUROPEAN_HANDICAP') && selections.length > expectedOutcomes[type].length) {
         const byLine = new Map();
         for (const selection of selections) {
           const rawLine = selection?.line ?? market.line ?? '';
@@ -105,7 +106,7 @@ export function primaryMarketColumns(event, period) {
             const raw = String(selection.label || selection.key || '').trim().toLowerCase();
             label = tokens.includes('over') || raw === 'o' ? 'O' :
               tokens.includes('under') || raw === 'u' ? 'U' : label;
-          } else if (type === '1X2') {
+          } else if (type === '1X2' || type === 'EUROPEAN_HANDICAP') {
             label = tokens.includes('home') || tokens.includes('1') || (homeName && text.includes(homeName)) ? '1' :
               tokens.includes('draw') || tokens.includes('x') ? 'X' :
                 tokens.includes('away') || tokens.includes('2') || (awayName && text.includes(awayName)) ? '2' : label;
