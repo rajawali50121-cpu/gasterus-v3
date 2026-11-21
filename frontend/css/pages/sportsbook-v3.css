@@ -3704,3 +3704,13 @@ body.sb-page {
     -webkit-overflow-scrolling: touch;
   }
 }
+
+
+/* Professional sportsbook odds-line and movement indicators */
+.sb-premium .sb-cell-line.kei-negative,
+.sb-odd-cell .sb-cell-line.kei-negative { color: #dc2626 !important; font-weight: 800; }
+.sb-premium .sb-cell-line.kei-positive,
+.sb-odd-cell .sb-cell-line.kei-positive { color: #2563eb !important; font-weight: 800; }
+.sb-odd-movement-arrow { font-size: 12px; font-weight: 900; margin-left: 4px; vertical-align: 1px; }
+.sb-odd-movement-arrow.up { color: #16a34a !important; }
+.sb-odd-movement-arrow.down { color: #dc2626 !important; }
