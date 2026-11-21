@@ -56,3 +56,18 @@ test('an invalid provider snapshot timestamp fails closed to the Unix epoch fall
   assert.equal(event.markets[0].updatedAt, '1970-01-01T00:00:00.000Z');
   assert.equal(event.markets[0].selections[0].updatedAt, '1970-01-01T00:00:00.000Z');
 });
+
+test('invalid provider timestamps are replaced with the snapshot timestamp instead of bypassing freshness checks', () => {
+  const snapshotAt = Date.parse('2026-11-21T01:04:51.778Z');
+  const [event] = stampPriceVersions([{
+    id: 'event-1',
+    markets: [{
+      id: 'market-1',
+      updatedAt: 'not-a-date',
+      selections: [{ key: 'home', odds: 1.91, updatedAt: 'invalid' }]
+    }]
+  }], snapshotAt);
+
+  assert.equal(event.markets[0].updatedAt, '2026-11-21T01:04:51.778Z');
+  assert.equal(event.markets[0].selections[0].updatedAt, '2026-11-21T01:04:51.778Z');
+});
