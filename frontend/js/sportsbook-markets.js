@@ -1,4 +1,4 @@
-const MARKET_PRIORITY = { HANDICAP: 0, EUROPEAN_HANDICAP: 1, TOTALS: 2, '1X2': 3 };
+const MARKET_PRIORITY = { HANDICAP: 0, TOTALS: 1, '1X2': 2, EUROPEAN_HANDICAP: 3 };
 const MARKET_NAMES = { HANDICAP: 'Asian Handicap', EUROPEAN_HANDICAP: 'European Handicap (3-Way)', TOTALS: 'Over / Under', '1X2': '1X2' };
 const MARKET_PERIOD_ORDER = ['FT', '1H', '2H', 'Q1', 'Q2', 'Q3', 'Q4'];
 
@@ -37,7 +37,7 @@ export function primaryMarketColumns(event, period) {
     TOTALS: ['O', 'U'],
     '1X2': ['1', 'X', '2']
   };
-  const coreTypes = Object.keys(expectedOutcomes);
+  const coreTypes = ['HANDICAP', 'TOTALS', '1X2', 'EUROPEAN_HANDICAP'];
   const mappedMarkets = markets
     .filter(market => market && typeof market === 'object' && !Array.isArray(market))
     .map(market => ({
@@ -106,7 +106,17 @@ export function primaryMarketColumns(event, period) {
             const raw = String(selection.label || selection.key || '').trim().toLowerCase();
             label = tokens.includes('over') || raw === 'o' ? 'O' :
               tokens.includes('under') || raw === 'u' ? 'U' : label;
-          } else if (type === '1X2' || type === 'EUROPEAN_HANDICAP') {
+          } else if (type === 'EUROPEAN_HANDICAP') {
+            // Prefer the provider's semantic outcome type. Do not read numeric
+            // handicap lines (-1/+1) as 1X2 outcome numbers.
+            const outcomeType = String(selection.outcomeType || '').toLowerCase();
+            const rawLabel = String(selection.label || selection.key || '').trim().toLowerCase();
+            label = ['home', 'draw', 'away'].includes(outcomeType)
+              ? ({ home: '1', draw: 'X', away: '2' })[outcomeType]
+              : tokens.includes('draw') || rawLabel === 'x' ? 'X'
+                : tokens.includes('home') || (homeName && text.includes(homeName)) || rawLabel === '1' ? '1'
+                  : tokens.includes('away') || (awayName && text.includes(awayName)) || rawLabel === '2' ? '2' : label;
+          } else if (type === '1X2') {
             label = tokens.includes('home') || tokens.includes('1') || (homeName && text.includes(homeName)) ? '1' :
               tokens.includes('draw') || tokens.includes('x') ? 'X' :
                 tokens.includes('away') || tokens.includes('2') || (awayName && text.includes(awayName)) ? '2' : label;
