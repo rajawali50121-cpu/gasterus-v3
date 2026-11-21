@@ -3893,3 +3893,99 @@ body.sb-premium {
   .sb-premium .sb-odd-cell,
   .sb-premium .sb-quick-odd-btn { transition: none; }
 }
+
+
+/* Sapphire/silver final cascade: override legacy white/green/gold board surfaces. */
+html:has(body.sb-premium),
+body.sb-page.sb-premium {
+  background: #061a3d !important;
+  background-image: radial-gradient(ellipse at 50% -15%, #164b8d 0%, #082653 48%, #04132d 100%) !important;
+  color: #edf5ff !important;
+}
+body.sb-page.sb-premium .sb-main,
+body.sb-page.sb-premium .sb-content,
+body.sb-page.sb-premium .sb-events,
+body.sb-page.sb-premium .sb-category-bar,
+body.sb-page.sb-premium .sb-action-bar {
+  background: transparent !important;
+  color: #edf5ff !important;
+}
+body.sb-page.sb-premium .sb-header,
+body.sb-page.sb-premium .sb-subheader,
+body.sb-page.sb-premium .sb-category-bar,
+body.sb-page.sb-premium .sb-action-bar,
+body.sb-page.sb-premium .sb-action-inner {
+  background: linear-gradient(180deg, #16477f 0%, #082653 100%) !important;
+  border-color: #426f9f !important;
+}
+body.sb-page.sb-premium .sb-cat-tab,
+body.sb-page.sb-premium .sb-btn-action,
+body.sb-page.sb-premium .sb-odds-format-select,
+body.sb-page.sb-premium .sb-search-wrap input {
+  color: #edf4ff !important;
+  background: linear-gradient(180deg, #28598f 0%, #123765 100%) !important;
+  border-color: #7295bd !important;
+}
+body.sb-page.sb-premium .sb-feed-overview,
+body.sb-page.sb-premium .sb-league-group,
+body.sb-page.sb-premium .sb-match-card,
+body.sb-page.sb-premium .sb-match-info,
+body.sb-page.sb-premium .sb-match-market-head,
+body.sb-page.sb-premium .sb-market-card,
+body.sb-page.sb-premium .sb-market-card-title,
+body.sb-page.sb-premium .sb-market-period-tabs,
+body.sb-page.sb-premium .sb-accordion-wrapper,
+body.sb-page.sb-premium .sb-accordion-row,
+body.sb-page.sb-premium .sb-accordion-header,
+body.sb-page.sb-premium .sb-accordion-body,
+body.sb-page.sb-premium .sb-detail-markets,
+body.sb-page.sb-premium .sb-detail-market,
+body.sb-page.sb-premium .sb-betslip {
+  color: #edf5ff !important;
+  background: linear-gradient(150deg, #103b73 0%, #092958 58%, #061c40 100%) !important;
+  border-color: #426d9c !important;
+}
+body.sb-page.sb-premium .sb-board-heading h1,
+body.sb-page.sb-premium .sb-board-eyebrow,
+body.sb-page.sb-premium .sb-market-card-title,
+body.sb-page.sb-premium .sb-match-market-head,
+body.sb-page.sb-premium .sb-market-period-tab.active,
+body.sb-page.sb-premium .sb-cat-tab.active,
+body.sb-page.sb-premium .sb-bs-tab.active {
+  color: #e7edf5 !important;
+  background-image: linear-gradient(180deg, #ffffff 0%, #e5ebf3 38%, #9aaabd 58%, #f7f9fc 76%, #a9b7c8 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  text-shadow: 0 2px 3px rgba(0,0,0,.65) !important;
+}
+body.sb-page.sb-premium .sb-market-period-tab,
+body.sb-page.sb-premium .sb-market-period-tab.active,
+body.sb-page.sb-premium .sb-market-period-tab[data-match-period="FT"].active {
+  color: #eef4fc !important;
+  background: linear-gradient(180deg, #91a8c5 0%, #5b789c 48%, #2b496d 100%) !important;
+  border: 1px solid #dce6f2 !important;
+  box-shadow: inset 0 1px 2px rgba(255,255,255,.85), 0 3px 0 #04172f, 0 5px 10px rgba(0,0,0,.4) !important;
+  -webkit-text-fill-color: #eef4fc !important;
+}
+body.sb-page.sb-premium .sb-odd-cell,
+body.sb-page.sb-premium .sb-quick-odd-btn {
+  color: #f7faff !important;
+  background: linear-gradient(180deg, #7192b9 0%, #3c6697 42%, #153b69 100%) !important;
+  border: 1px solid #a9c0dc !important;
+  box-shadow: inset 0 1px 2px rgba(255,255,255,.8), inset 0 -3px 5px rgba(0,0,0,.4), 0 3px 0 #04172f, 0 6px 12px rgba(0,0,0,.38) !important;
+}
+body.sb-page.sb-premium .sb-cell-odds {
+  color: #fff !important;
+  text-shadow: 0 1px 0 #a9bfd9, 0 2px 0 #35577e, 0 3px 3px #000 !important;
+}
+body.sb-page.sb-premium .sb-cell-line { color: #e4edf8 !important; }
+body.sb-page.sb-premium .sb-match-league,
+body.sb-page.sb-premium .sb-team-name,
+body.sb-page.sb-premium .sb-board-timezone,
+body.sb-page.sb-premium .sb-match-date,
+body.sb-page.sb-premium .sb-match-kickoff,
+body.sb-page.sb-premium .sb-market-outcome-label,
+body.sb-page.sb-premium .sb-card-footer { color: #c7d8ee !important; }
+body.sb-page.sb-premium .sb-odd-cell .sb-cell-line.kei-negative { color: #ff777d !important; }
+body.sb-page.sb-premium .sb-odd-cell .sb-cell-line.kei-positive { color: #83bdff !important; }
