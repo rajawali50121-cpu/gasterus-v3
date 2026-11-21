@@ -400,7 +400,7 @@ test('sportsbook league labels are normalized once at group level and remain res
   const styles = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
   assert.match(frontend, /function formatLeagueLabel\(event, fallback = 'Match'\)/);
   assert.match(frontend, /const country = String\(event\?\.country \|\| category \|\| ''\)\.trim\(\)/);
-  assert.match(frontend, /Kompetisi lainnya/);
+  assert.match(frontend, /KOMPETISI LAINNYA/);
   assert.match(frontend, /formatLeagueLabel\(e, 'Live Match'\)/);
   assert.doesNotMatch(frontend, /sb-match-league">\$\{escapeHtml\(formatLeagueLabel\(e\)\)\}<\/span>/);
   assert.match(frontend, /const lg = formatLeagueLabel\(e, 'Liga Internasional'\)/);
