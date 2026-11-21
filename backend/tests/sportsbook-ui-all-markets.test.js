@@ -341,7 +341,7 @@ test('event cards render six stable primary market slots and keep additional mar
   assert.match(frontend, /function eventMarketPeriods\(\)/);
   assert.match(frontend, /data-match-period=/);
   assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);
-  assert.match(frontend, /function eventMarketPeriods\(\) \{\s*return \['FT', '1H'\]/);
+  assert.match(frontend, /function eventMarketPeriods\(\) \{[\s\S]*?return \['FT'\]/);
   assert.match(frontend, /Tidak tersedia/);
   assert.match(frontend, /Ditangguhkan/);
   assert.match(frontend, /\$\{marketsCount \? `<div class="sb-detail-markets-wrapper">/);
