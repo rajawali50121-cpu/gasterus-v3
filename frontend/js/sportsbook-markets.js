@@ -89,6 +89,7 @@ export function primaryMarketColumns(event, period) {
         selections = ranked[0]?.[1] || selections;
       }
       return {
+        type,
         title: MARKET_NAMES[type] || market.label || market.type || 'Pasar',
         market,
         outcomes: selections.map((selection, index) => {
@@ -109,22 +110,25 @@ export function primaryMarketColumns(event, period) {
             label = tokens.includes('over') || raw === 'o' ? 'O' :
               tokens.includes('under') || raw === 'u' ? 'U' : label;
           } else if (type === 'EUROPEAN_HANDICAP') {
-            // Prefer the provider's semantic outcome type. Do not read numeric
-            // handicap lines (-1/+1) as 1X2 outcome numbers.
+            // Sportradar market 14 is mapped upstream from documented outcome IDs
+            // 1711/1712/1713. Never infer its side from a handicap line or label.
             const outcomeType = String(selection.outcomeType || '').toLowerCase();
-            const rawLabel = String(selection.label || selection.key || '').trim().toLowerCase();
-            label = ['home', 'draw', 'away'].includes(outcomeType)
-              ? ({ home: '1', draw: 'X', away: '2' })[outcomeType]
-              : tokens.includes('draw') || rawLabel === 'x' ? 'X'
-                : tokens.includes('home') || (homeName && text.includes(homeName)) || rawLabel === '1' ? '1'
-                  : tokens.includes('away') || (awayName && text.includes(awayName)) || rawLabel === '2' ? '2' : label;
+            if (market.source === 'sportradar' && market.sourceMarketId === 'sr:market:14') {
+              label = ({ home: '1', draw: 'X', away: '2' })[outcomeType] || '__INVALID_EUROPEAN_OUTCOME__';
+            } else {
+              label = ['home', 'draw', 'away'].includes(outcomeType)
+                ? ({ home: '1', draw: 'X', away: '2' })[outcomeType]
+                : tokens.includes('draw') || rawLabel === 'x' ? 'X'
+                  : tokens.includes('home') || (homeName && text.includes(homeName)) || rawLabel === '1' ? '1'
+                    : tokens.includes('away') || (awayName && text.includes(awayName)) || rawLabel === '2' ? '2' : label;
+            }
           } else if (type === '1X2') {
             label = tokens.includes('home') || tokens.includes('1') || (homeName && text.includes(homeName)) ? '1' :
               tokens.includes('draw') || tokens.includes('x') ? 'X' :
                 tokens.includes('away') || tokens.includes('2') || (awayName && text.includes(awayName)) ? '2' : label;
           }
           return [label, selection];
-        }).filter(([label]) => label !== '__INVALID_DRAW__')
+        }).filter(([label]) => !['__INVALID_DRAW__', '__INVALID_EUROPEAN_OUTCOME__'].includes(label))
       };
     })
     .filter(item => coreTypes.includes(String(item.market.type || '').toUpperCase()));
