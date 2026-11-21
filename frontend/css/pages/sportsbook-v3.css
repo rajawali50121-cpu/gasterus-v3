@@ -3714,3 +3714,14 @@ body.sb-page {
 .sb-odd-movement-arrow { font-size: 12px; font-weight: 900; margin-left: 4px; vertical-align: 1px; }
 .sb-odd-movement-arrow.up { color: #16a34a !important; }
 .sb-odd-movement-arrow.down { color: #dc2626 !important; }
+
+
+/* Explicit premium quick-odds handicap line colors (including mobile cards). */
+.sb-premium .sb-quick-odd-btn .sb-cell-line.kei-negative,
+.sb-premium .sb-odd-cell .sb-cell-line.kei-negative {
+  color: #dc2626 !important;
+}
+.sb-premium .sb-quick-odd-btn .sb-cell-line.kei-positive,
+.sb-premium .sb-odd-cell .sb-cell-line.kei-positive {
+  color: #2563eb !important;
+}
