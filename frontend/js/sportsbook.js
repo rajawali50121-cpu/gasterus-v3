@@ -1782,7 +1782,8 @@ function renderAllEventMarkets(event) {
   const periods = [...new Set(markets.map(market => String(market.period || 'FT').toUpperCase()))];
   const typeLabels = {
     '1X2': '1X2',
-    HANDICAP: 'Handicap',
+    HANDICAP: 'Asian Handicap (2-Way)',
+    EUROPEAN_HANDICAP: 'European Handicap (3-Way)',
     TOTALS: 'Total Gol',
     BTTS: 'Kedua Tim Cetak Gol',
     DOUBLE_CHANCE: 'Double Chance',
