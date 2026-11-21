@@ -137,14 +137,16 @@ function renderGames() {
   const title = document.createElement('h3');
   title.textContent = state.gamesProvider + ' (' + state.games.length + ')';
   box.appendChild(title);
-  const demoNote = document.createElement('p');
-  demoNote.className = 'casino-status';
-  demoNote.textContent = state.launchMode === 'REAL'
-    ? 'SALDO GASTERUS - transaksi diproses melalui callback Betnex.'
-    : state.launchMode === 'REAL_NOT_CONFIGURED'
-      ? 'Mode saldo Gasterus belum dikonfigurasi; game belum dapat diluncurkan.'
-      : 'MODE DEMO - saldo member tidak digunakan.';
-  box.appendChild(demoNote);
+  if (!slotsView) {
+    const modeNote = document.createElement('p');
+    modeNote.className = 'casino-status';
+    modeNote.textContent = state.launchMode === 'REAL'
+      ? 'SALDO GASTERUS - transaksi diproses melalui callback Betnex.'
+      : state.launchMode === 'REAL_NOT_CONFIGURED'
+        ? 'Mode saldo Gasterus belum dikonfigurasi; game belum dapat diluncurkan.'
+        : 'MODE DEMO - saldo member tidak digunakan.';
+    box.appendChild(modeNote);
+  }
   const grid = document.createElement('div');
   grid.className = 'casino-grid';
   for (const g of state.games.slice(0, 200)) {
@@ -152,7 +154,7 @@ function renderGames() {
     card.type = 'button';
     card.className = 'casino-card';
     card.disabled = !g.id || state.launchMode === 'REAL_NOT_CONFIGURED';
-    card.title = state.launchMode === 'REAL' ? 'Main dengan saldo Gasterus' : 'Main demo - saldo member tidak digunakan';
+    card.title = slotsView ? 'Buka permainan' : (state.launchMode === 'REAL' ? 'Main dengan saldo Gasterus' : 'Main demo - saldo member tidak digunakan');
     if (g.img) {
       const img = document.createElement('img');
       img.src = g.img;
@@ -168,7 +170,7 @@ function renderGames() {
     if (g.type) {
       const typeEl = document.createElement('span');
       typeEl.className = 'casino-cat';
-      typeEl.textContent = (state.launchMode === 'REAL' ? 'GASTERUS - ' : 'DEMO - ') + String(g.type).slice(0, 20);
+      typeEl.textContent = (slotsView ? '' : (state.launchMode === 'REAL' ? 'GASTERUS - ' : 'DEMO - ')) + String(g.type).slice(0, 20);
       card.appendChild(typeEl);
     }
     if (g.id) card.addEventListener('click', () => launchGame(g, card));
