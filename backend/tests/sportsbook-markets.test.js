@@ -61,22 +61,38 @@ test('primary market columns fill missing selections without creating selectable
   ]);
 });
 
-test('European three-way handicap is never selected or displayed as Asian Handicap', () => {
+test('European three-way handicap displays Home, Draw and Away in semantic order, independent of provider order', () => {
   const european = {
     id: 'sr-european-handicap',
     type: 'EUROPEAN_HANDICAP',
     label: 'European Handicap (3-Way)',
     period: 'FT',
     selections: [
-      { key: 'home', label: 'Home', odds: 1.55 },
-      { key: 'draw', label: 'Draw', odds: 6.00 },
-      { key: 'away', label: 'Away', odds: 4.80 }
+      { key: 'away', label: 'Away', odds: 4.80 },
+      { key: 'draw', label: 'Draw', odds: 3.90 },
+      { key: 'home', label: 'Home', odds: 1.55 }
     ]
   };
-  const columns = primaryMarketColumns({ markets: [european] }, 'FT');
-  const handicap = columns.find(item => item.type === 'HANDICAP');
-  assert.equal(handicap.market, null);
-  assert.deepEqual(handicap.outcomes.map(([label, selection]) => [label, selection]), [
-    ['1', null], ['2', null]
+  const asian = {
+    id: 'sr-asian-handicap',
+    type: 'HANDICAP',
+    period: 'FT',
+    selections: [
+      { key: 'home-ah', label: 'Home -0.5', line: -0.5, odds: 1.91 },
+      { key: 'away-ah', label: 'Away +0.5', line: 0.5, odds: 1.95 }
+    ]
+  };
+  const columns = primaryMarketColumns({ markets: [european, asian] }, 'FT');
+  const asianColumn = columns.find(item => item.type === 'HANDICAP');
+  const europeanColumn = columns.find(item => item.type === 'EUROPEAN_HANDICAP');
+  assert.equal(asianColumn.market.id, 'sr-asian-handicap');
+  assert.deepEqual(asianColumn.outcomes.map(([label]) => label), ['1', '2']);
+  assert.equal(asianColumn.outcomes.some(([label]) => label === 'X'), false);
+  assert.equal(europeanColumn.market.id, 'sr-european-handicap');
+  assert.equal(europeanColumn.title, 'European Handicap (3-Way)');
+  assert.deepEqual(europeanColumn.outcomes.map(([label, selection]) => [label, selection?.key, selection?.odds]), [
+    ['1', 'home', 1.55],
+    ['X', 'draw', 3.90],
+    ['2', 'away', 4.80]
   ]);
 });
