@@ -190,7 +190,25 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
     }
   };
 }
-export function marketType(name, outcomeCount = null, hasDrawOutcome = false) {
+function marketIdNumber(value) {
+  const match = String(value ?? '').match(/(?:^|:)market:(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+const MARKET_TYPE_BY_ID = new Map([
+  [1, '1X2'], [10, 'DOUBLE_CHANCE'], [11, 'DRAW_NO_BET'],
+  [14, 'HANDICAP'], [16, 'HANDICAP'], [18, 'TOTALS'],
+  [26, 'OTHER'], [29, 'BTTS'], [45, 'CORRECT_SCORE'],
+  [47, 'HT_FT'], [60, '1X2'], [64, 'DRAW_NO_BET'],
+  [66, 'HANDICAP'], [68, 'TOTALS'], [69, 'TEAM_TOTAL'], [70, 'TEAM_TOTAL']
+]);
+const MARKET_PERIOD_BY_ID = new Map([
+  [47, 'HT_FT'], [60, '1H'], [64, '1H'], [66, '1H'],
+  [68, '1H'], [69, '1H'], [70, '1H'],
+  [83, '2H'], [231, '2H'], [232, '2H'], [293, '2H'], [294, '2H']
+]);
+export function marketType(name, outcomeCount = null, hasDrawOutcome = false, marketId = null) {
+  const idType = MARKET_TYPE_BY_ID.get(marketIdNumber(marketId));
+  if (idType) return idType;
   const value = clean(name, 120).toLowerCase();
   if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
   if (/european.?handicap|three.?way.?handicap/.test(value)) return 'EUROPEAN_HANDICAP';
@@ -240,6 +258,8 @@ export function periodFromMarket(name, metadata = {}) {
     const period = classify(candidate);
     if (period) return period;
   }
+  const idPeriod = MARKET_PERIOD_BY_ID.get(marketIdNumber(metadata.id || metadata.market_id));
+  if (idPeriod) return idPeriod;
   // Sportradar Odds Comparison uses generic names such as "handicap" and
   // "handicap {hcp}". marketType() needs outcome count to classify those,
   // but period detection does not have that context. Without this explicit
@@ -273,6 +293,7 @@ function normalizeOdds(event, raw) {
     removedBooksRetained: 0, removedOutcomesRetained: 0,
     outcomesWithoutDecimalOddsRetained: 0,
     periodCounts: {},
+    marketIdCounts: {},
     periodSamples: []
   };
   const markets = [];
@@ -289,7 +310,8 @@ function normalizeOdds(event, raw) {
       const outcomeName = clean(outcome?.name || outcome?.label, 80).toLowerCase();
       return outcomeType === 'draw' || outcomeName === 'draw' || outcomeName === 'x';
     }));
-    const type = marketType(marketName, outcomeCount, hasDrawOutcome);
+    const type = marketType(marketName, outcomeCount, hasDrawOutcome, marketId);
+    diagnostics.marketIdCounts[marketId] = (diagnostics.marketIdCounts[marketId] || 0) + 1;
     const period = periodFromMarket(marketName, market);
     diagnostics.periodCounts[period] = (diagnostics.periodCounts[period] || 0) + 1;
     if (diagnostics.periodSamples.length < 12) {
@@ -410,6 +432,7 @@ export async function fetchSportradar({
   const diagnostics = {
     sportsDiscovered: availableSports.length,
     sportsFeedGeneratedAt: sportsResponse.data?.generated_at || null,
+    accessPipeline: sportsResponse.headers?.get?.('x-origin-id') || 'unknown',
     sportsSelected: selectedSports.map(sport => ({ id: sport.id, name: sport.name, type: sport.type })),
     datesRequested: dates.length, pagesFetched: 0, eventsSeen: 0, eventsAccepted: 0,
     eventsSkipped: {}, odds: {
@@ -417,6 +440,7 @@ export async function fetchSportradar({
       removedBooksRetained: 0, removedOutcomesRetained: 0,
       outcomesWithoutDecimalOddsRetained: 0,
       periodCounts: {},
+      marketIdCounts: {},
       periodSamples: []
     }
   };
@@ -457,7 +481,11 @@ export async function fetchSportradar({
           const odds = normalizeOdds(event, item);
           event.markets = odds.markets;
           for (const key of Object.keys(diagnostics.odds)) {
-            if (key === 'periodCounts') {
+            if (key === 'marketIdCounts') {
+              for (const [marketId, count] of Object.entries(odds.diagnostics.marketIdCounts || {})) {
+                diagnostics.odds.marketIdCounts[marketId] = (diagnostics.odds.marketIdCounts[marketId] || 0) + count;
+              }
+            } else if (key === 'periodCounts') {
               for (const [period, count] of Object.entries(odds.diagnostics.periodCounts || {})) {
                 diagnostics.odds.periodCounts[period] = (diagnostics.odds.periodCounts[period] || 0) + count;
               }
