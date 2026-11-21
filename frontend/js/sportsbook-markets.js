@@ -110,18 +110,9 @@ export function primaryMarketColumns(event, period) {
             label = tokens.includes('over') || raw === 'o' ? 'O' :
               tokens.includes('under') || raw === 'u' ? 'U' : label;
           } else if (type === 'EUROPEAN_HANDICAP') {
-            // Sportradar market 14 is mapped upstream from documented outcome IDs
-            // 1711/1712/1713. Never infer its side from a handicap line or label.
+            // Only canonical outcomeType is accepted; never infer from labels, order, or handicap line.
             const outcomeType = String(selection.outcomeType || '').toLowerCase();
-            if (market.sourceMarketId === 'sr:market:14') {
-              label = ({ home: '1', draw: 'X', away: '2' })[outcomeType] || '__INVALID_EUROPEAN_OUTCOME__';
-            } else {
-              label = ['home', 'draw', 'away'].includes(outcomeType)
-                ? ({ home: '1', draw: 'X', away: '2' })[outcomeType]
-                : tokens.includes('draw') || rawLabel === 'x' ? 'X'
-                  : tokens.includes('home') || (homeName && text.includes(homeName)) || rawLabel === '1' ? '1'
-                    : tokens.includes('away') || (awayName && text.includes(awayName)) || rawLabel === '2' ? '2' : label;
-            }
+            label = ({ home: '1', draw: 'X', away: '2' })[outcomeType] || '__INVALID_EUROPEAN_OUTCOME__';
           } else if (type === '1X2') {
             label = tokens.includes('home') || tokens.includes('1') || (homeName && text.includes(homeName)) ? '1' :
               tokens.includes('draw') || tokens.includes('x') ? 'X' :
