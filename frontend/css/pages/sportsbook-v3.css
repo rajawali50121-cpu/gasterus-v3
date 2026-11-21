@@ -4,7 +4,7 @@
    Colors: Decimal odds in black, market lines in blue, Deep Navy Header, Light Sports Matrix
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&family=Bebas+Neue&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Roboto+Mono:wght@500;600;700&display=swap');
 
 [hidden] { display: none !important; }
 
@@ -41,6 +41,9 @@
 }
 
 body.sb-page {
+  font-family: 'Inter', Arial, sans-serif;
+  font-kerning: normal;
+  font-feature-settings: 'tnum' 1, 'ss01' 1;
   min-height: 100dvh;
   background-size: cover;
   background-position: center top;
@@ -171,7 +174,7 @@ body.sb-page {
   font-weight: 700;
 }
 .sb-balance-val {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
   letter-spacing: 0.3px;
 }
 
@@ -658,7 +661,7 @@ body.sb-page {
 .sb-nav-count {
   flex: 0 0 auto;
   color: #94a3b8;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
   font-size: 9px;
 }
 .sb-nav-count i {
@@ -709,7 +712,7 @@ body.sb-page {
   font-weight: 700;
   padding: 1px 7px;
   border-radius: 12px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
 }
 .sb-league-toggle {
   font-size: 12px;
@@ -724,10 +727,22 @@ body.sb-page {
 /* ==========================================================================
    8. MATCH CARD — THE 3-COLUMN ASIAN MATRIX (CRITICAL MASTERPIECE)
    ========================================================================== */
-.sb-match-card {
-  border-top: none;
-  margin-bottom: 12px;
+/* Separate every fixture into its own readable card. */
+.sb-match-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
+.sb-match-card {
+  border: 1px solid #d5deea;
+  border-radius: 10px;
+  background: #ffffff;
+  margin: 0;
+  overflow: hidden;
+  box-shadow: 0 2px 7px rgba(15, 35, 65, 0.055);
+}
+.sb-match-card + .sb-match-card { margin-top: 0; }
+.sb-match-card .sb-card-banner { border-bottom: 1px solid #e5ebf3; }
 
 /* Slanted Banner: LANGSUNG + League + Refresh */
 .sb-card-banner {
@@ -855,12 +870,12 @@ body.sb-page {
 }
 .sb-match-kickoff {
   font-weight: 800;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
 }
 .sb-match-live-score {
   font-size: 15px;
   font-weight: 900;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
   color: #dc2626;
 }
 .sb-match-live-clock {
@@ -1124,7 +1139,7 @@ body.sb-page {
   white-space: nowrap;
   font-size: 11px;
   font-weight: 700;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
   line-height: 1.25;
 }
 .sb-cell-line.kei-negative {
@@ -1146,7 +1161,7 @@ body.sb-page {
   font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 800;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
   line-height: 1.25;
   margin-top: 2px;
 }
@@ -1448,7 +1463,7 @@ body.sb-page {
 .sb-market-browser-chip span {
   margin-left: 3px;
   color: #7b8798;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
   font-size: 9px;
 }
 .sb-market-browser-chip:hover {
@@ -1762,7 +1777,7 @@ body.sb-page {
 }
 .sb-slip-row b {
   color: #0f172a;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
 }
 .sb-slip-row b.sb-win {
   color: #16a34a;
@@ -1777,7 +1792,7 @@ body.sb-page {
   border-radius: 6px;
   border: 1px solid var(--sb-border-cell);
   font-size: 14px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
   font-weight: 700;
   outline: none;
   margin-top: 4px;
@@ -2395,7 +2410,7 @@ body.sb-page {
 
 .sb-team-score {
   color: #172033;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Roboto Mono', monospace;
   font-size: 13px;
   font-weight: 800;
 }
