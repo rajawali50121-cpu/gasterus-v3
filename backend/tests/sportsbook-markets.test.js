@@ -70,9 +70,9 @@ test('European three-way handicap displays Home, Draw and Away in semantic order
     label: 'European Handicap (3-Way)',
     period: 'FT',
     selections: [
-      { key: 'away', label: 'Away', odds: 4.80 },
-      { key: 'draw', label: 'Draw', odds: 3.90 },
-      { key: 'home', label: 'Home', odds: 1.55 }
+      { key: 'away', label: 'Away -1', outcomeType: 'away', line: -1, odds: 4.80 },
+      { key: 'draw', label: 'Draw -1', outcomeType: 'draw', line: -1, odds: 3.90 },
+      { key: 'home', label: 'Home -1', outcomeType: 'home', line: -1, odds: 1.55 }
     ]
   };
   const asian = {
