@@ -4354,3 +4354,59 @@ body.sb-page.sb-premium .sb-detail-markets-status.is-loading::before {
   body.sb-page.sb-premium .sb-match-status.sb-match-datetime { font-size: 10px !important; }
   body.sb-page.sb-premium .sb-team-name { font-size: 12px !important; }
 }
+
+/* 2026-11-21: replace remaining white sportsbook surfaces with pale silver-gold metallic finish. */
+body.sb-page.sb-premium {
+  --sb-silver-gold-top: #f0eee8;
+  --sb-silver-gold-mid: #d8d5cb;
+  --sb-silver-gold-low: #c4c1b7;
+  --sb-silver-gold-border: #b8ad91;
+}
+body.sb-page.sb-premium .sb-sport-menu,
+body.sb-page.sb-premium .sb-live-card,
+body.sb-page.sb-premium .sb-sidebar,
+body.sb-page.sb-premium .sb-matrix-table,
+body.sb-page.sb-premium .sb-events-load-more,
+body.sb-page.sb-premium .sb-market-period,
+body.sb-page.sb-premium .sb-card-footer,
+body.sb-page.sb-premium .sb-market-browser-chip,
+body.sb-page.sb-premium .sb-detail-markets-retry,
+body.sb-page.sb-premium .sb-quick-btn,
+body.sb-page.sb-premium .sb-league-modal,
+body.sb-page.sb-premium .sb-modal,
+body.sb-page.sb-premium .sb-sk-card {
+  background:
+    linear-gradient(118deg, rgba(255,255,255,.72) 0%, rgba(255,255,255,.12) 24%, transparent 48%),
+    linear-gradient(145deg, var(--sb-silver-gold-top) 0%, var(--sb-silver-gold-mid) 52%, #e6dfcd 100%) !important;
+  border-color: var(--sb-silver-gold-border) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.88),
+    inset 0 -1px 0 rgba(128,112,78,.14),
+    0 3px 9px rgba(0,12,31,.18) !important;
+  color: #142b49;
+}
+body.sb-page.sb-premium .sb-live-card .sb-live-card-body,
+body.sb-page.sb-premium .sb-matrix-table td,
+body.sb-page.sb-premium .sb-matrix-table th {
+  background: linear-gradient(145deg, #eceae3 0%, #d5d2c8 58%, #e7e0d0 100%) !important;
+  border-color: #bdb6a5 !important;
+}
+body.sb-page.sb-premium .sb-quick-odd-btn {
+  background:
+    linear-gradient(115deg, rgba(255,255,255,.8), rgba(255,255,255,.08) 55%),
+    linear-gradient(145deg, #e9e7df 0%, #cbc8be 55%, #e5dece 100%) !important;
+  border-color: #b6aa8d !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 2px 4px rgba(0,12,31,.16) !important;
+}
+body.sb-page.sb-premium .sb-sport-menu .sb-sport-opt,
+body.sb-page.sb-premium .sb-market-browser-chip,
+body.sb-page.sb-premium .sb-detail-markets-retry,
+body.sb-page.sb-premium .sb-quick-btn {
+  color: #142b49 !important;
+}
+body.sb-page.sb-premium .sb-sport-menu .sb-sport-opt:hover,
+body.sb-page.sb-premium .sb-sport-menu .sb-sport-opt.active {
+  background: linear-gradient(145deg, #e6d9b9 0%, #c9b98e 100%) !important;
+  color: #10284a !important;
+}
+
