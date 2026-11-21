@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+Object.assign(process.env, {
+  NODE_ENV: 'test',
+  DATABASE_URL: 'postgresql://user:pass@example.com/db',
+  REDIS_URL: 'redis://example.com:6379',
+  MEMBER_PROXY_SECRET: 'm'.repeat(48),
+  ADMIN_PROXY_SECRET: 'a'.repeat(48),
+  OPS_INTERNAL_SECRET: 'o'.repeat(48),
+  SESSION_HMAC_KEY: 's'.repeat(48),
+  API_KEY_PEPPER: 'p'.repeat(48)
+});
+
+const { stampPriceVersions } = await import('../src/sportsbook-feed.js');
+
+test('missing market and selection timestamps inherit provider snapshot time', () => {
+  const snapshotAt = Date.parse('2026-11-21T01:04:51.778Z');
+  const [event] = stampPriceVersions([{ id: 'event-1', markets: [{ id: 'market-1', selections: [{ key: 'home', odds: 1.91 }] }] }], snapshotAt);
+  assert.equal(event.markets[0].updatedAt, '2026-11-21T01:04:51.778Z');
+  assert.equal(event.markets[0].selections[0].updatedAt, '2026-11-21T01:04:51.778Z');
+});
+
+test('valid provider market and selection timestamps are preserved', () => {
+  const [event] = stampPriceVersions([{ id: 'event-1', markets: [{ id: 'market-1', updatedAt: '2026-11-21T00:59:00.000Z', selections: [{ key: 'home', odds: 1.91, updatedAt: '2026-11-21T01:00:00.000Z' }] }] }], Date.parse('2026-11-21T01:04:51.778Z'));
+  assert.equal(event.markets[0].updatedAt, '2026-11-21T00:59:00.000Z');
+  assert.equal(event.markets[0].selections[0].updatedAt, '2026-11-21T01:00:00.000Z');
+});
+
+test('invalid provider timestamps fall back to snapshot timestamp, never backend poll time', () => {
+  const [event] = stampPriceVersions([{ id: 'event-1', markets: [{ id: 'market-1', updatedAt: 'not-a-date', selections: [{ key: 'home', odds: 1.91, updatedAt: 'invalid' }] }] }], Date.parse('2026-11-21T01:04:51.778Z'));
+  assert.equal(event.markets[0].updatedAt, '2026-11-21T01:04:51.778Z');
+  assert.equal(event.markets[0].selections[0].updatedAt, '2026-11-21T01:04:51.778Z');
+});
