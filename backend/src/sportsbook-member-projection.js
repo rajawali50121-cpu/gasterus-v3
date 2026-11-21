@@ -47,6 +47,9 @@ export function projectMemberMarkets(markets = []) {
         priceVersion: selection.priceVersion,
         ...(market.source === 'sportradar' ? {
           outcomeType: selection.outcomeType || null,
+          sourceOutcomeId: selection.sourceOutcomeId || null,
+          sourceSelectionId: selection.sourceSelectionId || null,
+          fieldId: selection.fieldId || null,
           oddsAmerican: selection.oddsAmerican ?? null,
           oddsFraction: selection.oddsFraction ?? null,
           openOddsDecimal: selection.openOddsDecimal ?? null,
@@ -78,6 +81,7 @@ export function projectMemberMarkets(markets = []) {
       mainLine: market.mainLine ?? null,
       bookmaker: market.bookmaker || null,
       sourceLabel: MEMBER_MARKET_SOURCE_LABELS[clean(market.source).toLowerCase()] || null,
+      sourceMarketId: market.sourceMarketId || null,
       selections
     });
   }
