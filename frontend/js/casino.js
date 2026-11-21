@@ -95,6 +95,12 @@ async function loadGames(provider) {
   } catch (e) {
     if (box) {
       box.innerHTML = '';
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'casino-chip';
+      back.textContent = '← Kembali ke Provider';
+      back.addEventListener('click', showProviderList);
+      box.appendChild(back);
       const empty = document.createElement('div');
       empty.className = 'casino-empty';
       const detail = e?.data?.error?.message || e?.message || 'error';
