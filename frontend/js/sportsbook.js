@@ -1834,7 +1834,7 @@ function renderAllEventMarkets(event) {
       data-market-period="${escapeHtml(String(market.period || 'FT').toUpperCase())}"
       data-market-category="${escapeHtml(String(market.type || 'OTHER').toUpperCase())}">
       <h4 class="sb-detail-market-heading">
-        <span>${escapeHtml(market.label || market.type || 'Pasar')}</span>
+        <span>${escapeHtml(typeLabels[String(market.type || 'OTHER').toUpperCase()] || market.label || market.type || 'Pasar')}</span>
         <span>${escapeHtml(periodLabel(String(market.period || 'FT').toUpperCase()))}${market.line !== null && market.line !== undefined ? ` · ${escapeHtml(String(market.line))}` : ''}</span>
       </h4>
       <div class="sb-accordion-grid">
