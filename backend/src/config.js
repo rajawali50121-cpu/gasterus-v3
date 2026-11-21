@@ -235,6 +235,9 @@ export const config = Object.freeze({
   betnexApiKey,
   betnexCallbackKey,
   betnexProtocolVerified,
+  // Isolated Betnex test/demo launch: never reads or sends the member ledger balance.
+  betnexDemoEnabled: bool('BETNEX_DEMO_ENABLED', false),
+  betnexDemoCurrency: text('BETNEX_DEMO_CURRENCY', 'INR').toUpperCase(),
   betnexRealMoneyEnabled: bool('BETNEX_REAL_MONEY_ENABLED', false) && betnexProtocolVerified
 });
 
