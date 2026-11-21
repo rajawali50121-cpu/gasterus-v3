@@ -28,6 +28,24 @@ function renderFilters(categories) {
   }
 }
 
+function showProviderList() {
+  for (const id of ['casino-toolbar', 'casino-filters', 'casino-grid']) {
+    const node = el(id);
+    if (node) node.hidden = false;
+  }
+  const games = el('casino-games');
+  if (games) games.hidden = true;
+}
+
+function showProviderGames() {
+  for (const id of ['casino-toolbar', 'casino-filters', 'casino-grid']) {
+    const node = el(id);
+    if (node) node.hidden = true;
+  }
+  const games = el('casino-games');
+  if (games) games.hidden = false;
+}
+
 function renderProviders() {
   const grid = el('casino-grid');
   const count = el('casino-count');
@@ -57,6 +75,7 @@ function renderProviders() {
 
 async function loadGames(provider) {
   state.gamesProvider = provider;
+  showProviderGames();
   const box = el('casino-games');
   if (box) {
     box.innerHTML = '';
@@ -76,6 +95,12 @@ async function loadGames(provider) {
   } catch (e) {
     if (box) {
       box.innerHTML = '';
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'casino-chip';
+      back.textContent = '← Kembali ke Provider';
+      back.addEventListener('click', showProviderList);
+      box.appendChild(back);
       const empty = document.createElement('div');
       empty.className = 'casino-empty';
       const detail = e?.data?.error?.message || e?.message || 'error';
@@ -127,15 +152,21 @@ function renderGames() {
   const box = el('casino-games');
   if (!box) return;
   box.innerHTML = '';
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'casino-chip';
+  back.textContent = '← Kembali ke Provider';
+  back.addEventListener('click', showProviderList);
+  box.appendChild(back);
   if (!state.games.length) {
     const empty = document.createElement('div');
     empty.className = 'casino-empty';
-    empty.textContent = 'Pilih provider untuk melihat game. (' + state.gamesProvider + ' kosong / belum ada endpoint getgames)';
+    empty.textContent = 'Belum ada permainan yang tersedia dari provider ' + state.gamesProvider + '.';
     box.appendChild(empty);
     return;
   }
   const title = document.createElement('h3');
-  title.textContent = state.gamesProvider + ' (' + state.games.length + ')';
+  title.textContent = state.gamesProvider + ' — Pilih Permainan (' + state.games.length + ')';
   box.appendChild(title);
   if (!slotsView) {
     const modeNote = document.createElement('p');
