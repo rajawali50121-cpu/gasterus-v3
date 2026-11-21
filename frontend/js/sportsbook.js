@@ -1650,12 +1650,17 @@ function renderMarketColumns(e, markets) {
         <section class="sb-market-card">
           <h3 class="sb-market-card-title">${escapeHtml(item.title)}</h3>
           <div class="sb-market-outcomes" style="--outcome-count:${Math.max(1, item.outcomes.length)}">
-            ${item.outcomes.map(([label, selection]) => `
+            ${item.outcomes.map(([label, selection]) => {
+            const displayLabel = item.type === 'EUROPEAN_HANDICAP'
+              ? ({ '1': 'HOME', X: 'DRAW', '2': 'AWAY' })[label] || label
+              : label;
+            return `
               <div class="sb-market-outcome">
-                <span class="sb-market-outcome-label">${escapeHtml(label)}</span>
+                <span class="sb-market-outcome-label">${escapeHtml(displayLabel)}</span>
               ${renderOddCell(e, item.market, selection)}
               </div>
-            `).join('')}
+            `;
+          }).join('')}
           </div>
         </section>
       `).join('')}
