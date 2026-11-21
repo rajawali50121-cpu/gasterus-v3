@@ -1707,7 +1707,7 @@ function renderMatch(e) {
         <div class="sb-card-banner">
           <span class="sb-match-status sb-match-datetime${isLive ? ' is-live' : ''}">
             ${isLive
-              ? `LANGSUNG · ${escapeHtml(getLiveClockDisplay(e))}`
+              ? `LANGSUNG · <span class="sb-match-live-clock" data-live-clock-id="${escapeHtml(e.id)}">${escapeHtml(getLiveClockDisplay(e))}</span>`
               : `${formatKickoffDate(e.startTime)} · ${timeLabel(e.startTime)} WIB`}
           </span>
           <div class="sb-match-actions">
