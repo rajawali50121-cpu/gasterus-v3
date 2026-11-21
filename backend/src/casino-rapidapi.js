@@ -1,7 +1,7 @@
 import { config } from './config.js';
 import { logger } from './logger.js';
 import { AppError } from './errors.js';
-import { betnexWalletStatus, betnexProvidersForCurrency, betnexGamesForCurrency, launchBetnexGame } from './casino-wallet.js';
+import { betnexWalletStatus, betnexProvidersForCurrency, betnexGamesForCurrency, launchBetnexGame, launchBetnexDemoGame } from './casino-wallet.js';
 
 // RapidAPI casino aggregator. Key HANYA dari env backend.
 // Frontend TIDAK PERNAH menerima key — semua lewat proxy ini.
@@ -210,8 +210,10 @@ async function rapidFetch(path, params = {}, options = {}) {
 }
 
 export async function casinoProviders() {
-  const payload = config.betnexRealMoneyEnabled
-    ? { data: await betnexProvidersForCurrency('IDR') }
+  const useBetnex = config.betnexRealMoneyEnabled || config.betnexDemoEnabled;
+  const currency = config.betnexRealMoneyEnabled ? 'IDR' : config.betnexDemoCurrency;
+  const payload = useBetnex
+    ? { data: await betnexProvidersForCurrency(currency) }
     : await rapidFetch('/casino/getallproviders');
   const providers = normalizeProviders(payload);
   return {
@@ -273,9 +275,10 @@ export async function diagnoseCasinoUpstream(provider) {
 export async function casinoGames(provider) {
   const code = clean(provider, 40).toUpperCase();
   if (!code) throw new AppError(400, 'Provider wajib dipilih.', 'CASINO_PROVIDER_REQUIRED');
-  if (config.betnexRealMoneyEnabled) {
-    const games = normalizeGames({ data: await betnexGamesForCurrency(code, 'IDR') }, code);
-    return { provider: code, total: games.length, games, fetchedAt: new Date().toISOString(), currency: 'IDR' };
+  if (config.betnexRealMoneyEnabled || config.betnexDemoEnabled) {
+    const currency = config.betnexRealMoneyEnabled ? 'IDR' : config.betnexDemoCurrency;
+    const games = normalizeGames({ data: await betnexGamesForCurrency(code, currency) }, code);
+    return { provider: code, total: games.length, games, fetchedAt: new Date().toISOString(), currency };
   }
   const payload = await rapidFetch('/casino/getallgamesandprovider', { provider: code });
   const games = normalizeGames(payload, code);
@@ -331,6 +334,7 @@ export async function launchCasinoDemo(memberId, input = {}) {
 
 export async function launchCasinoGame(member, input = {}) {
   if (config.betnexRealMoneyEnabled) return launchBetnexGame(member, input);
+  if (config.betnexDemoEnabled) return launchBetnexDemoGame(member, input);
   const result = await launchCasinoDemo(member?.id, input);
   return { ...result, mode: 'DEMO' };
 }
