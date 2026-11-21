@@ -254,12 +254,17 @@ export function periodFromMarket(name, metadata = {}) {
   // A named first-half market always wins over generic metadata such as "match".
   const namedPeriod = classify(value);
   if (namedPeriod) return namedPeriod;
+  let genericPeriod = null;
   for (const candidate of candidates) {
     const period = classify(candidate);
-    if (period) return period;
+    if (period && period !== 'FT') return period;
+    if (period === 'FT') genericPeriod = period;
   }
+  // A documented first-half market ID is more specific than generic metadata
+  // such as period="match"; do not silently downgrade it to full time.
   const idPeriod = MARKET_PERIOD_BY_ID.get(marketIdNumber(metadata.id || metadata.market_id));
   if (idPeriod) return idPeriod;
+  if (genericPeriod) return genericPeriod;
   // Sportradar Odds Comparison uses generic names such as "handicap" and
   // "handicap {hcp}". marketType() needs outcome count to classify those,
   // but period detection does not have that context. Without this explicit
