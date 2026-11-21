@@ -61,7 +61,7 @@ export function primaryMarketColumns(event, period) {
       if ((type === 'TOTALS' || type === 'HANDICAP' || type === 'EUROPEAN_HANDICAP') && selections.length > expectedOutcomes[type].length) {
         const byLine = new Map();
         for (const selection of selections) {
-          const rawLine = selection?.line ?? market.line ?? '';
+          const rawLine = (type === 'EUROPEAN_HANDICAP' ? selection?.handicapLine : null) ?? selection?.line ?? market.line ?? '';
           const numericLine = Number(rawLine);
           // For Asian Handicap the home and away selections carry opposite
           // signs for the same line (e.g. -0.25/+0.25). Group by magnitude.
