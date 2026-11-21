@@ -275,6 +275,27 @@ export function periodFromMarket(name, metadata = {}) {
   if (marketType(value) !== 'OTHER') return 'FT';
   return 'UNCLASSIFIED';
 }
+function sportradarOutcomeType(marketId, outcome) {
+  const marketNumber = marketIdNumber(marketId);
+  const outcomeId = String(outcome?.id || '').match(/(?:^|:)outcome:(\\d+)$/)?.[1] || null;
+  const documented = marketNumber === 14
+    ? ({ '1711': 'home', '1712': 'draw', '1713': 'away' })[outcomeId]
+    : marketNumber === 16
+      ? ({ '1714': 'home', '1715': 'away' })[outcomeId]
+      : null;
+  return documented || null;
+}
+
+function handicapSpecifier(market) {
+  const specifiers = market?.specifiers;
+  const raw = specifiers && typeof specifiers === 'object'
+    ? specifiers.hcp
+    : typeof specifiers === 'string'
+      ? specifiers.match(/(?:^|[,;])\\s*hcp=([^,;]+)/i)?.[1]
+      : null;
+  return number(raw);
+}
+
 function selectionLabel(outcome, event, type) {
   const value = String(outcome?.type || '').toLowerCase();
   if (type === 'EUROPEAN_HANDICAP' && ['home', 'draw', 'away'].includes(value)) return value.toUpperCase();
@@ -349,15 +370,19 @@ function normalizeOdds(event, raw) {
         if (outcomeRemoved) diagnostics.removedOutcomesRetained += 1;
         const odds = number(outcome.odds_decimal);
         if (odds === null) diagnostics.outcomesWithoutDecimalOddsRetained += 1;
-        const label = selectionLabel(outcome, event, type);
-        const line = number(outcome.handicap ?? outcome.spread ?? outcome.total);
+        const documentedOutcomeType = sportradarOutcomeType(marketId, outcome);
+        const normalizedOutcomeType = documentedOutcomeType || String(outcome.type || '').toLowerCase() || null;
+        const normalizedOutcome = documentedOutcomeType ? { ...outcome, type: documentedOutcomeType } : outcome;
+        const label = selectionLabel(normalizedOutcome, event, type);
+        const line = number(outcome.handicap ?? outcome.spread ?? outcome.total ?? (type === 'EUROPEAN_HANDICAP' ? handicapSpecifier(market) : null));
         const sourceSelectionId = String(outcome.id || outcome.external_outcome_id || `${marketId}-${book?.id || 'book'}-${index}`);
         return {
           key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? ''),
           label, odds, line,
           suspended: Boolean(bookRemoved || outcomeRemoved || market.is_live === true),
           removed: outcomeRemoved,
-          outcomeType: outcome.type || null,
+          outcomeType: normalizedOutcomeType,
+          sourceOutcomeId: outcome.id || null,
           fieldId: outcome.field_id || null,
           source: PROVIDER, sourceSelectionId,
           externalOutcomeId: outcome.external_outcome_id || null,
@@ -406,7 +431,7 @@ function normalizeOdds(event, raw) {
   return { markets, diagnostics };
 }
 
-export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds, normalizedEventStatus };
+export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds, normalizedEventStatus, sportradarOutcomeType, handicapSpecifier };
 
 export async function fetchSportradar({
   maxEvents = 0,
