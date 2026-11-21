@@ -175,19 +175,26 @@ function stampPriceVersions(events = [], fetchedAt = Date.now()) {
   const fallbackUpdatedAt = new Date(fetchedAt).toISOString();
   return events.map(event => ({
     ...event,
-    markets: (event.markets || []).map(market => ({
-      ...market,
-      updatedAt: market.updatedAt || fallbackUpdatedAt,
-      selections: (market.selections || []).map(selection => {
-        const updatedAt = selection.updatedAt || market.updatedAt || fallbackUpdatedAt;
-        return {
-          ...selection,
-          source: selection.source || market.source || 'unknown',
-          updatedAt,
-          priceVersion: selection.priceVersion || stablePriceVersion(event, market, selection)
-        };
-      })
-    }))
+    markets: (event.markets || []).map(market => {
+      const marketUpdatedAt = Number.isFinite(Date.parse(market.updatedAt || ''))
+        ? market.updatedAt
+        : fallbackUpdatedAt;
+      return {
+        ...market,
+        updatedAt: marketUpdatedAt,
+        selections: (market.selections || []).map(selection => {
+          const updatedAt = Number.isFinite(Date.parse(selection.updatedAt || ''))
+            ? selection.updatedAt
+            : marketUpdatedAt;
+          return {
+            ...selection,
+            source: selection.source || market.source || 'unknown',
+            updatedAt,
+            priceVersion: selection.priceVersion || stablePriceVersion(event, market, selection)
+          };
+        })
+      };
+    })
   }));
 }
 function stableFeedRevision(events = [], providerLifecycle = {}) {
