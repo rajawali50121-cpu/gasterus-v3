@@ -3989,3 +3989,307 @@ body.sb-page.sb-premium .sb-market-outcome-label,
 body.sb-page.sb-premium .sb-card-footer { color: #c7d8ee !important; }
 body.sb-page.sb-premium .sb-odd-cell .sb-cell-line.kei-negative { color: #ff777d !important; }
 body.sb-page.sb-premium .sb-odd-cell .sb-cell-line.kei-positive { color: #83bdff !important; }
+
+
+/* 2026-11-21 sportsbook UI polish: compact metadata, clear hierarchy, flat odds. */
+body.sb-page.sb-premium .sb-header-inner {
+  padding-right: 12px !important;
+}
+body.sb-page.sb-premium .sb-header-right {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  padding-right: 3px !important;
+  gap: 7px !important;
+}
+body.sb-page.sb-premium #header-username.sb-user-avatar {
+  display: inline-flex !important;
+  flex: 0 1 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: clamp(72px, 25vw, 138px) !important;
+  height: 32px !important;
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  justify-content: center !important;
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  font-variant-numeric: tabular-nums;
+}
+body.sb-page.sb-premium .sb-card-banner {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+  padding: 7px 12px !important;
+  border-bottom: 1px solid rgba(137, 169, 205, .24) !important;
+  overflow: visible !important;
+}
+body.sb-page.sb-premium .sb-match-status.sb-match-datetime {
+  display: inline-flex !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  color: #d7e6f7 !important;
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  line-height: 1.4 !important;
+  letter-spacing: .01em !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+body.sb-page.sb-premium .sb-match-status.sb-match-datetime.is-live {
+  color: #ff969b !important;
+}
+body.sb-page.sb-premium .sb-match-actions {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+}
+body.sb-page.sb-premium .sb-banner-refresh,
+body.sb-page.sb-premium .sb-fav-match-btn {
+  display: inline-flex !important;
+  width: 28px !important;
+  height: 28px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  border: 1px solid rgba(164, 193, 225, .35) !important;
+  border-radius: 6px !important;
+  background: rgba(7, 30, 61, .55) !important;
+  color: #d9e8fa !important;
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 15px !important;
+  line-height: 1 !important;
+}
+body.sb-page.sb-premium .sb-fav-match-btn.is-fav {
+  color: #ffd56b !important;
+  border-color: rgba(255, 213, 107, .65) !important;
+}
+body.sb-page.sb-premium .sb-match-meta-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  min-height: 24px !important;
+  padding: 5px 12px 0 !important;
+}
+body.sb-page.sb-premium .sb-provider-stack {
+  display: flex !important;
+  justify-content: flex-start !important;
+  min-width: 0 !important;
+  gap: 5px !important;
+}
+body.sb-page.sb-premium .sb-teams-row {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+  align-items: center !important;
+  gap: 9px !important;
+  min-width: 0 !important;
+  padding: 10px 12px 12px !important;
+}
+body.sb-page.sb-premium .sb-team-col {
+  display: flex !important;
+  align-items: center !important;
+  min-width: 0 !important;
+  gap: 6px !important;
+}
+body.sb-page.sb-premium .sb-team-col.away {
+  justify-content: flex-end !important;
+  text-align: right !important;
+}
+body.sb-page.sb-premium .sb-team-name {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  line-height: 1.25 !important;
+}
+body.sb-page.sb-premium .sb-team-vs {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 28px !important;
+  height: 24px !important;
+  padding: 0 5px !important;
+  border: 1px solid rgba(143, 174, 210, .35) !important;
+  border-radius: 5px !important;
+  background: rgba(5, 24, 50, .65) !important;
+  color: #a9c2df !important;
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  letter-spacing: .08em !important;
+}
+body.sb-page.sb-premium .sb-card-footer {
+  display: flex !important;
+  justify-content: flex-start !important;
+  padding: 7px 12px !important;
+  border-top: 1px solid rgba(137, 169, 205, .2) !important;
+}
+body.sb-page.sb-premium .sb-market-period-tabs {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 6px !important;
+  min-height: 0 !important;
+  padding: 7px 10px !important;
+  background: #082653 !important;
+  border-bottom: 1px solid #426d9c !important;
+}
+body.sb-page.sb-premium .sb-market-period-tab {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 112px !important;
+  min-height: 32px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 5px 12px !important;
+  border: 1px solid #6688ad !important;
+  border-radius: 6px !important;
+  background: #123765 !important;
+  box-shadow: none !important;
+  color: #dce9f8 !important;
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  -webkit-text-fill-color: currentColor !important;
+}
+body.sb-page.sb-premium .sb-market-period-tab.active {
+  border-color: #f0c96c !important;
+  background: #234b78 !important;
+  color: #ffe5a4 !important;
+  -webkit-text-fill-color: #ffe5a4 !important;
+}
+body.sb-page.sb-premium .sb-odd-cell,
+body.sb-page.sb-premium .sb-quick-odd-btn {
+  min-width: 0 !important;
+  border: 1px solid #527ba8 !important;
+  border-radius: 5px !important;
+  background: #0a2b55 !important;
+  box-shadow: none !important;
+  color: #f4f8ff !important;
+  transition: background-color .12s ease, border-color .12s ease !important;
+}
+body.sb-page.sb-premium .sb-odd-cell:hover:not(.disabled):not(.locked),
+body.sb-page.sb-premium .sb-quick-odd-btn:hover:not(.disabled):not(.locked) {
+  border-color: #9bc8fa !important;
+  background: #123f75 !important;
+  box-shadow: none !important;
+}
+body.sb-page.sb-premium .sb-odd-cell.chosen {
+  border-color: #f4cc70 !important;
+  background: #174b7b !important;
+  box-shadow: inset 0 0 0 1px #f4cc70 !important;
+}
+body.sb-page.sb-premium .sb-cell-line,
+body.sb-page.sb-premium .sb-odd-cell .sb-cell-line {
+  color: #d2e1f2 !important;
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  font-variant-numeric: tabular-nums !important;
+  text-shadow: none !important;
+}
+body.sb-page.sb-premium .sb-odd-cell .sb-cell-line.kei-negative {
+  color: #ff737d !important;
+}
+body.sb-page.sb-premium .sb-odd-cell .sb-cell-line.kei-positive {
+  color: #83c1ff !important;
+}
+body.sb-page.sb-premium .sb-cell-odds {
+  color: #f7faff !important;
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 800 !important;
+  font-variant-numeric: tabular-nums !important;
+  font-feature-settings: "tnum" 1 !important;
+  text-shadow: none !important;
+}
+body.sb-page.sb-premium .sb-balance-val,
+body.sb-page.sb-premium .sb-match-status,
+body.sb-page.sb-premium .sb-match-kickoff,
+body.sb-page.sb-premium .sb-match-live-clock,
+body.sb-page.sb-premium .sb-match-quick-time {
+  font-family: Inter, system-ui, sans-serif !important;
+  font-variant-numeric: tabular-nums !important;
+  font-feature-settings: "tnum" 1 !important;
+  letter-spacing: normal !important;
+}
+body.sb-page.sb-premium .sb-detail-markets-toggle {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  min-height: 36px !important;
+  padding: 8px 12px !important;
+  border: 0 !important;
+  border-top: 1px solid rgba(137, 169, 205, .25) !important;
+  border-radius: 0 !important;
+  background: #0a2b55 !important;
+  color: #dce9f8 !important;
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  text-align: left !important;
+}
+body.sb-page.sb-premium .sb-detail-markets-toggle::after {
+  content: "⌄";
+  color: #9fc4ee;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform .15s ease;
+}
+body.sb-page.sb-premium .sb-detail-markets-toggle[aria-expanded="true"]::after {
+  transform: rotate(180deg);
+}
+body.sb-page.sb-premium .sb-detail-markets-status {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 12px !important;
+  color: #c7d8ee !important;
+  font-size: 11px !important;
+}
+body.sb-page.sb-premium .sb-detail-markets-status.is-loading::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border: 2px solid rgba(190, 215, 242, .28);
+  border-top-color: #a8d0ff;
+  border-radius: 50%;
+  animation: sbUiPolishSpin .7s linear infinite;
+}
+@keyframes sbUiPolishSpin { to { transform: rotate(360deg); } }
+
+@media (max-width: 860px) {
+  body.sb-page.sb-premium .sb-header-inner { padding-right: 12px !important; }
+  body.sb-page.sb-premium .sb-header-right { justify-content: flex-end !important; padding-right: 2px !important; }
+  body.sb-page.sb-premium .sb-user-avatar { max-width: clamp(70px, 24vw, 116px) !important; padding-inline: 8px !important; }
+  body.sb-page.sb-premium .sb-match-info { padding: 8px 8px 6px !important; }
+  body.sb-page.sb-premium .sb-teams-row { gap: 6px !important; padding: 9px 8px 10px !important; }
+  body.sb-page.sb-premium .sb-team-name { font-size: 13px !important; }
+  body.sb-page.sb-premium .sb-team-vs { min-width: 24px !important; height: 22px !important; }
+  body.sb-page.sb-premium .sb-card-banner { padding-inline: 9px !important; }
+  body.sb-page.sb-premium .sb-match-meta-row { padding-inline: 9px !important; }
+  body.sb-page.sb-premium .sb-market-period-tabs { display: flex !important; }
+  body.sb-page.sb-premium .sb-detail-markets-toggle { min-height: 34px !important; }
+}
+@media (max-width: 380px) {
+  body.sb-page.sb-premium #header-username.sb-user-avatar { max-width: 88px !important; padding-inline: 6px !important; font-size: 10px !important; }
+  body.sb-page.sb-premium .sb-match-status.sb-match-datetime { font-size: 10px !important; }
+  body.sb-page.sb-premium .sb-team-name { font-size: 12px !important; }
+}
