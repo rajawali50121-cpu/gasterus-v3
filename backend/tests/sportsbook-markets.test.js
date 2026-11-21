@@ -60,3 +60,23 @@ test('primary market columns fill missing selections without creating selectable
     ['1', 'home'], ['X', null], ['2', null]
   ]);
 });
+
+test('European three-way handicap is never selected or displayed as Asian Handicap', () => {
+  const european = {
+    id: 'sr-european-handicap',
+    type: 'EUROPEAN_HANDICAP',
+    label: 'European Handicap (3-Way)',
+    period: 'FT',
+    selections: [
+      { key: 'home', label: 'Home', odds: 1.55 },
+      { key: 'draw', label: 'Draw', odds: 6.00 },
+      { key: 'away', label: 'Away', odds: 4.80 }
+    ]
+  };
+  const columns = primaryMarketColumns({ markets: [european] }, 'FT');
+  const handicap = columns.find(item => item.type === 'HANDICAP');
+  assert.equal(handicap.market, null);
+  assert.deepEqual(handicap.outcomes.map(([label, selection]) => [label, selection]), [
+    ['1', null], ['2', null]
+  ]);
+});

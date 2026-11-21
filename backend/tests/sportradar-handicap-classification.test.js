@@ -22,3 +22,8 @@ test('generic Sportradar handicap names default to FT without explicit period me
   assert.equal(periodFromMarket('handicap {hcp}'), 'FT');
   assert.equal(periodFromMarket('handicap {hcp}', { period: 'first half' }), '1H');
 });
+
+test('Sportradar market 14 is European three-way handicap, not Asian Handicap', () => {
+  assert.equal(marketType('handicap {hcp}', 3, true, 'sr:market:14'), 'EUROPEAN_HANDICAP');
+  assert.equal(marketType('handicap {hcp}', 4, false, 'sr:market:16'), 'HANDICAP');
+});
