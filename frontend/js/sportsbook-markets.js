@@ -113,7 +113,7 @@ export function primaryMarketColumns(event, period) {
             // Sportradar market 14 is mapped upstream from documented outcome IDs
             // 1711/1712/1713. Never infer its side from a handicap line or label.
             const outcomeType = String(selection.outcomeType || '').toLowerCase();
-            if (market.source === 'sportradar' && market.sourceMarketId === 'sr:market:14') {
+            if (market.sourceMarketId === 'sr:market:14') {
               label = ({ home: '1', draw: 'X', away: '2' })[outcomeType] || '__INVALID_EUROPEAN_OUTCOME__';
             } else {
               label = ['home', 'draw', 'away'].includes(outcomeType)
