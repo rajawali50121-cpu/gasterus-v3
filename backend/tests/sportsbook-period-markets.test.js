@@ -193,3 +193,43 @@ test('Sportradar generic metadata does not override HT encoded in market name', 
   assert.ok(normalized.markets.some(m => m.type === 'TOTALS' && m.period === '1H'
     && m.selections.some(selection => selection.odds === 1.88)));
 });
+
+test('Sportradar classifies generic market names from documented market IDs before FT fallback', () => {
+  const event = { id: 'sr-market-id-periods', home: { name: 'Home' }, away: { name: 'Away' } };
+  const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [
+    { id: 'sr:market:60', name: '1x2', books: [{ id: 'b1', outcomes: [
+      { id: 'h60', type: 'home', odds_decimal: '2.00' },
+      { id: 'd60', type: 'draw', odds_decimal: '3.20' },
+      { id: 'a60', type: 'away', odds_decimal: '3.80' }
+    ] }] },
+    { id: 'sr:market:66', name: 'handicap', books: [{ id: 'b1', outcomes: [
+      { id: 'h66', type: 'home', odds_decimal: '1.91', handicap: '-0.5' },
+      { id: 'a66', type: 'away', odds_decimal: '1.91', handicap: '+0.5' }
+    ] }] },
+    { id: 'sr:market:68', name: 'total', books: [{ id: 'b1', outcomes: [
+      { id: 'o68', type: 'over', odds_decimal: '1.88', total: '1.5' },
+      { id: 'u68', type: 'under', odds_decimal: '1.92', total: '1.5' }
+    ] }] },
+    { id: 'sr:market:16', name: 'handicap', books: [{ id: 'b1', outcomes: [
+      { id: 'h16', type: 'home', odds_decimal: '1.91', handicap: '-0.5' },
+      { id: 'a16', type: 'away', odds_decimal: '1.91', handicap: '+0.5' }
+    ] }] }
+  ] });
+
+  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:60' && m.type === '1X2' && m.period === '1H'));
+  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:66' && m.type === 'HANDICAP' && m.period === '1H'));
+  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:68' && m.type === 'TOTALS' && m.period === '1H'));
+  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:16' && m.type === 'HANDICAP' && m.period === 'FT'));
+});
+
+test('Sportradar records market IDs for feed-level diagnostics', () => {
+  const event = { id: 'sr-market-id-diagnostics', home: { name: 'Home' }, away: { name: 'Away' } };
+  const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [
+    { id: 'sr:market:60', name: '1x2', books: [] },
+    { id: 'sr:market:66', name: 'handicap', books: [] }
+  ] });
+  assert.deepEqual(normalized.diagnostics.marketIdCounts, {
+    'sr:market:60': 1,
+    'sr:market:66': 1
+  });
+});
