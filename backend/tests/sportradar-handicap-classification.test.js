@@ -63,3 +63,24 @@ test('Sportradar documented outcome IDs map European Handicap 14 and Asian Handi
     ['away', 'sr:outcome:1715'], ['home', 'sr:outcome:1714']
   ]);
 });
+
+test('Sportradar European Handicap preserves string hcp specifiers such as 1:0', () => {
+  const event = { id: 'sr:sport_event:specifier', home: { name: 'Home FC' }, away: { name: 'Away FC' } };
+  const { markets } = __sportradarNormalizer.normalizeOdds(event, { markets: [{
+    id: 'sr:market:14',
+    name: 'Handicap {hcp}',
+    specifiers: 'hcp=1:0',
+    books: [{ id: 'sr:book:1', name: 'Book', outcomes: [
+      { id: 'sr:outcome:1711', odds_decimal: '1.55' },
+      { id: 'sr:outcome:1712', odds_decimal: '3.90' },
+      { id: 'sr:outcome:1713', odds_decimal: '4.80' }
+    ] }]
+  }] });
+  const market = markets.find(item => item.sourceMarketId === 'sr:market:14');
+  assert.equal(market.type, 'EUROPEAN_HANDICAP');
+  assert.deepEqual(market.selections.map(item => [item.outcomeType, item.handicapLine, item.line, item.odds]), [
+    ['home', '1:0', null, 1.55],
+    ['draw', '1:0', null, 3.9],
+    ['away', '1:0', null, 4.8]
+  ]);
+});
