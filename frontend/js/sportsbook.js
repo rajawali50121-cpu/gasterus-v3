@@ -934,6 +934,9 @@ function setupBalanceToggle() {
   toggle.addEventListener('click', () => {
     vis = !vis;
     toggle.innerHTML = `<svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#${vis ? 'eye' : 'eye-off'}"></use></svg>`;
+    toggle.setAttribute('aria-label', vis ? 'Sembunyikan saldo' : 'Tampilkan saldo');
+    toggle.title = vis ? 'Sembunyikan saldo' : 'Tampilkan saldo';
+    toggle.setAttribute('aria-pressed', String(!vis));
     bal.textContent = vis ? formatRupiah(betslipBalance()).replace('Rp', '').trim() : '******';
   });
 }
