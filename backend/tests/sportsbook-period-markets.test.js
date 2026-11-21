@@ -233,3 +233,17 @@ test('Sportradar records market IDs for feed-level diagnostics', () => {
     'sr:market:66': 1
   });
 });
+
+
+test('Sportradar classifies documented soccer odd/even market ID 26 as full time', () => {
+  const event = { id: 'sr-market-26-ft', home: { name: 'Home' }, away: { name: 'Away' } };
+  const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [
+    { id: 'sr:market:26', name: 'odd/even', books: [{ id: 'b1', outcomes: [
+      { id: 'odd', name: 'Odd', odds_decimal: '1.90' },
+      { id: 'even', name: 'Even', odds_decimal: '1.90' }
+    ] }] }
+  ] });
+  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:26' && m.period === 'FT'));
+  assert.equal(normalized.diagnostics.periodCounts.FT, 1);
+  assert.equal(normalized.diagnostics.periodCounts.UNCLASSIFIED || 0, 0);
+});

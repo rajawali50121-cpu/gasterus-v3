@@ -202,6 +202,7 @@ const MARKET_TYPE_BY_ID = new Map([
   [66, 'HANDICAP'], [68, 'TOTALS'], [69, 'TEAM_TOTAL'], [70, 'TEAM_TOTAL']
 ]);
 const MARKET_PERIOD_BY_ID = new Map([
+  [26, 'FT'],
   [60, '1H'], [64, '1H'], [66, '1H'],
   [68, '1H'], [69, '1H'], [70, '1H'],
   [83, '2H'], [231, '2H'], [232, '2H'], [293, '2H'], [294, '2H']
