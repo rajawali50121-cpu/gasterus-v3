@@ -277,7 +277,7 @@ export function periodFromMarket(name, metadata = {}) {
 }
 function sportradarOutcomeType(marketId, outcome) {
   const marketNumber = marketIdNumber(marketId);
-  const outcomeId = String(outcome?.id || '').match(/(?:^|:)outcome:(\\d+)$/)?.[1] || null;
+  const outcomeId = String(outcome?.id || '').match(/(?:^|:)outcome:(\d+)$/)?.[1] || null;
   const documented = marketNumber === 14
     ? ({ '1711': 'home', '1712': 'draw', '1713': 'away' })[outcomeId]
     : marketNumber === 16
@@ -291,7 +291,7 @@ function handicapSpecifier(market) {
   const raw = specifiers && typeof specifiers === 'object'
     ? specifiers.hcp
     : typeof specifiers === 'string'
-      ? specifiers.match(/(?:^|[,;])\\s*hcp=([^,;]+)/i)?.[1]
+      ? specifiers.match(/(?:^|[,;])\s*hcp=([^,;]+)/i)?.[1]
       : null;
   return number(raw);
 }
