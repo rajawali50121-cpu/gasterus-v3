@@ -88,6 +88,19 @@ async function betnexDirectRequest(path, { params = {}, body = null, fetchImpl =
   }
 }
 
+export function buildBetnexDemoLaunchRequest(member, input = {}) {
+  const gameId = clean(input.gameId, 80);
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(gameId)) throw new AppError(400, 'Game tidak valid.', 'CASINO_GAME_INVALID');
+  const memberId = String(member?.id || '').replace(/-/g, '').toLowerCase();
+  if (!/^[a-f0-9]{32}$/.test(memberId)) throw new AppError(400, 'Sesi member tidak valid.', 'CASINO_MEMBER_INVALID');
+  const platform = Number(input.platform || 1);
+  if (![1, 2].includes(platform)) throw new AppError(400, 'Platform tidak valid.', 'CASINO_PLATFORM_INVALID');
+  const currency = clean(config.betnexDemoCurrency || 'INR', 3).toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) throw new AppError(500, 'Mata uang demo Betnex tidak valid.', 'BETNEX_DEMO_CURRENCY_INVALID');
+  // Test environment explicitly rejects the money field, including money: 0.
+  return { username: memberId, gameId, lang: 'en', home_url: 'https://gasterus.fun', platform, currency };
+}
+
 export async function betnexProvidersForCurrency(currency = MONEY_CURRENCY, fetchImpl = fetch) {
   const payload = await betnexDirectRequest('/casino/filterproviders', { params: { currency }, fetchImpl });
   const providers = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.providers) ? payload.providers : [];
@@ -102,7 +115,7 @@ export async function betnexGamesForCurrency(provider, currency = MONEY_CURRENCY
   return games.filter(item => Number(item?.status) === 1);
 }
 
-function normalizeLaunch(payload) {
+function normalizeLaunch(payload, mode = 'REAL') {
   if (payload?.success === false || payload?.code !== 0) {
     throw new AppError(502, clean(payload?.message || payload?.msg, 180) || 'Betnex menolak sesi game.', 'BETNEX_LAUNCH_REJECTED');
   }
@@ -111,7 +124,15 @@ function normalizeLaunch(payload) {
   try { parsed = new URL(gameUrl); } catch {}
   if (!parsed || parsed.protocol !== 'https:') throw new AppError(502, 'Betnex tidak mengembalikan URL game HTTPS yang valid.', 'BETNEX_LAUNCH_URL_INVALID');
   const expiresIn = Number(payload?.payload?.expires_in || payload?.expires_in);
-  return { gameUrl: parsed.toString(), mode: 'REAL', expiresIn: Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : 60 };
+  return { gameUrl: parsed.toString(), mode, expiresIn: Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : 60 };
+}
+
+export async function launchBetnexDemoGame(member, input = {}, fetchImpl = fetch) {
+  if (!config.betnexDemoEnabled) throw new AppError(503, 'Mode demo Betnex belum diaktifkan.', 'BETNEX_DEMO_DISABLED');
+  if (config.betnexRealMoneyEnabled) throw new AppError(409, 'Mode demo Betnex tidak dapat berjalan bersamaan dengan saldo nyata.', 'BETNEX_DEMO_REAL_MODE_CONFLICT');
+  const body = buildBetnexDemoLaunchRequest(member, input);
+  const payload = await betnexDirectRequest('/casino/getgameurl', { body, fetchImpl });
+  return normalizeLaunch(payload, 'DEMO');
 }
 
 export async function launchBetnexGame(member, input = {}, fetchImpl = fetch, { transaction = tx } = {}) {
@@ -122,7 +143,7 @@ export async function launchBetnexGame(member, input = {}, fetchImpl = fetch, { 
   const body = buildBetnexLaunchRequest(member, input, Number(account.current_balance));
   try {
     const payload = await betnexDirectRequest('/casino/getgameurl', { body, fetchImpl });
-    return normalizeLaunch(payload);
+    return normalizeLaunch(payload, 'REAL');
   } catch (error) {
     if (error instanceof AppError) throw error;
     logger.error('Betnex direct launch request failed', { error: error?.message || 'fetch-failed' });
