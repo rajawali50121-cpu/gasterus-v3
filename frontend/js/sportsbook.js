@@ -1531,7 +1531,8 @@ const MARKET_PERIOD_LABELS = {
 };
 
 function eventMarketPeriods() {
-  return ['FT', '1H'];
+  // HT is temporarily hidden until Sportradar OC Core first-half prices are enabled.
+  return ['FT'];
 }
 const MARKET_PERIOD_TAB_LABELS = {
   FT: 'FT · Babak Penuh',
