@@ -4410,3 +4410,113 @@ body.sb-page.sb-premium .sb-sport-menu .sb-sport-opt.active {
   color: #10284a !important;
 }
 
+
+
+/* 2026-11-21: remove top header and place account controls in the board heading. */
+body.sb-page.sb-premium .sb-header {
+  display: none !important;
+}
+
+body.sb-page.sb-premium .sb-board-heading {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  min-height: 142px;
+  padding: 16px 18px 66px;
+  gap: 12px;
+  box-sizing: border-box;
+}
+
+body.sb-page.sb-premium .sb-board-heading-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+}
+
+body.sb-page.sb-premium .sb-board-heading-main h1,
+body.sb-page.sb-premium .sb-board-heading-main .sb-board-timezone {
+  margin: 0;
+}
+
+body.sb-page.sb-premium .sb-board-heading-main .sb-board-timezone {
+  display: block;
+}
+
+body.sb-page.sb-premium .sb-board-account {
+  position: absolute;
+  right: 18px;
+  bottom: 13px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 8px;
+  max-width: calc(100% - 36px);
+}
+
+body.sb-page.sb-premium .sb-board-account .sb-balance-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  min-width: 0;
+  height: 34px;
+  padding: 4px 10px;
+  box-sizing: border-box;
+  border-radius: 18px;
+  white-space: nowrap;
+}
+
+body.sb-page.sb-premium .sb-board-account .sb-user-avatar {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: auto !important;
+  min-width: 34px !important;
+  max-width: 150px !important;
+  height: 34px !important;
+  padding: 0 11px;
+  box-sizing: border-box;
+  border-radius: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.sb-page.sb-premium .sb-feed-overview {
+  position: relative;
+  clear: both;
+  margin-top: 12px;
+}
+
+@media (max-width: 600px) {
+  body.sb-page.sb-premium .sb-board-heading {
+    min-height: 136px;
+    padding: 13px 12px 62px;
+  }
+
+  body.sb-page.sb-premium .sb-board-account {
+    right: 12px;
+    bottom: 11px;
+    max-width: calc(100% - 24px);
+    gap: 6px;
+  }
+
+  body.sb-page.sb-premium .sb-board-account .sb-balance-box {
+    height: 32px;
+    padding-inline: 7px;
+    font-size: 11px;
+  }
+
+  body.sb-page.sb-premium .sb-board-account .sb-user-avatar {
+    height: 32px !important;
+    max-width: 116px !important;
+    padding-inline: 9px;
+    font-size: 10px;
+  }
+}
