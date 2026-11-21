@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="/css/animations.css?v=20261012-animations-r1">
   <link rel="stylesheet" href="/css/mobile.css?v=20261014-svg-ui-r1">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="/css/pages/sportsbook-v3.css?v=20261121-silver-gold-surfaces-r5">
+  <link rel="stylesheet" href="/css/pages/sportsbook-v3.css?v=20261121-account-heading-r1">
   <meta property="og:title" content="GASTERUS Sportsbook | Pertandingan & Odds">
   <meta property="og:description" content="Jelajahi pertandingan, market, odds, dan betslip GASTERUS Sportsbook.">
   <meta property="og:type" content="website">
@@ -55,36 +55,6 @@
 <body class="sb-page sb-premium">
 
   <script type="module" src="/js/loader-3d.js?v=20260925-1"></script>
-  <!-- Header Top Bar -->
-  <header class="sb-header">
-    <div class="sb-header-inner">
-      <div class="sb-header-left">
-        <button type="button" class="menu-toggle" data-nav-open aria-label="Buka menu" title="Menu"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-        <div class="sb-balance-box" id="header-balance-box">
-          <button type="button" class="sb-eye-icon" id="toggle-balance-vis" title="Sembunyikan saldo" aria-label="Sembunyikan saldo" aria-pressed="false"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#eye"></use></svg></button>
-          <span class="sb-curr">IDR</span>
-          <span class="sb-balance-val" id="header-balance">0.00</span>
-        </div>
-      </div>
-
-      <div class="sb-logo-center">
-        <a href="/index.html">
-          <span class="logo-shine-wrap"><img src="/assets/logo.png?v=20260912-logo-v4" alt="GASTERUS" class="sb-logo-img sb-logo-v2" fetchpriority="high" decoding="async"></span>
-        </a>
-      </div>
-      
-      <div class="sb-header-right">
-        <div class="sb-coin-badge" title="Poin Bonus">
-          <span class="sb-coin-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#coin"></use></svg></span>
-          <span class="sb-coin-val">--</span>
-          <span class="sb-mail-icon" title="Pesan">✉</span>
-        </div>
-        <a href="/member.html" class="sb-user-avatar" id="header-username" title="Profil Member">
-          <span class="sb-avatar-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#user"></use></svg></span>
-        </a>
-      </div>
-    </div>
-  </header>
 
   <!-- Sub-Header: Sport & Mix Parlay -->
   <div class="sb-subheader">
@@ -205,12 +175,22 @@
       <!-- CENTER: Matches & Featured Live -->
       <section class="sb-content">
         <div class="sb-board-heading">
-          <div>
+          <div class="sb-board-heading-main">
             <span class="sb-board-eyebrow">SPORTSBOOK</span>
             <h1>Pertandingan &amp; Odds</h1>
-          </div>
-          <div class="sb-board-heading-right">
             <span class="sb-board-timezone">Waktu pertandingan · WIB</span>
+          </div>
+          <div class="sb-board-account" aria-label="Informasi akun">
+            <div class="sb-balance-box" id="header-balance-box">
+              <button type="button" class="sb-eye-icon" id="toggle-balance-vis" title="Sembunyikan saldo" aria-label="Sembunyikan saldo" aria-pressed="false">
+                <svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#eye"></use></svg>
+              </button>
+              <span class="sb-curr">IDR</span>
+              <span class="sb-balance-val" id="header-balance">0.00</span>
+            </div>
+            <a href="/member.html" class="sb-user-avatar" id="header-username" title="Profil Member" aria-label="Profil Member">
+              <span class="sb-avatar-icon"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#user"></use></svg></span>
+            </a>
           </div>
         </div>
         <div class="sb-feed-overview" id="sb-feed-overview" aria-live="polite">
