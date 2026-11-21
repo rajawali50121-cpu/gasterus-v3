@@ -94,13 +94,32 @@ body.sb-page {
   gap: 12px;
 }
 .menu-toggle {
-  background: none;
-  border: none;
-  color: #ffffff;
-  font-size: 18px;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(180, 207, 237, .28);
+  border-radius: 9px;
+  background: rgba(5, 27, 57, .48);
+  color: #e8f2ff;
   cursor: pointer;
-  padding: 4px;
-  line-height: 1;
+  transition: background .15s ease, border-color .15s ease;
+}
+.menu-toggle:hover,
+.menu-toggle:focus-visible {
+  border-color: rgba(180, 207, 237, .65);
+  background: rgba(35, 76, 122, .72);
+  outline: none;
+}
+.menu-toggle .ui-icon {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
 }
 .sb-balance-box {
   display: inline-flex;
@@ -115,11 +134,37 @@ body.sb-page {
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 .sb-eye-icon {
+  display: inline-flex;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #b9d5f4;
   cursor: pointer;
-  font-size: 13px;
-  opacity: 0.85;
+  opacity: .9;
+  transition: color .15s ease, background .15s ease, opacity .15s ease;
 }
-.sb-eye-icon:hover { opacity: 1; }
+.sb-eye-icon:hover,
+.sb-eye-icon:focus-visible {
+  color: #fff;
+  background: rgba(164, 198, 235, .12);
+  opacity: 1;
+  outline: none;
+}
+.sb-eye-icon .ui-icon {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .sb-curr {
   font-size: 11px;
   color: #93c5fd;
