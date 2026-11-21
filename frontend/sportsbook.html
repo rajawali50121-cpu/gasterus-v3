@@ -17,7 +17,7 @@
   <link rel="stylesheet" href="/css/animations.css?v=20261012-animations-r1">
   <link rel="stylesheet" href="/css/mobile.css?v=20261014-svg-ui-r1">
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="/css/pages/sportsbook-v3.css?v=20261121-sapphire-silver-r4">
+  <link rel="stylesheet" href="/css/pages/sportsbook-v3.css?v=20261121-sapphire-silver-ui-polish-r3">
   <meta property="og:title" content="GASTERUS Sportsbook | Pertandingan & Odds">
   <meta property="og:description" content="Jelajahi pertandingan, market, odds, dan betslip GASTERUS Sportsbook.">
   <meta property="og:type" content="website">
@@ -59,9 +59,9 @@
   <header class="sb-header">
     <div class="sb-header-inner">
       <div class="sb-header-left">
-        <button type="button" class="menu-toggle" data-nav-open aria-label="Menu">☰</button>
+        <button type="button" class="menu-toggle" data-nav-open aria-label="Buka menu" title="Menu"><svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
         <div class="sb-balance-box" id="header-balance-box">
-          <span class="sb-eye-icon" id="toggle-balance-vis" title="Sembunyikan/Tampilkan Saldo">👁</span>
+          <button type="button" class="sb-eye-icon" id="toggle-balance-vis" title="Sembunyikan saldo" aria-label="Sembunyikan saldo" aria-pressed="false"><svg class="ui-icon" aria-hidden="true"><use href="/assets/icons/ui-icons.svg#eye"></use></svg></button>
           <span class="sb-curr">IDR</span>
           <span class="sb-balance-val" id="header-balance">0.00</span>
         </div>
@@ -345,7 +345,7 @@
 
   <noscript><div class="sb-error">Javascript diperlukan untuk menampilkan sportsbook.</div></noscript>
 
-  <script type="module" src="/js/sportsbook.js?v=20261121-ht-hidden-r3"></script>
+  <script type="module" src="/js/sportsbook.js?v=20261121-ui-polish-r3"></script>
 
   <script>
     (function () {
