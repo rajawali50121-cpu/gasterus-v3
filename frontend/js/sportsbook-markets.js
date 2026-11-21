@@ -37,7 +37,11 @@ export function primaryMarketColumns(event, period) {
     TOTALS: ['O', 'U'],
     '1X2': ['1', 'X', '2']
   };
-  const coreTypes = ['HANDICAP', 'TOTALS', '1X2', 'EUROPEAN_HANDICAP'];
+  const coreTypes = ['HANDICAP', 'TOTALS', '1X2'];
+  if (markets.some(market => String(market?.type || '').toUpperCase() === 'EUROPEAN_HANDICAP' &&
+    String(market?.period || 'FT').toUpperCase() === requestedPeriod)) {
+    coreTypes.push('EUROPEAN_HANDICAP');
+  }
   const mappedMarkets = markets
     .filter(market => market && typeof market === 'object' && !Array.isArray(market))
     .map(market => ({
@@ -52,10 +56,8 @@ export function primaryMarketColumns(event, period) {
     .map((market) => {
       const type = String(market.type || '').toUpperCase();
       let selections = Array.isArray(market.selections) ? market.selections : [];
-      // Batasi HANDICAP / TOTALS ke satu line utama agar kartu Over/Under
-      // tidak melebar menjadi belasan kolom sempit yang membuat teks
-      // line & odds saling bertumpuk. Pilih line dengan jumlah pilihan
-      // paling lengkap (prefer 2 arah), lalu line terkecil sebagai main line.
+      // Batasi market multi-line ke satu line utama agar kartu tidak melebar.
+      // Pilih line dengan jumlah outcome berharga paling lengkap, lalu line terkecil.
       if ((type === 'TOTALS' || type === 'HANDICAP' || type === 'EUROPEAN_HANDICAP') && selections.length > expectedOutcomes[type].length) {
         const byLine = new Map();
         for (const selection of selections) {
