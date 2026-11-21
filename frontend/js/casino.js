@@ -75,6 +75,7 @@ function renderProviders() {
 
 async function loadGames(provider) {
   state.gamesProvider = provider;
+  showProviderGames();
   const box = el('casino-games');
   if (box) {
     box.innerHTML = '';
@@ -145,6 +146,12 @@ function renderGames() {
   const box = el('casino-games');
   if (!box) return;
   box.innerHTML = '';
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'casino-chip';
+  back.textContent = '← Kembali ke Provider';
+  back.addEventListener('click', showProviderList);
+  box.appendChild(back);
   if (!state.games.length) {
     const empty = document.createElement('div');
     empty.className = 'casino-empty';
@@ -153,7 +160,7 @@ function renderGames() {
     return;
   }
   const title = document.createElement('h3');
-  title.textContent = state.gamesProvider + ' (' + state.games.length + ')';
+  title.textContent = state.gamesProvider + ' — Pilih Permainan (' + state.games.length + ')';
   box.appendChild(title);
   if (!slotsView) {
     const modeNote = document.createElement('p');
