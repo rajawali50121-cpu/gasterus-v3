@@ -171,7 +171,7 @@ function stablePriceVersion(event, market, selection) {
     selection?.sourceSelectionId || '', selection?.line ?? market?.line ?? '', selection?.odds ?? ''
   ].map(value => String(value ?? '')).join('|')).digest('hex').slice(0, 28);
 }
-function stampPriceVersions(events = [], fetchedAt = Date.now()) {
+export function stampPriceVersions(events = [], fetchedAt = Date.now()) {
   const fallbackUpdatedAt = new Date(fetchedAt).toISOString();
   return events.map(event => ({
     ...event,
@@ -488,7 +488,7 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
   // Validasi odds handicap untuk mencegah odds tidak normal (misal: 1.068 vs 9.196)
   events = validateAllHandicapOdds(events);
   const snapshotFallback = false;
-  const snapshotCapturedAt = renderSnapshot?.generatedAt || null;
+  const snapshotCapturedAt = renderSnapshot?.generatedAt || renderSnapshot?.receivedAt || null;
   await writeProviderLifecycle(nextLifecycle);
   if (!events.length) {
     await recordSportsbookProviderTransitions(transitions, { reason, pricedMarkets: 0, bettableMarkets: 0 });
@@ -511,7 +511,11 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
     retentionSeconds: config.sportsbookMarketLifecycleRetentionSeconds,
     now: fetchedAt
   });
-  events = stampPriceVersions(marketLifecycle.events, fetchedAt);
+  // Missing provider timestamps must inherit the worker snapshot time, never the backend poll time.
+  // Otherwise repeatedly reading one old Redis snapshot would make its odds look freshly priced.
+  const providerSnapshotAt = Date.parse(snapshotCapturedAt || '');
+  const priceTimestampFallback = Number.isFinite(providerSnapshotAt) ? providerSnapshotAt : 0;
+  events = stampPriceVersions(marketLifecycle.events, priceTimestampFallback);
   await writeMarketLifecycle(marketLifecycle.state);
   const mergedPricedMarkets = pricedMarketCount(events);
   const mergedBettableMarkets = bettableMarketCount(events);
