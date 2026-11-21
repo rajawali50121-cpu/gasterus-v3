@@ -1429,17 +1429,28 @@ function scoreText(score) {
 }
 
 function formatLeagueLabel(event, fallback = 'Match') {
-  let league = String(event?.league || fallback).trim();
-  if (/^unclassified competition$/i.test(league)) league = 'Kompetisi belum terklasifikasi';
+  const rawLeague = String(event?.league || '').trim();
   const category = typeof event?.category === 'string'
     ? event.category
     : event?.category?.name || event?.category?.label;
   const country = String(event?.country || category || '').trim();
-  if (!country || !league) return (league || fallback).toLocaleUpperCase();
-  if (league.toLocaleLowerCase().startsWith(`${country.toLocaleLowerCase()} -`)) {
+  const isPlaceholder = !rawLeague || /^(?:unclassified competition|kompetisi belum terklasifikasi|unknown competition|unknown league|n\/a|tba)$/i.test(rawLeague);
+  const league = isPlaceholder ? '' : rawLeague;
+
+  // Keep provider fallback labels out of the match card. The league group is the
+  // single source of league context; generic competitions get a human label.
+  if (!league) {
+    return country
+      ? `KOMPETISI LAINNYA · ${country}`.toLocaleUpperCase()
+      : String(fallback || 'Pertandingan').toLocaleUpperCase();
+  }
+  if (!country) return league.toLocaleUpperCase();
+  const normalizedLeague = league.toLocaleLowerCase();
+  const normalizedCountry = country.toLocaleLowerCase();
+  if (normalizedLeague.startsWith(`${normalizedCountry} -`) || normalizedLeague.startsWith(`${normalizedCountry} ·`)) {
     return league.toLocaleUpperCase();
   }
-  return `${country} - ${league}`.toLocaleUpperCase();
+  return `${country} · ${league}`.toLocaleUpperCase();
 }
 
 function renderQuickOddBtn(e, m, s, label) {
@@ -1691,14 +1702,17 @@ function renderMatch(e) {
     <article class="sb-match-card ${isLive ? 'is-live' : 'is-prematch'}" data-evid="${escapeHtml(e.id)}">
       <div class="sb-match-info">
         <div class="sb-card-banner">
-          ${isLive
-            ? '<span class="sb-match-status is-live"><span></span> LANGSUNG</span>'
-            : `<span class="sb-match-status">${formatKickoffDate(e.startTime)}</span>`}
-        <button type="button" class="sb-banner-refresh" data-refresh-feed title="Segarkan odds">↻</button>
-        ${favBtn}
+          <span class="sb-match-status sb-match-datetime${isLive ? ' is-live' : ''}">
+            ${isLive
+              ? `LANGSUNG · ${escapeHtml(getLiveClockDisplay(e))}`
+              : `${formatKickoffDate(e.startTime)} · ${timeLabel(e.startTime)} WIB`}
+          </span>
+          <div class="sb-match-actions">
+            <button type="button" class="sb-banner-refresh" data-refresh-feed title="Segarkan odds" aria-label="Segarkan odds">↻</button>
+            ${favBtn}
+          </div>
         </div>
         <div class="sb-match-meta-row">
-          <span class="sb-match-league">${escapeHtml(formatLeagueLabel(e))}</span>
           <div class="sb-provider-stack">${providerSummary}</div>
         </div>
         <div class="sb-teams-row">
@@ -1707,16 +1721,12 @@ function renderMatch(e) {
             <span class="sb-team-name">${highlightMatch(home.name || 'TBA')}</span>
             ${isLive ? `<span class="sb-team-score">${escapeHtml(scoreText(home.score))}</span>` : ''}
           </div>
+          <span class="sb-team-vs" aria-hidden="true">VS</span>
           <div class="sb-team-col away ${isAwayFav ? 'is-fav' : ''}">
             ${away.logo ? `<img class="sb-team-logo" src="${escapeHtml(away.logo)}" alt="" width="20" height="20" loading="lazy" decoding="async" onerror="this.remove()">` : ''}
             <span class="sb-team-name">${highlightMatch(away.name || 'TBA')}</span>
             ${isLive ? `<span class="sb-team-score">${escapeHtml(scoreText(away.score))}</span>` : ''}
           </div>
-        </div>
-        <div class="sb-score-col">
-          ${isLive
-            ? `<span class="sb-match-live-clock" data-live-clock-id="${escapeHtml(e.id)}">${escapeHtml(getLiveClockDisplay(e))}</span>`
-            : `<span class="sb-match-kickoff">${timeLabel(e.startTime)} WIB</span>`}
         </div>
       </div>
 
@@ -1741,14 +1751,14 @@ function renderMatch(e) {
         <button type="button" class="sb-accordion-top-tab sb-detail-markets-toggle"
           data-toggle-event-markets="${escapeHtml(e.id)}" data-market-count="${marketsCount}"
           aria-expanded="${marketsPanelOpen ? 'true' : 'false'}">
-          ${marketsPanelOpen ? 'Tutup semua pasar' : 'Semua pasar'} · ${fmt(marketsCount)}
+          ${marketsPanelOpen ? 'Tutup semua pasar' : 'Lihat semua pasar'} (${fmt(marketsCount)})
         </button>
         <div class="sb-detail-markets" id="event-markets-${escapeHtml(e.id)}"${marketsPanelOpen ? '' : ' hidden'}>
           ${marketsPanelOpen
             ? detailIsCurrent
               ? renderAllEventMarkets(eventDetail.event)
               : pendingEventDetails.has(e.id)
-                ? '<div class="sb-detail-markets-status">Memuat semua odds…</div>'
+                ? '<div class="sb-detail-markets-status is-loading" role="status" aria-live="polite">Memuat semua odds…</div>'
                 : '<div class="sb-detail-markets-status">Buka untuk memuat semua odds pertandingan.</div>'
             : ''}
         </div>
@@ -1756,7 +1766,6 @@ function renderMatch(e) {
 
       <div class="sb-card-footer">
         <span class="sb-market-help">${isLive ? 'Pertandingan langsung' : 'Pilih odds untuk menambahkan ke betslip'}</span>
-        <span class="sb-match-quick-time">${isLive ? escapeHtml(getLiveClockDisplay(e)) : `${formatKickoffDate(e.startTime)} · ${timeLabel(e.startTime)} WIB`}</span>
       </div>
 
     </article>
@@ -1866,7 +1875,7 @@ async function toggleEventMarkets(eventId) {
     const button = panel?.closest('.sb-match-card')?.querySelector('[data-toggle-event-markets]');
     if (button) {
       button.setAttribute('aria-expanded', 'false');
-      button.textContent = `Semua pasar${button.dataset.marketCount ? ` · ${fmt(button.dataset.marketCount)}` : ''}`;
+      button.textContent = `Lihat semua pasar${button.dataset.marketCount ? ` (${fmt(button.dataset.marketCount)})` : ''}`;
     }
     return;
   }
@@ -1877,12 +1886,12 @@ async function toggleEventMarkets(eventId) {
     const detail = eventDetails.get(eventId);
     panel.innerHTML = detail?.revision === String(feed.source?.feedRevision || '')
       ? renderAllEventMarkets(detail.event)
-      : '<div class="sb-detail-markets-status">Memuat semua odds…</div>';
+      : '<div class="sb-detail-markets-status is-loading" role="status" aria-live="polite">Memuat semua odds…</div>';
   }
   const button = panel?.closest('.sb-match-card')?.querySelector('[data-toggle-event-markets]');
   if (button) {
     button.setAttribute('aria-expanded', 'true');
-    button.textContent = `Tutup semua pasar${button.dataset.marketCount ? ` · ${fmt(button.dataset.marketCount)}` : ''}`;
+    button.textContent = `Tutup semua pasar${button.dataset.marketCount ? ` (${fmt(button.dataset.marketCount)})` : ''}`;
   }
   await loadEventMarkets(eventId);
 }
@@ -1899,7 +1908,7 @@ async function loadEventMarkets(eventId, { force = false, notify = true } = {}) 
   const panel = el(`event-markets-${eventId}`);
   if (panel && expandedEventMarkets.has(eventId)) {
     panel.hidden = false;
-    panel.innerHTML = '<div class="sb-detail-markets-status">Memuat semua odds…</div>';
+    panel.innerHTML = '<div class="sb-detail-markets-status is-loading" role="status" aria-live="polite">Memuat semua odds…</div>';
   }
 
   const request = (async () => {
