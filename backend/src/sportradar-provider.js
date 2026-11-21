@@ -196,7 +196,7 @@ function marketIdNumber(value) {
 }
 const MARKET_TYPE_BY_ID = new Map([
   [1, '1X2'], [10, 'DOUBLE_CHANCE'], [11, 'DRAW_NO_BET'],
-  [14, 'HANDICAP'], [16, 'HANDICAP'], [18, 'TOTALS'],
+  [14, 'EUROPEAN_HANDICAP'], [16, 'HANDICAP'], [18, 'TOTALS'],
   [26, 'OTHER'], [29, 'BTTS'], [45, 'CORRECT_SCORE'],
   [60, '1X2'], [64, 'DRAW_NO_BET'],
   [66, 'HANDICAP'], [68, 'TOTALS'], [69, 'TEAM_TOTAL'], [70, 'TEAM_TOTAL']
@@ -394,6 +394,7 @@ function normalizeOdds(event, raw) {
         isLive: market.is_live === true,
         updatedAt: null,
         source: PROVIDER, sourceMarketId: marketId, sourceMarketName: marketName,
+        displayLabel: type === 'EUROPEAN_HANDICAP' ? 'European Handicap (3-Way)' : marketName,
         sourceBookId: book?.id || null,
         externalMarketId: book?.external_market_id || null,
         externalSportEventId: book?.external_sport_event_id || null,
