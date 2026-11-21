@@ -3725,3 +3725,171 @@ body.sb-page {
 .sb-premium .sb-odd-cell .sb-cell-line.kei-positive {
   color: #2563eb !important;
 }
+
+
+/* GASTERUS SAPPHIRE + POLISHED SILVER 3D SPORTSBOOK THEME */
+.sb-premium {
+  --sb-bg: #061a3d;
+  --sb-panel: #0b2b5b;
+  --sb-panel-raised: #103b78;
+  --sb-border: #28558b;
+  --sb-text: #f3f7ff;
+  --sb-muted: #b5c9e8;
+  --sb-gold: #dce5f0;
+  --sb-green: #27784c;
+  color: var(--sb-text) !important;
+  background:
+    radial-gradient(ellipse at 50% -18%, rgba(45,111,201,.42), transparent 58%),
+    linear-gradient(145deg, #061633 0%, #082653 48%, #04132e 100%) !important;
+}
+html:has(body.sb-premium),
+body.sb-page,
+body.sb-premium {
+  background: #061a3d !important;
+}
+.sb-premium .sb-main,
+.sb-premium .sb-content,
+.sb-premium .sb-events {
+  background: transparent !important;
+}
+.sb-premium .sb-header,
+.sb-premium .sb-subheader,
+.sb-premium .sb-category-bar,
+.sb-premium .sb-action-bar {
+  background: linear-gradient(180deg, #123d78 0%, #082653 100%) !important;
+  border-color: #35669e !important;
+}
+.sb-premium .sb-feed-overview,
+.sb-premium .sb-sidebar,
+.sb-premium .sb-betslip,
+.sb-premium .sb-league-group,
+.sb-premium .sb-match-card,
+.sb-premium .sb-market-card {
+  background: linear-gradient(155deg, #10366c 0%, #092653 58%, #071d42 100%) !important;
+  border-color: #37649a !important;
+  box-shadow: 0 8px 22px rgba(0, 8, 28, .34), inset 0 1px rgba(255,255,255,.09) !important;
+}
+.sb-premium .sb-match-info,
+.sb-premium .sb-match-card:hover,
+.sb-premium .sb-market-card-title,
+.sb-premium .sb-match-status,
+.sb-premium .sb-market-period-tabs,
+.sb-premium .sb-betslip-tabs,
+.sb-premium .sb-bottom-nav,
+.sb-premium .sb-provider-chip {
+  background: linear-gradient(180deg, #17477f 0%, #0b2b58 100%) !important;
+  border-color: #3a6da5 !important;
+}
+.sb-premium .sb-board-heading h1,
+.sb-premium .sb-board-eyebrow,
+.sb-premium .sb-market-card-title,
+.sb-premium .sb-match-status,
+.sb-premium .sb-bs-tab.active,
+.sb-premium .sb-slip-tab.active {
+  color: #e5ebf3 !important;
+  text-shadow: 0 1px 0 #fff, 0 2px 3px rgba(0,0,0,.72), 0 0 12px rgba(224,235,249,.22) !important;
+}
+.sb-premium .sb-board-timezone,
+.sb-premium .sb-match-date,
+.sb-premium .sb-match-kickoff,
+.sb-premium .sb-market-outcome-label,
+.sb-premium .sb-card-footer,
+.sb-premium .sb-feed-overview span {
+  color: #c1d3ec !important;
+}
+.sb-premium .sb-odd-cell,
+.sb-premium .sb-quick-odd-btn,
+.sb-premium .sb-premium .sb-quick-odd-btn {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #7f9fca !important;
+  border-radius: 7px !important;
+  color: #f4f8ff !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.38) 0%, rgba(255,255,255,.08) 15%, transparent 34%),
+    linear-gradient(180deg, #4776ad 0%, #28558d 38%, #123765 72%, #0b2850 100%) !important;
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,.72),
+    inset 0 -3px 5px rgba(0,0,0,.42),
+    0 3px 0 #04172f,
+    0 5px 10px rgba(0,0,0,.38) !important;
+  text-shadow: 0 1px 1px rgba(0,0,0,.8), 0 0 8px rgba(255,255,255,.18) !important;
+  transform: translateY(0);
+  transition: transform .14s ease, filter .14s ease, box-shadow .14s ease;
+}
+.sb-premium .sb-odd-cell::before,
+.sb-premium .sb-quick-odd-btn::before {
+  content: "";
+  position: absolute;
+  inset: 1px 1px auto;
+  height: 42%;
+  border-radius: 5px 5px 45% 45%;
+  background: linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,0));
+  pointer-events: none;
+}
+.sb-premium .sb-odd-cell:hover:not(.disabled):not(.locked),
+.sb-premium .sb-quick-odd-btn:hover:not(:disabled) {
+  filter: brightness(1.2);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.8), inset 0 -3px 5px rgba(0,0,0,.35), 0 4px 0 #04172f, 0 8px 14px rgba(0,0,0,.42) !important;
+}
+.sb-premium .sb-odd-cell.chosen {
+  border-color: #f1f5fa !important;
+  background: linear-gradient(180deg, #8ba6c8 0%, #54779f 45%, #284b76 100%) !important;
+  box-shadow: inset 0 1px 2px #fff, 0 0 0 2px rgba(226,237,250,.5), 0 4px 0 #04172f !important;
+}
+.sb-premium .sb-cell-odds {
+  position: relative;
+  z-index: 1;
+  color: #ffffff !important;
+  font-weight: 950 !important;
+  font-size: 16px;
+  letter-spacing: .02em;
+  -webkit-text-stroke: .25px rgba(255,255,255,.45);
+  text-shadow: 0 1px 0 #9fb8d6, 0 2px 0 #35577e, 0 3px 2px rgba(0,0,0,.9), 0 0 10px rgba(255,255,255,.3) !important;
+}
+.sb-premium .sb-cell-line {
+  position: relative;
+  z-index: 1;
+  color: #e0e9f5 !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,.8);
+}
+.sb-premium .sb-board-heading h1 {
+  color: #e4eaf2 !important;
+  background: linear-gradient(180deg, #ffffff 0%, #e1e8f1 38%, #8c9daf 58%, #f5f8fc 76%, #9aa9bb 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.7));
+}
+.sb-premium .sb-odd-cell .sb-cell-line.kei-negative,
+.sb-premium .sb-quick-odd-btn .sb-cell-line.kei-negative { color: #ff777d !important; }
+.sb-premium .sb-odd-cell .sb-cell-line.kei-positive,
+.sb-premium .sb-quick-odd-btn .sb-cell-line.kei-positive { color: #83bdff !important; }
+.sb-premium .sb-market-period-tab,
+.sb-premium .sb-cat-tab,
+.sb-premium .sb-btn-action {
+  color: #e5edf8 !important;
+  background: linear-gradient(180deg, #28558b, #103463) !important;
+  border-color: #6f91ba !important;
+  box-shadow: inset 0 1px rgba(255,255,255,.24), 0 2px 4px rgba(0,0,0,.3);
+}
+.sb-premium .sb-market-period-tab.active,
+.sb-premium .sb-market-period-tab[data-match-period="FT"].active {
+  color: #fff !important;
+  background: linear-gradient(180deg, #91a7c2, #506a89 52%, #263f5d) !important;
+  border-color: #e2eaf4 !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.8), 0 2px 6px rgba(0,0,0,.45) !important;
+}
+.sb-premium input,
+.sb-premium select,
+.sb-premium .sb-search-wrap input {
+  color: #f4f8ff !important;
+  background: #09244b !important;
+  border-color: #5279a7 !important;
+}
+.sb-premium input::placeholder { color: #a9bfdc !important; }
+@media (prefers-reduced-motion: reduce) {
+  .sb-premium .sb-odd-cell,
+  .sb-premium .sb-quick-odd-btn { transition: none; }
+}
