@@ -29,6 +29,12 @@ function renderFilters(categories) {
 }
 
 function showProviderList() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('provider');
+  window.location.assign(url.href);
+}
+
+function restoreProviderListView() {
   for (const id of ['casino-toolbar', 'casino-filters', 'casino-grid']) {
     const node = el(id);
     if (node) node.hidden = false;
@@ -68,7 +74,11 @@ function renderProviders() {
     card.querySelector('.casino-code').textContent = p.code;
     card.querySelector('.casino-cat').textContent = categoryLabel(p.category);
     card.title = p.name;
-    card.onclick = () => loadGames(p.code);
+    card.onclick = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('provider', p.code);
+      window.location.assign(url.href);
+    };
     grid.appendChild(card);
   }
 }
@@ -236,6 +246,11 @@ async function init() {
     state.categories = [...new Set(state.providers.map((provider) => provider.category))].sort();
     renderFilters(state.categories);
     renderProviders();
+    const selectedProvider = new URLSearchParams(window.location.search).get('provider');
+    if (selectedProvider) {
+      const match = state.providers.find((provider) => provider.code.toLowerCase() === selectedProvider.toLowerCase());
+      if (match) await loadGames(match.code);
+    }
     if (statusBox) statusBox.textContent = 'Terhubung: ' + state.providers.length + (slotsView ? ' provider Slot' : ' provider Casino') + (state.launchMode === 'REAL_NOT_CONFIGURED' ? ' · saldo game belum dikonfigurasi' : '');
   } catch (e) {
     if (statusBox) statusBox.textContent = (slotsView ? 'Slot' : 'Casino') + ' belum tersedia: ' + (e.message || 'error');
