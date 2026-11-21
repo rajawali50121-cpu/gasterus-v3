@@ -293,7 +293,7 @@ function handicapSpecifier(market) {
     : typeof specifiers === 'string'
       ? specifiers.match(/(?:^|[,;])\s*hcp=([^,;]+)/i)?.[1]
       : null;
-  return number(raw);
+  return raw == null ? null : String(raw).trim() || null;
 }
 
 function selectionLabel(outcome, event, type) {
@@ -374,11 +374,14 @@ function normalizeOdds(event, raw) {
         const normalizedOutcomeType = documentedOutcomeType || String(outcome.type || '').toLowerCase() || null;
         const normalizedOutcome = documentedOutcomeType ? { ...outcome, type: documentedOutcomeType } : outcome;
         const label = selectionLabel(normalizedOutcome, event, type);
-        const line = number(outcome.handicap ?? outcome.spread ?? outcome.total ?? (type === 'EUROPEAN_HANDICAP' ? handicapSpecifier(market) : null));
+        const documentedHcp = type === 'EUROPEAN_HANDICAP' ? handicapSpecifier(market) : null;
+        const rawLine = outcome.handicap ?? outcome.spread ?? outcome.total ?? documentedHcp;
+        const line = number(rawLine);
+        const handicapLine = type === 'EUROPEAN_HANDICAP' && rawLine != null ? String(rawLine).trim() : null;
         const sourceSelectionId = String(outcome.id || outcome.external_outcome_id || `${marketId}-${book?.id || 'book'}-${index}`);
         return {
-          key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? ''),
-          label, odds, line,
+          key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? handicapLine ?? ''),
+          label, odds, line, handicapLine,
           suspended: Boolean(bookRemoved || outcomeRemoved || market.is_live === true),
           removed: outcomeRemoved,
           outcomeType: normalizedOutcomeType,
