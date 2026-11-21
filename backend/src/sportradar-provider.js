@@ -198,11 +198,11 @@ const MARKET_TYPE_BY_ID = new Map([
   [1, '1X2'], [10, 'DOUBLE_CHANCE'], [11, 'DRAW_NO_BET'],
   [14, 'HANDICAP'], [16, 'HANDICAP'], [18, 'TOTALS'],
   [26, 'OTHER'], [29, 'BTTS'], [45, 'CORRECT_SCORE'],
-  [47, 'HT_FT'], [60, '1X2'], [64, 'DRAW_NO_BET'],
+  [60, '1X2'], [64, 'DRAW_NO_BET'],
   [66, 'HANDICAP'], [68, 'TOTALS'], [69, 'TEAM_TOTAL'], [70, 'TEAM_TOTAL']
 ]);
 const MARKET_PERIOD_BY_ID = new Map([
-  [47, 'HT_FT'], [60, '1H'], [64, '1H'], [66, '1H'],
+  [60, '1H'], [64, '1H'], [66, '1H'],
   [68, '1H'], [69, '1H'], [70, '1H'],
   [83, '2H'], [231, '2H'], [232, '2H'], [293, '2H'], [294, '2H']
 ]);
