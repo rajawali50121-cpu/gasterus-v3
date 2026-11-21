@@ -4086,9 +4086,10 @@ body.sb-page.sb-premium .sb-match-status.sb-match-datetime {
   font-weight: 700 !important;
   line-height: 1.4 !important;
   letter-spacing: .01em !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere !important;
 }
 body.sb-page.sb-premium .sb-match-status.sb-match-datetime.is-live {
   color: #ff969b !important;
