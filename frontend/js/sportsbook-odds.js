@@ -23,7 +23,7 @@ export function oddsColorClass(direction, marketType, decimalOdds, format = 'DEC
     if (value < 0) return 'odds-red';
   }
   if (format === 'HONG_KONG') return 'odds-blue';
-  return ['HANDICAP', 'TOTALS', '1X2'].includes(String(marketType || '').toUpperCase())
+  return ['HANDICAP', 'EUROPEAN_HANDICAP', 'TOTALS', '1X2'].includes(String(marketType || '').toUpperCase())
     ? 'odds-black'
     : 'odds-blue';
 }
