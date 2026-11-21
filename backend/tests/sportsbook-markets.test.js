@@ -26,7 +26,7 @@ test('primary market columns show live FT markets in sportsbook order with mappe
     ]
   }, 'FT');
 
-  assert.deepEqual(result.map((market) => market.title), ['Asian Handicap', 'Over / Under', '1X2']);
+  assert.deepEqual(result.map((market) => market.title), ['Asian Handicap', 'Over / Under', '1X2', 'European Handicap (3-Way)']);
   assert.deepEqual(result.slice(0, 3).map((market) => market.outcomes.map(([label]) => label)), [
     ['1', '2'], ['O', 'U'], ['1', 'X', '2']
   ]);
@@ -40,11 +40,13 @@ test('primary market columns retain suspended state and provide non-selectable u
     { type: 'HANDICAP', period: '1H', selections: [{ key: 'home', odds: 2 }] },
     { type: 'TOTALS', period: 'FT', selections: [] }
   ] }, 'FT');
-  assert.deepEqual(result.map(item => item.type), ['HANDICAP', 'TOTALS', '1X2']);
+  assert.deepEqual(result.map(item => item.type), ['HANDICAP', 'TOTALS', '1X2', 'EUROPEAN_HANDICAP']);
   assert.equal(result[0].market, null);
   assert.equal(result[1].market.type, 'TOTALS');
   assert.equal(result[1].market.selections.length, 0);
   assert.equal(result[2].market.suspended, true);
+  assert.equal(result[3].market, null);
+  assert.deepEqual(result[3].outcomes.map(([label, selection]) => [label, selection]), [['1', null], ['X', null], ['2', null]]);
   assert.deepEqual(result[0].outcomes.map(([label, selection]) => [label, selection]), [['1', null], ['2', null]]);
   assert.deepEqual(result[1].outcomes.map(([label, selection]) => [label, selection]), [['O', null], ['U', null]]);
 });
