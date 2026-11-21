@@ -1603,7 +1603,7 @@ function renderOddCell(e, m, s, lineOverride) {
   
   const lineVal = lineOverride != null ? lineOverride : (s.line ?? m.line);
   const lineFormatted = lineVal != null
-    ? (String(m.type || '').toUpperCase() === 'HANDICAP'
+    ? (['HANDICAP', 'EUROPEAN_HANDICAP'].includes(String(m.type || '').toUpperCase())
         ? (Number(lineVal) > 0 ? `+${Number(lineVal).toFixed(2)}` : Number(lineVal).toFixed(2))
         : Number(lineVal).toFixed(2))
     : '';
