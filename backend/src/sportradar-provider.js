@@ -387,14 +387,13 @@ function normalizeOdds(event, raw) {
       const bookmaker = book ? clean(book.name || book.id || 'Unknown bookmaker', 160) : null;
       markets.push({
         id: hash('market', event.id, marketId, marketName, book?.id || bookmaker || ''),
-        key: marketId, type, label: marketName, period,
+        key: marketId, type, label: type === 'EUROPEAN_HANDICAP' ? 'European Handicap (3-Way)' : marketName, period,
         line: selections[0]?.line ?? null,
         suspended: Boolean(bookRemoved || market.is_live === true),
         removed: bookRemoved,
         isLive: market.is_live === true,
         updatedAt: null,
         source: PROVIDER, sourceMarketId: marketId, sourceMarketName: marketName,
-        displayLabel: type === 'EUROPEAN_HANDICAP' ? 'European Handicap (3-Way)' : marketName,
         sourceBookId: book?.id || null,
         externalMarketId: book?.external_market_id || null,
         externalSportEventId: book?.external_sport_event_id || null,
