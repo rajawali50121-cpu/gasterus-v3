@@ -202,7 +202,7 @@ test('Sportradar classifies generic market names from documented market IDs befo
       { id: 'd60', type: 'draw', odds_decimal: '3.20' },
       { id: 'a60', type: 'away', odds_decimal: '3.80' }
     ] }] },
-    { id: 'sr:market:66', name: 'handicap', books: [{ id: 'b1', outcomes: [
+    { id: 'sr:market:66', name: 'handicap', period: 'match', books: [{ id: 'b1', outcomes: [
       { id: 'h66', type: 'home', odds_decimal: '1.91', handicap: '-0.5' },
       { id: 'a66', type: 'away', odds_decimal: '1.91', handicap: '+0.5' }
     ] }] },
