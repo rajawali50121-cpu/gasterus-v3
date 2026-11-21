@@ -64,6 +64,7 @@ test('Sportradar member projection preserves bookmaker and strips provider ident
       suspended: false,
       source: 'sportradar',
       sourceSelectionId: 'sr:outcome:1',
+      outcomeType: 'draw',
       updatedAt: '2026-11-17T10:00:00.000Z'
     }]
   }]);
@@ -74,6 +75,7 @@ test('Sportradar member projection preserves bookmaker and strips provider ident
   assert.equal('updatedAt' in projected[0], false);
   assert.equal('source' in projected[0].selections[0], false);
   assert.equal('sourceSelectionId' in projected[0].selections[0], false);
+  assert.equal(projected[0].selections[0].outcomeType, 'draw');
 });
 
 test('Sportradar detail preserves useful price metadata but strips raw provider payloads', () => {
@@ -337,7 +339,7 @@ test('detailed markets are refreshed by feed revision and stale odds cannot plac
 });
 
 test('event cards render six stable primary market slots and keep additional markets in All Markets', () => {
-  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js\?v=\d+-market-integrity-r2'/);
+  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js\?v=\d+-european-handicap-r1'/);
   assert.match(frontend, /function eventMarketPeriods\(\)/);
   assert.match(frontend, /data-match-period=/);
   assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);
