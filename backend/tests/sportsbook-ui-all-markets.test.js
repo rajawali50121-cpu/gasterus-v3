@@ -396,14 +396,14 @@ test('sportsbook event list renders bounded pages and accessible league accordio
   assert.match(frontend, /leagueHead\.setAttribute\('aria-expanded', String\(!collapsed\)\)/);
 });
 
-test('sportsbook league labels include payload country and remain responsive on mobile', () => {
+test('sportsbook league labels are normalized once at group level and remain responsive', () => {
   const styles = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
   assert.match(frontend, /function formatLeagueLabel\(event, fallback = 'Match'\)/);
   assert.match(frontend, /const country = String\(event\?\.country \|\| category \|\| ''\)\.trim\(\)/);
+  assert.match(frontend, /Kompetisi lainnya/);
   assert.match(frontend, /formatLeagueLabel\(e, 'Live Match'\)/);
-  assert.match(frontend, /sb-match-league">\$\{escapeHtml\(formatLeagueLabel\(e\)\)\}<\/span>/);
+  assert.doesNotMatch(frontend, /sb-match-league">\$\{escapeHtml\(formatLeagueLabel\(e\)\)\}<\/span>/);
   assert.match(frontend, /const lg = formatLeagueLabel\(e, 'Liga Internasional'\)/);
-  assert.match(styles, /\.sb-match-league\s*\{[^}]*min-width: 0;[^}]*flex: 1 1 auto;[^}]*overflow-wrap: anywhere/);
   assert.match(styles, /\.sb-league-title\s*\{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere/);
   assert.match(styles, /\.sb-live-league-label\s*\{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere/);
   assert.match(styles, /@media \(max-width: 860px\)[\s\S]*?\.sb-match-card\s*\{[\s\S]*grid-template-columns: minmax\(0, 1fr\)/);
@@ -503,10 +503,25 @@ test('primary Asian Handicap slot selects a complete priced line from multi-line
   assert.equal(Math.abs(handicap.outcomes[0][1].line), Math.abs(handicap.outcomes[1][1].line));
 });
 
-test('mobile sportsbook CSS forces full-width cards and a two-column compact period switcher', () => {
-  assert.match(responsiveCss, /\.sb-premium \.sb-market-period-tabs\s*\{[^}]*display:\s*grid/s);
+test('mobile sportsbook CSS keeps the period switcher compact and cards full width', () => {
+  assert.match(responsiveCss, /body\.sb-page\.sb-premium \.sb-market-period-tabs\s*\{[^}]*display:\s*flex/s);
   assert.match(responsiveCss, /\.sb-premium \.sb-main\s*\{[^}]*width:\s*100%/s);
   assert.match(frontend, /MARKET_PERIOD_TAB_LABELS/);
   assert.match(responsiveCss, /\.sb-premium \.sb-slip-sheet\s*\{[^}]*max-height:\s*min\(72dvh,600px\)/s);
   assert.match(responsiveCss, /\.sb-premium \.sb-slip-sheet-body\s*\{[^}]*overflow-y:\s*auto/s);
+});
+
+
+test('sportsbook UI polish protects header text, match hierarchy, market controls and odds readability', () => {
+  const styles = readFileSync(new URL('../../frontend/css/pages/sportsbook-v3.css', import.meta.url), 'utf8');
+  assert.match(frontend, /class="sb-match-actions"/);
+  assert.match(frontend, /class="sb-team-vs"/);
+  assert.match(frontend, /Lihat semua pasar/);
+  assert.match(frontend, /Tutup semua pasar/);
+  assert.match(frontend, /sb-detail-markets-status is-loading/);
+  assert.match(styles, /#header-username\.sb-user-avatar[\s\S]*?text-overflow:\s*ellipsis/);
+  assert.match(styles, /\.sb-header-inner\s*\{[^}]*padding-right:\s*12px/);
+  assert.match(styles, /\.sb-odd-cell[\s\S]*?box-shadow:\s*none\s*!important/);
+  assert.match(styles, /kei-negative[\s\S]*?color:\s*#ff737d/i);
+  assert.match(styles, /font-variant-numeric:\s*tabular-nums/);
 });
