@@ -339,7 +339,7 @@ test('detailed markets are refreshed by feed revision and stale odds cannot plac
 });
 
 test('event cards render six stable primary market slots and keep additional markets in All Markets', () => {
-  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js\?v=\d+-sportradar-handicap-r2'/);
+  assert.match(frontend, /import \{[^}]*primaryMarketColumns[^}]*\} from '\.\/sportsbook-markets\.js\?v=\d+-sportradar-handicap-r3'/);
   assert.match(frontend, /function eventMarketPeriods\(\)/);
   assert.match(frontend, /data-match-period=/);
   assert.match(frontend, /const activeMarkets = primaryMarketColumns\(e, activePeriod\)/);
