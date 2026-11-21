@@ -19,11 +19,12 @@ function scoreForPeriod(leg, event) {
 
 function selectedSide(leg) {
   const label = text(leg.selection_label);
+  const tokens = label.split(/[^a-z0-9]+/).filter(Boolean);
   const home = text(leg.home_team);
   const away = text(leg.away_team);
-  if (label === '1' || label === 'home' || label === home || label.includes(home)) return 'HOME';
-  if (label === '2' || label === 'away' || label === away || label.includes(away)) return 'AWAY';
-  if (label === 'x' || label === 'draw' || label.includes('seri')) return 'DRAW';
+  if (label === 'x' || tokens.includes('draw') || label.includes('seri')) return 'DRAW';
+  if (label === '1' || tokens.includes('home') || label === home || (home && label.includes(home))) return 'HOME';
+  if (label === '2' || tokens.includes('away') || label === away || (away && label.includes(away))) return 'AWAY';
   return null;
 }
 
@@ -107,6 +108,12 @@ export function evaluateSportsbookLeg(leg, event) {
     const components = quarterSplit(line).map(component => handicapComponent(selected, opponent, component));
     const status = combineSplitResults(components);
     return result(status, `${score} · ${side} ${line >= 0 ? '+' : ''}${line}`);
+  }
+  if (type === 'EUROPEAN_HANDICAP') {
+    if (!side || line === null) return result('VOID', `European Handicap tidak dapat dihitung · ${score}`);
+    const adjustedHome = home + line;
+    const actual = adjustedHome > away ? 'HOME' : adjustedHome < away ? 'AWAY' : 'DRAW';
+    return result(side === actual ? 'WON' : 'LOST', `${score} · European Handicap ${line >= 0 ? '+' : ''}${line}`);
   }
   if (type === 'TOTALS') {
     if (line === null) return result('VOID', `Garis total tidak tersedia · ${score}`);
