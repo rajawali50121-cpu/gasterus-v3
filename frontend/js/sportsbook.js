@@ -13,7 +13,7 @@
 import api from './api.js';
 import auth from './auth.js';
 import { formatRupiah, showToast, escapeHtml } from './utils.js';
-import { primaryMarketColumns, selectMarketPeriod } from './sportsbook-markets.js?v=20261120-market-integrity-r2';
+import { primaryMarketColumns, selectMarketPeriod } from './sportsbook-markets.js?v=20261121-european-handicap-r1';
 import { chooseCombinations, systemBetMetrics } from './sportsbook-slip-calculation.js';
 import { formatOdds, oddsColorClass } from './sportsbook-odds.js';
 import {
@@ -1603,7 +1603,7 @@ function renderOddCell(e, m, s, lineOverride) {
   
   const lineVal = lineOverride != null ? lineOverride : (s.line ?? m.line);
   const lineFormatted = lineVal != null
-    ? (String(m.type || '').toUpperCase() === 'HANDICAP'
+    ? (['HANDICAP', 'EUROPEAN_HANDICAP'].includes(String(m.type || '').toUpperCase())
         ? (Number(lineVal) > 0 ? `+${Number(lineVal).toFixed(2)}` : Number(lineVal).toFixed(2))
         : Number(lineVal).toFixed(2))
     : '';
@@ -1650,12 +1650,17 @@ function renderMarketColumns(e, markets) {
         <section class="sb-market-card">
           <h3 class="sb-market-card-title">${escapeHtml(item.title)}</h3>
           <div class="sb-market-outcomes" style="--outcome-count:${Math.max(1, item.outcomes.length)}">
-            ${item.outcomes.map(([label, selection]) => `
+            ${item.outcomes.map(([label, selection]) => {
+            const displayLabel = item.type === 'EUROPEAN_HANDICAP'
+              ? ({ '1': 'HOME', X: 'DRAW', '2': 'AWAY' })[label] || label
+              : label;
+            return `
               <div class="sb-market-outcome">
-                <span class="sb-market-outcome-label">${escapeHtml(label)}</span>
+                <span class="sb-market-outcome-label">${escapeHtml(displayLabel)}</span>
               ${renderOddCell(e, item.market, selection)}
               </div>
-            `).join('')}
+            `;
+          }).join('')}
           </div>
         </section>
       `).join('')}
@@ -1782,7 +1787,8 @@ function renderAllEventMarkets(event) {
   const periods = [...new Set(markets.map(market => String(market.period || 'FT').toUpperCase()))];
   const typeLabels = {
     '1X2': '1X2',
-    HANDICAP: 'Handicap',
+    HANDICAP: 'Asian Handicap (2-Way)',
+    EUROPEAN_HANDICAP: 'European Handicap (3-Way)',
     TOTALS: 'Total Gol',
     BTTS: 'Kedua Tim Cetak Gol',
     DOUBLE_CHANCE: 'Double Chance',
@@ -1833,7 +1839,7 @@ function renderAllEventMarkets(event) {
       data-market-period="${escapeHtml(String(market.period || 'FT').toUpperCase())}"
       data-market-category="${escapeHtml(String(market.type || 'OTHER').toUpperCase())}">
       <h4 class="sb-detail-market-heading">
-        <span>${escapeHtml(market.label || market.type || 'Pasar')}</span>
+        <span>${escapeHtml(typeLabels[String(market.type || 'OTHER').toUpperCase()] || market.label || market.type || 'Pasar')}</span>
         <span>${escapeHtml(periodLabel(String(market.period || 'FT').toUpperCase()))}${market.line !== null && market.line !== undefined ? ` · ${escapeHtml(String(market.line))}` : ''}</span>
       </h4>
       <div class="sb-accordion-grid">

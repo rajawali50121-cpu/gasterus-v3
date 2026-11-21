@@ -33,6 +33,14 @@ test('auto settlement evaluates core football markets', () => {
   assert.equal(evaluateSportsbookLeg(leg('CORRECT_SCORE', '2-1'), event).status, 'WON');
 });
 
+test('European Handicap settles Home, Draw and Away after applying the goal line', () => {
+  const drawAtMinusOne = { ...event, home: { score: 2 }, away: { score: 1 } };
+  assert.equal(evaluateSportsbookLeg(leg('EUROPEAN_HANDICAP', 'Home -1', -1), drawAtMinusOne).status, 'LOST');
+  assert.equal(evaluateSportsbookLeg(leg('EUROPEAN_HANDICAP', 'Draw -1', -1), drawAtMinusOne).status, 'WON');
+  assert.equal(evaluateSportsbookLeg(leg('EUROPEAN_HANDICAP', 'Away -1', -1), drawAtMinusOne).status, 'LOST');
+  assert.equal(evaluateSportsbookLeg(leg('EUROPEAN_HANDICAP', 'Home +1', 1), drawAtMinusOne).status, 'WON');
+});
+
 test('unsupported markets are safely voided', () => {
   assert.equal(evaluateSportsbookLeg(leg('PLAYER_PROPS', 'Player A'), event).status, 'VOID');
 });
