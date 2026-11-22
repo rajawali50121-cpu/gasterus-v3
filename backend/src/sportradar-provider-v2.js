@@ -129,13 +129,42 @@ async function requestJson(path, params = {}) {
       const body = clean(await response.text().catch(() => ''), 200);
       throw new Error(`Sportradar HTTP ${response.status} at ${url.pathname}: ${body}`);
     }
-    return { data: await response.json(), headers: response.headers };
+    const data = await response.json();
+    return {
+      data,
+      headers: response.headers,
+      status: response.status,
+      responseMeta: {
+        contentType: response.headers?.get?.('content-type') || null,
+        originId: response.headers?.get?.('x-origin-id') || null,
+        result: response.headers?.get?.('x-result') || null,
+        maxResults: response.headers?.get?.('x-max-results') || null
+      }
+    };
   } finally {
     clearTimeout(timeout);
   }
 }
 function responseItems(data) {
   return Array.isArray(data?.sport_event_markets) ? data.sport_event_markets : null;
+}
+function safePayloadShape(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { payloadType: Array.isArray(data) ? 'array' : typeof data };
+  }
+  return {
+    topLevelKeys: Object.keys(data).slice(0, 24),
+    arrays: Object.entries(data)
+      .filter(([, value]) => Array.isArray(value))
+      .slice(0, 12)
+      .map(([key, value]) => ({
+        key,
+        count: value.length,
+        firstItemKeys: value[0] && typeof value[0] === 'object' && !Array.isArray(value[0])
+          ? Object.keys(value[0]).slice(0, 20)
+          : []
+      }))
+  };
 }
 async function discoverCoverage() {
   if (discoveryCache.value && discoveryCache.expiresAt > Date.now()) return discoveryCache.value;
@@ -207,13 +236,23 @@ async function fullDailySync(coverage, daysAhead) {
     for (const date of utcDates(daysAhead)) {
       let start = 0;
       while (true) {
-        const { data, headers } = await requestJson(
+        const { data, headers, status, responseMeta } = await requestJson(
           `sports/${sport.id}/schedules/${date}/sport_event_markets.json`,
           { start, limit: PAGE_SIZE, live: false }
         );
         diagnostics.pagesFetched += 1;
         const items = responseItems(data);
-        if (!items) throw new Error('Daily Sport Event Markets payload is missing sport_event_markets; refusing incomplete sync.');
+        if (!items) {
+          const payloadDiagnostics = {
+            feed: 'daily-sport-event-markets',
+            httpStatus: status ?? null,
+            ...responseMeta,
+            payload: safePayloadShape(data)
+          };
+          const error = new Error('Daily Sport Event Markets response shape does not match the documented sport_event_markets array; refusing incomplete sync.');
+          error.diagnostics = payloadDiagnostics;
+          throw error;
+        }
         if (!parseDate(data.generated_at)) throw new Error('Daily Sport Event Markets payload is missing a valid generated_at timestamp.');
         const total = Number(headers?.get?.('x-max-results'));
         const pageCount = Number(headers?.get?.('x-result'));
@@ -347,6 +386,6 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
 }
 
 export const __sportradarV2 = {
-  utcDates, responseItems, buildEvent,
+  utcDates, responseItems, safePayloadShape, buildEvent,
   setRedisClientForTests(client) { redisClient = client; discoveryCache.value = null; discoveryCache.expiresAt = 0; }
 };
