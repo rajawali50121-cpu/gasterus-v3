@@ -18,7 +18,7 @@ const {
   sportsbookRenderIntervalSeconds
 } = await import('../src/sportsbook-render-worker-core.js');
 const { validateSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
-const { __sportradarNormalizer } = await import('../src/sportradar-provider.js');
+const { __sportradarNormalizer } = await import('../src/sportradar-normalizer.js');
 const { __sportradarV2 } = await import('../src/sportradar-provider-v2.js');
 
 const NOW = Date.UTC(2026, 10, 19, 0, 0, 0);
