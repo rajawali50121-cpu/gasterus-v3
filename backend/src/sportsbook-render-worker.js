@@ -163,6 +163,14 @@ while (!shutdown.signal.aborted) {
     }));
     consecutiveCycleFailures = 0;
   } catch (error) {
+    if (error?.code === 'SPORTRADAR_CYCLE_ALREADY_RUNNING') {
+      console.info(JSON.stringify({
+        service: 'sportsbook-render-worker',
+        event: 'snapshot-skipped-duplicate',
+        message: error.message
+      }));
+      nextDelayMs = intervalMs;
+    } else {
     consecutiveCycleFailures += 1;
     lastCycleRateLimited = /Sportradar rate limited \(HTTP 429/i.test(error?.message || String(error));
     lastFailureRetryAt = Date.now();
@@ -186,6 +194,7 @@ while (!shutdown.signal.aborted) {
       cycleDurationMs: Date.now() - cycleStartedAt,
       retryInMs: nextDelayMs
     }));
+    }
   }
   if (cronOnce) {
     // Preserve the last accepted snapshot and let the next scheduled run retry a provider 429.
