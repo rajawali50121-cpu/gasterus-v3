@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { marketType, periodFromMarket, __sportradarNormalizer } from '../src/sportradar-provider.js';
+import { marketType, periodFromMarket, __sportradarNormalizer } from '../src/sportradar-normalizer.js';
 
 test('generic Sportradar handicap with multiple two-way line outcomes stays Asian Handicap', () => {
   assert.equal(marketType('handicap', 6, false), 'HANDICAP');
