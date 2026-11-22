@@ -116,12 +116,14 @@ function installFullSyncFetch({ secondDateEmpty = true } = {}) {
     }
     throw new Error(`Unexpected endpoint: ${url.pathname}`);
   };
+  calls.requestHeaders = requestHeaders;
   return calls;
 }
 
 test('full sync follows documented v2 discovery and daily market paths, preserving book/outcome data and timestamps', async () => {
   installRedis();
   const calls = installFullSyncFetch();
+  const requestHeaders = calls.requestHeaders;
   const result = await fetchSportradarV2({ daysAhead: 1 });
   assert.equal(result.provider, 'sportradar');
   assert.equal(result.enabled, true);
