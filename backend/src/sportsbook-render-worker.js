@@ -171,29 +171,29 @@ while (!shutdown.signal.aborted) {
       }));
       nextDelayMs = Math.max(intervalMs, 60 * 60 * 1000);
     } else {
-    consecutiveCycleFailures += 1;
-    lastCycleRateLimited = /Sportradar rate limited \(HTTP 429/i.test(error?.message || String(error));
-    lastFailureRetryAt = Date.now();
-    const retryCeilingMs = Math.max(
-      intervalMs,
-      Math.min(300_000, config.sportsbookIngestMaxAgeSeconds * 500)
-    );
-    // In daily mode failed/quota-limited runs retry hourly (within quota gate in fetchers), without overwriting stored data.
-    nextDelayMs = config.sportsbookDailyRefreshEnabled !== false && !cronOnce
-      ? 60 * 60 * 1000
-      : Math.min(retryCeilingMs, intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6)));
-    console.error(JSON.stringify({
-      service: 'sportsbook-render-worker',
-      event: lastCycleRateLimited && cronOnce ? 'snapshot-deferred-rate-limit' : 'snapshot-failed',
-      failureClass: lastCycleRateLimited
-        ? (/Limit Exceeded/i.test(error?.message || String(error)) ? 'provider-limit-exceeded' : 'provider-rate-limit')
-        : 'worker-error',
-      message: error?.message || String(error),
-      ...(error?.diagnostics ? { diagnostics: error.diagnostics } : {}),
-      consecutiveFailures: consecutiveCycleFailures,
-      cycleDurationMs: Date.now() - cycleStartedAt,
-      retryInMs: nextDelayMs
-    }));
+      consecutiveCycleFailures += 1;
+      lastCycleRateLimited = /Sportradar rate limited \(HTTP 429/i.test(error?.message || String(error));
+      lastFailureRetryAt = Date.now();
+      const retryCeilingMs = Math.max(
+        intervalMs,
+        Math.min(300_000, config.sportsbookIngestMaxAgeSeconds * 500)
+      );
+      // In daily mode failed/quota-limited runs retry hourly (within quota gate in fetchers), without overwriting stored data.
+      nextDelayMs = config.sportsbookDailyRefreshEnabled !== false && !cronOnce
+        ? 60 * 60 * 1000
+        : Math.min(retryCeilingMs, intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6)));
+      console.error(JSON.stringify({
+        service: 'sportsbook-render-worker',
+        event: lastCycleRateLimited && cronOnce ? 'snapshot-deferred-rate-limit' : 'snapshot-failed',
+        failureClass: lastCycleRateLimited
+          ? (/Limit Exceeded/i.test(error?.message || String(error)) ? 'provider-limit-exceeded' : 'provider-rate-limit')
+          : 'worker-error',
+        message: error?.message || String(error),
+        ...(error?.diagnostics ? { diagnostics: error.diagnostics } : {}),
+        consecutiveFailures: consecutiveCycleFailures,
+        cycleDurationMs: Date.now() - cycleStartedAt,
+        retryInMs: nextDelayMs
+      }));
     }
   }
   if (cronOnce) {
