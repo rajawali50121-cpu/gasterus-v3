@@ -211,7 +211,7 @@ function normalizeOdds(event, raw) {
     }
     // Capture a tiny, sanitized sample for the documented handicap markets only.
     // Never log full provider payloads, credentials, headers, or bookmaker names.
-    if ([14, 16].includes(marketIdNumber(marketId)) && diagnostics.outcomeSamples.length < 2 && !diagnostics.outcomeSamples.some(sample => sample.marketId === marketId)) {
+    if ((type === 'HANDICAP' || type === 'EUROPEAN_HANDICAP') && diagnostics.outcomeSamples.length < 2 && !diagnostics.outcomeSamples.some(sample => sample.marketId === marketId)) {
       const sampleBook = books.find(candidate => Array.isArray(candidate?.outcomes) && candidate.outcomes.length);
       if (sampleBook) {
         diagnostics.outcomeSamples.push({
