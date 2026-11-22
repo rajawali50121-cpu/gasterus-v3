@@ -32,6 +32,9 @@ test('v2 adapter discovers books/sports/competition coverage then consumes docum
     if (url.pathname.includes('/sport_event_markets.json')) {
       assert.equal(url.pathname, `/oddscomparison-prematch/trial/v2/en/sports/sr:sport:1/schedules/${eventDate}/sport_event_markets.json`);
       assert.equal(url.searchParams.get('limit'), '50');
+      if (url.pathname.includes(`/${__sportradarV2.utcDates(1)[1]}/`)) {
+        return new Response(JSON.stringify({ sport_event_markets: [] }), { status: 200, headers: { 'x-max-results': '0' } });
+      }
       const item = {
         sport_event: {
           id: 'sr:sport_event:fixture-1',
