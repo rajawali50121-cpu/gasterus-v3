@@ -98,7 +98,7 @@ async function fetchJson(url, maxRetries = 3) {
     } catch (error) {
       lastError = error;
       if (error?.code === 'SPORTRADAR_QUOTA_EXCEEDED') throw error;
-      if (attempt < maxRetries && !/^Sportradar rate limited \\(HTTP 429/i.test(error?.message || String(error))) {
+      if (attempt < maxRetries && !String(error?.message || String(error)).startsWith('Sportradar rate limited (HTTP 429')) {
         await new Promise(resolve => setTimeout(resolve, Math.min(10000, 1000 * (attempt + 1))));
       }
     } finally {
