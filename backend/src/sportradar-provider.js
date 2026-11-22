@@ -42,6 +42,12 @@ local baselineAt = tonumber(redis.call('GET', KEYS[4]) or '0')
 if tonumber(ARGV[1]) - baselineAt >= 2592000000 then baseline = 0 end
 local used = redis.call('ZCARD', KEYS[1]) + baseline
 if used >= tonumber(ARGV[2]) then return -1 end
+local hourly = redis.call('INCR', KEYS[5])
+if hourly == 1 then redis.call('EXPIRE', KEYS[5], 7200) end
+if hourly > tonumber(ARGV[6]) then
+  redis.call('DECR', KEYS[5])
+  return -2
+end
 redis.call('ZADD', KEYS[1], ARGV[1], ARGV[5])
 redis.call('PEXPIRE', KEYS[1], 2628000000)
 return used + 1
@@ -71,12 +77,17 @@ async function reserveSharedRollingCall() {
   const prefix = providerRedisPrefix();
   const now = Date.now();
   const result = Number(await redis.eval(ROLLING_BUDGET_LUA, {
-    keys: [`${prefix}:rolling-30d`, `${prefix}:rolling-30d:initialized`, `${prefix}:rolling-30d:baseline`, `${prefix}:rolling-30d:baseline-at`],
-    arguments: [String(now), String(limit), String(initialUsage), String(ROLLING_WINDOW_MS), randomUUID()]
+    keys: [`${prefix}:rolling-30d`, `${prefix}:rolling-30d:initialized`, `${prefix}:rolling-30d:baseline`, `${prefix}:rolling-30d:baseline-at`, `${prefix}:hourly:${Math.floor(now / 3600000)}`],
+    arguments: [String(now), String(limit), String(initialUsage), String(ROLLING_WINDOW_MS), randomUUID(), String(config.sportradarMaxCallsPerHour)]
   }));
-  if (result < 0) {
+  if (result === -1) {
     const error = new Error(`Sportradar rolling 30-day request budget exhausted (limit=${limit}); provider request was blocked before transmission.`);
     error.code = 'SPORTRADAR_ROLLING_QUOTA_GUARD';
+    throw error;
+  }
+  if (result === -2) {
+    const error = new Error(`Sportradar shared hourly request budget exhausted (limit=${config.sportradarMaxCallsPerHour}); provider request was blocked before transmission.`);
+    error.code = 'SPORTRADAR_HOURLY_BUDGET_GUARD';
     throw error;
   }
 }
