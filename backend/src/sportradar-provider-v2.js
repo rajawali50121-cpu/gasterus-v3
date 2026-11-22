@@ -73,10 +73,8 @@ function responseItems(data) {
 }
 async function discoverCoverage() {
   if (discoveryCache.value && discoveryCache.expiresAt > Date.now()) return discoveryCache.value;
-  const [sportsResponse, booksResponse] = await Promise.all([
-    requestJson('sports.json'),
-    requestJson('books.json')
-  ]);
+  const sportsResponse = await requestJson('sports.json');
+  const booksResponse = await requestJson('books.json');
   const sports = Array.isArray(sportsResponse.data?.sports) ? sportsResponse.data.sports : [];
   const books = Array.isArray(booksResponse.data?.books) ? booksResponse.data.books : [];
   if (!sports.length) throw new Error('Sportradar sports discovery returned no sports.');
@@ -146,9 +144,6 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
         diagnostics.eventsSeen += items.length;
         for (const item of items) {
           const rawEvent = item?.sport_event;
-          const normalized = __sportradarNormalizer.normalizeOdds
-            ? null
-            : null;
           if (!rawEvent?.id) {
             diagnostics.eventsSkipped.missing_sport_event = (diagnostics.eventsSkipped.missing_sport_event || 0) + 1;
             continue;
