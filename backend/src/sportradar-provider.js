@@ -46,12 +46,6 @@ redis.call('ZADD', KEYS[1], ARGV[1], ARGV[5])
 redis.call('PEXPIRE', KEYS[1], 2628000000)
 return used + 1
 `;
-const RELEASE_LOCK_LUA = `
-if redis.call('GET', KEYS[1]) == ARGV[1] then
-  return redis.call('DEL', KEYS[1])
-end
-return 0
-`;
 function providerRedisPrefix() {
   const fingerprint = createHash('sha256').update(`${baseUrl()}|${apiKey()}`).digest('hex').slice(0, 24);
   return `gasterus:sportradar:${fingerprint}`;
@@ -685,15 +679,13 @@ export async function fetchSportradar(options = {}) {
   await connectRedis();
   const key = `${providerRedisPrefix()}:cycle-lock`;
   const token = randomUUID();
-  const acquired = await redis.set(key, token, { NX: true, PX: 20 * 60 * 1000 });
+  // Hold the lease for one hour, not just while the process is running. This
+  // prevents overlapping/restarted workers from repeating a full API pull.
+  const acquired = await redis.set(key, token, { NX: true, PX: 60 * 60 * 1000 });
   if (!acquired) {
-    const error = new Error('A Sportradar ingestion cycle is already running for this API key; duplicate cycle skipped.');
+    const error = new Error('A Sportradar ingestion cycle already claimed this hourly window; duplicate cycle skipped.');
     error.code = 'SPORTRADAR_CYCLE_ALREADY_RUNNING';
     throw error;
   }
-  try {
-    return await fetchSportradarUnlocked(options);
-  } finally {
-    await redis.eval(RELEASE_LOCK_LUA, { keys: [key], arguments: [token] }).catch(() => {});
-  }
+  return fetchSportradarUnlocked(options);
 }
