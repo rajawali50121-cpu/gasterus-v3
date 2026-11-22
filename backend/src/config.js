@@ -47,13 +47,7 @@ export const config = Object.freeze({
   // remains governed separately by sportsbookIngestMaxAgeSeconds.
   sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 14400, 180, 604800),
   sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
-  sportsbookDailyRefreshHourWib: int('SPORTSBOOK_DAILY_REFRESH_HOUR_WIB', 0, 0, 23),
-  sportsbookDailyRefreshMinuteWib: int('SPORTSBOOK_DAILY_REFRESH_MINUTE_WIB', 5, 0, 59),
   sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 7, 1, 365),
-  // No artificial event/page caps: pagination is exhausted to the last page
-  // returned by the API. Zero = unlimited (API quota is the only real ceiling).
-  sportsbookRenderMaxEvents: unboundedInt('SPORTSBOOK_RENDER_MAX_EVENTS', 0, 0),
-  sportsbookRenderMaxPages: unboundedInt('SPORTSBOOK_RENDER_MAX_PAGES', 0, 0),
   memberSessionTtl: int('MEMBER_SESSION_TTL_SECONDS', 43200, 900, 604800),
   ownerSessionTtl: int('OWNER_SESSION_TTL_SECONDS', 900, 900, 86400), // R6.94: 15-minute admin session (idle refresh)
   highValueThreshold: int('HIGH_VALUE_APPROVAL_THRESHOLD', 1000000, 10000, 200000000),
