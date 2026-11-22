@@ -1,15 +1,25 @@
+import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
 import { __sportradarNormalizer } from './sportradar-provider.js';
+import { connectRedis, redis } from './redis.js';
 import { logger } from './logger.js';
 
 const PROVIDER = 'sportradar';
 const PAGE_SIZE = 50;
+const STATE_KEY = 'sportsbook:sportradar:v2:state';
+const LEASE_KEY = 'sportsbook:sportradar:v2:lease';
+const BASELINE_KEY = 'sportsbook:sportradar:v2:quota:baseline';
+const ROLLING_KEY = 'sportsbook:sportradar:v2:quota:rolling';
+const HOURLY_KEY = 'sportsbook:sportradar:v2:quota:hourly';
+const QPS_KEY = 'sportsbook:sportradar:v2:quota:qps';
+const STATE_TTL_SECONDS = 48 * 60 * 60;
+const LEASE_TTL_MS = 10 * 60 * 1000;
 const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
 const discoveryCache = { value: null, expiresAt: 0 };
-const requestState = { hourStart: 0, calls: 0, lastCallAt: 0 };
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function clean(value, max = 160) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(value ?? '').replace(/\\s+/g, ' ').trim().slice(0, max);
 }
 function dateKey(date) { return date.toISOString().slice(0, 10); }
 function utcDates(daysAhead, now = new Date()) {
@@ -20,22 +30,68 @@ function utcDates(daysAhead, now = new Date()) {
   }
   return dates;
 }
-function baseUrl() { return String(config.sportradarBaseUrl).replace(/\/+$/, ''); }
-function resetHour(now = Date.now()) {
-  if (!requestState.hourStart || now - requestState.hourStart >= 3600000) {
-    requestState.hourStart = now;
-    requestState.calls = 0;
+function baseUrl() { return String(config.sportradarBaseUrl).replace(/\\/+$/, ''); }
+function parseDate(value) {
+  const parsed = Date.parse(value || '');
+  return Number.isFinite(parsed) ? parsed : null;
+}
+async function ensureRedis() {
+  if (!config.redisUrl) throw new Error('REDIS_URL is required for shared Sportradar state and quota protection.');
+  if (!redis.isOpen) await connectRedis();
+}
+async function acquireLease() {
+  const token = randomUUID();
+  const result = await redis.set(LEASE_KEY, token, { NX: true, PX: LEASE_TTL_MS });
+  if (result !== 'OK') throw new Error('Another Sportradar worker owns the shared sync lease; this cycle was skipped.');
+  return token;
+}
+async function releaseLease(token) {
+  await redis.eval(
+    "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+    { keys: [LEASE_KEY], arguments: [token] }
+  );
+}
+async function reserveRequest() {
+  const monthlyLimit = Number(config.sportradarMaxCallsPer30Days || 0);
+  const initialUsage = Number(config.sportradarInitial30DayUsage || 0);
+  const hourlyLimit = Number(config.sportradarMaxCallsPerHour || 0);
+  if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1) {
+    throw new Error('SPORTRADAR_MAX_CALLS_PER_30_DAYS must be configured to the contracted quota before provider requests are allowed.');
   }
+  if (!Number.isSafeInteger(initialUsage) || initialUsage < 0 || initialUsage > monthlyLimit) {
+    throw new Error('SPORTRADAR_INITIAL_30_DAY_USAGE must be set to the current rolling usage and cannot exceed the contracted quota.');
+  }
+  await redis.set(BASELINE_KEY, String(initialUsage), { NX: true, EX: 30 * 24 * 60 * 60 });
+  const minInterval = Math.max(100, Number(config.sportradarMinIntervalMs || 1100));
+  const script = `
+    local baseline = tonumber(redis.call('GET', KEYS[1]) or '0')
+    local monthly = redis.call('ZCARD', KEYS[2])
+    local hourly = redis.call('ZCARD', KEYS[3])
+    if baseline + monthly >= tonumber(ARGV[1]) then return -1 end
+    if tonumber(ARGV[2]) > 0 and hourly >= tonumber(ARGV[2]) then return -2 end
+    if redis.call('SET', KEYS[4], ARGV[3], 'NX', 'PX', ARGV[4]) == false then return 0 end
+    redis.call('ZADD', KEYS[2], ARGV[5], ARGV[3])
+    redis.call('EXPIRE', KEYS[2], 2592000)
+    redis.call('ZADD', KEYS[3], ARGV[5], ARGV[3])
+    redis.call('EXPIRE', KEYS[3], 3600)
+    return 1
+  `;
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const now = Date.now();
+    const token = `${now}:${randomUUID()}`;
+    const result = Number(await redis.eval(script, {
+      keys: [BASELINE_KEY, ROLLING_KEY, HOURLY_KEY, QPS_KEY],
+      arguments: [String(monthlyLimit), String(hourlyLimit), token, String(minInterval), String(now)]
+    }));
+    if (result === 1) return;
+    if (result === -1) throw new Error('Sportradar rolling 30-day quota exhausted; sync stopped without publishing partial data.');
+    if (result === -2) throw new Error('Sportradar hourly request quota exhausted; sync stopped without publishing partial data.');
+    await wait(result === 0 ? Math.min(minInterval, 500) : 250);
+  }
+  throw new Error('Sportradar shared QPS gate remained busy; this cycle was skipped.');
 }
 async function requestJson(path, params = {}) {
-  resetHour();
-  const maxCalls = Number(config.sportradarMaxCallsPerHour || 0);
-  if (maxCalls > 0 && requestState.calls >= maxCalls) {
-    throw new Error('Sportradar hourly request budget exhausted; incomplete sync rejected.');
-  }
-  const minInterval = Math.max(100, Number(config.sportradarMinIntervalMs || 1100));
-  const wait = minInterval - (Date.now() - requestState.lastCallAt);
-  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+  await reserveRequest();
   const url = new URL(path, baseUrl() + '/');
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
@@ -43,8 +99,6 @@ async function requestJson(path, params = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), Number(config.sportradarRequestTimeoutMs || 30000));
   try {
-    requestState.lastCallAt = Date.now();
-    requestState.calls += 1;
     const response = await fetch(url, {
       headers: { 'x-api-key': config.sportradarApiKey, accept: 'application/json' },
       signal: controller.signal
@@ -54,6 +108,11 @@ async function requestJson(path, params = {}) {
       const body = clean(await response.text().catch(() => ''), 160);
       const error = new Error(`Sportradar HTTP 429; retry-after=${retryAfter || 'not-provided'}; ${body}`);
       error.code = 'SPORTRADAR_LIMIT_EXCEEDED';
+      throw error;
+    }
+    if (response.status === 404) {
+      const error = new Error(`Sportradar event/feed not found: ${url.pathname}`);
+      error.status = 404;
       throw error;
     }
     if (!response.ok) {
@@ -66,10 +125,7 @@ async function requestJson(path, params = {}) {
   }
 }
 function responseItems(data) {
-  for (const key of ['sport_event_markets', 'sport_schedule_sport_event_markets', 'schedules']) {
-    if (Array.isArray(data?.[key])) return data[key];
-  }
-  return null;
+  return Array.isArray(data?.sport_event_markets) ? data.sport_event_markets : null;
 }
 async function discoverCoverage() {
   if (discoveryCache.value && discoveryCache.expiresAt > Date.now()) return discoveryCache.value;
@@ -77,141 +133,182 @@ async function discoverCoverage() {
   const booksResponse = await requestJson('books.json');
   const sports = Array.isArray(sportsResponse.data?.sports) ? sportsResponse.data.sports : [];
   const books = Array.isArray(booksResponse.data?.books) ? booksResponse.data.books : [];
-  if (!sports.length) throw new Error('Sportradar sports discovery returned no sports.');
-  if (!books.length) throw new Error('Sportradar books discovery returned no configured bookmakers.');
+  if (!sports.length) throw new Error('Sportradar sports.json returned no sports.');
+  if (!books.length) throw new Error('Sportradar books.json returned no configured bookmakers.');
   const requested = String(config.sportradarSportIds || 'sr:sport:1').split(',').map(x => x.trim()).filter(Boolean);
   const selected = requested.includes('*') ? sports : sports.filter(s => requested.includes(String(s.id)));
   const missing = requested.filter(id => id !== '*' && !sports.some(s => String(s.id) === id));
-  if (missing.length) throw new Error(`Configured Sportradar sport IDs not present in sports.json: ${missing.join(', ')}`);
+  if (missing.length) throw new Error(`Configured sport IDs absent from sports.json: ${missing.join(', ')}`);
   if (!selected.length) throw new Error('No configured Sportradar sports were discovered.');
-
   const covered = [];
   for (const sport of selected) {
-    if (String(sport.type || '').toLowerCase() !== 'competition') {
+    if (String(sport.type).toLowerCase() === 'stage') {
       covered.push(sport);
       continue;
     }
-    const competitionResponse = await requestJson(`sports/${sport.id}/competitions.json`);
-    const competitions = Array.isArray(competitionResponse.data?.competitions) ? competitionResponse.data.competitions : [];
-    if (competitions.some(competition => competition.markets === true)) covered.push(sport);
+    const response = await requestJson(`sports/${sport.id}/competitions.json`);
+    const competitions = Array.isArray(response.data?.competitions) ? response.data.competitions : [];
+    if (competitions.some(item => item.markets === true)) covered.push(sport);
   }
-  const result = { sports: covered, books, sportsGeneratedAt: sportsResponse.data?.generated_at || null, booksGeneratedAt: booksResponse.data?.generated_at || null };
+  if (!covered.length) throw new Error('No configured sport has prematch markets=true coverage.');
+  const result = { sports: covered, books };
   discoveryCache.value = result;
   discoveryCache.expiresAt = Date.now() + DISCOVERY_TTL_MS;
   return result;
 }
-
-export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead } = {}) {
-  if (!config.sportradarEnabled) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_ENABLED=false'] };
-  if (!config.sportradarApiKey) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_API_KEY is not configured'] };
-
-  const coverage = await discoverCoverage();
-  const dates = utcDates(daysAhead);
-  const eventsById = new Map();
-  const diagnostics = {
-    apiVersion: 'oddscomparison-prematch-v2',
-    discovery: { sports: coverage.sports.length, configuredBooks: coverage.books.length },
-    datesRequested: dates.length,
-    pagesFetched: 0,
-    eventsSeen: 0,
-    eventsAccepted: 0,
-    eventsSkipped: {},
-    booksDiscovered: coverage.books.length,
-    generatedAt: null,
-    requestCount: 0
+function buildEvent(rawEvent, item, sport, generatedAt) {
+  if (!rawEvent?.id) return null;
+  const status = __sportradarNormalizer.normalizedEventStatus(rawEvent.status);
+  const event = {
+    id: String(rawEvent.id), provider: PROVIDER, providerId: String(rawEvent.id),
+    sport: clean(sport.name || sport.id, 40), sportId: sport.id,
+    league: clean(rawEvent.sport_event_context?.competition?.name || rawEvent.sport_event_context?.tournament?.name || 'Unclassified competition', 120),
+    country: clean(rawEvent.sport_event_context?.category?.country || '', 80) || null,
+    startTime: rawEvent.start_time, status, state: status, live: status === 'LIVE',
+    providerStatus: rawEvent.status || 'unknown', replacedBy: rawEvent.replaced_by || null,
+    startTimeConfirmed: rawEvent.start_time_confirmed ?? null, resumeTime: rawEvent.resume_time || null,
+    sourceData: { sportEvent: rawEvent, sportEventContext: rawEvent.sport_event_context || null, generatedAt },
+    clock: null, home: { name: 'TBD', score: null, logo: null }, away: { name: 'TBD', score: null, logo: null },
+    homeScore: null, awayScore: null, markets: [],
+    _refs: { [PROVIDER]: String(rawEvent.id) }, _sources: [PROVIDER]
   };
-
+  for (const competitor of Array.isArray(rawEvent.competitors) ? rawEvent.competitors : []) {
+    const name = clean(competitor?.name, 120);
+    if (!name) continue;
+    if (String(competitor.qualifier).toLowerCase() === 'home') event.home.name = name;
+    if (String(competitor.qualifier).toLowerCase() === 'away') event.away.name = name;
+  }
+  const normalized = __sportradarNormalizer.normalizeOdds(event, item);
+  event.markets = normalized.markets;
+  return event;
+}
+async function fullDailySync(coverage, daysAhead) {
+  const events = new Map();
+  const diagnostics = { fullSync: true, pagesFetched: 0, eventsSeen: 0, booksDiscovered: coverage.books.length };
   for (const sport of coverage.sports) {
-    for (const date of dates) {
+    for (const date of utcDates(daysAhead)) {
       let start = 0;
       while (true) {
         const { data, headers } = await requestJson(
-          `sports/${encodeURIComponent(sport.id)}/schedules/${date}/sport_event_markets.json`,
-          { start, limit: PAGE_SIZE }
+          `sports/${sport.id}/schedules/${date}/sport_event_markets.json`,
+          { start, limit: PAGE_SIZE, live: false }
         );
         diagnostics.pagesFetched += 1;
-        diagnostics.generatedAt = data?.generated_at || diagnostics.generatedAt;
         const items = responseItems(data);
-        if (!items) throw new Error('Sportradar Daily Sport Event Markets response has no documented event-market collection; sync rejected.');
-        const maxHeader = headers?.get?.('x-max-results');
-        const maxResults = maxHeader === null || maxHeader === undefined ? null : Number(maxHeader);
-        if (!items.length) {
-          if (Number.isFinite(maxResults) && start < maxResults) {
-            throw new Error(`Sportradar pagination incomplete at offset ${start}; X-Max-Results=${maxResults}.`);
-          }
-          break;
-        }
+        if (!items) throw new Error('Daily Sport Event Markets payload is missing sport_event_markets; refusing incomplete sync.');
+        const total = Number(headers?.get?.('x-max-results'));
+        const pageCount = Number(headers?.get?.('x-result'));
         diagnostics.eventsSeen += items.length;
         for (const item of items) {
-          const rawEvent = item?.sport_event;
-          if (!rawEvent?.id) {
-            diagnostics.eventsSkipped.missing_sport_event = (diagnostics.eventsSkipped.missing_sport_event || 0) + 1;
-            continue;
-          }
-          const event = {
-            id: String(rawEvent.id),
-            provider: PROVIDER,
-            providerId: String(rawEvent.id),
-            sport: clean(sport.name || sport.id, 40),
-            sportId: sport.id,
-            league: clean(rawEvent.sport_event_context?.competition?.name || rawEvent.sport_event_context?.tournament?.name || 'Unclassified competition', 120),
-            country: clean(rawEvent.sport_event_context?.category?.country || '', 80) || null,
-            startTime: rawEvent.start_time,
-            status: __sportradarNormalizer.normalizedEventStatus(rawEvent.status),
-            state: __sportradarNormalizer.normalizedEventStatus(rawEvent.status),
-            live: false,
-            providerStatus: rawEvent.status || 'unknown',
-            replacedBy: rawEvent.replaced_by || null,
-            startTimeConfirmed: rawEvent.start_time_confirmed ?? null,
-            resumeTime: rawEvent.resume_time || null,
-            sourceData: { sportEvent: rawEvent, sportEventContext: rawEvent.sport_event_context || null, sport, generatedAt: data.generated_at || null },
-            clock: null,
-            home: { name: 'TBD', score: null, logo: null },
-            away: { name: 'TBD', score: null, logo: null },
-            homeScore: null,
-            awayScore: null,
-            markets: [],
-            _refs: { [PROVIDER]: String(rawEvent.id) },
-            _sources: [PROVIDER]
-          };
-          const competitors = Array.isArray(rawEvent.competitors) ? rawEvent.competitors : [];
-          for (const competitor of competitors) {
-            const name = clean(competitor?.name, 120);
-            if (!name) continue;
-            if (String(competitor.qualifier).toLowerCase() === 'home') event.home.name = name;
-            if (String(competitor.qualifier).toLowerCase() === 'away') event.away.name = name;
-          }
-          const normalizedOdds = __sportradarNormalizer.normalizeOdds(event, item);
-          event.markets = normalizedOdds.markets;
-          const previous = eventsById.get(event.id);
-          if (previous) {
-            diagnostics.eventsSkipped.duplicate_event_id = (diagnostics.eventsSkipped.duplicate_event_id || 0) + 1;
-            // Daily feed can overlap adjacent UTC dates. Merge distinct market instances, never duplicate by market ID alone.
-            const keys = new Set(previous.markets.map(m => m.id));
-            previous.markets.push(...event.markets.filter(m => !keys.has(m.id)));
-          } else {
-            eventsById.set(event.id, event);
-          }
+          const event = buildEvent(item.sport_event, item, sport, data.generated_at);
+          if (!event) continue;
+          events.set(event.id, event);
         }
+        if (Number.isFinite(total) && Number.isFinite(pageCount)) {
+          if (pageCount !== items.length) throw new Error('Sportradar X-Result does not match response item count.');
+          if (start + pageCount >= total) break;
+          if (pageCount === 0) throw new Error('Sportradar pagination stalled before X-Max-Results.');
+          start += pageCount;
+          continue;
+        }
+        if (items.length < PAGE_SIZE) break;
         start += items.length;
-        if (Number.isFinite(maxResults) && start >= maxResults) break;
-        if (!Number.isFinite(maxResults) && items.length < PAGE_SIZE) break;
       }
     }
   }
-
-  const events = [...eventsById.values()];
-  diagnostics.eventsAccepted = events.length;
-  diagnostics.requestCount = requestState.calls;
-  if (events.length === 0) throw new Error('Sportradar Daily Sport Event Markets returned zero events across configured sports/dates; previous snapshot must remain untouched.');
-  logger.info('Sportradar v2 daily markets sync completed', {
-    events: events.length,
-    sports: coverage.sports.length,
-    dates: dates.length,
-    pages: diagnostics.pagesFetched,
-    booksDiscovered: coverage.books.length
-  });
-  return { provider: PROVIDER, enabled: true, events, errors: [], transportOk: true, diagnostics };
+  if (!events.size) throw new Error('Sportradar daily markets returned zero events; existing accepted snapshot remains untouched.');
+  return { events, diagnostics };
+}
+async function refreshOneEvent(eventId, previous, sports) {
+  const response = await requestJson(`sport_events/${eventId}/sport_event_markets.json`);
+  const rawEvent = response.data?.sport_event;
+  if (!rawEvent?.id) throw new Error(`Sportradar event markets response missing sport_event for ${eventId}.`);
+  const sport = sports.find(item => String(item.id) === String(previous?.sportId)) || { id: previous?.sportId || 'unknown', name: previous?.sport || 'Unknown' };
+  const event = buildEvent(rawEvent, response.data, sport, response.data.generated_at);
+  if (!event) throw new Error(`Sportradar event ${eventId} could not be normalized.`);
+  return event;
+}
+async function pollChanges(coverage, state) {
+  const { data } = await requestJson('sport_event_markets_changelog.json');
+  const changes = data?.changes;
+  const windowFrom = Number(data?.status?.from);
+  const windowTo = Number(data?.status?.to);
+  if (!Array.isArray(changes) || !Number.isFinite(windowFrom) || !Number.isFinite(windowTo) || windowTo < windowFrom) {
+    throw new Error('Sportradar Change Log response is missing valid status window or changes array.');
+  }
+  const lastPollAt = Number(state.lastPollAt || 0);
+  const gap = lastPollAt > 0 && Date.now() - lastPollAt > 5 * 60 * 1000;
+  const trackedIds = gap ? [...state.events.keys()] : [...new Set(changes
+    .filter(item => item?.type === 'sport_event' && item.id && state.events.has(String(item.id)))
+    .map(item => String(item.id)))];
+  const updated = new Map(state.events);
+  for (const eventId of trackedIds) {
+    try {
+      const next = await refreshOneEvent(eventId, updated.get(eventId), coverage.sports);
+      updated.set(eventId, next);
+    } catch (error) {
+      if (error.status === 404) {
+        updated.delete(eventId);
+        continue;
+      }
+      throw error;
+    }
+  }
+  return {
+    events: updated,
+    diagnostics: { fullSync: false, changeLogChanges: changes.length, eventsRefreshed: trackedIds.length, gapReconciled: gap, changeLogWindow: { from: windowFrom, to: windowTo } },
+    lastPollAt: Date.now(),
+    lastChangeLogTo: windowTo
+  };
 }
 
-export const __sportradarV2 = { utcDates, responseItems };
+export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead } = {}) {
+  if (!config.sportradarEnabled) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_ENABLED=false'] };
+  if (!config.sportradarApiKey) throw new Error('SPORTRADAR_API_KEY is required by the Sportradar worker.');
+  await ensureRedis();
+  const lease = await acquireLease();
+  try {
+    const coverage = await discoverCoverage();
+    const rawState = await redis.get(STATE_KEY);
+    let stored = rawState ? JSON.parse(rawState) : null;
+    const state = stored && Array.isArray(stored.events)
+      ? { ...stored, events: new Map(stored.events) }
+      : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0, lastChangeLogTo: 0 };
+    const fullSyncDue = !state.events.size || !state.lastFullSyncAt || Date.now() - state.lastFullSyncAt >= 24 * 60 * 60 * 1000;
+    let diagnostics;
+    if (fullSyncDue) {
+      const full = await fullDailySync(coverage, daysAhead);
+      state.events = full.events;
+      state.lastFullSyncAt = Date.now();
+      diagnostics = full.diagnostics;
+    } else {
+      const delta = await pollChanges(coverage, state);
+      state.events = delta.events;
+      state.lastPollAt = delta.lastPollAt;
+      state.lastChangeLogTo = delta.lastChangeLogTo;
+      diagnostics = delta.diagnostics;
+    }
+    const events = [...state.events.values()];
+    if (!events.length) throw new Error('Sportradar state has no events after sync; previous snapshot remains untouched.');
+    const generatedAt = new Date().toISOString();
+    await redis.set(STATE_KEY, JSON.stringify({
+      events: [...state.events.entries()],
+      lastPollAt: state.lastPollAt || Date.now(),
+      lastFullSyncAt: state.lastFullSyncAt,
+      lastChangeLogTo: state.lastChangeLogTo || 0,
+      generatedAt
+    }), { EX: STATE_TTL_SECONDS });
+    logger.info('Sportradar v2 sync completed', {
+      events: events.length, sports: coverage.sports.length,
+      fullSync: diagnostics.fullSync, eventsRefreshed: diagnostics.eventsRefreshed || 0
+    });
+    return {
+      provider: PROVIDER, enabled: true, events, errors: [], transportOk: true,
+      diagnostics: { apiVersion: 'oddscomparison-prematch-v2', ...diagnostics, booksDiscovered: coverage.books.length }
+    };
+  } finally {
+    await releaseLease(lease).catch(error => logger.error('Sportradar lease release failed', { error: error.message }));
+  }
+}
+
+export const __sportradarV2 = { utcDates, responseItems, buildEvent };
