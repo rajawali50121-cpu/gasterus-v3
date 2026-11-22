@@ -117,7 +117,6 @@ while (!shutdown.signal.aborted) {
   } catch (error) {
     consecutiveCycleFailures += 1;
     lastCycleRateLimited = error?.code === 'SPORTRADAR_LIMIT_EXCEEDED' || /Sportradar HTTP 429/i.test(error?.message || String(error));
-    lastFailureRetryAt = Date.now();
     const retryCeilingMs = Math.max(
       intervalMs,
       Math.min(300_000, config.sportsbookIngestMaxAgeSeconds * 500)
