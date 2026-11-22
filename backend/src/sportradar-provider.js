@@ -394,7 +394,10 @@ function normalizeOdds(event, raw) {
         const odds = number(outcome.odds_decimal);
         if (odds === null) diagnostics.outcomesWithoutDecimalOddsRetained += 1;
         const documentedOutcomeType = sportradarOutcomeType(marketId, outcome);
-        const normalizedOutcomeType = documentedOutcomeType || String(outcome.type || '').toLowerCase() || null;
+        const strictDocumentedMarket = [14, 16].includes(marketIdNumber(marketId));
+        const normalizedOutcomeType = strictDocumentedMarket
+          ? documentedOutcomeType
+          : (String(outcome.type || '').toLowerCase() || null);
         const normalizedOutcome = documentedOutcomeType ? { ...outcome, type: documentedOutcomeType } : outcome;
         const label = selectionLabel(normalizedOutcome, event, type);
         const documentedHcp = type === 'EUROPEAN_HANDICAP' ? handicapSpecifier(market) : null;
@@ -405,7 +408,7 @@ function normalizeOdds(event, raw) {
         return {
           key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? handicapLine ?? ''),
           label, odds, line, handicapLine,
-          suspended: Boolean(bookRemoved || outcomeRemoved || market.is_live === true),
+          suspended: Boolean(bookRemoved || outcomeRemoved || market.is_live === true || (type === 'EUROPEAN_HANDICAP' && line === null)),
           removed: outcomeRemoved,
           outcomeType: normalizedOutcomeType,
           sourceOutcomeId: outcome.id || null,
@@ -437,7 +440,7 @@ function normalizeOdds(event, raw) {
 
       const bookmaker = book ? clean(book.name || book.id || 'Unknown bookmaker', 160) : null;
       markets.push({
-        id: hash('market', event.id, marketId, marketName, book?.id || bookmaker || ''),
+        id: hash('market', event.id, marketId, marketName, handicapSpecifier(market) || '', book?.id || bookmaker || ''),
         key: marketId, type, label: type === 'EUROPEAN_HANDICAP' ? 'European Handicap (3-Way)' : marketName, period,
         line: selections[0]?.line ?? null,
         suspended: Boolean(bookRemoved || market.is_live === true),
