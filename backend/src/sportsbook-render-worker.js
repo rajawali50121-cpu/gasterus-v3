@@ -121,7 +121,7 @@ while (!shutdown.signal.aborted) {
       intervalMs,
       Math.min(300_000, config.sportsbookIngestMaxAgeSeconds * 500)
     );
-    // Retry with bounded backoff; the adapter retains the last accepted state and never publishes partial data.
+    // Non-limit failures use bounded backoff; provider-limit failures open a circuit below.
     nextDelayMs = Math.min(retryCeilingMs, intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6)));
     console.error(JSON.stringify({
       service: 'sportsbook-render-worker',
@@ -140,6 +140,21 @@ while (!shutdown.signal.aborted) {
     // Preserve the last accepted snapshot and let the next scheduled run retry a provider 429.
     // Other worker errors remain non-zero so real faults are visible in Railway.
     if (consecutiveCycleFailures > 0 && !lastCycleRateLimited) process.exitCode = 1;
+    break;
+  }
+  if (lastCycleRateLimited) {
+    // Sportradar "Limit Exceeded" has no reliable reset time. Stop polling until an operator
+    // deliberately redeploys after provider access/quota is restored; never hammer a blocked key.
+    console.error(JSON.stringify({
+      service: 'sportsbook-render-worker',
+      event: 'provider-limit-circuit-open',
+      action: 'polling-paused-until-redeploy',
+      message: 'Sportradar rejected requests with HTTP 429; last accepted snapshot remains read-only.'
+    }));
+    await new Promise(resolve => {
+      if (shutdown.signal.aborted) return resolve();
+      shutdown.signal.addEventListener('abort', resolve, { once: true });
+    });
     break;
   }
   if (!shutdown.signal.aborted) {
