@@ -200,7 +200,11 @@ async function discoverCoverage() {
     if (competitions.some(item => item.markets === true)) covered.push(sport);
   }
   if (!covered.length) throw new Error('No configured sport has prematch markets=true coverage.');
-  const result = { sports: covered, books };
+  const result = {
+    sports: covered,
+    books,
+    accessTier: booksResponse.responseMeta?.originId || null
+  };
   discoveryCache.value = result;
   discoveryCache.expiresAt = Date.now() + DISCOVERY_TTL_MS;
   return result;
@@ -372,11 +376,12 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     }), { EX: STATE_TTL_SECONDS });
     logger.info('Sportradar v2 sync completed', {
       events: events.length, sports: coverage.sports.length,
+      books: coverage.books.length, accessTier: coverage.accessTier,
       fullSync: diagnostics.fullSync, eventsRefreshed: diagnostics.eventsRefreshed || 0
     });
     return {
       provider: PROVIDER, enabled: true, events, errors: [], transportOk: true,
-      diagnostics: { apiVersion: 'oddscomparison-prematch-v2', ...diagnostics, booksDiscovered: coverage.books.length }
+      diagnostics: { apiVersion: 'oddscomparison-prematch-v2', ...diagnostics, booksDiscovered: coverage.books.length, accessTier: coverage.accessTier }
     };
   } finally {
     await releaseLease(lease).catch(error => logger.error('Sportradar lease release failed', { error: error.message }));
