@@ -178,7 +178,7 @@ while (!shutdown.signal.aborted) {
       service: 'sportsbook-render-worker',
       event: lastCycleRateLimited && cronOnce ? 'snapshot-deferred-rate-limit' : 'snapshot-failed',
       failureClass: lastCycleRateLimited
-        ? (/Limit Exceeded/i.test(error?.message || String(error)) ? 'provider-quota-limit' : 'provider-rate-limit')
+        ? (/Limit Exceeded/i.test(error?.message || String(error)) ? 'provider-limit-exceeded' : 'provider-rate-limit')
         : 'worker-error',
       message: error?.message || String(error),
       ...(error?.diagnostics ? { diagnostics: error.diagnostics } : {}),
