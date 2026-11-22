@@ -164,7 +164,7 @@ while (!shutdown.signal.aborted) {
     consecutiveCycleFailures = 0;
   } catch (error) {
     consecutiveCycleFailures += 1;
-    lastCycleRateLimited = /Sportradar rate limited \(HTTP 429\)/i.test(error?.message || String(error));
+    lastCycleRateLimited = /Sportradar rate limited \(HTTP 429/i.test(error?.message || String(error));
     lastFailureRetryAt = Date.now();
     const retryCeilingMs = Math.max(
       intervalMs,
@@ -177,7 +177,9 @@ while (!shutdown.signal.aborted) {
     console.error(JSON.stringify({
       service: 'sportsbook-render-worker',
       event: lastCycleRateLimited && cronOnce ? 'snapshot-deferred-rate-limit' : 'snapshot-failed',
-      failureClass: lastCycleRateLimited\n        ? (/Limit Exceeded/i.test(error?.message || String(error)) ? 'provider-quota-limit' : 'provider-rate-limit')\n        : 'worker-error',
+      failureClass: lastCycleRateLimited
+        ? (/Limit Exceeded/i.test(error?.message || String(error)) ? 'provider-quota-limit' : 'provider-rate-limit')
+        : 'worker-error',
       message: error?.message || String(error),
       ...(error?.diagnostics ? { diagnostics: error.diagnostics } : {}),
       consecutiveFailures: consecutiveCycleFailures,
