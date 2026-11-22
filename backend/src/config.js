@@ -147,7 +147,8 @@ export const config = Object.freeze({
   sportradarMaxEvents: unboundedInt('SPORTRADAR_MAX_EVENTS', 0, 0),
   sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 1100, 100, 30000),
   // Zero disables the local ceiling; the provider account's actual quota and HTTP 429 remain authoritative.
-  sportradarMaxCallsPerHour: boundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 20, 1, 1000),
+  sportradarMaxCallsPerHour: unboundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 0, 0),
+  sportradarSharedMaxCallsPerHour: boundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 20, 1, 1000),
   // Fail-closed: must be populated from the actual Sportradar contract/current account usage before live calls.
   sportradarMaxCallsPer30Days: naturalInt('SPORTRADAR_MAX_CALLS_PER_30_DAYS', 0, 0),
   sportradarInitial30DayUsage: naturalInt('SPORTRADAR_INITIAL_30_DAY_USAGE', 0, 0),
