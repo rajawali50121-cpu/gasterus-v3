@@ -228,6 +228,6 @@ const renderWorker = readFileSync(new URL('../src/sportsbook-render-worker.js', 
 test('Sportradar 429 responses with diagnostic suffix are deferred, not classified as worker crashes', () => {
   assert.ok(renderWorker.includes(String.raw`lastCycleRateLimited = /Sportradar rate limited \\(HTTP 429/i.test`));
   assert.match(renderWorker, /snapshot-deferred-rate-limit/);
-  assert.match(renderWorker, /provider-quota-limit/);
+  assert.match(renderWorker, /provider-limit-exceeded/);
   assert.match(renderWorker, /if \(consecutiveCycleFailures > 0 && !lastCycleRateLimited\) process\.exitCode = 1/);
 });
