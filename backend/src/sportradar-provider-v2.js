@@ -122,7 +122,7 @@ async function requestJson(path, params = {}) {
     if (response.status === 429) {
       const retryAfter = response.headers?.get?.('retry-after');
       const body = clean(await response.text().catch(() => ''), 160);
-      const error = new Error(`Sportradar HTTP 429; retry-after=${retryAfter || 'not-provided'}; ${body}`);
+      const error = new Error(`Sportradar Limit Exceeded (HTTP 429); retry-after=${retryAfter || 'not-provided'}; ${body}`);
       error.code = 'SPORTRADAR_LIMIT_EXCEEDED';
       throw error;
     }
