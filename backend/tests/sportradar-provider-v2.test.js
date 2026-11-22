@@ -17,8 +17,8 @@ Object.assign(process.env, {
 
 const { fetchSportradarV2, __sportradarV2 } = await import('../src/sportradar-provider-v2.js');
 
-function fakeRedis() {
-  const values = new Map();
+function fakeRedis({ baseline = '0' } = {}) {
+  const values = new Map([['sportsbook:sportradar:v2:quota:baseline', String(baseline)]]);
   const sorted = new Map();
   return {
     isOpen: true,
@@ -57,8 +57,8 @@ function fakeRedis() {
     }
   };
 }
-function installRedis() {
-  __sportradarV2.setRedisClientForTests(fakeRedis());
+function installRedis(options = {}) {
+  __sportradarV2.setRedisClientForTests(fakeRedis(options));
 }
 function json(data, headers = {}) {
   return new Response(JSON.stringify(data), { status: 200, headers });
@@ -178,10 +178,8 @@ test('subsequent cycles poll the five-minute Change Log and refresh only changed
 });
 
 test('rolling quota gate rejects calls when the contracted request allowance is exhausted', async () => {
-  process.env.SPORTRADAR_MAX_CALLS_PER_30_DAYS = '1';
-  process.env.SPORTRADAR_INITIAL_30_DAY_USAGE = '1';
-  // Config is immutable after module load, so this verifies the configured guard via an injected Redis baseline.
-  installRedis();
+  // The configured limit is 500; seed Redis with the exact same count to exercise fail-closed quota rejection.
+  installRedis({ baseline: '500' });
   globalThis.fetch = async () => { throw new Error('Provider must not be called when quota is exhausted'); };
-  await assert.rejects(fetchSportradarV2({ daysAhead: 1 }), /SPORTRADAR_MAX_CALLS_PER_30_DAYS|rolling 30-day quota/);
+  await assert.rejects(fetchSportradarV2({ daysAhead: 1 }), /rolling 30-day quota/);
 });
