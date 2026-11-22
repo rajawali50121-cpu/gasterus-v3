@@ -15,7 +15,7 @@ Object.assign(process.env, {
 });
 
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
-const { __sportradarNormalizer } = await import('../src/sportradar-provider.js');
+const { __sportradarNormalizer } = await import('../src/sportradar-normalizer.js');
 
 test('Sportradar event retains HT market metadata without claiming HT result authority', () => {
   const event = {
