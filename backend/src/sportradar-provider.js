@@ -78,6 +78,12 @@ async function fetchJson(url, maxRetries = 3) {
         lastError = new Error(
           `Sportradar rate limited (HTTP 429; path=${path}; retryAfter=${retryAfter || 'not-provided'}; rateLimit=${JSON.stringify(rateLimit)}; response=${body || 'empty'}).`
         );
+        // "Limit Exceeded" is an account quota response, not a short QPS burst.
+        // Retrying it immediately only burns more of the same exhausted quota.
+        if (/Limit Exceeded/i.test(body)) {
+          lastError.code = 'SPORTRADAR_QUOTA_EXCEEDED';
+          throw lastError;
+        }
         if (attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, retryDelay(response, attempt)));
           continue;
@@ -91,7 +97,8 @@ async function fetchJson(url, maxRetries = 3) {
       return { data: await response.json(), headers: response.headers };
     } catch (error) {
       lastError = error;
-      if (attempt < maxRetries && error?.message !== 'Sportradar rate limited (HTTP 429).') {
+      if (error?.code === 'SPORTRADAR_QUOTA_EXCEEDED') throw error;
+      if (attempt < maxRetries && !/^Sportradar rate limited \\(HTTP 429/i.test(error?.message || String(error))) {
         await new Promise(resolve => setTimeout(resolve, Math.min(10000, 1000 * (attempt + 1))));
       }
     } finally {
