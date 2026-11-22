@@ -95,7 +95,7 @@ test('v2 adapter rejects incomplete pagination and does not publish partial even
     if (url.pathname.includes('/sport_event_markets.json')) {
       const start = Number(url.searchParams.get('start') || 0);
       if (start === 0) {
-        return new Response(JSON.stringify({ sport_event_markets: [{ sport_event: { id: 'sr:sport_event:1' }, markets: [] }] }), {
+        return new Response(JSON.stringify({ sport_event_markets: Array.from({ length: 50 }, (_, index) => ({ sport_event: { id: `sr:sport_event:${index}`, start_time: '2026-12-01T18:00:00Z', status: 'not_started', competitors: [] }, markets: [] })) }), {
           headers: { 'x-max-results': '60' }
         });
       }
