@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { connectRedis, redis } from './redis.js';
 import { config } from './config.js';
 import { logger } from './logger.js';
 
@@ -26,7 +27,71 @@ function apiKey() { return config.sportradarApiKey || ''; }
 function baseUrl() { return (config.sportradarBaseUrl || DEFAULT_BASE_URL).replace(/\/+$/, ''); }
 function headers() { return { 'x-api-key': apiKey(), accept: 'application/json' }; }
 
+
 const callState = { lastCallAt: 0, hourStart: 0, callsThisHour: 0 };
+const ROLLING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const ROLLING_BUDGET_LUA = `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', tonumber(ARGV[1]) - 2592000000)
+local initialized = redis.call('SET', KEYS[2], '1', 'NX')
+if initialized then
+  redis.call('SET', KEYS[3], ARGV[3])
+  redis.call('SET', KEYS[4], ARGV[1])
+end
+local baseline = tonumber(redis.call('GET', KEYS[3]) or '0')
+local baselineAt = tonumber(redis.call('GET', KEYS[4]) or '0')
+if tonumber(ARGV[1]) - baselineAt >= 2592000000 then baseline = 0 end
+local used = redis.call('ZCARD', KEYS[1]) + baseline
+if used >= tonumber(ARGV[2]) then return -1 end
+local hourly = redis.call('INCR', KEYS[5])
+if hourly == 1 then redis.call('EXPIRE', KEYS[5], 7200) end
+if hourly > tonumber(ARGV[6]) then
+  redis.call('DECR', KEYS[5])
+  return -2
+end
+redis.call('ZADD', KEYS[1], ARGV[1], ARGV[5])
+redis.call('PEXPIRE', KEYS[1], 2628000000)
+return used + 1
+`;
+function providerRedisPrefix() {
+  const fingerprint = createHash('sha256').update(`${baseUrl()}|${apiKey()}`).digest('hex').slice(0, 24);
+  return `gasterus:sportradar:${fingerprint}`;
+}
+async function acquireSharedQpsSlot() {
+  if (config.nodeEnv !== 'production') return;
+  const minInterval = Math.max(1000, Number(config.sportradarMinIntervalMs || 1100));
+  const key = `${providerRedisPrefix()}:qps-slot`;
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    if (await redis.set(key, String(Date.now()), { NX: true, PX: minInterval })) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error('Sportradar shared QPS gate timed out; request was not sent.');
+}
+async function reserveSharedRollingCall() {
+  if (config.nodeEnv !== 'production') return;
+  const limit = Number(config.sportradarMaxCallsPer30Days || 0);
+  const initialUsage = Number(config.sportradarInitial30DayUsage ?? -1);
+  if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(initialUsage) || initialUsage < 0) {
+    throw new Error('Production Sportradar requests are disabled until SPORTRADAR_MAX_CALLS_PER_30_DAYS and SPORTRADAR_INITIAL_30_DAY_USAGE are configured from the Sportradar usage dashboard.');
+  }
+  const prefix = providerRedisPrefix();
+  const now = Date.now();
+  const result = Number(await redis.eval(ROLLING_BUDGET_LUA, {
+    keys: [`${prefix}:rolling-30d`, `${prefix}:rolling-30d:initialized`, `${prefix}:rolling-30d:baseline`, `${prefix}:rolling-30d:baseline-at`, `${prefix}:hourly:${Math.floor(now / 3600000)}`],
+    arguments: [String(now), String(limit), String(initialUsage), String(ROLLING_WINDOW_MS), randomUUID(), String(config.sportradarMaxCallsPerHour)]
+  }));
+  if (result === -1) {
+    const error = new Error(`Sportradar rolling 30-day request budget exhausted (limit=${limit}); provider request was blocked before transmission.`);
+    error.code = 'SPORTRADAR_ROLLING_QUOTA_GUARD';
+    throw error;
+  }
+  if (result === -2) {
+    const error = new Error(`Sportradar shared hourly request budget exhausted (limit=${config.sportradarMaxCallsPerHour}); provider request was blocked before transmission.`);
+    error.code = 'SPORTRADAR_HOURLY_BUDGET_GUARD';
+    throw error;
+  }
+}
+
 function resetHourIfNeeded(now = Date.now()) {
   if (!callState.hourStart || now - callState.hourStart >= 3600000) {
     callState.hourStart = now;
@@ -56,10 +121,15 @@ function retryDelay(response, attempt) {
 async function fetchJson(url, maxRetries = 3) {
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    if (callsRemaining() <= 0) {
+    if (config.nodeEnv !== 'production' && callsRemaining() <= 0) {
       throw new Error('Sportradar configured hourly API-call budget exhausted; current cycle is incomplete and was not published.');
     }
     await throttle();
+    if (config.nodeEnv === 'production') {
+      await connectRedis();
+      await acquireSharedQpsSlot();
+      await reserveSharedRollingCall();
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), config.sportradarRequestTimeoutMs || 30000);
     try {
@@ -479,7 +549,7 @@ function normalizeOdds(event, raw) {
 
 export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds, normalizedEventStatus, sportradarOutcomeType, handicapSpecifier };
 
-export async function fetchSportradar({
+async function fetchSportradarUnlocked({
   maxEvents = 0,
   maxPages = 0,
   daysAhead = config.sportradarDaysAhead
@@ -487,8 +557,22 @@ export async function fetchSportradar({
   if (!config.sportradarEnabled) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_ENABLED=false'] };
   if (!apiKey()) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_API_KEY is not configured'] };
 
-  // Discover sport IDs from the official Sports feed; select the configured product scope.
-  const sportsResponse = await fetchJson(`${baseUrl()}/sports.json`);
+  // Sports discovery changes infrequently. Cache it across worker processes to avoid
+  // burning one provider request on every full schedule refresh.
+  let sportsResponse = null;
+  if (config.nodeEnv === 'production') {
+    await connectRedis();
+    const cached = await redis.get(`${providerRedisPrefix()}:sports-feed`);
+    if (cached) {
+      try { sportsResponse = { data: JSON.parse(cached), headers: null }; } catch { /* refresh corrupt cache */ }
+    }
+  }
+  if (!sportsResponse) {
+    sportsResponse = await fetchJson(`${baseUrl()}/sports.json`);
+    if (config.nodeEnv === 'production') {
+      await redis.set(`${providerRedisPrefix()}:sports-feed`, JSON.stringify(sportsResponse.data), { EX: 86400 });
+    }
+  }
   const availableSports = Array.isArray(sportsResponse.data?.sports) ? sportsResponse.data.sports : [];
   if (!availableSports.length) throw new Error('Sportradar Sports feed returned no sports array; snapshot was not published.');
   const requestedIds = String(config.sportradarSportIds || DEFAULT_SPORT_IDS.join(','))
@@ -598,4 +682,26 @@ export async function fetchSportradar({
     pages: diagnostics.pagesFetched, diagnostics
   });
   return result;
+}
+
+export async function fetchSportradar(options = {}) {
+  if (!config.sportradarEnabled || !apiKey()) return fetchSportradarUnlocked(options);
+  if (config.nodeEnv !== 'production') return fetchSportradarUnlocked(options);
+  if (Number(config.sportradarMaxCallsPer30Days || 0) < 1 ||
+      !Number.isInteger(Number(config.sportradarInitial30DayUsage)) ||
+      Number(config.sportradarInitial30DayUsage) < 0) {
+    throw new Error('Production Sportradar requests are disabled until SPORTRADAR_MAX_CALLS_PER_30_DAYS and SPORTRADAR_INITIAL_30_DAY_USAGE are configured from the Sportradar usage dashboard.');
+  }
+  await connectRedis();
+  const key = `${providerRedisPrefix()}:cycle-lock`;
+  const token = randomUUID();
+  // Hold the lease across the hourly schedule boundary, not just while the process is running. This
+  // prevents overlapping/restarted workers from repeating a full API pull.
+  const acquired = await redis.set(key, token, { NX: true, PX: 55 * 60 * 1000 });
+  if (!acquired) {
+    const error = new Error('A Sportradar ingestion cycle already claimed this hourly window; duplicate cycle skipped.');
+    error.code = 'SPORTRADAR_CYCLE_ALREADY_RUNNING';
+    throw error;
+  }
+  return fetchSportradarUnlocked(options);
 }

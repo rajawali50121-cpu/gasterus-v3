@@ -201,3 +201,30 @@ test('One-shot Cron bypasses the daily refresh gate and fetches immediately', as
   assert.match(workerSource, /if \(cronOnce\) \{[\s\S]*?process\.exitCode[\s\S]*?break;/);
   assert.match(workerSource, /nextSportsbookDailyRefreshMs/);
 });
+
+
+test('production Sportradar requests require a configured rolling quota baseline and shared Redis guards', async () => {
+  const providerSource = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/sportradar-provider.js', import.meta.url), 'utf8')
+  );
+  assert.match(providerSource, /SPORTRADAR_MAX_CALLS_PER_30_DAYS/);
+  assert.match(providerSource, /SPORTRADAR_HOURLY_BUDGET_GUARD/);
+  const configSource = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/config.js', import.meta.url), 'utf8')
+  );
+  assert.match(configSource, /sportradarMaxCallsPerHour: int\('SPORTRADAR_MAX_CALLS_PER_HOUR', 20, 1, 1000\)/);
+  assert.match(providerSource, /SPORTRADAR_INITIAL_30_DAY_USAGE/);
+  assert.match(providerSource, /ROLLING_BUDGET_LUA/);
+  assert.match(providerSource, /:qps-slot/);
+  assert.match(providerSource, /:sports-feed/);
+  assert.match(providerSource, /PX: 55 \* 60 \* 1000/);
+});
+
+test('worker treats a duplicate hourly Sportradar cycle as a safe skip', async () => {
+  const workerSource = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
+  );
+  assert.match(workerSource, /SPORTRADAR_CYCLE_ALREADY_RUNNING/);
+  assert.match(workerSource, /snapshot-skipped-duplicate/);
+  assert.match(workerSource, /Math\.max\(intervalMs, 60 \* 60 \* 1000\)/);
+});
