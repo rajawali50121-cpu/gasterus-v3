@@ -74,3 +74,10 @@ Use the current Sportradar Odds Comparison Prematch v2 documentation, not guesse
 - Existing betslip, quote, ticket, wallet, settlement, risk, and TOTO tests remain green.
 - Production shadow run records exact calls, quota budget, events, books, markets, outcomes, snapshot age, and rejected records without exposing secrets.
 - No merge, deploy, traffic switch, destructive deletion, or automatic settlement until explicit release gates are satisfied.
+
+
+## Implementation status (2026-11-22)
+
+A first isolated adapter implementation is available on branch `rebuild/sportradar-docs-first` and draft PR #59. It performs server-side key authentication, discovery of `sports.json` and `books.json`, competition coverage checks, and paginated Daily Sport Event Markets ingestion. The worker is routed to this adapter on the draft branch. This is a staged rebuild, not a production cutover.
+
+Still required before release: implement the five-minute change-log loop with durable watermark/gap recovery, shared Redis quota and worker lease across replicas, complete fixture/contract tests against documented payload examples, and full regression tests for all existing sportsbook transaction systems. Do not merge or deploy until these gates are met and CI is green.
