@@ -106,10 +106,10 @@ function installFullSyncFetch({ secondDateEmpty = true } = {}) {
       assert.equal(url.searchParams.get('limit'), '50');
       assert.equal(url.searchParams.get('live'), 'false');
       const date = url.pathname.split('/schedules/')[1].split('/')[0];
-      if (date === dates[1] && secondDateEmpty) return json({ generated_at: '2026-11-22T12:00:00Z', sport_event_markets: [] }, { 'x-max-results': '0', 'x-result': '0' });
+      if (date === dates[1] && secondDateEmpty) return json({ generated_at: '2026-11-22T12:00:00Z', sport_schedule_sport_event_markets: [] }, { 'x-max-results': '0', 'x-result': '0' });
       return json({
         generated_at: '2026-11-22T12:00:00Z',
-        sport_event_markets: [fixtureEvent()]
+        sport_schedule_sport_event_markets: [fixtureEvent()]
       }, { 'x-max-results': '1', 'x-result': '1' });
     }
     throw new Error(`Unexpected endpoint: ${url.pathname}`);
@@ -150,10 +150,10 @@ test('full sync rejects a pagination response that ends before X-Max-Results', a
       if (start === 0) {
         return json({
           generated_at: '2026-11-22T12:00:00Z',
-          sport_event_markets: Array.from({ length: 50 }, (_, index) => fixtureEvent(`sr:sport_event:${index}`))
+          sport_schedule_sport_event_markets: Array.from({ length: 50 }, (_, index) => fixtureEvent(`sr:sport_event:${index}`))
         }, { 'x-max-results': '60', 'x-result': '50' });
       }
-      return json({ generated_at: '2026-11-22T12:00:00Z', sport_event_markets: [] }, { 'x-max-results': '60', 'x-result': '0' });
+      return json({ generated_at: '2026-11-22T12:00:00Z', sport_schedule_sport_event_markets: [] }, { 'x-max-results': '60', 'x-result': '0' });
     }
     throw new Error('Unexpected endpoint');
   };
