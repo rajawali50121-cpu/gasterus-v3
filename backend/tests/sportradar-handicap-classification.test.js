@@ -89,7 +89,7 @@ test('Sportradar diagnostics capture only bounded handicap outcome fields withou
   const event = { id: 'sr:sport_event:diagnostic', home: { name: 'Home FC' }, away: { name: 'Away FC' } };
   const { diagnostics } = __sportradarNormalizer.normalizeOdds(event, { markets: [
     {
-      id: 'sr:market:14', name: 'Handicap {hcp}', specifiers: null,
+      id: 'sr:market:14', name: 'Handicap {hcp}', specifiers: 'hcp=1:0',
       books: [{ id: 'sr:book:private', name: 'Private Book Name', outcomes: [
         { id: 'sr:outcome:1711', type: 'home', field_id: '3', handicap: '1:0', open_handicap: '0:0', odds_decimal: '1.55', open_odds_decimal: '1.60', removed: false },
         { id: 'sr:outcome:1712', type: 'draw', field_id: '4', handicap: '1:0', odds_decimal: '3.90' },
@@ -102,6 +102,7 @@ test('Sportradar diagnostics capture only bounded handicap outcome fields withou
     }
   ] });
   assert.equal(diagnostics.outcomeSamples.length, 2);
+  assert.equal(diagnostics.outcomeSamples[0].handicapSpecifier, '1:0');
   assert.deepEqual(diagnostics.outcomeSamples[0].outcomes[0], {
     id: 'sr:outcome:1711', type: 'home', field_id: '3',
     handicap: '1:0', open_handicap: '0:0',
