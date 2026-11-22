@@ -217,7 +217,7 @@ test('production Sportradar requests require a configured rolling quota baseline
   assert.match(providerSource, /ROLLING_BUDGET_LUA/);
   assert.match(providerSource, /:qps-slot/);
   assert.match(providerSource, /:sports-feed/);
-  assert.match(providerSource, /PX: 60 \* 60 \* 1000/);
+  assert.match(providerSource, /PX: 55 \* 60 \* 1000/);
 });
 
 test('worker treats a duplicate hourly Sportradar cycle as a safe skip', async () => {
