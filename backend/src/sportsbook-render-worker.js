@@ -24,12 +24,12 @@ configureProviderOnlyRuntime();
 
 const [
   { config },
-  { fetchSportradar },
+  { fetchSportradarV2 },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
-  import('./sportradar-provider.js'),
+  import('./sportradar-provider-v2.js'),
   import('./sportsbook-ingest-client.js'),
   import('./sportsbook-render-worker-core.js')
 ]);
@@ -127,7 +127,7 @@ while (!shutdown.signal.aborted) {
     }
     console.log('CYCLE_START');
     const snapshot = await buildSportsbookRenderSnapshot({
-      fetchSportradar: () => fetchSportradar({}),
+      fetchSportradar: () => fetchSportradarV2({}),
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
     });
