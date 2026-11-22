@@ -4520,3 +4520,236 @@ body.sb-page.sb-premium .sb-feed-overview {
     font-size: 10px;
   }
 }
+
+
+
+/* GASTERUS SPORTSBOOK V4 — premium trading-board layer */
+body.sb-page.sb-premium {
+  --sb-v4-bg: #07111f;
+  --sb-v4-panel: #0d1a2b;
+  --sb-v4-panel-2: #111f32;
+  --sb-v4-line: rgba(153, 174, 198, .16);
+  --sb-v4-gold: #e7bd62;
+  --sb-v4-gold-soft: rgba(231, 189, 98, .12);
+  --sb-v4-muted: #91a1b7;
+  background: var(--sb-v4-bg);
+  color: #edf3fb;
+}
+body.sb-page.sb-premium .sb-subheader,
+body.sb-page.sb-premium .sb-category-bar,
+body.sb-page.sb-premium .sb-action-bar {
+  background: #0a1727;
+  border-color: var(--sb-v4-line);
+}
+body.sb-page.sb-premium .sb-subheader-inner,
+body.sb-page.sb-premium .sb-category-inner,
+body.sb-page.sb-premium .sb-action-inner {
+  max-width: 1600px;
+}
+body.sb-page.sb-premium .sb-cat-tab {
+  border-radius: 7px 7px 0 0;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+body.sb-page.sb-premium .sb-cat-tab.active {
+  color: var(--sb-v4-gold);
+  border-bottom: 2px solid var(--sb-v4-gold);
+  background: var(--sb-v4-gold-soft);
+}
+body.sb-page.sb-premium .sb-action-bar {
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+}
+body.sb-page.sb-premium .sb-btn-action,
+body.sb-page.sb-premium .sb-search-wrap input,
+body.sb-page.sb-premium .sb-odds-format select {
+  min-height: 38px;
+  border: 1px solid var(--sb-v4-line);
+  border-radius: 7px;
+  background: #101f32;
+  color: #e7edf6;
+}
+body.sb-page.sb-premium .sb-search-wrap input::placeholder { color: #7789a1; }
+body.sb-page.sb-premium .sb-main {
+  max-width: 1600px;
+  padding: 18px 18px 36px;
+}
+body.sb-page.sb-premium .sb-layout {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr) 330px;
+  align-items: start;
+  gap: 16px;
+}
+body.sb-page.sb-premium .sb-sidebar,
+body.sb-page.sb-premium .sb-betslip {
+  position: sticky;
+  top: 14px;
+  border: 1px solid var(--sb-v4-line);
+  border-radius: 10px;
+  background: var(--sb-v4-panel);
+  box-shadow: 0 12px 30px rgba(0,0,0,.22);
+  overflow: hidden;
+}
+body.sb-page.sb-premium .sb-sidebar { padding: 14px 12px; }
+body.sb-page.sb-premium .sb-sidebar-title {
+  color: var(--sb-v4-gold);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+body.sb-page.sb-premium .sb-sport-nav,
+body.sb-page.sb-premium .sb-league-nav { gap: 4px; }
+body.sb-page.sb-premium .sb-sport-nav a,
+body.sb-page.sb-premium .sb-league-nav a,
+body.sb-page.sb-premium .sb-sport-nav button,
+body.sb-page.sb-premium .sb-league-nav button {
+  border-radius: 6px;
+  transition: background .16s ease, color .16s ease;
+}
+body.sb-page.sb-premium .sb-sport-nav .active,
+body.sb-page.sb-premium .sb-league-nav .active {
+  color: var(--sb-v4-gold);
+  background: var(--sb-v4-gold-soft);
+}
+body.sb-page.sb-premium .sb-board-heading {
+  min-height: 116px;
+  border: 1px solid var(--sb-v4-line);
+  border-radius: 10px;
+  background:
+    radial-gradient(ellipse at 92% 0%, rgba(231,189,98,.13), transparent 38%),
+    linear-gradient(115deg, #10213a, #0b1728 72%);
+  box-shadow: 0 12px 30px rgba(0,0,0,.2);
+}
+body.sb-page.sb-premium .sb-board-eyebrow {
+  color: var(--sb-v4-gold);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .2em;
+}
+body.sb-page.sb-premium .sb-board-heading h1 {
+  color: #f4f7fc;
+  font-size: clamp(22px, 2.2vw, 30px);
+  letter-spacing: -.035em;
+}
+body.sb-page.sb-premium .sb-board-timezone { color: var(--sb-v4-muted); }
+body.sb-page.sb-premium .sb-feed-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(110px, .55fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--sb-v4-line);
+  border-radius: 9px;
+  background: var(--sb-v4-panel);
+}
+body.sb-page.sb-premium .sb-feed-overview > div {
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid rgba(153,174,198,.1);
+  border-radius: 7px;
+  background: rgba(255,255,255,.018);
+}
+body.sb-page.sb-premium .sb-feed-overview strong {
+  color: #f5f7fb;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+body.sb-page.sb-premium .sb-feed-overview span { color: var(--sb-v4-muted); }
+body.sb-page.sb-premium .sb-events { display: grid; gap: 10px; }
+body.sb-page.sb-premium .sb-event-card,
+body.sb-page.sb-premium .sb-event,
+body.sb-page.sb-premium .sb-match-card {
+  border: 1px solid var(--sb-v4-line);
+  border-radius: 9px;
+  background: var(--sb-v4-panel);
+  box-shadow: 0 8px 22px rgba(0,0,0,.15);
+  overflow: hidden;
+}
+body.sb-page.sb-premium .sb-section-title {
+  color: #e9eff8;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .06em;
+}
+body.sb-page.sb-premium .sb-betslip-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 10px;
+  background: #0a1625;
+  border-bottom: 1px solid var(--sb-v4-line);
+}
+body.sb-page.sb-premium .sb-bs-tab {
+  min-height: 36px;
+  border-radius: 6px;
+  color: var(--sb-v4-muted);
+  font-weight: 800;
+}
+body.sb-page.sb-premium .sb-bs-tab.active {
+  color: #111827;
+  background: var(--sb-v4-gold);
+}
+body.sb-page.sb-premium .sb-betslip-body { padding: 12px; }
+body.sb-page.sb-premium .sb-empty {
+  border: 1px dashed rgba(231,189,98,.3);
+  border-radius: 9px;
+  background: rgba(231,189,98,.035);
+}
+body.sb-page.sb-premium .sb-events-load-more button,
+body.sb-page.sb-premium .sb-btn-primary {
+  border: 1px solid #f0ce82;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #f0cf88, #d9aa4e);
+  color: #152033;
+  font-weight: 800;
+}
+body.sb-page.sb-premium .sb-rt-status {
+  border: 1px solid var(--sb-v4-line);
+  border-radius: 20px;
+  background: #0e1e30;
+  padding: 7px 10px;
+}
+body.sb-page.sb-premium .sb-stale-banner,
+body.sb-page.sb-premium .sb-error {
+  border-radius: 8px;
+}
+@media (max-width: 1100px) {
+  body.sb-page.sb-premium .sb-layout {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+  body.sb-page.sb-premium .sb-betslip {
+    position: static;
+    grid-column: 2;
+  }
+}
+@media (max-width: 760px) {
+  body.sb-page.sb-premium .sb-main { padding: 10px 9px 28px; }
+  body.sb-page.sb-premium .sb-layout { display: flex; flex-direction: column; gap: 10px; }
+  body.sb-page.sb-premium .sb-sidebar { display: none; }
+  body.sb-page.sb-premium .sb-content,
+  body.sb-page.sb-premium .sb-betslip { width: 100%; min-width: 0; }
+  body.sb-page.sb-premium .sb-board-heading {
+    min-height: 132px;
+    border-radius: 9px;
+    padding: 14px 12px 62px;
+  }
+  body.sb-page.sb-premium .sb-feed-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    padding: 8px;
+  }
+  body.sb-page.sb-premium .sb-feed-overview > div:first-child { grid-column: 1 / -1; }
+  body.sb-page.sb-premium .sb-feed-overview > div { min-height: 42px; padding: 7px 9px; }
+  body.sb-page.sb-premium .sb-action-inner { gap: 6px; }
+  body.sb-page.sb-premium .sb-search-wrap { min-width: 100%; order: 5; }
+  body.sb-page.sb-premium .sb-rt-status { margin-left: auto; }
+  body.sb-page.sb-premium .sb-betslip { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.sb-page.sb-premium *,
+  body.sb-page.sb-premium *::before,
+  body.sb-page.sb-premium *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
