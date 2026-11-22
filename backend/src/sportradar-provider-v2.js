@@ -146,7 +146,11 @@ async function requestJson(path, params = {}) {
   }
 }
 function responseItems(data) {
-  return Array.isArray(data?.sport_event_markets) ? data.sport_event_markets : null;
+  if (Array.isArray(data?.sport_schedule_sport_event_markets)) {
+    return data.sport_schedule_sport_event_markets;
+  }
+  if (Array.isArray(data?.sport_event_markets)) return data.sport_event_markets;
+  return null;
 }
 function safePayloadShape(data) {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
