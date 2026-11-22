@@ -177,7 +177,7 @@ while (!shutdown.signal.aborted) {
     console.error(JSON.stringify({
       service: 'sportsbook-render-worker',
       event: lastCycleRateLimited && cronOnce ? 'snapshot-deferred-rate-limit' : 'snapshot-failed',
-      failureClass: lastCycleRateLimited ? 'provider-rate-limit' : 'worker-error',
+      failureClass: lastCycleRateLimited\n        ? (/Limit Exceeded/i.test(error?.message || String(error)) ? 'provider-quota-limit' : 'provider-rate-limit')\n        : 'worker-error',
       message: error?.message || String(error),
       ...(error?.diagnostics ? { diagnostics: error.diagnostics } : {}),
       consecutiveFailures: consecutiveCycleFailures,
