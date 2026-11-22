@@ -190,6 +190,33 @@ function stampPriceVersions(events = [], fetchedAt = Date.now()) {
     }))
   }));
 }
+
+function suspendStalePrematchMarkets(events = [], snapshotAt, now = Date.now()) {
+  const snapshotMs = typeof snapshotAt === 'number' ? snapshotAt : Date.parse(snapshotAt || '');
+  const maxAgeMs = Math.max(0, Number(config.sportsbookMaxPrematchPriceAgeSeconds || 900) * 1000);
+  return events.map(event => {
+    if (event.live) return event;
+    const markets = (event.markets || []).map(market => {
+      const selections = (market.selections || []).map(selection => {
+        const updatedMs = Date.parse(selection.updatedAt || market.updatedAt || '');
+        const effectiveUpdatedMs = Number.isFinite(updatedMs) ? updatedMs : snapshotMs;
+        const stale = !Number.isFinite(effectiveUpdatedMs)
+          || effectiveUpdatedMs > now + 60_000
+          || now - effectiveUpdatedMs > maxAgeMs;
+        return stale ? { ...selection, suspended: true } : selection;
+      });
+      const hasBettableSelection = selections.some(selection =>
+        !selection.suspended && Number.isFinite(Number(selection.odds)) && Number(selection.odds) > 1
+      );
+      return {
+        ...market,
+        selections,
+        suspended: Boolean(market.suspended || !hasBettableSelection)
+      };
+    });
+    return { ...event, markets };
+  });
+}
 function stableFeedRevision(events = [], providerLifecycle = {}) {
   const hash = crypto.createHash('sha256');
   for (const event of [...events].sort((a, b) => String(a.id).localeCompare(String(b.id)))) {
@@ -225,7 +252,7 @@ function assertSelectionFresh(event, market, selection, feedFetchedAt) {
     throw new AppError(409, 'Feed odds sudah kedaluwarsa. Tunggu pembaruan berikutnya.', 'SPORTS_FEED_STALE_AT_ACCEPTANCE');
   }
   const updatedMs = Date.parse(selection?.updatedAt || market?.updatedAt || '');
-  if (!Number.isFinite(updatedMs)) return;
+  if (!Number.isFinite(updatedMs)) {\n    throw new AppError(409, 'Timestamp harga provider tidak tersedia. Market ditahan sampai timestamp valid diterima.', 'SPORTS_PRICE_TIMESTAMP_MISSING');\n  }
   const maxAgeSeconds = event?.live
     ? config.sportsbookMaxLivePriceAgeSeconds
     : config.sportsbookMaxPrematchPriceAgeSeconds;
@@ -413,6 +440,10 @@ function applyProviderLifecycleResult(result, lifecycle) {
 async function performRefresh({ reason = 'scheduled' } = {}) {
   const previousLifecycle = await readProviderLifecycle();
   const { renderSnapshot, settled } = await resolveSportsbookProviderResults(redis, { logger });
+  const snapshotCapturedAtMs = Date.parse(renderSnapshot?.generatedAt || '');
+  if (!Number.isFinite(snapshotCapturedAtMs) || snapshotCapturedAtMs > Date.now() + 60_000) {
+    throw new AppError(503, 'Snapshot Sportradar tidak memiliki timestamp generatedAt yang valid.', 'SPORTS_SNAPSHOT_TIMESTAMP_INVALID');
+  }
   if (renderSnapshot) {
     logger.info('Using verified worker sportsbook snapshot', {
       revision: renderSnapshot.revision,
@@ -511,7 +542,7 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
     retentionSeconds: config.sportsbookMarketLifecycleRetentionSeconds,
     now: fetchedAt
   });
-  events = stampPriceVersions(marketLifecycle.events, fetchedAt);
+  events = stampPriceVersions(marketLifecycle.events, snapshotCapturedAtMs);\n  events = suspendStalePrematchMarkets(events, snapshotCapturedAtMs, fetchedAt);
   await writeMarketLifecycle(marketLifecycle.state);
   const mergedPricedMarkets = pricedMarketCount(events);
   const mergedBettableMarkets = bettableMarketCount(events);
@@ -1309,4 +1340,4 @@ export async function sportsbookSelectionSnapshot({ eventId, marketId, selection
   };
 }
 
-export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail };
+export const __sportsbookFeed = { filterEvents, leagueFacets, paginateEvents, isSoccerEvent, eventBucket, normalizedSport, pricedMarketCount, bettableMarketCount, providerHasPricedMarkets, stampPriceVersions, suspendStalePrematchMarkets, stableFeedRevision, assertSelectionFresh, advanceProviderLifecycle, eventBettingOpen, enforceEventBettingWindow, memberVisibleEvent, boundedEvents, cacheWithinLimit, eventSettlementAuthority, settlementAuthoritySummary, memberPublicEvent, memberPublicEventDetail };
