@@ -208,6 +208,11 @@ test('production Sportradar requests require a configured rolling quota baseline
     fs.readFile(new URL('../src/sportradar-provider.js', import.meta.url), 'utf8')
   );
   assert.match(providerSource, /SPORTRADAR_MAX_CALLS_PER_30_DAYS/);
+  assert.match(providerSource, /SPORTRADAR_HOURLY_BUDGET_GUARD/);
+  const configSource = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/config.js', import.meta.url), 'utf8')
+  );
+  assert.match(configSource, /sportradarMaxCallsPerHour: int\('SPORTRADAR_MAX_CALLS_PER_HOUR', 20, 1, 1000\)/);
   assert.match(providerSource, /SPORTRADAR_INITIAL_30_DAY_USAGE/);
   assert.match(providerSource, /ROLLING_BUDGET_LUA/);
   assert.match(providerSource, /:qps-slot/);
