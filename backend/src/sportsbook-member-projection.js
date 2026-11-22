@@ -47,6 +47,7 @@ export function projectMemberMarkets(markets = []) {
         priceVersion: selection.priceVersion,
         ...(market.source === 'sportradar' ? {
           outcomeType: selection.outcomeType || null,
+          handicapLine: selection.handicapLine ?? null,
           oddsAmerican: selection.oddsAmerican ?? null,
           oddsFraction: selection.oddsFraction ?? null,
           openOddsDecimal: selection.openOddsDecimal ?? null,

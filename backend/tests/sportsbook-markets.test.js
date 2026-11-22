@@ -88,11 +88,33 @@ test('European three-way handicap displays Home, Draw and Away in semantic order
   assert.equal(asianColumn.market.id, 'sr-asian-handicap');
   assert.deepEqual(asianColumn.outcomes.map(([label]) => label), ['1', '2']);
   assert.equal(asianColumn.outcomes.some(([label]) => label === 'X'), false);
+  assert.equal(europeanColumn.type, 'EUROPEAN_HANDICAP');
   assert.equal(europeanColumn.market.id, 'sr-european-handicap');
   assert.equal(europeanColumn.title, 'European Handicap (3-Way)');
   assert.deepEqual(europeanColumn.outcomes.map(([label, selection]) => [label, selection?.key, selection?.odds]), [
     ['1', 'home', 1.55],
     ['X', 'draw', 3.90],
     ['2', 'away', 4.80]
+  ]);
+});
+
+test('Sportradar market 14 only maps documented semantic outcomes and keeps odds attached to source IDs', () => {
+  const market = {
+    id: 'market-14',
+    type: 'EUROPEAN_HANDICAP',
+    source: 'sportradar',
+    sourceMarketId: 'sr:market:14',
+    period: 'FT',
+    selections: [
+      { key: 's-away', label: '4.80', outcomeType: 'away', sourceOutcomeId: 'sr:outcome:1713', line: -1, odds: 4.8 },
+      { key: 's-draw', label: '3.90', outcomeType: 'draw', sourceOutcomeId: 'sr:outcome:1712', line: -1, odds: 3.9 },
+      { key: 's-home', label: '1.55', outcomeType: 'home', sourceOutcomeId: 'sr:outcome:1711', line: -1, odds: 1.55 }
+    ]
+  };
+  const [column] = primaryMarketColumns({ markets: [market] }, 'FT').filter(item => item.type === 'EUROPEAN_HANDICAP');
+  assert.deepEqual(column.outcomes.map(([label, selection]) => [label, selection?.sourceOutcomeId, selection?.odds]), [
+    ['1', 'sr:outcome:1711', 1.55],
+    ['X', 'sr:outcome:1712', 3.9],
+    ['2', 'sr:outcome:1713', 4.8]
   ]);
 });
