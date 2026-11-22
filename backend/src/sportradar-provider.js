@@ -676,6 +676,11 @@ async function fetchSportradarUnlocked({
 export async function fetchSportradar(options = {}) {
   if (!config.sportradarEnabled || !apiKey()) return fetchSportradarUnlocked(options);
   if (config.nodeEnv !== 'production') return fetchSportradarUnlocked(options);
+  if (Number(config.sportradarMaxCallsPer30Days || 0) < 1 ||
+      !Number.isInteger(Number(config.sportradarInitial30DayUsage)) ||
+      Number(config.sportradarInitial30DayUsage) < 0) {
+    throw new Error('Production Sportradar requests are disabled until SPORTRADAR_MAX_CALLS_PER_30_DAYS and SPORTRADAR_INITIAL_30_DAY_USAGE are configured from the Sportradar usage dashboard.');
+  }
   await connectRedis();
   const key = `${providerRedisPrefix()}:cycle-lock`;
   const token = randomUUID();
