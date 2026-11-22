@@ -95,8 +95,10 @@ function fixtureEvent(id = 'sr:sport_event:fixture-1', odds = '2.10') {
 }
 function installFullSyncFetch({ secondDateEmpty = true } = {}) {
   const calls = [];
+  const requestHeaders = [];
   const dates = __sportradarV2.utcDates(1);
-  globalThis.fetch = async input => {
+  globalThis.fetch = async (input, init = {}) => {
+    requestHeaders.push(init.headers || {});
     const url = new URL(String(input));
     calls.push(url);
     if (url.pathname.endsWith('/sports.json')) return json({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] });
@@ -134,6 +136,10 @@ test('full sync follows documented v2 discovery and daily market paths, preservi
     'sports.json', 'books.json', 'competitions.json', 'sport_event_markets.json', 'sport_event_markets.json'
   ]);
   assert.equal(calls[3].pathname.includes('sr:sport:1'), true);
+  assert.equal(__sportradarV2.baseUrl(), 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en');
+  assert.ok(requestHeaders.length >= 5);
+  assert.ok(requestHeaders.every(headers => headers['x-api-key'] === 'test-sportradar-key'));
+  assert.ok(requestHeaders.every(headers => !Object.keys(headers).some(key => key.toLowerCase() === 'authorization')));
 });
 
 test('full sync rejects a pagination response that ends before X-Max-Results', async () => {
@@ -190,4 +196,28 @@ test('rolling quota gate rejects calls when the contracted request allowance is 
   installRedis({ baseline: '500' });
   globalThis.fetch = async () => { throw new Error('Provider must not be called when quota is exhausted'); };
   await assert.rejects(fetchSportradarV2({ daysAhead: 1 }), /rolling 30-day quota/);
+});
+
+test('unchanged markets keep the original price timestamp after an empty five-minute change log', async () => {
+  installRedis();
+  installFullSyncFetch();
+  const initial = await fetchSportradarV2({ daysAhead: 1 });
+  const originalUpdatedAt = initial.events[0].markets[0].selections[0].updatedAt;
+  const calls = [];
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    calls.push(url);
+    if (!url.pathname.endsWith('/sport_event_markets_changelog.json')) {
+      throw new Error(`Unexpected endpoint for empty change log: ${url.pathname}`);
+    }
+    return json({
+      generated_at: '2026-11-22T12:02:00Z',
+      status: { from: 1795340300, to: 1795340600 },
+      changes: []
+    });
+  };
+  const next = await fetchSportradarV2({ daysAhead: 1 });
+  assert.equal(next.diagnostics.eventsRefreshed, 0);
+  assert.equal(next.events[0].markets[0].selections[0].updatedAt, originalUpdatedAt);
+  assert.equal(calls.length, 1);
 });
