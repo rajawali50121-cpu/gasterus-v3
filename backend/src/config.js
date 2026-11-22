@@ -147,7 +147,7 @@ export const config = Object.freeze({
   sportradarMaxEvents: unboundedInt('SPORTRADAR_MAX_EVENTS', 0, 0),
   sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 1100, 100, 30000),
   // Zero disables the local ceiling; the provider account's actual quota and HTTP 429 remain authoritative.
-  sportradarMaxCallsPerHour: int('SPORTRADAR_MAX_CALLS_PER_HOUR', 20, 1, 1000),
+  sportradarMaxCallsPerHour: boundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 20, 1, 1000),
   sportradarRefreshSeconds: int('SPORTRADAR_REFRESH_SECONDS', 300, 30, 3600),
   sportradarRequestTimeoutMs: int('SPORTRADAR_REQUEST_TIMEOUT_MS', 30000, 5000, 120000),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
