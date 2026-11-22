@@ -147,7 +147,7 @@ test('Sportradar market identity includes handicap specifier', () => {
 
 const sportradarProviderSource = readFileSync(new URL('../src/sportradar-provider.js', import.meta.url), 'utf8');
 
-test('Sportradar quota exhaustion is not retried immediately', () => {
+test('Sportradar provider limit response is not retried immediately', () => {
   assert.match(sportradarProviderSource, /Limit Exceeded/);
   assert.match(sportradarProviderSource, /SPORTRADAR_LIMIT_EXCEEDED/);
   assert.match(sportradarProviderSource, /if \(error\?\.code === 'SPORTRADAR_LIMIT_EXCEEDED'\) throw error/);
