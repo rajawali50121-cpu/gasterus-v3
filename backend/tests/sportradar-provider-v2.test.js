@@ -163,7 +163,7 @@ test('subsequent cycles poll the five-minute Change Log and refresh only changed
     const url = new URL(String(input));
     calls.push(url);
     if (url.pathname.endsWith('/sport_event_markets_changelog.json')) {
-      return json({ status: { from: 1795340000, to: 1795340300 }, changes: [{ type: 'sport_event', id: 'sr:sport_event:fixture-1', sport_event_markets_odds_change: 1795340290 }] });
+      return json({ generated_at: '2026-11-22T12:01:00Z', status: { from: 1795340000, to: 1795340300 }, changes: [{ type: 'sport_event', id: 'sr:sport_event:fixture-1', sport_event_markets_odds_change: 1795340290 }] });
     }
     if (url.pathname.endsWith('/sport_event_markets.json') && url.pathname.includes('/sport_events/')) {
       return json({ ...fixtureEvent('sr:sport_event:fixture-1', '1.95'), generated_at: '2026-11-22T12:01:00Z' });
