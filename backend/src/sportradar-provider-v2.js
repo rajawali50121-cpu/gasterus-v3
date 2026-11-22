@@ -60,7 +60,7 @@ async function releaseLease(token) {
 async function reserveRequest() {
   const monthlyLimit = Number(config.sportradarMaxCallsPer30Days || 0);
   const initialUsage = Number(config.sportradarInitial30DayUsage || 0);
-  const hourlyLimit = Number(config.sportradarMaxCallsPerHour || 0);
+  const hourlyLimit = Number(config.sportradarSharedMaxCallsPerHour || 0);
   if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < 1) {
     throw new Error('SPORTRADAR_MAX_CALLS_PER_30_DAYS must be configured to the contracted quota before provider requests are allowed.');
   }
