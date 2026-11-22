@@ -79,6 +79,7 @@ let consecutiveCycleFailures = 0;
 let lastDailyRunWibDate = null;
 let firstPullDone = false;
 let lastFailureRetryAt = 0;
+let lastCycleRateLimited = false;
 
 function wibDateKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -105,6 +106,7 @@ function dailySlotDue(now = Date.now()) {
 while (!shutdown.signal.aborted) {
   const cycleStartedAt = Date.now();
   let nextDelayMs = intervalMs;
+  lastCycleRateLimited = false;
   try {
     // Daily mode: only fetch providers once per day at configured WIB slot.
     if (config.sportsbookDailyRefreshEnabled !== false && !cronOnce) {
@@ -162,6 +164,7 @@ while (!shutdown.signal.aborted) {
     consecutiveCycleFailures = 0;
   } catch (error) {
     consecutiveCycleFailures += 1;
+    lastCycleRateLimited = /Sportradar rate limited \(HTTP 429\)/i.test(error?.message || String(error));
     lastFailureRetryAt = Date.now();
     const retryCeilingMs = Math.max(
       intervalMs,
@@ -173,7 +176,8 @@ while (!shutdown.signal.aborted) {
       : Math.min(retryCeilingMs, intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6)));
     console.error(JSON.stringify({
       service: 'sportsbook-render-worker',
-      event: 'snapshot-failed',
+      event: lastCycleRateLimited && cronOnce ? 'snapshot-deferred-rate-limit' : 'snapshot-failed',
+      failureClass: lastCycleRateLimited ? 'provider-rate-limit' : 'worker-error',
       message: error?.message || String(error),
       ...(error?.diagnostics ? { diagnostics: error.diagnostics } : {}),
       consecutiveFailures: consecutiveCycleFailures,
@@ -182,7 +186,9 @@ while (!shutdown.signal.aborted) {
     }));
   }
   if (cronOnce) {
-    if (consecutiveCycleFailures > 0) process.exitCode = 1;
+    // Preserve the last accepted snapshot and let the next scheduled run retry a provider 429.
+    // Other worker errors remain non-zero so real faults are visible in Railway.
+    if (consecutiveCycleFailures > 0 && !lastCycleRateLimited) process.exitCode = 1;
     break;
   }
   if (!shutdown.signal.aborted) {
