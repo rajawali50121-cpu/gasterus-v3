@@ -169,7 +169,7 @@ while (!shutdown.signal.aborted) {
         event: 'snapshot-skipped-duplicate',
         message: error.message
       }));
-      nextDelayMs = intervalMs;
+      nextDelayMs = Math.max(intervalMs, 60 * 60 * 1000);
     } else {
     consecutiveCycleFailures += 1;
     lastCycleRateLimited = /Sportradar rate limited \(HTTP 429/i.test(error?.message || String(error));
