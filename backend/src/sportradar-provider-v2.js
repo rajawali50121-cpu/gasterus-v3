@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
 import { __sportradarNormalizer } from './sportradar-normalizer.js';
+import { buildSportradarHeaders, buildSportradarProductBaseUrl, getSportradarAccessFromPrematchBaseUrl } from './sportradar-products.js';
 import { connectRedis, redis } from './redis.js';
 import { logger } from './logger.js';
 
@@ -32,7 +33,11 @@ function utcDates(daysAhead, now = new Date()) {
   }
   return dates;
 }
-function baseUrl() { return String(config.sportradarBaseUrl).replace(/\/+$/, ''); }
+function baseUrl() {
+  const configured = config.sportradarBaseUrl || DEFAULT_BASE_URL;
+  const { accessLevel, languageCode } = getSportradarAccessFromPrematchBaseUrl(configured);
+  return buildSportradarProductBaseUrl('prematchV2', { accessLevel, languageCode });
+}
 function parseDate(value) {
   const parsed = Date.parse(value || '');
   return Number.isFinite(parsed) ? parsed : null;
@@ -110,7 +115,7 @@ async function requestJson(path, params = {}) {
   const timeout = setTimeout(() => controller.abort(), Number(config.sportradarRequestTimeoutMs || 30000));
   try {
     const response = await fetch(url, {
-      headers: { 'x-api-key': config.sportradarApiKey, accept: 'application/json' },
+      headers: buildSportradarHeaders(config.sportradarApiKey),
       signal: controller.signal
     });
     if (response.status === 429) {
