@@ -85,8 +85,6 @@ while (!shutdown.signal.aborted) {
     console.log('CYCLE_START');
     const snapshot = await buildSportsbookRenderSnapshot({
       fetchSportradar: () => fetchSportradarV2({}),
-      maxEvents: config.sportsbookRenderMaxEvents,
-      maxPages: config.sportsbookRenderMaxPages,
     });
     const snapshotBuiltAt = Date.now();
     const accepted = await postSportsbookSnapshot(endpoint, snapshot, {
