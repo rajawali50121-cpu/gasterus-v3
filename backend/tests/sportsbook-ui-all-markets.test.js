@@ -527,3 +527,41 @@ test('sportsbook UI polish protects header text, match hierarchy, market control
   assert.match(styles, /kei-negative[\s\S]*?color:\s*#ff737d/i);
   assert.match(styles, /font-variant-numeric:\s*tabular-nums/);
 });
+
+
+test('Sportradar snapshot timestamps are preserved and stale prematch prices are suspended', () => {
+  const now = Date.now();
+  const staleSnapshotAt = now - 60 * 60 * 1000;
+  const staleIso = new Date(staleSnapshotAt).toISOString();
+  const input = [{
+    id: 'sr-stale-price-event',
+    live: false,
+    markets: [{
+      id: 'sr-stale-price-market',
+      suspended: false,
+      selections: [{ key: 'HOME', odds: 2.1, suspended: false }]
+    }]
+  }];
+  const stamped = __sportsbookFeed.stampPriceVersions(input, staleSnapshotAt);
+  assert.equal(stamped[0].markets[0].updatedAt, staleIso);
+  assert.equal(stamped[0].markets[0].selections[0].updatedAt, staleIso);
+
+  const guarded = __sportsbookFeed.suspendStalePrematchMarkets(stamped, staleSnapshotAt, now);
+  assert.equal(guarded[0].markets[0].suspended, true);
+  assert.equal(guarded[0].markets[0].selections[0].suspended, true);
+  assert.throws(
+    () => __sportsbookFeed.assertSelectionFresh(
+      { live: false },
+      stamped[0].markets[0],
+      stamped[0].markets[0].selections[0],
+      now
+    ),
+    error => error.code === 'SPORTS_PRICE_STALE'
+  );
+
+  const freshSnapshotAt = now - 30_000;
+  const freshStamped = __sportsbookFeed.stampPriceVersions(input, freshSnapshotAt);
+  const fresh = __sportsbookFeed.suspendStalePrematchMarkets(freshStamped, freshSnapshotAt, now);
+  assert.equal(fresh[0].markets[0].suspended, false);
+  assert.equal(fresh[0].markets[0].selections[0].suspended, false);
+});

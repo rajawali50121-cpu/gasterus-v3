@@ -51,7 +51,7 @@ function retryDelay(response, attempt) {
     const date = Date.parse(value);
     if (Number.isFinite(date)) return Math.max(1000, date - Date.now());
   }
-  return Math.min(30000, 2000 * (attempt + 1));
+  return Math.min(120000, 5000 * (2 ** attempt));
 }
 async function fetchJson(url, maxRetries = 3) {
   let lastError;
@@ -67,7 +67,17 @@ async function fetchJson(url, maxRetries = 3) {
       callState.callsThisHour += 1;
       const response = await fetch(url, { headers: headers(), signal: controller.signal });
       if (response.status === 429) {
-        lastError = new Error('Sportradar rate limited (HTTP 429).');
+        const retryAfter = response.headers?.get?.('retry-after') || null;
+        const rateLimit = {
+          limit: response.headers?.get?.('x-ratelimit-limit') || null,
+          remaining: response.headers?.get?.('x-ratelimit-remaining') || null,
+          reset: response.headers?.get?.('x-ratelimit-reset') || null
+        };
+        const body = clean(await response.text().catch(() => ''), 180);
+        const path = new URL(url).pathname;
+        lastError = new Error(
+          `Sportradar rate limited (HTTP 429; path=${path}; retryAfter=${retryAfter || 'not-provided'}; rateLimit=${JSON.stringify(rateLimit)}; response=${body || 'empty'}).`
+        );
         if (attempt < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, retryDelay(response, attempt)));
           continue;
