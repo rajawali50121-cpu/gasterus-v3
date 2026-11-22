@@ -143,7 +143,7 @@ while (!shutdown.signal.aborted) {
     consecutiveCycleFailures = 0;
   } catch (error) {
     consecutiveCycleFailures += 1;
-    lastCycleRateLimited = /Sportradar rate limited \(HTTP 429/i.test(error?.message || String(error));
+    lastCycleRateLimited = error?.code === 'SPORTRADAR_LIMIT_EXCEEDED' || /Sportradar HTTP 429/i.test(error?.message || String(error));
     lastFailureRetryAt = Date.now();
     const retryCeilingMs = Math.max(
       intervalMs,
