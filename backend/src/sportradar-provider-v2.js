@@ -83,7 +83,7 @@ async function reserveRequest() {
     redis.call('EXPIRE', KEYS[3], 3600)
     return 1
   `;
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
     const now = Date.now();
     const token = `${now}:${randomUUID()}`;
     const result = Number(await redisClient.eval(script, {
@@ -93,7 +93,7 @@ async function reserveRequest() {
     if (result === 1) return;
     if (result === -1) throw new Error('Sportradar rolling 30-day quota exhausted; sync stopped without publishing partial data.');
     if (result === -2) throw new Error('Sportradar hourly request quota exhausted; sync stopped without publishing partial data.');
-    await wait(result === 0 ? Math.min(minInterval, 500) : 250);
+    await wait(result === 0 ? Math.min(minInterval, 1000) : 250);
   }
   throw new Error('Sportradar shared QPS gate remained busy; this cycle was skipped.');
 }
@@ -211,6 +211,7 @@ async function fullDailySync(coverage, daysAhead) {
         diagnostics.pagesFetched += 1;
         const items = responseItems(data);
         if (!items) throw new Error('Daily Sport Event Markets payload is missing sport_event_markets; refusing incomplete sync.');
+        if (!parseDate(data.generated_at)) throw new Error('Daily Sport Event Markets payload is missing a valid generated_at timestamp.');
         const total = Number(headers?.get?.('x-max-results'));
         const pageCount = Number(headers?.get?.('x-result'));
         diagnostics.eventsSeen += items.length;
@@ -238,6 +239,7 @@ async function refreshOneEvent(eventId, previous, sports) {
   const response = await requestJson(`sport_events/${eventId}/sport_event_markets.json`);
   const rawEvent = response.data?.sport_event;
   if (!rawEvent?.id) throw new Error(`Sportradar event markets response missing sport_event for ${eventId}.`);
+  if (!parseDate(response.data.generated_at)) throw new Error(`Sportradar event markets response missing a valid generated_at timestamp for ${eventId}.`);
   const sport = sports.find(item => String(item.id) === String(previous?.sportId)) || { id: previous?.sportId || 'unknown', name: previous?.sport || 'Unknown' };
   const event = buildEvent(rawEvent, response.data, sport, response.data.generated_at);
   if (!event) throw new Error(`Sportradar event ${eventId} could not be normalized.`);
@@ -246,6 +248,8 @@ async function refreshOneEvent(eventId, previous, sports) {
 async function pollChanges(coverage, state) {
   const { data } = await requestJson('sport_event_markets_changelog.json');
   const changes = data?.changes;
+  if (!parseDate(data?.generated_at)) throw new Error('Sportradar Change Log response is missing a valid generated_at timestamp.');
+  const verifiedAt = new Date(parseDate(data.generated_at)).toISOString();
   const windowFrom = Number(data?.status?.from);
   const windowTo = Number(data?.status?.to);
   if (!Array.isArray(changes) || !Number.isFinite(windowFrom) || !Number.isFinite(windowTo) || windowTo < windowFrom) {
@@ -257,6 +261,18 @@ async function pollChanges(coverage, state) {
     .filter(item => item?.type === 'sport_event' && item.id && state.events.has(String(item.id)))
     .map(item => String(item.id)))];
   const updated = new Map(state.events);
+  const changedIds = new Set(trackedIds);
+  for (const [eventId, event] of updated.entries()) {
+    if (changedIds.has(eventId)) continue;
+    updated.set(eventId, {
+      ...event,
+      markets: (event.markets || []).map(market => ({
+        ...market,
+        updatedAt: verifiedAt,
+        selections: (market.selections || []).map(selection => ({ ...selection, updatedAt: verifiedAt }))
+      }))
+    });
+  }
   for (const eventId of trackedIds) {
     try {
       const next = await refreshOneEvent(eventId, updated.get(eventId), coverage.sports);
@@ -273,7 +289,8 @@ async function pollChanges(coverage, state) {
     events: updated,
     diagnostics: { fullSync: false, changeLogChanges: changes.length, eventsRefreshed: trackedIds.length, gapReconciled: gap, changeLogWindow: { from: windowFrom, to: windowTo } },
     lastPollAt: Date.now(),
-    lastChangeLogTo: windowTo
+    lastChangeLogTo: windowTo,
+    verifiedAt
   };
 }
 
