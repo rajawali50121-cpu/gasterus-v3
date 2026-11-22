@@ -252,7 +252,9 @@ function assertSelectionFresh(event, market, selection, feedFetchedAt) {
     throw new AppError(409, 'Feed odds sudah kedaluwarsa. Tunggu pembaruan berikutnya.', 'SPORTS_FEED_STALE_AT_ACCEPTANCE');
   }
   const updatedMs = Date.parse(selection?.updatedAt || market?.updatedAt || '');
-  if (!Number.isFinite(updatedMs)) {\n    throw new AppError(409, 'Timestamp harga provider tidak tersedia. Market ditahan sampai timestamp valid diterima.', 'SPORTS_PRICE_TIMESTAMP_MISSING');\n  }
+  if (!Number.isFinite(updatedMs)) {
+    throw new AppError(409, 'Timestamp harga provider tidak tersedia. Market ditahan sampai timestamp valid diterima.', 'SPORTS_PRICE_TIMESTAMP_MISSING');
+  }
   const maxAgeSeconds = event?.live
     ? config.sportsbookMaxLivePriceAgeSeconds
     : config.sportsbookMaxPrematchPriceAgeSeconds;
