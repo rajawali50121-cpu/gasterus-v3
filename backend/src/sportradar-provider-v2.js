@@ -20,7 +20,7 @@ let redisClient = redis;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function clean(value, max = 160) {
-  return String(value ?? '').replace(/\\s+/g, ' ').trim().slice(0, max);
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 function dateKey(date) { return date.toISOString().slice(0, 10); }
 function utcDates(daysAhead, now = new Date()) {
@@ -31,7 +31,7 @@ function utcDates(daysAhead, now = new Date()) {
   }
   return dates;
 }
-function baseUrl() { return String(config.sportradarBaseUrl).replace(/\\/+$/, ''); }
+function baseUrl() { return String(config.sportradarBaseUrl).replace(/\/+$/, ''); }
 function parseDate(value) {
   const parsed = Date.parse(value || '');
   return Number.isFinite(parsed) ? parsed : null;
