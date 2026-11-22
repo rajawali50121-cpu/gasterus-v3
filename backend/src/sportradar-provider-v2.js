@@ -9,6 +9,7 @@ const PAGE_SIZE = 50;
 const STATE_KEY = 'sportsbook:sportradar:v2:state';
 const LEASE_KEY = 'sportsbook:sportradar:v2:lease';
 const BASELINE_KEY = 'sportsbook:sportradar:v2:quota:baseline';
+const BASELINE_INIT_KEY = 'sportsbook:sportradar:v2:quota:baseline-initialized';
 const ROLLING_KEY = 'sportsbook:sportradar:v2:quota:rolling';
 const HOURLY_KEY = 'sportsbook:sportradar:v2:quota:hourly';
 const QPS_KEY = 'sportsbook:sportradar:v2:quota:qps';
@@ -66,12 +67,14 @@ async function reserveRequest() {
   if (!Number.isSafeInteger(initialUsage) || initialUsage < 0 || initialUsage > monthlyLimit) {
     throw new Error('SPORTRADAR_INITIAL_30_DAY_USAGE must be set to the current rolling usage and cannot exceed the contracted quota.');
   }
-  await redisClient.set(BASELINE_KEY, String(initialUsage), { NX: true, EX: 30 * 24 * 60 * 60 });
   const minInterval = Math.max(100, Number(config.sportradarMinIntervalMs || 1100));
   const script = `
+    if redis.call('SET', KEYS[5], '1', 'NX') then
+      redis.call('SET', KEYS[1], ARGV[5], 'EX', 2592000)
+    end
     local baseline = tonumber(redis.call('GET', KEYS[1]) or '0')
-    redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', tonumber(ARGV[5]) - 2592000)
-    redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', tonumber(ARGV[5]) - 3600)
+    redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', tonumber(ARGV[6]) - 2592000)
+    redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', tonumber(ARGV[6]) - 3600)
     local monthly = redis.call('ZCARD', KEYS[2])
     local hourly = redis.call('ZCARD', KEYS[3])
     if baseline + monthly >= tonumber(ARGV[1]) then return -1 end
@@ -87,8 +90,8 @@ async function reserveRequest() {
     const now = Date.now();
     const token = `${now}:${randomUUID()}`;
     const result = Number(await redisClient.eval(script, {
-      keys: [BASELINE_KEY, ROLLING_KEY, HOURLY_KEY, QPS_KEY],
-      arguments: [String(monthlyLimit), String(hourlyLimit), token, String(minInterval), String(now)]
+      keys: [BASELINE_KEY, ROLLING_KEY, HOURLY_KEY, QPS_KEY, BASELINE_INIT_KEY],
+      arguments: [String(monthlyLimit), String(hourlyLimit), token, String(minInterval), String(initialUsage), String(now)]
     }));
     if (result === 1) return;
     if (result === -1) throw new Error('Sportradar rolling 30-day quota exhausted; sync stopped without publishing partial data.');
