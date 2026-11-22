@@ -14,6 +14,7 @@ Use the current Sportradar Odds Comparison Prematch v2 documentation, not guesse
 - Prematch overview: https://developer.sportradar.com/odds/reference/oc-prematch-overview
 - Sports: https://developer.sportradar.com/odds/reference/oc-prematch-sports
 - Daily Schedules: https://developer.sportradar.com/odds/reference/oc-prematch-daily-schedules
+- Daily Sport Event Markets: https://developer.sportradar.com/odds/reference/oc-prematch-daily-sport-event-markets
 - Sport Event Markets: https://developer.sportradar.com/odds/reference/oc-prematch-sport-event-markets
 - Sport Event Markets Change Log: https://developer.sportradar.com/odds/reference/oc-prematch-sport-event-markets-change-log
 
@@ -23,9 +24,10 @@ Use the current Sportradar Odds Comparison Prematch v2 documentation, not guesse
 2. Authenticate server-side using the `x-api-key` header. Never expose the key to frontend, logs, snapshots, or errors.
 3. Discover available books and sports from `books.json` and `sports.json`. Do not assume every sport or bookmaker is available to the account.
 4. For competition-structured sports, discover competitions from `sports/{sport_id}/competitions.json`; respect each competition's `markets` availability flag.
-5. Daily schedule endpoint documented by Sportradar is `sports/{sport_id}/schedules/{YYYY-MM-DD}/schedules.json`. It supports `start` and `limit`; limit is 1–50 and pagination is often required. Reconcile pagination with documented response headers (`X-Max-Results` and `X-Result`) and reject incomplete retrieval.
-6. Fetch odds for each eligible event from `sport_events/{sport_event_id}/sport_event_markets.json`. The response is event → market → book → outcome. Preserve bookmaker identity and source IDs; do not collapse multiple books into one market without an explicit GASTERUS pricing policy.
-7. Treat the change-log endpoint as the incremental update mechanism only after implementing its documented five-minute window, cursor/watermark overlap, gap detection, and full reconciliation fallback. Do not repeatedly fetch all schedules and every event market as the default refresh strategy.
+5. The fixture-only Daily Schedules endpoint is `sports/{sport_id}/schedules/{YYYY-MM-DD}/schedules.json`. It returns schedule metadata and supports `start`/`limit` pagination.
+6. For date-wide odds ingestion, use the separately documented Daily Sport Event Markets endpoint: `sports/{sport_id}/schedules/{YYYY-MM-DD}/sport_event_markets.json`. This returns the markets for all events on that sport/date in one feed. It supports `start` and `limit`; reconcile completion with documented response headers (`X-Max-Results` and `X-Result`) and reject incomplete retrieval. Do not confuse this endpoint with the fixture-only Daily Schedules feed.
+7. For targeted refresh of one event, use `sport_events/{sport_event_id}/sport_event_markets.json`. The response is event → market → book → outcome. Preserve bookmaker identity and source IDs; do not collapse multiple books into one market without an explicit GASTERUS pricing policy.
+8. Treat the change-log endpoint as the incremental update mechanism only after implementing its documented five-minute window, cursor/watermark overlap, gap detection, and full reconciliation fallback. Do not repeatedly fetch all schedules and every event market as the default refresh strategy.
 8. Treat HTTP 429 as a hard provider limit signal: honor `Retry-After` when present, back off, stop the current cycle, and never publish a partial snapshot. Do not assume a 429 body proves whether account quota or QPS was exceeded.
 9. Respect documented update cadence: prematch bookmaker prices refresh about once per minute. Do not poll faster without a documented/contractual reason.
 
