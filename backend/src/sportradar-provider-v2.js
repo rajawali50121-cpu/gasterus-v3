@@ -16,6 +16,7 @@ const STATE_TTL_SECONDS = 48 * 60 * 60;
 const LEASE_TTL_MS = 10 * 60 * 1000;
 const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
 const discoveryCache = { value: null, expiresAt: 0 };
+let redisClient = redis;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function clean(value, max = 160) {
@@ -37,16 +38,20 @@ function parseDate(value) {
 }
 async function ensureRedis() {
   if (!config.redisUrl) throw new Error('REDIS_URL is required for shared Sportradar state and quota protection.');
-  if (!redis.isOpen) await connectRedis();
+  if (!redisClient.isOpen) {
+    if (redisClient === redis) await connectRedis();
+    else if (typeof redisClient.connect === 'function') await redisClient.connect();
+    else throw new Error('Injected Sportradar Redis client is not connected.');
+  }
 }
 async function acquireLease() {
   const token = randomUUID();
-  const result = await redis.set(LEASE_KEY, token, { NX: true, PX: LEASE_TTL_MS });
+  const result = await redisClient.set(LEASE_KEY, token, { NX: true, PX: LEASE_TTL_MS });
   if (result !== 'OK') throw new Error('Another Sportradar worker owns the shared sync lease; this cycle was skipped.');
   return token;
 }
 async function releaseLease(token) {
-  await redis.eval(
+  await redisClient.eval(
     "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
     { keys: [LEASE_KEY], arguments: [token] }
   );
@@ -61,7 +66,7 @@ async function reserveRequest() {
   if (!Number.isSafeInteger(initialUsage) || initialUsage < 0 || initialUsage > monthlyLimit) {
     throw new Error('SPORTRADAR_INITIAL_30_DAY_USAGE must be set to the current rolling usage and cannot exceed the contracted quota.');
   }
-  await redis.set(BASELINE_KEY, String(initialUsage), { NX: true, EX: 30 * 24 * 60 * 60 });
+  await redisClient.set(BASELINE_KEY, String(initialUsage), { NX: true, EX: 30 * 24 * 60 * 60 });
   const minInterval = Math.max(100, Number(config.sportradarMinIntervalMs || 1100));
   const script = `
     local baseline = tonumber(redis.call('GET', KEYS[1]) or '0')
@@ -81,7 +86,7 @@ async function reserveRequest() {
   for (let attempt = 0; attempt < 30; attempt += 1) {
     const now = Date.now();
     const token = `${now}:${randomUUID()}`;
-    const result = Number(await redis.eval(script, {
+    const result = Number(await redisClient.eval(script, {
       keys: [BASELINE_KEY, ROLLING_KEY, HOURLY_KEY, QPS_KEY],
       arguments: [String(monthlyLimit), String(hourlyLimit), token, String(minInterval), String(now)]
     }));
@@ -279,7 +284,7 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
   const lease = await acquireLease();
   try {
     const coverage = await discoverCoverage();
-    const rawState = await redis.get(STATE_KEY);
+    const rawState = await redisClient.get(STATE_KEY);
     let stored = rawState ? JSON.parse(rawState) : null;
     const state = stored && Array.isArray(stored.events)
       ? { ...stored, events: new Map(stored.events) }
@@ -301,7 +306,7 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const events = [...state.events.values()];
     if (!events.length) throw new Error('Sportradar state has no events after sync; previous snapshot remains untouched.');
     const generatedAt = new Date().toISOString();
-    await redis.set(STATE_KEY, JSON.stringify({
+    await redisClient.set(STATE_KEY, JSON.stringify({
       events: [...state.events.entries()],
       lastPollAt: state.lastPollAt || Date.now(),
       lastFullSyncAt: state.lastFullSyncAt,
@@ -321,4 +326,7 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
   }
 }
 
-export const __sportradarV2 = { utcDates, responseItems, buildEvent };
+export const __sportradarV2 = {
+  utcDates, responseItems, buildEvent,
+  setRedisClientForTests(client) { redisClient = client; discoveryCache.value = null; discoveryCache.expiresAt = 0; }
+};
