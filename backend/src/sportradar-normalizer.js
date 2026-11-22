@@ -80,22 +80,8 @@ function marketIdNumber(value) {
   const match = String(value ?? '').match(/(?:^|:)market:(\d+)$/);
   return match ? Number(match[1]) : null;
 }
-const MARKET_TYPE_BY_ID = new Map([
-  [1, '1X2'], [10, 'DOUBLE_CHANCE'], [11, 'DRAW_NO_BET'],
-  [14, 'EUROPEAN_HANDICAP'], [16, 'HANDICAP'], [18, 'TOTALS'],
-  [26, 'OTHER'], [29, 'BTTS'], [45, 'CORRECT_SCORE'],
-  [60, '1X2'], [64, 'DRAW_NO_BET'],
-  [66, 'HANDICAP'], [68, 'TOTALS'], [69, 'TEAM_TOTAL'], [70, 'TEAM_TOTAL']
-]);
-const MARKET_PERIOD_BY_ID = new Map([
-  [26, 'FT'],
-  [60, '1H'], [64, '1H'], [66, '1H'],
-  [68, '1H'], [69, '1H'], [70, '1H'],
-  [83, '2H'], [231, '2H'], [232, '2H'], [293, '2H'], [294, '2H']
-]);
+
 export function marketType(name, outcomeCount = null, hasDrawOutcome = false, marketId = null) {
-  const idType = MARKET_TYPE_BY_ID.get(marketIdNumber(marketId));
-  if (idType) return idType;
   const value = clean(name, 120).toLowerCase();
   if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
   if (/european.?handicap|three.?way.?handicap/.test(value)) return 'EUROPEAN_HANDICAP';
@@ -147,10 +133,6 @@ export function periodFromMarket(name, metadata = {}) {
     if (period && period !== 'FT') return period;
     if (period === 'FT') genericPeriod = period;
   }
-  // A documented first-half market ID is more specific than generic metadata
-  // such as period="match"; do not silently downgrade it to full time.
-  const idPeriod = MARKET_PERIOD_BY_ID.get(marketIdNumber(metadata.id || metadata.market_id));
-  if (idPeriod) return idPeriod;
   if (genericPeriod) return genericPeriod;
   // Sportradar Odds Comparison uses generic names such as "handicap" and
   // "handicap {hcp}". marketType() needs outcome count to classify those,
@@ -161,15 +143,9 @@ export function periodFromMarket(name, metadata = {}) {
   if (marketType(value) !== 'OTHER') return 'FT';
   return 'UNCLASSIFIED';
 }
-function sportradarOutcomeType(marketId, outcome) {
-  const marketNumber = marketIdNumber(marketId);
-  const outcomeId = String(outcome?.id || '').match(/(?:^|:)outcome:(\d+)$/)?.[1] || null;
-  const documented = marketNumber === 14
-    ? ({ '1711': 'home', '1712': 'draw', '1713': 'away' })[outcomeId]
-    : marketNumber === 16
-      ? ({ '1714': 'home', '1715': 'away' })[outcomeId]
-      : null;
-  return documented || null;
+function sportradarOutcomeType(_marketId, outcome) {
+  const value = clean(outcome?.type, 40).toLowerCase();
+  return value || null;
 }
 
 function handicapSpecifier(market) {
@@ -279,12 +255,8 @@ function normalizeOdds(event, raw) {
         if (outcomeRemoved) diagnostics.removedOutcomesRetained += 1;
         const odds = number(outcome.odds_decimal);
         if (odds === null) diagnostics.outcomesWithoutDecimalOddsRetained += 1;
-        const documentedOutcomeType = sportradarOutcomeType(marketId, outcome);
-        const strictDocumentedMarket = [14, 16].includes(marketIdNumber(marketId));
-        const normalizedOutcomeType = strictDocumentedMarket
-          ? documentedOutcomeType
-          : (String(outcome.type || '').toLowerCase() || null);
-        const normalizedOutcome = documentedOutcomeType ? { ...outcome, type: documentedOutcomeType } : outcome;
+        const normalizedOutcomeType = sportradarOutcomeType(marketId, outcome);
+        const normalizedOutcome = normalizedOutcomeType ? { ...outcome, type: normalizedOutcomeType } : outcome;
         const label = selectionLabel(normalizedOutcome, event, type);
         const documentedHcp = type === 'EUROPEAN_HANDICAP' ? handicapSpecifier(market) : null;
         const rawLine = outcome.handicap ?? outcome.spread ?? outcome.total ?? documentedHcp;
