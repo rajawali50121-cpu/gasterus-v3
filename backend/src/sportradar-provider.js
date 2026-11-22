@@ -353,13 +353,13 @@ function normalizeOdds(event, raw) {
     }
     // Capture a tiny, sanitized sample for the documented handicap markets only.
     // Never log full provider payloads, credentials, headers, or bookmaker names.
-    if ([14, 16].includes(marketIdNumber(marketId)) && diagnostics.outcomeSamples.length < 2) {
+    if ([14, 16].includes(marketIdNumber(marketId)) && diagnostics.outcomeSamples.length < 2 && !diagnostics.outcomeSamples.some(sample => sample.marketId === marketId)) {
       const sampleBook = books.find(candidate => Array.isArray(candidate?.outcomes) && candidate.outcomes.length);
       if (sampleBook) {
         diagnostics.outcomeSamples.push({
           marketId,
           marketName,
-          specifiers: market.specifiers ?? null,
+          handicapSpecifier: handicapSpecifier(market),
           outcomes: sampleBook.outcomes.slice(0, 5).filter(outcome => outcome && typeof outcome === 'object').map(outcome => ({
             id: clean(outcome.id, 80) || null,
             type: clean(outcome.type, 40) || null,
