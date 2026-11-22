@@ -684,9 +684,9 @@ export async function fetchSportradar(options = {}) {
   await connectRedis();
   const key = `${providerRedisPrefix()}:cycle-lock`;
   const token = randomUUID();
-  // Hold the lease for one hour, not just while the process is running. This
+  // Hold the lease across the hourly schedule boundary, not just while the process is running. This
   // prevents overlapping/restarted workers from repeating a full API pull.
-  const acquired = await redis.set(key, token, { NX: true, PX: 60 * 60 * 1000 });
+  const acquired = await redis.set(key, token, { NX: true, PX: 55 * 60 * 1000 });
   if (!acquired) {
     const error = new Error('A Sportradar ingestion cycle already claimed this hourly window; duplicate cycle skipped.');
     error.code = 'SPORTRADAR_CYCLE_ALREADY_RUNNING';
