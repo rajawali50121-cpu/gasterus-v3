@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { marketType, periodFromMarket, __sportradarNormalizer } from '../src/sportradar-provider.js';
 
 test('generic Sportradar handicap with multiple two-way line outcomes stays Asian Handicap', () => {
@@ -141,4 +142,13 @@ test('Sportradar market identity includes handicap specifier', () => {
     ] }
   );
   assert.notEqual(markets[0].id, markets[1].id);
+});
+
+
+const sportradarProviderSource = readFileSync(new URL('../src/sportradar-provider.js', import.meta.url), 'utf8');
+
+test('Sportradar quota exhaustion is not retried immediately', () => {
+  assert.match(sportradarProviderSource, /Limit Exceeded/);
+  assert.match(sportradarProviderSource, /SPORTRADAR_QUOTA_EXCEEDED/);
+  assert.match(sportradarProviderSource, /if \(error\?\.code === 'SPORTRADAR_QUOTA_EXCEEDED'\) throw error/);
 });
