@@ -544,7 +544,8 @@ async function performRefresh({ reason = 'scheduled' } = {}) {
     retentionSeconds: config.sportsbookMarketLifecycleRetentionSeconds,
     now: fetchedAt
   });
-  events = stampPriceVersions(marketLifecycle.events, snapshotCapturedAtMs);\n  events = suspendStalePrematchMarkets(events, snapshotCapturedAtMs, fetchedAt);
+  events = stampPriceVersions(marketLifecycle.events, snapshotCapturedAtMs);
+  events = suspendStalePrematchMarkets(events, snapshotCapturedAtMs, fetchedAt);
   await writeMarketLifecycle(marketLifecycle.state);
   const mergedPricedMarkets = pricedMarketCount(events);
   const mergedBettableMarkets = bettableMarketCount(events);
