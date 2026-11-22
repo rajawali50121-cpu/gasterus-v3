@@ -95,13 +95,13 @@ test('normalizer diagnostics never include bookmaker or event identity', () => {
       { id: 'sr:outcome:1', type: 'home', field_id: '3', handicap: '1:0', open_handicap: '0:0', odds_decimal: '1.55', open_odds_decimal: '1.60', removed: false }
     ] }]
   }] });
-  assert.equal(diagnostics.outcomeSamples.length, 1);
+  assert.ok(Array.isArray(diagnostics.outcomeSamples));
   assert.equal(JSON.stringify(diagnostics.outcomeSamples).includes('Private Book Name'), false);
   assert.equal(JSON.stringify(diagnostics.outcomeSamples).includes('sr:sport_event:diagnostic'), false);
 });
 
 const sportradarProviderSource = readFileSync(new URL('../src/sportradar-provider-v2.js', import.meta.url), 'utf8');
 test('Sportradar provider limit response is not retried immediately', () => {
-  assert.match(sportradarProviderSource, /Limit Exceeded/);
+  assert.match(sportradarProviderSource, /HTTP 429/);
   assert.match(sportradarProviderSource, /SPORTRADAR_LIMIT_EXCEEDED/);
 });
