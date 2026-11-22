@@ -61,7 +61,6 @@ console.info(JSON.stringify({
   service: 'sportsbook-render-worker',
   event: 'worker-config',
   cronOnce,
-  dailyRefreshEnabled: config.sportsbookDailyRefreshEnabled !== false && !cronOnce,
   sportradarEnabled: config.sportradarEnabled,
   sportradarAccessLevel: /\/trial\//i.test(sportradarUrl.pathname) ? 'trial' : /\/production\//i.test(sportradarUrl.pathname) ? 'production' : 'other',
   sportIds: config.sportradarSportIds || null,
@@ -69,39 +68,13 @@ console.info(JSON.stringify({
   ingestPath: ingestUrl.pathname
 }));
 
-const { nextSportsbookDailyRefreshMs } = await import('./sportsbook-render-worker-core.js');
 const snapshotIntervalSeconds = sportsbookRenderIntervalSeconds(config);
 const intervalMs = snapshotIntervalSeconds * 1000;
 const shutdown = new AbortController();
 process.once('SIGINT', () => shutdown.abort());
 process.once('SIGTERM', () => shutdown.abort());
 let consecutiveCycleFailures = 0;
-let lastDailyRunWibDate = null;
-let firstPullDone = false;
-let lastFailureRetryAt = 0;
 let lastCycleRateLimited = false;
-
-function wibDateKey(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
-  return `${map.year}-${map.month}-${map.day}`;
-}
-
-function wibClock(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
-  return { hour: Number(map.hour || 0), minute: Number(map.minute || 0) };
-}
-function dailySlotDue(now = Date.now()) {
-  const clock = wibClock(new Date(now));
-  const h = Number(config.sportsbookDailyRefreshHourWib ?? 0);
-  const m = Number(config.sportsbookDailyRefreshMinuteWib ?? 5);
-  return clock.hour * 60 + clock.minute >= h * 60 + m;
-}
 
 while (!shutdown.signal.aborted) {
   const cycleStartedAt = Date.now();
