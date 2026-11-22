@@ -6,6 +6,7 @@ import { connectRedis, redis } from './redis.js';
 import { logger } from './logger.js';
 
 const PROVIDER = 'sportradar';
+const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en';
 const PAGE_SIZE = 50;
 const STATE_KEY = 'sportsbook:sportradar:v2:state';
 const LEASE_KEY = 'sportsbook:sportradar:v2:lease';
@@ -312,18 +313,6 @@ async function pollChanges(coverage, state) {
     .filter(item => item?.type === 'sport_event' && item.id && state.events.has(String(item.id)))
     .map(item => String(item.id)))];
   const updated = new Map(state.events);
-  const changedIds = new Set(trackedIds);
-  for (const [eventId, event] of updated.entries()) {
-    if (changedIds.has(eventId)) continue;
-    updated.set(eventId, {
-      ...event,
-      markets: (event.markets || []).map(market => ({
-        ...market,
-        updatedAt: verifiedAt,
-        selections: (market.selections || []).map(selection => ({ ...selection, updatedAt: verifiedAt }))
-      }))
-    });
-  }
   for (const eventId of trackedIds) {
     try {
       const next = await refreshOneEvent(eventId, updated.get(eventId), coverage.sports);
@@ -395,6 +384,6 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
 }
 
 export const __sportradarV2 = {
-  utcDates, responseItems, safePayloadShape, buildEvent,
+  utcDates, responseItems, safePayloadShape, buildEvent, baseUrl, pollChanges,
   setRedisClientForTests(client) { redisClient = client; discoveryCache.value = null; discoveryCache.expiresAt = 0; }
 };
