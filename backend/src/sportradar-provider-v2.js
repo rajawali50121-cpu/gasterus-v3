@@ -65,6 +65,8 @@ async function reserveRequest() {
   const minInterval = Math.max(100, Number(config.sportradarMinIntervalMs || 1100));
   const script = `
     local baseline = tonumber(redis.call('GET', KEYS[1]) or '0')
+    redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', tonumber(ARGV[5]) - 2592000)
+    redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', tonumber(ARGV[5]) - 3600)
     local monthly = redis.call('ZCARD', KEYS[2])
     local hourly = redis.call('ZCARD', KEYS[3])
     if baseline + monthly >= tonumber(ARGV[1]) then return -1 end
@@ -179,7 +181,15 @@ function buildEvent(rawEvent, item, sport, generatedAt) {
     if (String(competitor.qualifier).toLowerCase() === 'away') event.away.name = name;
   }
   const normalized = __sportradarNormalizer.normalizeOdds(event, item);
-  event.markets = normalized.markets;
+  const priceUpdatedAt = parseDate(generatedAt) ? new Date(parseDate(generatedAt)).toISOString() : null;
+  event.markets = normalized.markets.map(market => ({
+    ...market,
+    updatedAt: priceUpdatedAt,
+    selections: market.selections.map(selection => ({
+      ...selection,
+      updatedAt: selection.updatedAt || priceUpdatedAt
+    }))
+  }));
   return event;
 }
 async function fullDailySync(coverage, daysAhead) {
