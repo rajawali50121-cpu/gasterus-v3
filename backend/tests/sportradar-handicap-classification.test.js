@@ -84,3 +84,30 @@ test('Sportradar European Handicap preserves string hcp specifiers such as 1:0',
     ['away', '1:0', null, 4.8]
   ]);
 });
+
+test('Sportradar diagnostics capture only bounded handicap outcome fields without bookmaker or event payloads', () => {
+  const event = { id: 'sr:sport_event:diagnostic', home: { name: 'Home FC' }, away: { name: 'Away FC' } };
+  const { diagnostics } = __sportradarNormalizer.normalizeOdds(event, { markets: [
+    {
+      id: 'sr:market:14', name: 'Handicap {hcp}', specifiers: null,
+      books: [{ id: 'sr:book:private', name: 'Private Book Name', outcomes: [
+        { id: 'sr:outcome:1711', type: 'home', field_id: '3', handicap: '1:0', open_handicap: '0:0', odds_decimal: '1.55', open_odds_decimal: '1.60', removed: false },
+        { id: 'sr:outcome:1712', type: 'draw', field_id: '4', handicap: '1:0', odds_decimal: '3.90' },
+        { id: 'sr:outcome:1713', type: 'away', field_id: '5', odds_decimal: '4.80' }
+      ] }]
+    },
+    {
+      id: 'sr:market:16', name: 'Handicap',
+      books: [{ outcomes: [{ id: 'sr:outcome:1714', handicap: '-1', odds_decimal: '1.91' }] }]
+    }
+  ] });
+  assert.equal(diagnostics.outcomeSamples.length, 2);
+  assert.deepEqual(diagnostics.outcomeSamples[0].outcomes[0], {
+    id: 'sr:outcome:1711', type: 'home', field_id: '3',
+    handicap: '1:0', open_handicap: '0:0',
+    odds_decimal: '1.55', open_odds_decimal: '1.60', removed: false
+  });
+  assert.equal(JSON.stringify(diagnostics.outcomeSamples).includes('Private Book Name'), false);
+  assert.equal(JSON.stringify(diagnostics.outcomeSamples).includes('sr:sport_event:diagnostic'), false);
+  assert.equal(diagnostics.outcomeSamples[0].outcomes.length, 3);
+});
