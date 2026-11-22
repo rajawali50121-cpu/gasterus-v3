@@ -221,3 +221,13 @@ test('Sportsbook feed distinguishes priced markets from settlement-safe bettable
   assert.match(feed, /READ_ONLY_PRICED_NO_SETTLEMENT_AUTHORITY/);
   assert.match(feed, /primaryPricingProvider/);
 });
+
+
+const renderWorker = readFileSync(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8');
+
+test('Sportradar 429 responses with diagnostic suffix are deferred, not classified as worker crashes', () => {
+  assert.ok(renderWorker.includes(String.raw`lastCycleRateLimited = /Sportradar rate limited \\(HTTP 429/i.test`));
+  assert.match(renderWorker, /snapshot-deferred-rate-limit/);
+  assert.match(renderWorker, /provider-quota-limit/);
+  assert.match(renderWorker, /if \(consecutiveCycleFailures > 0 && !lastCycleRateLimited\) process\.exitCode = 1/);
+});
