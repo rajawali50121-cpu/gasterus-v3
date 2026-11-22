@@ -226,7 +226,7 @@ test('Sportsbook feed distinguishes priced markets from settlement-safe bettable
 const renderWorker = readFileSync(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8');
 
 test('Sportradar 429 responses with diagnostic suffix are deferred, not classified as worker crashes', () => {
-  assert.ok(renderWorker.includes(String.raw`lastCycleRateLimited = /Sportradar rate limited \\(HTTP 429/i.test`));
+  assert.ok(renderWorker.includes(String.raw`lastCycleRateLimited = error?.code === 'SPORTRADAR_LIMIT_EXCEEDED' || /Sportradar HTTP 429/i.test`));
   assert.match(renderWorker, /snapshot-deferred-rate-limit/);
   assert.match(renderWorker, /provider-limit-exceeded/);
   assert.match(renderWorker, /if \(consecutiveCycleFailures > 0 && !lastCycleRateLimited\) process\.exitCode = 1/);

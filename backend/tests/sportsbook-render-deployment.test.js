@@ -30,12 +30,12 @@ test('Sportradar credential and base URL exist only in the worker environment ex
   assert.match(workerEnv, /^SPORTRADAR_API_KEY=/m);
   assert.match(workerEnv, /^SPORTRADAR_BASE_URL=https:\/\/api\.sportradar\.com\/oddscomparison-prematch\/production\/v2\/en$/m);
   assert.match(workerEnv, /^SPORTSBOOK_INGEST_URL=http:\/\/gasterus-v3\.railway\.internal\/api\/internal\/sportsbook\/ingest$/m);
-  assert.match(workerEnv, /^SPORTSBOOK_CRON_ONCE=true$/m);
+  assert.match(workerEnv, /^SPORTSBOOK_CRON_ONCE=false$/m);
   assert.match(worker, /MFA_ENCRYPTION_KEY_BASE64/);
 });
 
 test('backend is a consumer only and the worker is the only Sportradar fetch path', () => {
-  assert.match(worker, /sportradar-provider\.js/);
+  assert.match(worker, /sportradar-provider-v2\.js/);
   assert.match(worker, /buildSportsbookRenderSnapshot/);
   assert.doesNotMatch(worker, /sportsbook-providers\.js|fetchSportmonks|fetchSharpApi|fetchOddsPapi|fetchRapidApiOdds/);
   assert.doesNotMatch(feed, /fetchSportradar|fetchLocalProviders|fetchSportmonks|fetchSharpApi|fetchOddsPapi/);

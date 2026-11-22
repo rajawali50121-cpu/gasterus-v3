@@ -24,12 +24,12 @@ configureProviderOnlyRuntime();
 
 const [
   { config },
-  { fetchSportradar },
+  { fetchSportradarV2 },
   { postSportsbookSnapshot },
   { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
 ] = await Promise.all([
   import('./config.js'),
-  import('./sportradar-provider.js'),
+  import('./sportradar-provider-v2.js'),
   import('./sportsbook-ingest-client.js'),
   import('./sportsbook-render-worker-core.js')
 ]);
@@ -61,7 +61,6 @@ console.info(JSON.stringify({
   service: 'sportsbook-render-worker',
   event: 'worker-config',
   cronOnce,
-  dailyRefreshEnabled: config.sportsbookDailyRefreshEnabled !== false && !cronOnce,
   sportradarEnabled: config.sportradarEnabled,
   sportradarAccessLevel: /\/trial\//i.test(sportradarUrl.pathname) ? 'trial' : /\/production\//i.test(sportradarUrl.pathname) ? 'production' : 'other',
   sportIds: config.sportradarSportIds || null,
@@ -69,65 +68,23 @@ console.info(JSON.stringify({
   ingestPath: ingestUrl.pathname
 }));
 
-const { nextSportsbookDailyRefreshMs } = await import('./sportsbook-render-worker-core.js');
 const snapshotIntervalSeconds = sportsbookRenderIntervalSeconds(config);
 const intervalMs = snapshotIntervalSeconds * 1000;
 const shutdown = new AbortController();
 process.once('SIGINT', () => shutdown.abort());
 process.once('SIGTERM', () => shutdown.abort());
 let consecutiveCycleFailures = 0;
-let lastDailyRunWibDate = null;
-let firstPullDone = false;
-let lastFailureRetryAt = 0;
 let lastCycleRateLimited = false;
-
-function wibDateKey(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
-  return `${map.year}-${map.month}-${map.day}`;
-}
-
-function wibClock(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit', hour12: false
-  }).formatToParts(date);
-  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
-  return { hour: Number(map.hour || 0), minute: Number(map.minute || 0) };
-}
-function dailySlotDue(now = Date.now()) {
-  const clock = wibClock(new Date(now));
-  const h = Number(config.sportsbookDailyRefreshHourWib ?? 0);
-  const m = Number(config.sportsbookDailyRefreshMinuteWib ?? 5);
-  return clock.hour * 60 + clock.minute >= h * 60 + m;
-}
 
 while (!shutdown.signal.aborted) {
   const cycleStartedAt = Date.now();
   let nextDelayMs = intervalMs;
   lastCycleRateLimited = false;
   try {
-    // Daily mode: only fetch providers once per day at configured WIB slot.
-    if (config.sportsbookDailyRefreshEnabled !== false && !cronOnce) {
-      const nowMs = Date.now();
-      const todayWib = wibDateKey();
-      const forceFirstPull = String(process.env.SPORTSBOOK_FORCE_FIRST_PULL || '').toLowerCase() === 'true';
-      const needsFirstPull = forceFirstPull && !firstPullDone && lastDailyRunWibDate !== todayWib;
-      const retryAfterFailure = lastDailyRunWibDate !== todayWib && consecutiveCycleFailures > 0 && (nowMs - lastFailureRetryAt) >= 60 * 60 * 1000;
-      const due = dailySlotDue(nowMs) && lastDailyRunWibDate !== todayWib;
-      // Skip API calls on restart/member access/deploy; rely on stored ingest snapshot in Redis.
-      if (!due && !needsFirstPull && !retryAfterFailure) {
-        nextDelayMs = Math.min(nextSportsbookDailyRefreshMs(config, nowMs), 60 * 60 * 1000);
-        console.info(JSON.stringify({ service:'sportsbook-render-worker', event:'daily-refresh-wait', nextRefreshInMs: nextDelayMs, lastDailyRunWibDate }));
-        if (!shutdown.signal.aborted) await sleep(Math.max(30_000, nextDelayMs), undefined, { signal: shutdown.signal }).catch(e => { if (e.name !== 'AbortError') throw e; });
-        continue;
-      }
-      if (retryAfterFailure) lastFailureRetryAt = nowMs;
-    }
+    // Sportradar prematch change log is a rolling five-minute window; poll every minute.
     console.log('CYCLE_START');
     const snapshot = await buildSportsbookRenderSnapshot({
-      fetchSportradar: () => fetchSportradar({}),
+      fetchSportradar: () => fetchSportradarV2({}),
       maxEvents: config.sportsbookRenderMaxEvents,
       maxPages: config.sportsbookRenderMaxPages,
     });
@@ -136,11 +93,6 @@ while (!shutdown.signal.aborted) {
       secret: config.sportsbookIngestHmacSecret,
     });
     const acceptedAt = Date.now();
-    if (config.sportsbookDailyRefreshEnabled !== false && !cronOnce) {
-      lastDailyRunWibDate = wibDateKey();
-      firstPullDone = true;
-      consecutiveCycleFailures = 0;
-    }
     const providers = snapshot.providerResults.map(result => ({
       provider: result.provider,
       enabled: result.enabled === true,
@@ -164,16 +116,14 @@ while (!shutdown.signal.aborted) {
     consecutiveCycleFailures = 0;
   } catch (error) {
     consecutiveCycleFailures += 1;
-    lastCycleRateLimited = /Sportradar rate limited \(HTTP 429/i.test(error?.message || String(error));
+    lastCycleRateLimited = error?.code === 'SPORTRADAR_LIMIT_EXCEEDED' || /Sportradar HTTP 429/i.test(error?.message || String(error));
     lastFailureRetryAt = Date.now();
     const retryCeilingMs = Math.max(
       intervalMs,
       Math.min(300_000, config.sportsbookIngestMaxAgeSeconds * 500)
     );
-    // In daily mode failed/quota-limited runs retry hourly (within quota gate in fetchers), without overwriting stored data.
-    nextDelayMs = config.sportsbookDailyRefreshEnabled !== false && !cronOnce
-      ? 60 * 60 * 1000
-      : Math.min(retryCeilingMs, intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6)));
+    // Retry with bounded backoff; the adapter retains the last accepted state and never publishes partial data.
+    nextDelayMs = Math.min(retryCeilingMs, intervalMs * (2 ** Math.min(consecutiveCycleFailures, 6)));
     console.error(JSON.stringify({
       service: 'sportsbook-render-worker',
       event: lastCycleRateLimited && cronOnce ? 'snapshot-deferred-rate-limit' : 'snapshot-failed',
