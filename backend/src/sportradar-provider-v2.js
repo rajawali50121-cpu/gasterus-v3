@@ -91,7 +91,7 @@ async function discoverCoverage() {
       covered.push(sport);
       continue;
     }
-    const competitionResponse = await requestJson(`sports/${encodeURIComponent(sport.id)}/competitions.json`);
+    const competitionResponse = await requestJson(`sports/${sport.id}/competitions.json`);
     const competitions = Array.isArray(competitionResponse.data?.competitions) ? competitionResponse.data.competitions : [];
     if (competitions.some(competition => competition.markets === true)) covered.push(sport);
   }
