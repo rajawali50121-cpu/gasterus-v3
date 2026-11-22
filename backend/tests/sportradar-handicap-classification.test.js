@@ -112,3 +112,33 @@ test('Sportradar diagnostics capture only bounded handicap outcome fields withou
   assert.equal(JSON.stringify(diagnostics.outcomeSamples).includes('sr:sport_event:diagnostic'), false);
   assert.equal(diagnostics.outcomeSamples[0].outcomes.length, 3);
 });
+
+test('Sportradar market 14 rejects undocumented outcome IDs even when raw type claims home', () => {
+  const { markets } = __sportradarNormalizer.normalizeOdds(
+    { id: 'sr:sport_event:unknown', home: { name: 'Home FC' }, away: { name: 'Away FC' } },
+    { markets: [{ id: 'sr:market:14', name: 'Handicap {hcp}', specifiers: { hcp: '-1' }, books: [{ outcomes: [
+      { id: 'sr:outcome:9999', type: 'home', odds_decimal: '1.50' }
+    ] }] }] }
+  );
+  assert.equal(markets[0].selections[0].outcomeType, null);
+});
+test('Sportradar score-style European Handicap line remains display-only for settlement', () => {
+  const { markets } = __sportradarNormalizer.normalizeOdds(
+    { id: 'sr:sport_event:scoreline', home: { name: 'Home FC' }, away: { name: 'Away FC' } },
+    { markets: [{ id: 'sr:market:14', name: 'Handicap {hcp}', specifiers: 'hcp=1:0', books: [{ outcomes: [
+      { id: 'sr:outcome:1711', odds_decimal: '1.55' }
+    ] }] }] }
+  );
+  assert.equal(markets[0].selections[0].line, null);
+  assert.equal(markets[0].selections[0].suspended, true);
+});
+test('Sportradar market identity includes handicap specifier', () => {
+  const { markets } = __sportradarNormalizer.normalizeOdds(
+    { id: 'sr:sport_event:lines', home: { name: 'Home FC' }, away: { name: 'Away FC' } },
+    { markets: [
+      { id: 'sr:market:14', name: 'Handicap {hcp}', specifiers: { hcp: '-1' }, books: [{ id: 'book', outcomes: [{ id: 'sr:outcome:1711', odds_decimal: '1.50' }] }] },
+      { id: 'sr:market:14', name: 'Handicap {hcp}', specifiers: { hcp: '-2' }, books: [{ id: 'book', outcomes: [{ id: 'sr:outcome:1711', odds_decimal: '2.50' }] }] }
+    ] }
+  );
+  assert.notEqual(markets[0].id, markets[1].id);
+});
