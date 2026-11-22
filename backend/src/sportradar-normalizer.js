@@ -76,12 +76,8 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
     }
   };
 }
-function marketIdNumber(value) {
-  const match = String(value ?? '').match(/(?:^|:)market:(\d+)$/);
-  return match ? Number(match[1]) : null;
-}
 
-export function marketType(name, outcomeCount = null, hasDrawOutcome = false, marketId = null) {
+export function marketType(name, outcomeCount = null, hasDrawOutcome = false) {
   const value = clean(name, 120).toLowerCase();
   if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
   if (/european.?handicap|three.?way.?handicap/.test(value)) return 'EUROPEAN_HANDICAP';
@@ -200,7 +196,7 @@ function normalizeOdds(event, raw) {
       const outcomeName = clean(outcome?.name || outcome?.label, 80).toLowerCase();
       return outcomeType === 'draw' || outcomeName === 'draw' || outcomeName === 'x';
     }));
-    const type = marketType(marketName, outcomeCount, hasDrawOutcome, marketId);
+    const type = marketType(marketName, outcomeCount, hasDrawOutcome);
     diagnostics.marketIdCounts[marketId] = (diagnostics.marketIdCounts[marketId] || 0) + 1;
     const period = periodFromMarket(marketName, market);
     diagnostics.periodCounts[period] = (diagnostics.periodCounts[period] || 0) + 1;
