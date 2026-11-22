@@ -321,7 +321,8 @@ function normalizeOdds(event, raw) {
     outcomesWithoutDecimalOddsRetained: 0,
     periodCounts: {},
     marketIdCounts: {},
-    periodSamples: []
+    periodSamples: [],
+    outcomeSamples: []
   };
   const markets = [];
   for (const market of (Array.isArray(raw?.markets) ? raw.markets : [])) {
@@ -349,6 +350,28 @@ function normalizeOdds(event, raw) {
         providerPeriod: market.period ?? market.period_name ?? market.period_id ?? null,
         specifiers: market.specifiers ?? null
       });
+    }
+    // Capture a tiny, sanitized sample for the documented handicap markets only.
+    // Never log full provider payloads, credentials, headers, or bookmaker names.
+    if ([14, 16].includes(marketIdNumber(marketId)) && diagnostics.outcomeSamples.length < 2) {
+      const sampleBook = books.find(candidate => Array.isArray(candidate?.outcomes) && candidate.outcomes.length);
+      if (sampleBook) {
+        diagnostics.outcomeSamples.push({
+          marketId,
+          marketName,
+          specifiers: market.specifiers ?? null,
+          outcomes: sampleBook.outcomes.slice(0, 5).filter(outcome => outcome && typeof outcome === 'object').map(outcome => ({
+            id: clean(outcome.id, 80) || null,
+            type: clean(outcome.type, 40) || null,
+            field_id: clean(outcome.field_id, 40) || null,
+            handicap: outcome.handicap == null ? null : clean(outcome.handicap, 40),
+            open_handicap: outcome.open_handicap == null ? null : clean(outcome.open_handicap, 40),
+            odds_decimal: outcome.odds_decimal == null ? null : clean(outcome.odds_decimal, 40),
+            open_odds_decimal: outcome.open_odds_decimal == null ? null : clean(outcome.open_odds_decimal, 40),
+            removed: isRemovedFlag(outcome.removed)
+          }))
+        });
+      }
     }
     const marketSourceData = Object.fromEntries(Object.entries(market).filter(([key]) => key !== 'books'));
 
@@ -475,7 +498,8 @@ export async function fetchSportradar({
       outcomesWithoutDecimalOddsRetained: 0,
       periodCounts: {},
       marketIdCounts: {},
-      periodSamples: []
+      periodSamples: [],
+      outcomeSamples: []
     }
   };
 
@@ -525,6 +549,8 @@ export async function fetchSportradar({
               }
             } else if (key === 'periodSamples') {
               diagnostics.odds.periodSamples.push(...(odds.diagnostics.periodSamples || []).slice(0, Math.max(0, 20 - diagnostics.odds.periodSamples.length)));
+            } else if (key === 'outcomeSamples') {
+              diagnostics.odds.outcomeSamples.push(...(odds.diagnostics.outcomeSamples || []).slice(0, Math.max(0, 24 - diagnostics.odds.outcomeSamples.length)));
             } else {
               diagnostics.odds[key] += odds.diagnostics[key] || 0;
             }
