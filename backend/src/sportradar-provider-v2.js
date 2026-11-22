@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
-import { __sportradarNormalizer } from './sportradar-provider.js';
+import { __sportradarNormalizer } from './sportradar-normalizer.js';
 import { connectRedis, redis } from './redis.js';
 import { logger } from './logger.js';
 
