@@ -57,6 +57,11 @@ add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
   try { snapshot=JSON.parse(raw); } catch { throw new AppError(503,'Snapshot Sportradar tidak valid.','SPORTSBOOK_SNAPSHOT_INVALID'); }
   const ageMs=Math.max(0,Date.now()-Date.parse(snapshot.fetchedAt||''));
   if(!Number.isFinite(ageMs)||ageMs>5*60*60*1000) throw new AppError(503,'Feed Sportradar sudah kedaluwarsa.','SPORTSBOOK_FEED_STALE');
+  if(snapshot.complete!==true||snapshot.quotaLimited===true||snapshot.budgetLimited===true||(Array.isArray(snapshot.errors)&&snapshot.errors.length>0)){
+    const code=snapshot.quotaLimited?'SPORTSBOOK_QUOTA_LIMITED':snapshot.budgetLimited?'SPORTSBOOK_CYCLE_BUDGET_EXHAUSTED':'SPORTSBOOK_FEED_INCOMPLETE';
+    const message=snapshot.quotaLimited?'Kuota Sportradar membatasi siklus feed.':snapshot.budgetLimited?'Anggaran request siklus Sportradar tercapai.':'Feed Sportradar belum lengkap.';
+    throw new AppError(503,message,code);
+  }
   ok(res,{...snapshot,ageMs,betAcceptanceEnabled:false});
 });
 add('GET',/^\/health$/,async({res})=>ok(res,{status:'ok',service:'core',uptimeSeconds:Math.floor((Date.now()-startedAt)/1000)}));
