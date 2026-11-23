@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadSportsbookConfig } from "../src/sportsbook-next/config.js";
 import { SportradarClient } from "../src/sportsbook-next/sportradar-client.js";
-import { normalizePrematchPayload, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
+import { normalizeDailySchedule, normalizeEventMarkets, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
 
 const env = {
   SPORTRADAR_API_KEY: "test-key",
@@ -11,41 +11,56 @@ const env = {
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10"
 };
 
-test("new sportsbook config defaults polling to 150 minutes", () => {
+test("config defaults to 150-minute refresh and official Odds Comparison/Soccer v4 base URLs", () => {
   const config = loadSportsbookConfig(env);
   assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
-  assert.match(config.prematchBaseUrl, /oddscomparison-prematch\/trial\/v2\/en$/);
-  assert.match(config.soccerBaseUrl, /soccer\/trial\/v4\/en$/);
+  assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
+  assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
 });
 
-test("new sportsbook config rejects missing API key and unknown access tier", () => {
+test("config rejects missing API key, unsupported tier and unknown quota", () => {
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_API_KEY: "" }), /SPORTRADAR_API_KEY/);
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "free" }), /trial or production/);
+  assert.throws(() => loadSportsbookConfig({ SPORTRADAR_API_KEY: "test" }), /SPORTRADAR_MAX_CALLS_PER_30_DAYS/);
 });
 
-test("normalizer keeps provider event and bookmaker identity and rejects removed or invalid prices", () => {
-  const snapshot = normalizePrematchPayload({
-    sport_events: [{
-      id: "sr:sport_event:123",
-      start_time: "2026-11-23T12:00:00Z",
-      competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }],
-      markets: [{
-        id: 1, name: "1X2",
-        books: [
-          { id: "sr:book:1", name: "Book A", outcomes: [{ id: "home", odds: "2.10" }, { id: "bad", odds: "0" }] },
-          { id: "sr:book:2", name: "Removed", removed: true, outcomes: [{ odds: "3.0" }] }
-        ]
-      }]
+test("daily schedule normalization uses sport_event and provider SR identifiers", () => {
+  const rows = normalizeDailySchedule({ schedules: [{
+    sport_event: {
+      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", status: "not_started",
+      competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }]
+    },
+    sport_event_context: { competition: { name: "League" } }
+  }, { sport_event: { id: "invalid" } }] });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "sr:sport_event:123");
+  assert.equal(rows[0].competition, "League");
+});
+
+test("event market normalization follows documented odds_decimal and removed bookmaker fields", () => {
+  const snapshot = normalizeEventMarkets({
+    sport_event: {
+      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", status: "not_started",
+      competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }]
+    },
+    markets: [{
+      id: "sr:market:251", name: "Winner", is_live: false,
+      books: [
+        { id: "sr:book:1", name: "Book A", removed: false, outcomes: [
+          { id: "sr:outcome:1", type: "home", odds_decimal: "2.10", open_odds_decimal: "2.00" },
+          { id: "sr:outcome:2", type: "away", odds_decimal: "0" }
+        ] },
+        { id: "sr:book:2", name: "Removed", removed: true, outcomes: [{ odds_decimal: "3.0" }] }
+      ]
     }]
   }, "2026-11-23T12:01:00Z");
-  assert.equal(snapshot.events.length, 1);
-  assert.equal(snapshot.events[0].markets[0].books.length, 1);
-  assert.equal(snapshot.events[0].markets[0].books[0].id, "sr:book:1");
-  assert.equal(snapshot.events[0].markets[0].books[0].outcomes.length, 1);
+  assert.equal(snapshot.markets[0].books.length, 1);
+  assert.equal(snapshot.markets[0].books[0].outcomes.length, 1);
+  assert.equal(snapshot.markets[0].books[0].outcomes[0].oddsDecimal, 2.1);
 });
 
-test("soccer result normalizer requires Sportradar event ID and preserves unknown status", () => {
-  assert.equal(normalizeSoccerResult({ sport_event: { id: "other:1" } }), null);
+test("Soccer result normalizer requires a Sportradar event ID", () => {
+  assert.equal(normalizeSoccerResult({ sport_event: { id: "bad" } }), null);
   assert.deepEqual(normalizeSoccerResult({
     sport_event: { id: "sr:sport_event:123", coverage: { sport_event_properties: { scores: "post" } } },
     sport_event_status: { status: "ended", home_score: 2, away_score: 1 }
@@ -55,17 +70,19 @@ test("soccer result normalizer requires Sportradar event ID and preserves unknow
   });
 });
 
-test("client sends x-api-key and stops immediately on HTTP 429", async () => {
+test("client calls documented endpoints, authenticates by x-api-key and stops on 429", async () => {
   const config = loadSportsbookConfig(env);
   let calls = 0;
+  let requested = "";
   const client = new SportradarClient(config, {
     now: () => 1_800_000_000_000,
-    fetchImpl: async (_url, options) => {
-      calls += 1;
+    fetchImpl: async (url, options) => {
+      calls += 1; requested = String(url);
       assert.equal(options.headers["x-api-key"], "test-key");
       return { status: 429, ok: false, headers: { get: () => "900" }, json: async () => ({}) };
     }
   });
-  await assert.rejects(client.getSports(), error => error.code === "SPORTRADAR_RATE_LIMITED" && error.retryAfter === "900");
+  await assert.rejects(client.getDailySchedules("sr:sport:1", "2026-11-23"), error => error.code === "SPORTRADAR_RATE_LIMITED" && error.retryAfter === "900");
+  assert.match(requested, /sports\/sr%3Asport%3A1\/schedules\/2026-11-23\/schedules\.json\?start=0&limit=50/);
   assert.equal(calls, 1);
 });
