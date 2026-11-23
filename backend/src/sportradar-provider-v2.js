@@ -121,9 +121,18 @@ async function requestJson(path, params = {}) {
     });
     if (response.status === 429) {
       const retryAfter = response.headers?.get?.('retry-after');
+      let retryAfterMs = 0;
+      if (retryAfter) {
+        const seconds = Number(retryAfter);
+        const retryAt = Date.parse(retryAfter);
+        retryAfterMs = Number.isFinite(seconds)
+          ? Math.max(0, seconds * 1000)
+          : Number.isFinite(retryAt) ? Math.max(0, retryAt - Date.now()) : 0;
+      }
       const body = clean(await response.text().catch(() => ''), 160);
       const error = new Error(`Sportradar Limit Exceeded (HTTP 429); retry-after=${retryAfter || 'not-provided'}; ${body}`);
       error.code = 'SPORTRADAR_LIMIT_EXCEEDED';
+      error.retryAfterMs = retryAfterMs;
       throw error;
     }
     if (response.status === 404) {
