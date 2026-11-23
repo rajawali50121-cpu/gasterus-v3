@@ -1,4 +1,4 @@
-import { tx } from "../db.js";
+import { tx } from "./db.js";
 
 const selectionKey = outcome => [
   outcome.id || outcome.type || outcome.name || "unknown",
