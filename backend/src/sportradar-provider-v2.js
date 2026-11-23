@@ -19,7 +19,7 @@ const STATE_TTL_SECONDS = 48 * 60 * 60;
 const LEASE_TTL_MS = 10 * 60 * 1000;
 const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
 const discoveryCache = { value: null, expiresAt: 0 };
-const redisClient = createClient({
+let redisClient = createClient({
   url: config.redisUrl,
   disableOfflineQueue: true,
   commandOptions: { timeout: 8000 },
