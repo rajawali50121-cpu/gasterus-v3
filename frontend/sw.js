@@ -16,7 +16,6 @@ const STATIC_ASSETS = [
   '/number-history.html',
   '/promotion.html',
   '/casino.html',
-  '/sportsbook.html',
   '/privacy.html',
   '/referral.html',
   '/rules.html',
