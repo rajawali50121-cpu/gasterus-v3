@@ -53,7 +53,7 @@ async function load(){
     const complete=snapshot.complete===true;
     setStatus(complete?"ready":"error",complete?"Feed tersinkron":"Feed parsial");
     notice.textContent=complete
-      ?"Data berasal dari Sportradar Odds Comparison Prematch v2. Polling katalog dijadwalkan setiap 150 menit."
+      ?'Data berasal dari Sportradar Odds Comparison Prematch v2. Mode read-only: polling katalog 150 menit tidak memenuhi cadence change-log 5 menit untuk taruhan aktif.'
       :"Feed belum lengkap. Data parsial hanya untuk tampilan; penerimaan taruhan uang nyata belum diaktifkan.";
   }catch(error){
     root.replaceChildren(el("div","empty",error.message));
