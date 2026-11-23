@@ -4,6 +4,7 @@ import { loadSportsbookConfig } from "../src/sportsbook-next/config.js";
 import { SportradarClient } from "../src/sportsbook-next/sportradar-client.js";
 import { getSportradarQuotaUsage, reserveSportradarCall } from "../src/sportsbook-next/quota.js";
 import { normalizeDailySchedule, normalizeDailySportEventMarkets, normalizeEventMarkets, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
+import { getChangedSportEventIds, shouldReconcileChangeLog, SPORTRADAR_CHANGE_LOG_WINDOW_MS } from "../src/sportsbook-next/change-log.js";
 
 const env = {
   SPORTRADAR_API_KEY: "test-key",
@@ -20,6 +21,42 @@ test("config defaults to 150-minute refresh, a two-day window and official Odds 
   assert.equal(config.daysAhead, 1);
   assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
+});
+
+test("change-log configuration is opt-in and refuses a request budget too small for the documented five-minute window", () => {
+  const config = loadSportsbookConfig(env);
+  assert.equal(config.changeLogEnabled, false);
+  assert.equal(config.changeLogPollMs, 240_000);
+  assert.equal(config.minimumChangeLogCalls30Days, 10_800);
+  assert.throws(
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" }),
+    /requires a 30-day request budget/
+  );
+  const enabled = loadSportsbookConfig({
+    ...env,
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "11000",
+    SPORTRADAR_CHANGELOG_ENABLED: "true"
+  });
+  assert.equal(enabled.changeLogEnabled, true);
+});
+
+test("change log extracts only tracked Sportradar sport-event IDs", () => {
+  const tracked = new Set(["sr:sport_event:1", "sr:sport_event:2"]);
+  assert.deepEqual(getChangedSportEventIds({ changes: [
+    { type: "sport_event", id: "sr:sport_event:1", sport_event_markets_odds_change: 123 },
+    { type: "sport_event", id: "sr:sport_event:1", sport_event_markets_odds_change: 124 },
+    { type: "sport_event", id: "sr:sport_event:unknown" },
+    { type: "competition", id: "sr:competition:1" },
+    { id: "sr:sport_event:2" }
+  ] }, tracked), ["sr:sport_event:1", "sr:sport_event:2"]);
+});
+
+test("change log reconciles after startup or a gap longer than five minutes", () => {
+  const now = 1_800_000_000_000;
+  assert.equal(SPORTRADAR_CHANGE_LOG_WINDOW_MS, 300_000);
+  assert.equal(shouldReconcileChangeLog(null, now), true);
+  assert.equal(shouldReconcileChangeLog(String(now - 300_001), now), true);
+  assert.equal(shouldReconcileChangeLog(String(now - 299_999), now), false);
 });
 
 test("config rejects missing API key, unsupported tier and unknown quota", () => {
