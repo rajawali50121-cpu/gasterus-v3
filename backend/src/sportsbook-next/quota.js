@@ -31,7 +31,7 @@ if #oldest >= 2 then
   retryAfter = math.max(0, tonumber(oldest[2]) + hourlyWindow - now)
 end
 
-if hourly >= hourlyLimit then return {2, hourly, used, retryAfter} end
+if hourlyLimit > 0 and hourly >= hourlyLimit then return {2, hourly, used, retryAfter} end
 if used >= monthlyLimit then return {0, hourly, used, 0} end
 
 redis.call('ZADD', KEYS[1], now, ARGV[7])
@@ -84,8 +84,9 @@ export async function getSportradarQuotaUsage(redis, config, now = Date.now()) {
   const [hourlyUsed, monthlyUsed] = Array.isArray(result) ? result.map(Number) : [0, config.initialCallsUsed30Days];
   return {
     hourlyUsed,
-    hourlyLimit: config.maxCallsPerHour,
-    hourlyRemaining: Math.max(0, config.maxCallsPerHour - hourlyUsed),
+    hourlyLimit: config.maxCallsPerHour > 0 ? config.maxCallsPerHour : null,
+    hourlyRemaining: config.maxCallsPerHour > 0 ? Math.max(0, config.maxCallsPerHour - hourlyUsed) : null,
+    hourlyEnforced: config.maxCallsPerHour > 0,
     monthlyUsed,
     monthlyLimit: config.maxCallsPer30Days,
     monthlyRemaining: Math.max(0, config.maxCallsPer30Days - monthlyUsed)

@@ -9,12 +9,19 @@ function safeProviderError(status) {
   return providerError(`SPORTRADAR_HTTP_${status}`, `Sportradar request failed (HTTP ${status})`, { httpStatus: status });
 }
 
+function encodeUrnPathSegment(value) {
+  // Sportradar examples use colon-delimited URNs as literal path segments.
+  // Keep the separators intact while still escaping any other unsafe chars.
+  return encodeURIComponent(String(value)).replace(/%3A/gi, ":");
+}
+
 export class SportradarClient {
-  constructor(config, { fetchImpl = fetch, now = () => Date.now(), beforeRequest = null } = {}) {
+  constructor(config, { fetchImpl = fetch, now = () => Date.now(), beforeRequest = null, onResponse = null } = {}) {
     this.config = config;
     this.fetch = fetchImpl;
     this.now = now;
     this.beforeRequest = beforeRequest;
+    this.onResponse = onResponse;
     this.calls = [];
   }
 
@@ -45,6 +52,28 @@ export class SportradarClient {
         signal: controller.signal
       });
       const body = await response.json().catch(() => null);
+      const topLevelKeys = body && typeof body === "object" && !Array.isArray(body)
+        ? Object.keys(body).sort()
+        : [];
+      const arrayCounts = Object.fromEntries(topLevelKeys
+        .filter(key => Array.isArray(body[key]))
+        .map(key => [key, body[key].length]));
+      try {
+        this.onResponse?.({
+          httpStatus: response.status,
+          contentType: response.headers.get("content-type"),
+          contentLength: response.headers.get("content-length"),
+          topLevelKeys,
+          arrayCounts,
+          pagination: {
+            maxResults: response.headers.get("x-max-results"),
+            offset: response.headers.get("x-offset"),
+            result: response.headers.get("x-result")
+          }
+        });
+      } catch {
+        // Diagnostic logging must never change provider request behavior.
+      }
       if (response.status === 429) {
         throw providerError("SPORTRADAR_RATE_LIMITED", "Sportradar rate limit reached (HTTP 429)", {
           httpStatus: 429,
@@ -63,10 +92,10 @@ export class SportradarClient {
 
   getSports() { return this.request(this.config.prematchBaseUrl, "sports"); }
   getBooks() { return this.request(this.config.prematchBaseUrl, "books"); }
-  getCompetitions(sportId) { return this.request(this.config.prematchBaseUrl, `sports/${encodeURIComponent(sportId)}/competitions`); }
+  getCompetitions(sportId) { return this.request(this.config.prematchBaseUrl, `sports/${encodeUrnPathSegment(sportId)}/competitions`); }
   getDailySchedules(sportId, date, { start = 0, limit = 50 } = {}) {
     return this.request(this.config.prematchBaseUrl,
-      `sports/${encodeURIComponent(sportId)}/schedules/${encodeURIComponent(date)}/schedules`, { start, limit });
+      `sports/${encodeUrnPathSegment(sportId)}/schedules/${encodeURIComponent(date)}/schedules`, { start, limit });
   }
   async getAllDailySchedules(sportId, date, { pageSize = 50, maxPages = 20 } = {}) {
     const items = [];
@@ -99,15 +128,23 @@ export class SportradarClient {
   }
   getDailySportEventMarkets(sportId, date, { start = 0, limit = 50 } = {}) {
     return this.request(this.config.prematchBaseUrl,
-      `sports/${encodeURIComponent(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets`, { start, limit });
+      `sports/${encodeUrnPathSegment(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets`, { start, limit });
   }
   async getAllDailySportEventMarkets(sportId, date, { pageSize = 50, maxPages = 10 } = {}) {
     const items = [];
     let start = 0;
     for (let page = 0; page < maxPages; page += 1) {
       const result = await this.getDailySportEventMarkets(sportId, date, { start, limit: pageSize });
-      const rows = result.body?.sport_events ?? result.body?.events ?? result.body?.schedules ?? [];
-      if (!Array.isArray(rows)) throw providerError("SPORTRADAR_BULK_MARKETS_SHAPE_INVALID", "Sportradar bulk markets payload has no event array");
+      const rows = result.body?.sport_schedule_sport_event_markets
+        ?? result.body?.sport_events
+        ?? result.body?.events
+        ?? result.body?.schedules;
+      if (!Array.isArray(rows)) {
+        throw providerError(
+          "SPORTRADAR_BULK_MARKETS_SHAPE_INVALID",
+          "Sportradar Prematch Daily Sport Event Markets response is missing a documented event array"
+        );
+      }
       items.push(...rows);
       const reportedHeader = result.headers.get("x-max-results");
       const receivedHeader = result.headers.get("x-result");
@@ -132,7 +169,7 @@ export class SportradarClient {
     return { body: { sport_events: items } };
   }
   getSportEventMarkets(eventId) {
-    return this.request(this.config.prematchBaseUrl, `sport_events/${encodeURIComponent(eventId)}/sport_event_markets`);
+    return this.request(this.config.prematchBaseUrl, `sport_events/${encodeUrnPathSegment(eventId)}/sport_event_markets`);
   }
   getSportEventMarketsChangeLog() {
     return this.request(this.config.prematchBaseUrl, "sport_event_markets_changelog");
