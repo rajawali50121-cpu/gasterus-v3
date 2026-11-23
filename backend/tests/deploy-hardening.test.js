@@ -16,7 +16,7 @@ test('stale non-executable Railway snapshot is removed and the canonical deploym
   const architecture=read('docs/operations/RAILWAY-ARCHITECTURE.md');
   assert.match(workflow,/railway-migration-fix-039/);
   assert.match(architecture,/Canonical deployment source: `railway-migration-fix-039`/);
-  assert.match(architecture,/sportsbook-render-worker/);
+  assert.match(architecture,/Sportradar API v2/);
 });
 
 
@@ -60,7 +60,7 @@ test('Railway launcher does not unconditionally seed on every restart',()=>{
 test('Docker build executes the canonical deploy verification gate before image is accepted',()=>{
   const s=read('deploy/Dockerfile');
   assert.match(s,/node --check deploy\/launcher\.js/);
-  assert.match(s,/node --check backend\/src\/sportsbook-browser-renderer\.js|node --check backend\/src\/sportsbook-feed\.js/);
+  assert.match(s,/node --check backend\/src\/sportsbook-next\/index\.js/);
   assert.match(s,/COPY backend \.\/backend/);
   assert.match(s,/ENTRYPOINT \["\/usr\/bin\/tini",\s*"--"\]/);
 });
