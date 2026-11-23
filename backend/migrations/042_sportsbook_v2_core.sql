@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sportsbook_v2_prices (
   provider_event_id TEXT NOT NULL,
   provider_market_id TEXT NOT NULL,
   provider_book_id TEXT NOT NULL,
+  provider_book_name TEXT,
   provider_selection_key TEXT NOT NULL,
   provider_outcome_id TEXT,
   outcome_type TEXT,
