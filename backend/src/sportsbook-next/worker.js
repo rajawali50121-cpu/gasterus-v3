@@ -27,6 +27,7 @@ async function runCycle(config, client) {
   client.cycleCalls = 0;
   const events = new Map();
   const errors = [];
+  let quotaLimited = false;
   try {
     const coverage = await client.getSports();
     for (const sportId of config.sportIds) {
@@ -35,21 +36,31 @@ async function runCycle(config, client) {
         const date = utcDate(day);
         const remaining = config.maxCallsPerCycle - client.cycleCalls;
         if (remaining <= 0) break;
-        const rows = await client.getAllDailySchedules(sportId, date, { pageSize: 50, maxPages: Math.min(10, remaining) });
-        for (const event of normalizeDailySchedule({ schedules: rows })) events.set(event.id, { ...event, sportId });
+        try {
+          const rows = await client.getAllDailySchedules(sportId, date, { pageSize: 50, maxPages: Math.min(10, remaining) });
+          for (const event of normalizeDailySchedule({ schedules: rows })) events.set(event.id, { ...event, sportId });
+        } catch (error) {
+          if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
+            quotaLimited = true;
+            break;
+          }
+          throw error;
+        }
       }
       if (client.callsUsed30Days - startedCalls >= config.maxCallsPerCycle) break;
     }
 
     const pricedEvents = [];
     for (const event of events.values()) {
+      if (quotaLimited) break;
       if (client.callsUsed30Days - startedCalls >= config.maxCallsPerCycle) break;
       try {
         const result = await client.getSportEventMarkets(event.id);
         const normalized = normalizeEventMarkets(result.body);
         pricedEvents.push({ ...event, ...normalized.event, markets: normalized.markets });
       } catch (error) {
-        if (error?.code === "SPORTRADAR_RATE_LIMITED" || error?.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED") throw error;
+        if (error?.code === "SPORTRADAR_RATE_LIMITED") throw error;
+        if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) { quotaLimited = true; break; }
         errors.push({ eventId: event.id, code: error?.code || "EVENT_MARKETS_FAILED" });
       }
     }
@@ -60,13 +71,14 @@ async function runCycle(config, client) {
       fetchedAt: new Date().toISOString(),
       complete: errors.length === 0 && client.callsUsed30Days - startedCalls < config.maxCallsPerCycle,
       callsThisCycle: client.cycleCalls,
+      quotaLimited,
       events: pricedEvents,
       errors
     };
     const persisted = await persistSportsbookSnapshot(pricedEvents, snapshot.fetchedAt);
     await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     await redis.set(HEARTBEAT_KEY, snapshot.fetchedAt, { EX: 600 });
-    return { events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle, persisted, errors: errors.length, complete: snapshot.complete, coverageFeeds: Array.isArray(coverage.body?.sports) ? coverage.body.sports.length : null };
+    return { events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle, persisted, errors: errors.length, quotaLimited, complete: snapshot.complete, coverageFeeds: Array.isArray(coverage.body?.sports) ? coverage.body.sports.length : null };
   } finally {
     await redis.eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", {
       keys: [LOCK_KEY], arguments: [token]
