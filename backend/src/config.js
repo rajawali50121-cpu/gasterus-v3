@@ -30,6 +30,8 @@ export const config = Object.freeze({
   nodeEnv: isProduction ? 'production' : (process.env.NODE_ENV || 'development'),
   host: process.env.HOST || '0.0.0.0',
   port: int('PORT', 8080, 1, 65535),
+  databaseUrl: testSecret('DATABASE_URL', 12, 'postgresql://user:pass@localhost:5432/gasterus_test'),
+  redisUrl: testSecret('REDIS_URL', 12, 'redis://localhost:6379/0'),
   databaseSsl: bool('DATABASE_SSL', false),
   pgPoolMax: int('PG_POOL_MAX', 15, 2, 100),
   memberProxySecret: testSecret('MEMBER_PROXY_SECRET', 32, 'test-member-proxy-secret-0123456789'),
@@ -38,7 +40,6 @@ export const config = Object.freeze({
   sessionHmacKey: testSecret('SESSION_HMAC_KEY', 32, 'test-session-hmac-key-passphrase-123'),
   apiKeyPepper: testSecret('API_KEY_PEPPER', 32, 'test-api-key-pepper-passphrase-1234'),
   mfaEncryptionKeyBase64: testSecret('MFA_ENCRYPTION_KEY_BASE64', 40, Buffer.alloc(32, 7).toString('base64')),
-  // Snapshot render data must expire within 4 hours; ingest request signature freshness
   memberSessionTtl: int('MEMBER_SESSION_TTL_SECONDS', 43200, 900, 604800),
   ownerSessionTtl: int('OWNER_SESSION_TTL_SECONDS', 900, 900, 86400), // R6.94: 15-minute admin session (idle refresh)
   highValueThreshold: int('HIGH_VALUE_APPROVAL_THRESHOLD', 1000000, 10000, 200000000),
