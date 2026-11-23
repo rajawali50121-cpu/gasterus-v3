@@ -36,10 +36,6 @@ const [
 
 console.log('WORKER_IMPORTS_DONE');
 
-// Fail before making any provider request when the contracted quota cannot
-// sustain the ten-minute full-snapshot baseline.
-assertSportradarQuotaCapacity(config);
-
 const cronOnce = String(process.env.SPORTSBOOK_CRON_ONCE || '').trim().toLowerCase() === 'true';
 if (config.nodeEnv === 'production') {
   if (!config.sportradarEnabled) {
@@ -54,6 +50,10 @@ if (config.nodeEnv === 'production') {
     throw new Error('Production sportsbook worker requires production Sportradar access.');
   }
 }
+// Fail before making any provider request when the contracted quota cannot
+// sustain the ten-minute full-snapshot baseline.
+assertSportradarQuotaCapacity(config);
+
 const endpoint = String(process.env.SPORTSBOOK_INGEST_URL || '').trim();
 if (!endpoint) throw new Error('SPORTSBOOK_INGEST_URL is required.');
 if (config.sportsbookIngestHmacSecret.length < 32) {
