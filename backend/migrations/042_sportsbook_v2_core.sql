@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS sportsbook_v2_prices (
   id BIGSERIAL PRIMARY KEY,
   provider_event_id TEXT NOT NULL,
   provider_market_key TEXT NOT NULL,
-  provider_market_key TEXT NOT NULL,
   provider_market_id TEXT NOT NULL,
   provider_book_id TEXT NOT NULL,
   provider_book_name TEXT,
@@ -59,7 +58,7 @@ CREATE TABLE IF NOT EXISTS sportsbook_v2_prices (
   CONSTRAINT sportsbook_v2_prices_unique UNIQUE(provider_event_id,provider_market_key,provider_book_id,provider_selection_key)
 );
 CREATE INDEX IF NOT EXISTS sportsbook_v2_prices_active_idx ON sportsbook_v2_prices(is_active, source_updated_at DESC);
-CREATE INDEX IF NOT EXISTS sportsbook_v2_prices_lookup_idx ON sportsbook_v2_prices(provider_event_id,provider_market_id,provider_book_id);
+CREATE INDEX IF NOT EXISTS sportsbook_v2_prices_lookup_idx ON sportsbook_v2_prices(provider_event_id,provider_market_key,provider_book_id);
 
 CREATE TABLE IF NOT EXISTS sportsbook_v2_tickets (
   id UUID PRIMARY KEY,
@@ -86,6 +85,7 @@ CREATE TABLE IF NOT EXISTS sportsbook_v2_ticket_legs (
   ticket_id UUID NOT NULL REFERENCES sportsbook_v2_tickets(id) ON DELETE RESTRICT,
   leg_no INTEGER NOT NULL,
   provider_event_id TEXT NOT NULL,
+  provider_market_key TEXT NOT NULL,
   provider_market_id TEXT NOT NULL,
   provider_book_id TEXT NOT NULL,
   provider_selection_key TEXT NOT NULL,
@@ -95,7 +95,9 @@ CREATE TABLE IF NOT EXISTS sportsbook_v2_ticket_legs (
   result_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(ticket_id,leg_no),
-  UNIQUE(ticket_id,provider_event_id)
+  UNIQUE(ticket_id,provider_event_id),
+  CONSTRAINT sportsbook_v2_ticket_legs_market_fk FOREIGN KEY(provider_event_id,provider_market_key)
+    REFERENCES sportsbook_v2_markets(provider_event_id,provider_market_key) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS sportsbook_v2_ticket_legs_event_idx ON sportsbook_v2_ticket_legs(provider_event_id,result_status);
 
