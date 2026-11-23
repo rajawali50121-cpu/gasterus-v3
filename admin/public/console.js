@@ -574,7 +574,7 @@
 
   request('/admin-api/owner/me')
     .then(me => {
-      if (me.user?.username !== 'gasterus' || !(me.roles || []).includes('OWNER')) {
+      if (!(me.roles || []).includes('OWNER')) {
         throw new Error('Sesi ini tidak memiliki akses OWNER.');
       }
       state.me = { ...me, csrfToken: me.csrfToken };
