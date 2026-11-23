@@ -329,7 +329,7 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const requestCountBefore = providerRequestCount;
     const coverage = await discoverCoverage();
     // Authoritative snapshot sync: never rely on the rolling five-minute Change Log
-    // when the configured provider cadence is ten minutes.
+    // when the adaptive quota-safe polling interval can exceed that window.
     const full = await fullDailySync(coverage, daysAhead);
     state.events = full.events;
     state.lastFullSyncAt = Date.now();
