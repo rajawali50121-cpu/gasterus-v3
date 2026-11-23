@@ -46,7 +46,7 @@ export const config = Object.freeze({
   // Snapshot render data must expire within 4 hours; ingest request signature freshness
   // remains governed separately by sportsbookIngestMaxAgeSeconds.
   sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 14400, 180, 604800),
-  sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
+  sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', false),
   sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 7, 1, 365),
   memberSessionTtl: int('MEMBER_SESSION_TTL_SECONDS', 43200, 900, 604800),
   ownerSessionTtl: int('OWNER_SESSION_TTL_SECONDS', 900, 900, 86400), // R6.94: 15-minute admin session (idle refresh)
@@ -144,7 +144,7 @@ export const config = Object.freeze({
   // Fail-closed: must be populated from the actual Sportradar contract/current account usage before live calls.
   sportradarMaxCallsPer30Days: naturalInt('SPORTRADAR_MAX_CALLS_PER_30_DAYS', 0, 0),
   sportradarInitial30DayUsage: naturalInt('SPORTRADAR_INITIAL_30_DAY_USAGE', 0, 0),
-  sportradarRefreshSeconds: int('SPORTRADAR_REFRESH_SECONDS', 60, 30, 3600),
+  sportradarRefreshSeconds: int('SPORTRADAR_REFRESH_SECONDS', 240, 240, 240),
   sportradarRequestTimeoutMs: int('SPORTRADAR_REQUEST_TIMEOUT_MS', 30000, 5000, 120000),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
   sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
