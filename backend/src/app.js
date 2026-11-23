@@ -60,7 +60,7 @@ add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
   if(!Number.isFinite(ageMs)||ageMs>5*60*60*1000) throw new AppError(503,'Feed Sportradar sudah kedaluwarsa.','SPORTSBOOK_FEED_STALE');
   ok(res,{...snapshot,ageMs,betAcceptanceEnabled:process.env.SPORTSBOOK_V2_BET_ACCEPTANCE_ENABLED==='true'});
 });
-add('POST',/^\\/api\\/member\\/sportsbook\\/v2\\/tickets$/,async({req,res,ip})=>{
+add('POST',/^\/api\/member\/sportsbook\/v2\/tickets$/,async({req,res,ip})=>{
   const s=await memberSession(req);requireCsrf(req,s);await rateLimit(req,'sportsbook-v2-place',12,60);
   assert(process.env.SPORTSBOOK_V2_BET_ACCEPTANCE_ENABLED==='true',503,'Penerimaan taruhan sportsbook sedang dinonaktifkan.','SPORTSBOOK_BETTING_DISABLED');
   const result=await placeSportsbookBet(s,await body(req,30000));ok(res,result,result.duplicate?200:201);
