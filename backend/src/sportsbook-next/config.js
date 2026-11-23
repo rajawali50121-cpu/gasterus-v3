@@ -9,25 +9,24 @@ function requiredPositiveInteger(name, value) {
 export function loadSportsbookConfig(env = process.env) {
   const apiKey = String(env.SPORTRADAR_API_KEY || "").trim();
   if (!apiKey) throw new Error("SPORTRADAR_API_KEY is required");
-
   const accessLevel = String(env.SPORTRADAR_ACCESS_LEVEL || "trial").toLowerCase();
   if (!["trial", "production"].includes(accessLevel)) throw new Error("SPORTRADAR_ACCESS_LEVEL must be trial or production");
-
-  const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
-  const quota30d = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_30_DAYS", env.SPORTRADAR_MAX_CALLS_PER_30_DAYS);
-  const used30d = Number(env.SPORTRADAR_INITIAL_30_DAY_USAGE ?? 0);
-  if (!Number.isSafeInteger(used30d) || used30d < 0 || used30d > quota30d) {
+  const maxCallsPer30Days = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_30_DAYS", env.SPORTRADAR_MAX_CALLS_PER_30_DAYS);
+  const initialCallsUsed30Days = Number(env.SPORTRADAR_INITIAL_30_DAY_USAGE ?? 0);
+  if (!Number.isSafeInteger(initialCallsUsed30Days) || initialCallsUsed30Days < 0 || initialCallsUsed30Days > maxCallsPer30Days) {
     throw new Error("SPORTRADAR_INITIAL_30_DAY_USAGE must be an integer within the configured 30-day quota");
   }
-
+  const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
+  const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? 80);
+  const daysAhead = requiredPositiveInteger("SPORTRADAR_DAYS_AHEAD", env.SPORTRADAR_DAYS_AHEAD ?? 7);
+  const sportIds = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").map(v => v.trim()).filter(Boolean);
+  if (!sportIds.length || sportIds.some(id => !/^sr:sport:\d+$/.test(id))) throw new Error("SPORTRADAR_SPORT_IDS must be comma-separated Sportradar sport URNs");
   const language = String(env.SPORTRADAR_LANGUAGE || "en").trim();
   return Object.freeze({
-    apiKey,
-    accessLevel,
-    language,
+    apiKey, accessLevel, language, sportIds, daysAhead,
     pollIntervalMs: pollMinutes * MINUTE,
-    maxCallsPer30Days: quota30d,
-    initialCallsUsed30Days: used30d,
+    maxCallsPerCycle, maxCallsPer30Days, initialCallsUsed30Days,
+    maxSnapshotAgeMs: pollMinutes * MINUTE * 2,
     prematchBaseUrl: `https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${language}`,
     soccerBaseUrl: `https://api.sportradar.com/soccer/${accessLevel}/v4/${language}`,
     requestTimeoutMs: requiredPositiveInteger("SPORTRADAR_TIMEOUT_MS", env.SPORTRADAR_TIMEOUT_MS ?? 15_000)
