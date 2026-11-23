@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadSportsbookConfig } from "../src/sportsbook-next/config.js";
 import { SportradarClient } from "../src/sportsbook-next/sportradar-client.js";
-import { reserveSportradarCall } from "../src/sportsbook-next/quota.js";
+import { getSportradarQuotaUsage, reserveSportradarCall } from "../src/sportsbook-next/quota.js";
 import { normalizeDailySchedule, normalizeDailySportEventMarkets, normalizeEventMarkets, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
 
 const env = {
@@ -13,9 +13,10 @@ const env = {
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10"
 };
 
-test("config defaults to 150-minute refresh and official Odds Comparison/Soccer v4 base URLs", () => {
+test("config defaults to 180-minute refresh, a two-day window and official Odds Comparison/Soccer v4 base URLs", () => {
   const config = loadSportsbookConfig(env);
-  assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
+  assert.equal(config.pollIntervalMs, 180 * 60 * 1000);
+  assert.equal(config.daysAhead, 1);
   assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
 });
@@ -171,6 +172,38 @@ test("client preserves safe HTTP status codes for provider diagnostics", async (
     error.code === "SPORTRADAR_HTTP_403" && error.httpStatus === 403
       && !error.message.includes("sensitive")
   );
+});
+
+test("quota usage reports rolling hourly and 30-day consumption without exposing keys", async () => {
+  const config = { initialCallsUsed30Days: 10, maxCallsPer30Days: 500, maxCallsPerHour: 20 };
+  const usage = await getSportradarQuotaUsage({ eval: async (_script, args) => {
+    assert.deepEqual(args.keys, ["sportsbook:next:sportradar:quota:v1", "sportsbook:next:sportradar:quota-baseline:v1"]);
+    return [7, 123];
+  } }, config, 1_800_000_000_000);
+  assert.deepEqual(usage, {
+    hourlyUsed: 7, hourlyLimit: 20, hourlyRemaining: 13,
+    monthlyUsed: 123, monthlyLimit: 500, monthlyRemaining: 377
+  });
+});
+
+test("bulk pagination continues on a full page when provider pagination headers are absent", async () => {
+  const config = loadSportsbookConfig(env);
+  const offsets = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      const parsed = new URL(url);
+      const start = Number(parsed.searchParams.get("start"));
+      offsets.push(start);
+      const count = start === 0 ? 50 : 3;
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => ({ sport_events: Array.from({ length: count }, (_, i) => ({ sport_event: { id: `sr:sport_event:${start+i}` }, markets: [] })) })
+      };
+    }
+  });
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-24", { maxPages: 3 });
+  assert.equal(result.body.sport_events.length, 53);
+  assert.deepEqual(offsets, [0, 50]);
 });
 
 test("bulk daily markets normalize embedded event boards without per-event follow-up calls", () => {
