@@ -5,7 +5,6 @@ import { logger } from './logger.js';
 import { runTotoCollector, loadTotoRuntimeState, persistTotoRuntimeState } from './toto-collector.js';
 import { schedulerSnapshot, TOTO_RESULT_TIMES_WIB } from './toto-draw-scheduler.js';
 import { syncJobs, dueJobs, markPolled, applyPollResult, pollerSnapshot } from './toto-draw-poller.js';
-import { refreshSportsbookFeedFromPoll } from './sportsbook-feed.js';
 import { startMemoryGuard } from './memory-guard.js';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -57,11 +56,7 @@ function clockFromMinutes(minutes) {
   return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
 }
 
-async function refreshSportsFeedIfDue(state) {
-  if (!config.sportsSourceBackgroundPollEnabled || Date.now() - state.lastSportsbookFeedRefresh < config.sportsFeedRefreshSeconds * 1000) return;
-  state.lastSportsbookFeedRefresh = Date.now();
   try {
-    await refreshSportsbookFeedFromPoll({ reason: 'feed-worker-background-poll' });
   } catch (error) {
     logger.warn('Feed worker sportsbook refresh unavailable', { code: error.code, error: error.message });
   }
@@ -71,19 +66,15 @@ async function main() {
   await connectRedis();
   await loadTotoRuntimeState();
   memoryGuard = startMemoryGuard({ label: 'feed-worker' });
-  const state = { lastSportsbookFeedRefresh: 0 };
   logger.info('Feed worker ready', {
     totoCollectorEnabled: config.totoCollectorEnabled,
-    sportsFeedRefreshSeconds: config.sportsFeedRefreshSeconds,
     scheduledPools: SCHEDULED_SLUGS.length,
     schedule: schedulerSnapshot(),
     poller: pollerSnapshot()
   });
 
-  await refreshSportsFeedIfDue(state);
   while (!stopping) {
     await pollDuePools();
-    await refreshSportsFeedIfDue(state);
     await sleep(1000);
   }
 }
