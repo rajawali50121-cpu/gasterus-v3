@@ -5,7 +5,7 @@ import { reserveSportradarCall, __quota } from "../src/sportsbook-next/quota.js"
 test("quota reservation uses a shared rolling 30-day Redis window", async () => {
   let args;
   const redis = { eval: async (script, options) => { assert.equal(script, __quota.RESERVE_SCRIPT); args = options; return 1; } };
-  const config = { initialCallsUsed30Days: 12, maxCallsPer30Days: 100 };
+  const config = { initialCallsUsed30Days: 12, maxCallsPer30Days: 100, maxCallsPerHour: 20 };
   await reserveSportradarCall(redis, config, 1_800_000_000_000);
   assert.deepEqual(args.keys, [__quota.KEY, __quota.BASELINE_KEY]);
   assert.equal(args.arguments[2], "12");
