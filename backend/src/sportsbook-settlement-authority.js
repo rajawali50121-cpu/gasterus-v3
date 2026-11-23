@@ -7,17 +7,16 @@ export function eventSettlementAuthority(event) {
     ? event._settlementReadySources
     : (Array.isArray(event?._sources) ? event._sources : []);
   const sources = [...new Set(readySources.map(cleanSource).filter(Boolean))];
-  // Sportradar Odds Comparison is an odds feed, not an independent results authority.
-  // FT settlement remains operator-authorized; HT settlement remains unavailable.
-  const automaticFt = false;
-  const manualFt = sources.includes('manual-ops');
+  // Odds Comparison supplies prices, not official results. Manual operator
+  // settlement is retained only for already-accepted historical tickets and
+  // must never authorize new markets or bets.
   return {
-    ft: automaticFt || manualFt,
+    ft: false,
     ht: false,
-    automaticFt,
-    manualFt,
-    mode: automaticFt ? 'AUTOMATIC' : manualFt ? 'MANUAL_FALLBACK' : 'NONE',
-    sources
+    automaticFt: false,
+    manualFt: false,
+    mode: 'NONE',
+    sources: sources.filter(source => source !== 'manual-ops')
   };
 }
 
