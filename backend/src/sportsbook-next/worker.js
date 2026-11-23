@@ -92,7 +92,8 @@ async function runCycle(config, client) {
       schemaVersion: 1,
       provider: "sportradar-odds-comparison-prematch-v2",
       fetchedAt: new Date().toISOString(),
-      complete: errors.length === 0 && !quotaLimited && !budgetLimited,
+      complete: errors.length === 0 && !quotaLimited && !budgetLimited && pricedEvents.length > 0,
+      emptyFeed: pricedEvents.length === 0,
       callsThisCycle: client.cycleCalls,
       quotaLimited,
       quotaReason,
@@ -104,7 +105,7 @@ async function runCycle(config, client) {
     // Never replace a last-known-good snapshot with partial or quota-truncated data.
     const persisted = snapshot.complete
       ? await persistSportsbookSnapshot(pricedEvents, snapshot.fetchedAt)
-      : { skipped: true, reason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : "SPORTRADAR_CYCLE_INCOMPLETE") };
+      : { skipped: true, reason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE")) };
     if (snapshot.complete) {
       await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     }
@@ -112,7 +113,7 @@ async function runCycle(config, client) {
     await redis.set(HEARTBEAT_KEY, snapshot.fetchedAt, { EX: 600 });
     return {
       events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle,
-      persisted, errors: errors.length, quotaLimited, quotaReason, quotaDetails, budgetLimited,
+      persisted, errors: errors.length, quotaLimited, quotaReason, quotaDetails, budgetLimited, emptyFeed: snapshot.emptyFeed,
       complete: snapshot.complete,
       coverageFeeds: Array.isArray(coverage?.body?.sports) ? coverage.body.sports.length : null
     };
@@ -150,9 +151,18 @@ async function main() {
 
   while (!stopping) {
     client.cycleCalls = 0;
+    let nextDelayMs = config.pollIntervalMs;
     try {
       const result = await runCycle(config, client);
       logger.info("Sportradar sportsbook poll completed", result);
+      if (result.quotaLimited && result.quotaReason === "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED") {
+        const retrySeconds = Number(result.quotaDetails?.retryAfter);
+        if (Number.isFinite(retrySeconds) && retrySeconds > 0) {
+          // Resume shortly after the oldest hourly reservation expires; do not
+          // sleep the full 150-minute discovery interval after a short quota wait.
+          nextDelayMs = retrySeconds * 1000 + 1_000;
+        }
+      }
     } catch (error) {
       logger.warn("Sportradar sportsbook poll stopped safely", {
         code: error?.code || "SPORTRADAR_POLL_FAILED",
@@ -163,11 +173,15 @@ async function main() {
         retryAfter: error?.retryAfter || null
       });
       if (error?.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED") {
-        await sleep(config.pollIntervalMs, undefined, { signal: shutdownController.signal }).catch(() => {});
-        continue;
+        nextDelayMs = config.pollIntervalMs;
+      } else if (error?.code === "SPORTRADAR_RATE_LIMITED") {
+        const retrySeconds = Number(error?.retryAfter);
+        nextDelayMs = Number.isFinite(retrySeconds) && retrySeconds > 0
+          ? retrySeconds * 1000 + 1_000
+          : Math.min(config.pollIntervalMs, 5 * 60 * 1000);
       }
     }
-    await sleep(config.pollIntervalMs);
+    await sleep(nextDelayMs, undefined, { signal: shutdownController.signal }).catch(() => {});
   }
 }
 
