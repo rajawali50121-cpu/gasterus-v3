@@ -26,7 +26,7 @@ const [
   { config },
   { fetchSportradarV2 },
   { postSportsbookSnapshot },
-  { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds }
+  { buildSportsbookRenderSnapshot, sportsbookRenderIntervalSeconds, assertSportradarQuotaCapacity }
 ] = await Promise.all([
   import('./config.js'),
   import('./sportradar-provider-v2.js'),
@@ -35,6 +35,10 @@ const [
 ]);
 
 console.log('WORKER_IMPORTS_DONE');
+
+// Fail before making any provider request when the contracted quota cannot
+// sustain the documented rolling Change Log window.
+assertSportradarQuotaCapacity(config);
 
 const cronOnce = String(process.env.SPORTSBOOK_CRON_ONCE || '').trim().toLowerCase() === 'true';
 if (config.nodeEnv === 'production') {
@@ -91,7 +95,7 @@ while (!shutdown.signal.aborted) {
   let nextDelayMs = intervalMs;
   lastCycleRateLimited = false;
   try {
-    // Sportradar prematch change log is a rolling five-minute window; poll every minute.
+    // Sportradar prematch Change Log is a rolling five-minute window; poll every four minutes.
     console.log('CYCLE_START');
     const snapshot = await buildSportsbookRenderSnapshot({
       fetchSportradar: () => fetchSportradarV2({}),
