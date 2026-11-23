@@ -50,8 +50,6 @@ export async function createWalletRequest(session,input,ip=''){
     }
 
     if(type==='WITHDRAW'){
-      const pendingCorrection=(await client.query(`SELECT id,invoice FROM sportsbook_tickets WHERE member_id=$1 AND settlement_correction_pending=true ORDER BY updated_at DESC LIMIT 1`,[session.userId])).rows[0];
-      if(pendingCorrection) throw new AppError(409,'Withdrawal ditahan sementara karena ada koreksi settlement Sportsbook yang belum terselesaikan.','SPORTSBOOK_SETTLEMENT_CORRECTION_PENDING',{ticketId:pendingCorrection.id,invoice:pendingCorrection.invoice||null});
       const policy=(await client.query(`SELECT setting_value FROM system_settings WHERE setting_key='compliance.withdraw'`)).rows[0]?.setting_value||{};
       if(policy.requireVerifiedKyc===true){const compliance=(await client.query(`SELECT kyc_status FROM member_compliance_profiles WHERE member_id=$1`,[session.userId])).rows[0];assert(compliance?.kyc_status==='VERIFIED',403,'KYC terverifikasi diperlukan sebelum withdrawal.','KYC_REQUIRED_FOR_WITHDRAW');}
     }
