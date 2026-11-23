@@ -103,6 +103,7 @@ async function main() {
   const config = loadSportsbookConfig();
   await connectRedis();
   const client = new SportradarClient(config, {
+    onResponse: details => logger.info("Sportradar provider response", details),
     beforeRequest: async () => {
       if (client.cycleCalls >= config.maxCallsPerCycle) {
         const error = new Error('SPORTRADAR_CYCLE_BUDGET_EXHAUSTED');
