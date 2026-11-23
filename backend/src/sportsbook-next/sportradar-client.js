@@ -18,14 +18,9 @@ export class SportradarClient {
   }
 
   async request(baseUrl, path, query = {}) {
-    if (this.callsUsed30Days >= this.config.maxCallsPer30Days) {
-      throw new Error("SPORTRADAR_30_DAY_QUOTA_EXHAUSTED");
-    }
-    const url = new URL(`${baseUrl}/${String(path).replace(/^\/+/, "")}`);
-    for (const [key, value] of Object.entries(query)) {
-      if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
-    }
-
+    if (this.callsUsed30Days >= this.config.maxCallsPer30Days) throw new Error("SPORTRADAR_30_DAY_QUOTA_EXHAUSTED");
+    const url = new URL(`${baseUrl}/${String(path).replace(/^\\/+/, "")}.json`);
+    for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.requestTimeoutMs);
     this.calls.push(this.now());
@@ -37,10 +32,9 @@ export class SportradarClient {
       });
       const body = await response.json().catch(() => null);
       if (response.status === 429) {
-        const retryAfter = response.headers.get("retry-after");
         const error = new Error("SPORTRADAR_RATE_LIMITED");
         error.code = "SPORTRADAR_RATE_LIMITED";
-        error.retryAfter = retryAfter;
+        error.retryAfter = response.headers.get("retry-after");
         throw error;
       }
       if (!response.ok) throw safeProviderError(response.status, body);
@@ -51,20 +45,21 @@ export class SportradarClient {
     }
   }
 
-  getSports() { return this.request(this.config.prematchBaseUrl, "sports.json"); }
-  getBooks() { return this.request(this.config.prematchBaseUrl, "books.json"); }
-  getCompetitions(sportId) {
-    return this.request(this.config.prematchBaseUrl, `sports/${encodeURIComponent(sportId)}/competitions.json`);
-  }
-  getDailyEventMarkets(sportId, date, { start = 1, limit = 100 } = {}) {
+  getSports() { return this.request(this.config.prematchBaseUrl, "sports"); }
+  getBooks() { return this.request(this.config.prematchBaseUrl, "books"); }
+  getCompetitions(sportId) { return this.request(this.config.prematchBaseUrl, `sports/${encodeURIComponent(sportId)}/competitions`); }
+  getDailySchedules(sportId, date, { start = 0, limit = 50 } = {}) {
     return this.request(this.config.prematchBaseUrl,
-      `sports/${encodeURIComponent(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets.json`,
-      { start, limit });
+      `sports/${encodeURIComponent(sportId)}/schedules/${encodeURIComponent(date)}/schedules`, { start, limit });
+  }
+  getSportEventMarkets(eventId) {
+    return this.request(this.config.prematchBaseUrl, `sport_events/${encodeURIComponent(eventId)}/sport_event_markets`);
+  }
+  getSoccerDailySchedules(date) {
+    return this.request(this.config.soccerBaseUrl, `schedules/${encodeURIComponent(date)}/schedules`);
   }
   getSoccerDailySummaries(date) {
-    return this.request(this.config.soccerBaseUrl, `schedules/${encodeURIComponent(date)}/summaries.json`);
+    return this.request(this.config.soccerBaseUrl, `schedules/${encodeURIComponent(date)}/summaries`);
   }
-  getSoccerLiveSummaries() {
-    return this.request(this.config.soccerBaseUrl, "schedules/live/summaries.json");
-  }
+  getSoccerLiveSummaries() { return this.request(this.config.soccerBaseUrl, "schedules/live/summaries"); }
 }
