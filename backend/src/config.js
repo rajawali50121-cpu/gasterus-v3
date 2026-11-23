@@ -110,19 +110,8 @@ export const config = Object.freeze({
   // Event dan payload TIDAK dibatasi di sisi feed; semua event dari provider
   // lewat tanpa potongan. Batas fisik (memori worker, Redis) tetap berlaku.
   // Zero = no cap; pagination dihabiskan sampai halaman terakhir API.
-  sportsFeedMaxEvents: unboundedInt('SPORTS_FEED_MAX_EVENTS', 0, 0),
-  sportsFeedMaxCacheBytes: unboundedInt('SPORTS_FEED_MAX_CACHE_BYTES', 0, 0),
-  // Provider cache tidak dibatasi jumlah entri atau byte; eviction diatur TTL saja.
-  sportsProviderCacheMaxEntries: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 0, 0),
-  sportsProviderCacheMaxEntryBytes: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 0, 0),
-  sportsProviderCacheMaxTotalBytes: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 0, 0),
 
-  // Zero disables the local ceiling; the provider account's actual quota and HTTP 429 remain authoritative.
-  // Fail-closed: must be populated from the actual Sportradar contract/current account usage before live calls.
-  // TheSportsDB publishes 123 as its current free V1 API key. Artwork is metadata-only and
   // never participates in pricing, bet acceptance or settlement authority.
-  // Member visibility horizon for verified Sportradar prematch events.
-  // locked until an official settlement feed is integrated and verified.
   // Settlement TOTO otomatis: begitu hasil OFFICIAL/CONSENSUS terbit dan betting
   // window tertutup, periodenya dibayar otomatis tanpa operator menekan tombol.
   // Set TOTO_AUTO_SETTLEMENT_ENABLED=false sebagai kill switch.
