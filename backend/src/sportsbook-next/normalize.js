@@ -70,6 +70,28 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
   };
 }
 
+export function normalizeDailySportEventMarkets(payload, sportId, fetchedAt = new Date().toISOString()) {
+  const rows = arr(payload?.sport_events ?? payload?.events ?? payload?.schedules);
+  return rows.flatMap(item => {
+    const event = item?.sport_event ?? item;
+    const marketsPayload = item?.sport_event_markets ?? item;
+    const markets = arr(marketsPayload?.markets ?? item?.markets);
+    if (!event?.id || !markets.length) return [];
+    try {
+      const normalized = normalizeEventMarkets({ sport_event: event, markets }, fetchedAt);
+      return [{
+        ...normalized.event,
+        sportId,
+        competition: item?.sport_event_context?.competition?.name ?? item?.competition?.name ?? null,
+        competitionId: item?.sport_event_context?.competition?.id ?? item?.competition?.id ?? null,
+        markets: normalized.markets
+      }];
+    } catch {
+      return [];
+    }
+  });
+}
+
 export function normalizeSoccerResult(item) {
   const event = item?.sport_event;
   const status = item?.sport_event_status;
