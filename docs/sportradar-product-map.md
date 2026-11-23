@@ -19,7 +19,7 @@ Odds Comparison v2 packages use separate base URLs while sharing the same API ke
 
 ## Access and entitlement rules
 
-- `trial` / `production` is the access level in the URL. It is not the same thing as OC US / OC Core coverage.
+- `trial` / `production` is the access level in the URL. The response `X-Origin-Id` reports the actual coverage returned by the provider; GASTERUS uses only the verified coverage available to its credential.
 - The response `X-Origin-Id` identifies the Odds Comparison coverage tier. Do not infer global coverage from the word `production`.
 - Each package's `books.json` feed shows bookmakers configured for that package.
 - The Prematch `sports/{sport_id}/competitions.json` response includes availability flags such as `markets`, `player_props`, and `futures`. Only request a package for competitions whose relevant flag is true.
