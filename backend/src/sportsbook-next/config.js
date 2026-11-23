@@ -18,7 +18,9 @@ export function loadSportsbookConfig(env = process.env) {
   }
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
   const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? 80);
-  const maxCallsPerHour = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_HOUR", env.SPORTRADAR_MAX_CALLS_PER_HOUR ?? 20);
+  const hourlyRaw = Number(env.SPORTRADAR_MAX_CALLS_PER_HOUR ?? 20);
+  if (!Number.isSafeInteger(hourlyRaw) || hourlyRaw < 0) throw new Error("SPORTRADAR_MAX_CALLS_PER_HOUR must be a non-negative integer");
+  const maxCallsPerHour = hourlyRaw === 0 ? 20 : hourlyRaw;
   const daysAhead = requiredPositiveInteger("SPORTRADAR_DAYS_AHEAD", env.SPORTRADAR_DAYS_AHEAD ?? 7);
   const sportIds = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").map(v => v.trim()).filter(Boolean);
   if (!sportIds.length || sportIds.some(id => !/^sr:sport:\d+$/.test(id))) throw new Error("SPORTRADAR_SPORT_IDS must be comma-separated Sportradar sport URNs");
