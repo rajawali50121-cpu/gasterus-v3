@@ -324,10 +324,10 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const state = stored && Array.isArray(stored.events)
       ? { ...stored, events: new Map(stored.events) }
       : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0 };
-    // Preflight against the previous measured cycle size before any provider request.
+    // Preflight against the largest observed cycle, including cold-start discovery.
     assertSportradarQuotaCapacity(config, Math.max(1, Number(stored?.lastApiRequests || 1)));
-    const coverage = await discoverCoverage();
     const requestCountBefore = providerRequestCount;
+    const coverage = await discoverCoverage();
     // Authoritative snapshot sync: never rely on the rolling five-minute Change Log
     // when the configured provider cadence is ten minutes.
     const full = await fullDailySync(coverage, daysAhead);
@@ -347,7 +347,9 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
       events: [...state.events.entries()],
       lastPollAt: state.lastPollAt || Date.now(),
       lastFullSyncAt: state.lastFullSyncAt,
-      lastApiRequests: diagnostics.apiRequests,
+      // Keep the high-water mark so a warm-cache cycle cannot understate the
+      // request budget needed after a worker restart and cold discovery.
+      lastApiRequests: Math.max(Number(stored?.lastApiRequests || 1), diagnostics.apiRequests),
       generatedAt
     }), { EX: STATE_TTL_SECONDS });
     logger.info('Sportradar v2 sync completed', {
