@@ -197,7 +197,7 @@ test('subsequent cycles poll the five-minute Change Log and refresh only changed
 });
 
 test('overlapping five-minute Change Log windows do not refetch events already processed', async () => {
-  installRedis();
+  const client = installRedis();
   installFullSyncFetch();
   await fetchSportradarV2({ daysAhead: 1 });
   const change = {
@@ -224,6 +224,8 @@ test('overlapping five-minute Change Log windows do not refetch events already p
   const first = await fetchSportradarV2({ daysAhead: 1 });
   assert.equal(first.diagnostics.eventsRefreshed, 1);
   assert.equal(eventRefreshCalls, 1);
+  const persisted = JSON.parse(await client.get('sportsbook:sportradar:v2:state'));
+  assert.equal(persisted.lastChangeByEvent[change.id], change.sport_event_markets_odds_change);
   const second = await fetchSportradarV2({ daysAhead: 1 });
   assert.equal(second.diagnostics.eventsRefreshed, 0);
   assert.equal(eventRefreshCalls, 1);
@@ -300,6 +302,25 @@ test('Change Log gap performs bounded daily-market resync instead of one request
   assert.equal(recovered.events.length, 1);
   assert.equal(calls.length, 2);
   assert.ok(calls.every(url => url.pathname.includes('/schedules/')));
+});
+
+test('full sync prunes Change Log watermarks for events no longer in the schedule', async () => {
+  const client = installRedis();
+  installFullSyncFetch();
+  await fetchSportradarV2({ daysAhead: 1 });
+  const stateKey = 'sportsbook:sportradar:v2:state';
+  const state = JSON.parse(await client.get(stateKey));
+  state.lastChangeByEvent = {
+    'sr:sport_event:fixture-1': 1795340000,
+    'sr:sport_event:expired-fixture': 1795340100
+  };
+  state.lastPollAt = Date.now() - (6 * 60 * 1000);
+  await client.set(stateKey, JSON.stringify(state));
+
+  installFullSyncFetch();
+  await fetchSportradarV2({ daysAhead: 1 });
+  const persisted = JSON.parse(await client.get(stateKey));
+  assert.deepEqual(Object.keys(persisted.lastChangeByEvent), ['sr:sport_event:fixture-1']);
 });
 
 test('rolling quota gate rejects calls when the contracted request allowance is exhausted', async () => {

@@ -129,6 +129,10 @@ export function periodFromMarket(name, metadata = {}) {
     if (period && period !== 'FT') return period;
     if (period === 'FT') genericPeriod = period;
   }
+  // Sportradar market 66 is first-half handicap even when the feed supplies
+  // only the generic market name "handicap". Keep this documented ID fallback
+  // below explicit non-generic period metadata, but above the generic FT fallback.
+  if (String(metadata.id || metadata.market_id || '') === 'sr:market:66') return '1H';
   if (genericPeriod) return genericPeriod;
   // Sportradar Odds Comparison uses generic names such as "handicap" and
   // "handicap {hcp}". marketType() needs outcome count to classify those,

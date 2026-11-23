@@ -70,6 +70,16 @@ console.info(JSON.stringify({
 
 const snapshotIntervalSeconds = sportsbookRenderIntervalSeconds(config);
 const intervalMs = snapshotIntervalSeconds * 1000;
+const MAX_TIMER_DELAY_MS = 2_000_000_000;
+async function sleepInChunks(delayMs, signal) {
+  let remaining = Math.max(0, Number(delayMs) || 0);
+  while (remaining > 0 && !signal.aborted) {
+    const chunk = Math.min(remaining, MAX_TIMER_DELAY_MS);
+    await sleep(chunk, undefined, { signal });
+    remaining -= chunk;
+  }
+}
+
 const shutdown = new AbortController();
 process.once('SIGINT', () => shutdown.abort());
 process.once('SIGTERM', () => shutdown.abort());
@@ -149,7 +159,7 @@ while (!shutdown.signal.aborted) {
   }
   if (!shutdown.signal.aborted) {
     try {
-      await sleep(nextDelayMs, undefined, { signal: shutdown.signal });
+      await sleepInChunks(nextDelayMs, shutdown.signal);
     } catch (error) {
       if (error.name !== 'AbortError') throw error;
     }

@@ -20,6 +20,9 @@ test('market IDs do not override market names and outcome structure', () => {
   assert.equal(marketType('handicap', 2, false, 'sr:market:16'), 'HANDICAP');
   assert.equal(periodFromMarket('1st half - 1x2', { id: 'sr:market:60' }), '1H');
   assert.equal(periodFromMarket('1x2', { id: 'sr:market:60' }), 'FT');
+  assert.equal(periodFromMarket('handicap', { id: 'sr:market:66' }), '1H');
+  assert.equal(periodFromMarket('handicap {hcp}', { id: 'sr:market:66' }), '1H');
+  assert.equal(periodFromMarket('handicap', { id: 'sr:market:66', period: '2H' }), '2H');
 });
 
 test('provider outcome.type is the only source for normalized selection outcome type', () => {

@@ -218,6 +218,8 @@ test('worker backs off after Sportradar 429 and does not permanently pause until
   );
   assert.match(workerSource, /exponential429Backoff/);
   assert.match(workerSource, /retryAfterMs/);
+  assert.match(workerSource, /MAX_TIMER_DELAY_MS/);
+  assert.match(workerSource, /sleepInChunks\(nextDelayMs, shutdown\.signal\)/);
   assert.doesNotMatch(workerSource, /provider-limit-circuit-open|polling-paused-until-redeploy/);
 });
 
