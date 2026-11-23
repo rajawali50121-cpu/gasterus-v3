@@ -103,17 +103,17 @@ export async function memberGamingHistory(memberId, { limit = 100 } = {}) {
         t.id,
         'SPORTSBOOK'::text AS game_type,
         t.invoice,
-        COALESCE((SELECT string_agg(DISTINCT l.sport, ', ') FROM sportsbook_legs l WHERE l.ticket_id=t.id),'Sportsbook') AS game_name,
-        t.bet_type,
+        COALESCE((SELECT string_agg(DISTINCT e.sport_id, ', ') FROM sportsbook_v2_ticket_legs l JOIN sportsbook_v2_events e ON e.provider_event_id=l.provider_event_id WHERE l.ticket_id=t.id),'Sportsbook') AS game_name,
+        CASE WHEN (SELECT COUNT(*) FROM sportsbook_v2_ticket_legs l WHERE l.ticket_id=t.id)>1 THEN 'PARLAY' ELSE 'SINGLE' END AS bet_type,
         t.status,
-        t.total_stake,
-        t.payout,
+        t.stake AS total_stake,
+        COALESCE((t.metadata->'settlement'->>'amount')::bigint,0) AS payout,
         NULL::text AS result,
-        COALESCE((t.metadata->>'settlementBalanceAfter')::bigint,t.balance_after) AS balance_after,
-        t.created_at AS placed_at,
+        t.balance_after,
+        t.accepted_at AS placed_at,
         t.settled_at,
-        t.created_at
-      FROM sportsbook_tickets t
+        t.accepted_at AS created_at
+      FROM sportsbook_v2_tickets t
       WHERE t.member_id=$1
     ) history
     ORDER BY created_at DESC
