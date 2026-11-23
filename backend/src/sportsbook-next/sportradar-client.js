@@ -75,13 +75,21 @@ export class SportradarClient {
       const result = await this.getDailySchedules(sportId, date, { start, limit: pageSize });
       const rows = result.body?.schedules ?? [];
       items.push(...rows);
-      const reported = Number(result.headers.get("x-max-results"));
-      const received = Number(result.headers.get("x-result"));
-      if (Number.isFinite(reported) && reported > start + rows.length) {
+      const reportedHeader = result.headers.get("x-max-results");
+      const receivedHeader = result.headers.get("x-result");
+      const reported = reportedHeader === null ? null : Number(reportedHeader);
+      const received = receivedHeader === null ? null : Number(receivedHeader);
+      if (reported !== null && Number.isFinite(reported) && reported > start + rows.length) {
         start += rows.length || pageSize;
         continue;
       }
-      if (Number.isFinite(received) && received >= pageSize) {
+      if (received !== null && Number.isFinite(received) && received >= pageSize) {
+        start += rows.length || pageSize;
+        continue;
+      }
+      // Some provider responses omit pagination headers. A full page is the
+      // only safe signal to request the next offset; maxPages remains the cap.
+      if ((reportedHeader === null || receivedHeader === null) && rows.length >= pageSize) {
         start += rows.length || pageSize;
         continue;
       }
