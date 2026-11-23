@@ -42,7 +42,7 @@ async function runCycle(config, client) {
         if (client.cycleCalls >= config.maxCallsPerCycle) { budgetLimited = true; break; }
         const date = utcDate(day);
         try {
-          const result = await client.getDailySportEventMarkets(sportId, date, { start: 0, limit: 50 });
+          const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 10 });
           const rows = normalizeDailySportEventMarkets(result.body, sportId);
           for (const event of rows) events.set(event.id, event);
         } catch (error) {
