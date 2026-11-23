@@ -38,14 +38,12 @@ RUN node --check deploy/launcher.js \
  && node --check backend/src/app.js \
  && node --check backend/src/auth.js \
  && node --check backend/src/betting.js \
- && node --check backend/src/sportsbook-feed.js \
  && node --check backend/src/toto-collector-core.js \
  && node --check backend/src/toto-draw-scheduler.js \
  && node --check backend/src/toto-draw-calibrator.js \
  && node --check backend/src/toto-collector.js \
  && node --check backend/src/feed-worker.js \
  && node --check backend/src/memory-guard.js \
- && node --check backend/src/sportsbook-browser-renderer.js \
  && node --check backend/src/toto-market-identity.js \
  && node --check backend/src/toto-auto-settlement.js \
  && node --check backend/src/toto-schedule-registry.js \
