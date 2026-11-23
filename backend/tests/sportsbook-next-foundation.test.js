@@ -129,6 +129,28 @@ test("client calls documented endpoints, authenticates by x-api-key and stops on
   assert.equal(calls, 1);
 });
 
+test("client calls the documented Prematch change-log and per-event market endpoints", async () => {
+  const config = loadSportsbookConfig(env);
+  const requested = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      requested.push(String(url));
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => requested.length === 1
+          ? { changes: [{ type: "sport_event", id: "sr:sport_event:123", sport_event_markets_odds_change: 123 }] }
+          : { sport_event: { id: "sr:sport_event:123" }, markets: [] }
+      };
+    }
+  });
+  const changeLog = await client.getSportEventMarketsChangeLog();
+  assert.equal(changeLog.body.changes[0].id, "sr:sport_event:123");
+  const markets = await client.getSportEventMarkets("sr:sport_event:123");
+  assert.equal(markets.body.sport_event.id, "sr:sport_event:123");
+  assert.match(requested[0], /sport_event_markets_changelog\.json$/);
+  assert.match(requested[1], /sport_events\/sr:sport_event:123\/sport_event_markets\.json$/);
+});
+
 test("daily schedules use bounded offset pagination and stop at provider total", async () => {
   const config = loadSportsbookConfig(env);
   const offsets = [];
