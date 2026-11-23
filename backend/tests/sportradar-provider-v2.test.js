@@ -172,155 +172,24 @@ test('full sync rejects a pagination response that ends before X-Max-Results', a
   assert.equal(calls.some(url => url.searchParams.get('start') === '50'), true);
 });
 
-test('subsequent cycles poll the five-minute Change Log and refresh only changed tracked events', async () => {
-  installRedis();
-  installFullSyncFetch();
-  const initial = await fetchSportradarV2({ daysAhead: 1 });
-  assert.equal(initial.events[0].markets[0].selections[0].odds, 2.1);
-  const calls = [];
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    calls.push(url);
-    if (url.pathname.endsWith('/sport_event_markets_changelog.json')) {
-      return json({ generated_at: '2026-11-22T12:01:00Z', status: { from: 1795340000, to: 1795340300 }, changes: [{ type: 'sport_event', id: 'sr:sport_event:fixture-1', sport_event_markets_odds_change: 1795340290 }] });
-    }
-    if (url.pathname.endsWith('/sport_event_markets.json') && url.pathname.includes('/sport_events/')) {
-      return json({ ...fixtureEvent('sr:sport_event:fixture-1', '1.95'), generated_at: '2026-11-22T12:01:00Z' });
-    }
-    throw new Error(`Unexpected delta endpoint: ${url.pathname}`);
-  };
-  const updated = await fetchSportradarV2({ daysAhead: 1 });
-  assert.equal(updated.events[0].markets[0].selections[0].odds, 1.95);
-  assert.equal(updated.diagnostics.eventsRefreshed, 1);
-  assert.equal(calls.length, 2);
-  assert.ok(calls[0].pathname.endsWith('/sport_event_markets_changelog.json'));
-});
-
-test('overlapping five-minute Change Log windows do not refetch events already processed', async () => {
+test('every ten-minute cycle rebuilds an authoritative schedule snapshot without calling Change Log', async () => {
   const client = installRedis();
   installFullSyncFetch();
-  await fetchSportradarV2({ daysAhead: 1 });
-  const change = {
-    type: 'sport_event',
-    id: 'sr:sport_event:fixture-1',
-    sport_event_markets_odds_change: 1795340290
-  };
-  let eventRefreshCalls = 0;
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    if (url.pathname.endsWith('/sport_event_markets_changelog.json')) {
-      return json({
-        generated_at: '2026-11-22T12:02:00Z',
-        status: { from: 1795340300, to: 1795340600 },
-        changes: [change]
-      });
-    }
-    if (url.pathname.endsWith('/sport_event_markets.json') && url.pathname.includes('/sport_events/')) {
-      eventRefreshCalls += 1;
-      return json({ ...fixtureEvent('sr:sport_event:fixture-1', '1.95'), generated_at: '2026-11-22T12:02:00Z' });
-    }
-    throw new Error(`Unexpected endpoint: ${url.pathname}`);
-  };
   const first = await fetchSportradarV2({ daysAhead: 1 });
-  assert.equal(first.diagnostics.eventsRefreshed, 1);
-  assert.equal(eventRefreshCalls, 1);
-  const persisted = JSON.parse(await client.get('sportsbook:sportradar:v2:state'));
-  assert.equal(persisted.lastChangeByEvent[change.id], change.sport_event_markets_odds_change);
+  assert.equal(first.diagnostics.syncMode, 'full-snapshot');
+  assert.equal(first.diagnostics.pollingIntervalSeconds, 600);
+  assert.ok(first.diagnostics.apiRequests >= 2);
+
+  const calls = installFullSyncFetch();
   const second = await fetchSportradarV2({ daysAhead: 1 });
-  assert.equal(second.diagnostics.eventsRefreshed, 0);
-  assert.equal(eventRefreshCalls, 1);
-});
-
-
-test('Change Log includes an event update exactly at the previous global watermark once', async () => {
-  installRedis();
-  installFullSyncFetch();
-  await fetchSportradarV2({ daysAhead: 1 });
-  const eventId = 'sr:sport_event:fixture-1';
-  const calls = [];
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    calls.push(url);
-    if (url.pathname.endsWith('/sport_event_markets_changelog.json')) {
-      return json({
-        generated_at: '2026-11-22T12:03:00Z',
-        status: { from: 1795340600, to: 1795340900 },
-        changes: [{ type: 'sport_event', id: eventId, sport_event_markets_odds_change: 1795340600 }]
-      });
-    }
-    if (url.pathname.endsWith('/sport_event_markets.json') && url.pathname.includes('/sport_events/')) {
-      return json({ ...fixtureEvent(eventId, '1.88'), generated_at: '2026-11-22T12:03:00Z' });
-    }
-    throw new Error(`Unexpected endpoint: ${url.pathname}`);
-  };
-  const state = {
-    events: new Map([[eventId, fixtureEvent(eventId)]]),
-    lastPollAt: Date.now(),
-    lastFullSyncAt: Date.now(),
-    lastChangeLogTo: 1795340600,
-    lastChangeByEvent: { [eventId]: 1795340599 }
-  };
-  const delta = await __sportradarV2.pollChanges(
-    { sports: [{ id: 'sr:sport:1', name: 'Soccer' }] },
-    state
-  );
-  assert.equal(delta.diagnostics.eventsRefreshed, 1);
-  assert.equal(delta.events.get(eventId).markets[0].selections[0].odds, 1.88);
-  assert.equal(delta.lastChangeByEvent[eventId], 1795340600);
-  assert.equal(calls.length, 2);
-});
-
-
-test('Change Log gap performs bounded daily-market resync instead of one request per tracked event', async () => {
-  const client = installRedis();
-  installFullSyncFetch();
-  await fetchSportradarV2({ daysAhead: 1 });
-  const stateKey = 'sportsbook:sportradar:v2:state';
-  const state = JSON.parse(await client.get(stateKey));
-  state.lastPollAt = Date.now() - (6 * 60 * 1000);
-  await client.set(stateKey, JSON.stringify(state));
-
-  const calls = [];
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    calls.push(url);
-    if (url.pathname.endsWith('/sport_event_markets.json') && url.pathname.includes('/schedules/')) {
-      const date = url.pathname.split('/schedules/')[1].split('/')[0];
-      if (date === __sportradarV2.utcDates(1)[1]) {
-        return json({ generated_at: '2026-11-22T12:10:00Z', sport_schedule_sport_event_markets: [] }, { 'x-max-results': '0', 'x-result': '0' });
-      }
-      return json({ generated_at: '2026-11-22T12:10:00Z', sport_schedule_sport_event_markets: [fixtureEvent()] }, { 'x-max-results': '1', 'x-result': '1' });
-    }
-    if (url.pathname.endsWith('/sport_event_markets_changelog.json') || url.pathname.includes('/sport_events/')) {
-      throw new Error(`Unexpected high-volume recovery request: ${url.pathname}`);
-    }
-    throw new Error(`Unexpected endpoint: ${url.pathname}`);
-  };
-  const recovered = await fetchSportradarV2({ daysAhead: 1 });
-  assert.equal(recovered.diagnostics.fullSync, true);
-  assert.equal(recovered.diagnostics.gapResync, true);
-  assert.equal(recovered.events.length, 1);
-  assert.equal(calls.length, 2);
-  assert.ok(calls.every(url => url.pathname.includes('/schedules/')));
-});
-
-test('full sync prunes Change Log watermarks for events no longer in the schedule', async () => {
-  const client = installRedis();
-  installFullSyncFetch();
-  await fetchSportradarV2({ daysAhead: 1 });
-  const stateKey = 'sportsbook:sportradar:v2:state';
-  const state = JSON.parse(await client.get(stateKey));
-  state.lastChangeByEvent = {
-    'sr:sport_event:fixture-1': 1795340000,
-    'sr:sport_event:expired-fixture': 1795340100
-  };
-  state.lastPollAt = Date.now() - (6 * 60 * 1000);
-  await client.set(stateKey, JSON.stringify(state));
-
-  installFullSyncFetch();
-  await fetchSportradarV2({ daysAhead: 1 });
-  const persisted = JSON.parse(await client.get(stateKey));
-  assert.deepEqual(Object.keys(persisted.lastChangeByEvent), ['sr:sport_event:fixture-1']);
+  assert.equal(second.diagnostics.syncMode, 'full-snapshot');
+  assert.equal(second.events.length, 1);
+  assert.ok(calls.every(url => !url.pathname.includes('changelog')));
+  assert.ok(calls.every(url => !url.pathname.includes('/sport_events/')));
+  const persisted = JSON.parse(await client.get('sportsbook:sportradar:v2:state'));
+  assert.equal(persisted.events.length, 1);
+  assert.equal(Object.hasOwn(persisted, 'lastChangeByEvent'), false);
+  assert.equal(Object.hasOwn(persisted, 'lastChangeLogTo'), false);
 });
 
 test('rolling quota gate rejects calls when the contracted request allowance is exhausted', async () => {
