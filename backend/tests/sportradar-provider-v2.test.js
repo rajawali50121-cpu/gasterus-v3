@@ -168,12 +168,11 @@ test('full sync rejects a pagination response that ends before X-Max-Results', a
   assert.equal(calls.some(url => url.searchParams.get('start') === '50'), true);
 });
 
-test('every ten-minute cycle rebuilds an authoritative schedule snapshot without calling Change Log', async () => {
+test('each adaptive cycle rebuilds an authoritative schedule snapshot without calling Change Log', async () => {
   const client = installRedis();
   installFullSyncFetch();
   const first = await fetchSportradarV2({ daysAhead: 1 });
   assert.equal(first.diagnostics.syncMode, 'full-snapshot');
-  assert.equal(first.diagnostics.pollingIntervalSeconds, 600);
   assert.ok(first.diagnostics.apiRequests >= 2);
 
   const calls = installFullSyncFetch();
