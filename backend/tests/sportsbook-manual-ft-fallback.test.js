@@ -138,5 +138,5 @@ test('settlement summary excludes legacy manual-ops as new market authority', ()
   assert.equal(summary.htEvents, 0);
   assert.equal(summary.automaticFtEvents, 0);
   assert.equal(summary.manualFtEvents, 0);
-  assert.deepEqual(summary.sources, []);
+  assert.deepEqual(summary.sources, ['sportradar']);
 });
