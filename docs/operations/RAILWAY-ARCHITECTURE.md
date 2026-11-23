@@ -20,8 +20,10 @@ The integration follows the official Odds Comparison Prematch v2 contract:
 - Authentication uses the `x-api-key` request header. The key stays server-side.
 - Base URL: `https://api.sportradar.com/oddscomparison-prematch/{trial|production}/v2/en`.
 - Discover available coverage from `sports.json`; do not assume sports, competitions, bookmakers or markets.
-- Daily schedules use `sports/{sport_id}/schedules/{date}/schedules.json`, with offset pagination using `start` and `limit`.
-- Event prices are retrieved from `sport_events/{sport_event_id}/sport_event_markets.json`.
+- Daily schedules use `sports/{sport_id}/schedules/{date}/schedules.json`, with offset pagination (`start`, `limit` up to 50) and `X-Max-Results` handling.
+- Event prices are retrieved from `sport_events/{sport_event_id}/sport_event_markets.json`; bookmaker and outcome IDs, removed flags, decimal odds and opening odds are preserved.
+- Market instances are keyed by both provider market ID and market name because one market ID can represent multiple period/inning instances.
+- The official odds change log covers a five-minute window and should be polled at least every five minutes. The current 150-minute discovery mode is therefore display-only; it does not authorize wager acceptance. Bet acceptance remains disabled until an approved fresh-price update path (change-log polling within quota or UOF AMQP credentials) is enabled.
 - Soccer fixtures/results context uses Soccer API v4 feeds and must not be treated as odds.
 - HTTP 429 stops the current cycle. No immediate retry loop or provider fallback is permitted.
 - Poll interval default is 150 minutes. Odds older than the configured freshness threshold must never be accepted for a wager.
