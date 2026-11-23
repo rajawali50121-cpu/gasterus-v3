@@ -51,6 +51,10 @@ test("change log extracts only tracked Sportradar sport-event IDs", () => {
   ] }, tracked), ["sr:sport_event:1", "sr:sport_event:2"]);
 });
 
+test("change log rejects a malformed payload instead of treating it as no changes", () => {
+  assert.throws(() => getChangedSportEventIds({ unexpected: [] }, new Set()), /SPORTRADAR_CHANGELOG_SHAPE_INVALID/);
+});
+
 test("change log reconciles after startup or a gap longer than five minutes", () => {
   const now = 1_800_000_000_000;
   assert.equal(SPORTRADAR_CHANGE_LOG_WINDOW_MS, 300_000);
