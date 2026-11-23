@@ -20,6 +20,7 @@ const LEASE_TTL_MS = 10 * 60 * 1000;
 const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
 const discoveryCache = { value: null, expiresAt: 0 };
 let redisClient = redis;
+let providerRequestCount = 0;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function clean(value, max = 160) {
@@ -108,6 +109,7 @@ async function reserveRequest() {
 }
 async function requestJson(path, params = {}) {
   await reserveRequest();
+  providerRequestCount += 1;
   const url = new URL(path, baseUrl() + '/');
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
@@ -321,64 +323,6 @@ async function refreshOneEvent(eventId, previous, sports) {
   if (!event) throw new Error(`Sportradar event ${eventId} could not be normalized.`);
   return event;
 }
-async function pollChanges(coverage, state) {
-  const { data } = await requestJson('sport_event_markets_changelog.json');
-  const changes = data?.changes;
-  if (!parseDate(data?.generated_at)) throw new Error('Sportradar Change Log response is missing a valid generated_at timestamp.');
-  const verifiedAt = new Date(parseDate(data.generated_at)).toISOString();
-  const windowFrom = Number(data?.status?.from);
-  const windowTo = Number(data?.status?.to);
-  if (!Array.isArray(changes) || !Number.isFinite(windowFrom) || !Number.isFinite(windowTo) || windowTo < windowFrom) {
-    throw new Error('Sportradar Change Log response is missing valid status window or changes array.');
-  }
-  const lastPollAt = Number(state.lastPollAt || 0);
-  const lastChangeLogTo = Number(state.lastChangeLogTo || 0);
-  const lastChangeByEvent = { ...(state.lastChangeByEvent || {}) };
-  const gap = lastPollAt > 0 && Date.now() - lastPollAt > 5 * 60 * 1000;
-  // Sportradar's Change Log is a rolling five-minute window. The same event
-  // therefore appears in several consecutive polls. Use the provider's Unix
-  // change timestamp as a watermark so each event is refreshed only once per
-  // new change, instead of replaying the whole overlapping window every minute.
-  const freshChangedIds = new Set();
-  for (const item of changes) {
-    if (item?.type !== 'sport_event' || !item.id || !state.events.has(String(item.id))) continue;
-    const changedAt = Number(item.sport_event_markets_odds_change);
-    if (!Number.isFinite(changedAt)) {
-      throw new Error('Sportradar Change Log item is missing sport_event_markets_odds_change; refusing to advance the change watermark.');
-    }
-    const eventId = String(item.id);
-    const previousEventChange = Number(lastChangeByEvent[eventId] || 0);
-    // Include the watermark second once per event: provider timestamps have
-    // one-second precision, so strict global `>` can drop a boundary update.
-    if (changedAt >= lastChangeLogTo && changedAt > previousEventChange) {
-      freshChangedIds.add(eventId);
-      lastChangeByEvent[eventId] = changedAt;
-    }
-  }
-  const trackedIds = gap ? [...state.events.keys()] : [...freshChangedIds];
-  const updated = new Map(state.events);
-  for (const eventId of trackedIds) {
-    try {
-      const next = await refreshOneEvent(eventId, updated.get(eventId), coverage.sports);
-      updated.set(eventId, next);
-    } catch (error) {
-      if (error.status === 404) {
-        updated.delete(eventId);
-        continue;
-      }
-      throw error;
-    }
-  }
-  return {
-    events: updated,
-    diagnostics: { fullSync: false, changeLogChanges: changes.length, eventsRefreshed: trackedIds.length, gapReconciled: gap, changeLogWindow: { from: windowFrom, to: windowTo } },
-    lastPollAt: Date.now(),
-    lastChangeLogTo: windowTo,
-    lastChangeByEvent,
-    verifiedAt
-  };
-}
-
 export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead } = {}) {
   if (!config.sportradarEnabled) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_ENABLED=false'] };
   if (!config.sportradarApiKey) throw new Error('SPORTRADAR_API_KEY is required by the Sportradar worker.');
@@ -391,27 +335,19 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const state = stored && Array.isArray(stored.events)
       ? { ...stored, events: new Map(stored.events), lastChangeByEvent: stored.lastChangeByEvent || {} }
       : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0, lastChangeLogTo: 0, lastChangeByEvent: {} };
-    const changeLogGap = state.lastPollAt > 0 && Date.now() - state.lastPollAt > 5 * 60 * 1000;
-    const fullSyncDue = !state.events.size || !state.lastFullSyncAt || Date.now() - state.lastFullSyncAt >= 24 * 60 * 60 * 1000 || changeLogGap;
-    let diagnostics;
-    if (fullSyncDue) {
-      const full = await fullDailySync(coverage, daysAhead);
-      state.events = full.events;
-      // Drop per-event Change Log watermarks for fixtures no longer in the
-      // refreshed schedule so the persisted Redis state stays bounded.
-      state.lastChangeByEvent = Object.fromEntries(
-        Object.entries(state.lastChangeByEvent || {}).filter(([eventId]) => full.events.has(eventId))
-      );
-      state.lastFullSyncAt = Date.now();
-      diagnostics = { ...full.diagnostics, gapResync: changeLogGap };
-    } else {
-      const delta = await pollChanges(coverage, state);
-      state.events = delta.events;
-      state.lastPollAt = delta.lastPollAt;
-      state.lastChangeLogTo = delta.lastChangeLogTo;
-      state.lastChangeByEvent = delta.lastChangeByEvent;
-      diagnostics = delta.diagnostics;
-    }
+    const requestCountBefore = providerRequestCount;
+    // Authoritative snapshot sync: never rely on the rolling five-minute Change Log
+    // when the configured provider cadence is ten minutes.
+    const full = await fullDailySync(coverage, daysAhead);
+    state.events = full.events;
+    state.lastFullSyncAt = Date.now();
+    state.lastPollAt = state.lastFullSyncAt;
+    const diagnostics = {
+      ...full.diagnostics,
+      syncMode: 'full-snapshot',
+      pollingIntervalSeconds: 600,
+      apiRequests: providerRequestCount - requestCountBefore
+    };
     const events = [...state.events.values()];
     if (!events.length) throw new Error('Sportradar state has no events after sync; previous snapshot remains untouched.');
     const generatedAt = new Date().toISOString();
@@ -419,8 +355,6 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
       events: [...state.events.entries()],
       lastPollAt: state.lastPollAt || Date.now(),
       lastFullSyncAt: state.lastFullSyncAt,
-      lastChangeLogTo: state.lastChangeLogTo || 0,
-      lastChangeByEvent: state.lastChangeByEvent || {},
       generatedAt
     }), { EX: STATE_TTL_SECONDS });
     logger.info('Sportradar v2 sync completed', {
@@ -438,6 +372,6 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
 }
 
 export const __sportradarV2 = {
-  utcDates, responseItems, safePayloadShape, buildEvent, baseUrl, pollChanges,
+  utcDates, responseItems, safePayloadShape, buildEvent, baseUrl,
   setRedisClientForTests(client) { redisClient = client; discoveryCache.value = null; discoveryCache.expiresAt = 0; }
 };
