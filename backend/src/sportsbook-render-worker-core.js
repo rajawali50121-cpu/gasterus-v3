@@ -17,38 +17,40 @@ function wibParts(date = new Date()) {
   };
 }
 
-// Poll the complete prematch schedule snapshot every ten minutes.
-// A full snapshot avoids missing changes outside Sportradar's rolling five-minute Change Log.
-export const SPORTRADAR_SNAPSHOT_POLL_INTERVAL_SECONDS = 600;
-export const SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT = Math.ceil(
-  (30 * 24 * 60 * 60) / SPORTRADAR_SNAPSHOT_POLL_INTERVAL_SECONDS
-);
+// Full schedule snapshots are used because Sportradar's Change Log is a rolling five-minute window.
+// Budget the trial quota over a ten-day operating window, reserving 50 calls for unexpected/manual usage.
+export const SPORTRADAR_OPERATION_WINDOW_DAYS = 10;
+export const SPORTRADAR_QUOTA_RESERVE_CALLS = 50;
+export const SPORTRADAR_DEFAULT_REQUESTS_PER_CYCLE = 10;
 
-export function assertSportradarQuotaCapacity(settings, requestsPerCycle = 1) {
+export function assertSportradarQuotaCapacity(settings, requestsPerCycle = SPORTRADAR_DEFAULT_REQUESTS_PER_CYCLE) {
   const monthlyLimit = Number(settings?.sportradarMaxCallsPer30Days || 0);
   const initialUsage = Number(settings?.sportradarInitial30DayUsage || 0);
   const callsPerCycle = Math.max(1, Math.ceil(Number(requestsPerCycle) || 1));
-  const requiredMonthlyCalls = SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT * callsPerCycle;
-  const availableMonthlyCalls = monthlyLimit - initialUsage;
+  const availableMonthlyCalls = monthlyLimit - initialUsage - SPORTRADAR_QUOTA_RESERVE_CALLS;
   if (!Number.isSafeInteger(monthlyLimit) || !Number.isSafeInteger(initialUsage) ||
       initialUsage < 0 || initialUsage > monthlyLimit ||
-      availableMonthlyCalls < requiredMonthlyCalls) {
+      availableMonthlyCalls < callsPerCycle) {
     throw new Error(
-      `Sportradar quota is insufficient for ten-minute full-snapshot polling: ${callsPerCycle} API requests per cycle require at least ${requiredMonthlyCalls} calls per 30 days; available contracted allowance after current usage is ${Math.max(0, availableMonthlyCalls)} of ${Number.isFinite(monthlyLimit) ? monthlyLimit : 0}. This excludes future growth in schedule pagination. Upgrade the provider quota or reduce the covered sports/date horizon.`
-    );
-  }
-  const hourlyLimit = Number(settings?.sportradarSharedMaxCallsPerHour || 0);
-  if (hourlyLimit > 0 && hourlyLimit < callsPerCycle * 6) {
-    throw new Error(
-      `Sportradar hourly quota is insufficient for ten-minute snapshots: ${callsPerCycle} requests per cycle require at least ${callsPerCycle * 6} calls per hour; configured limit is ${hourlyLimit}.`
+      `Sportradar quota is insufficient: need at least ${callsPerCycle + SPORTRADAR_QUOTA_RESERVE_CALLS} remaining calls including the 50-call safety reserve; available after current rolling usage is ${Math.max(0, monthlyLimit - initialUsage)} of ${Number.isFinite(monthlyLimit) ? monthlyLimit : 0}.`
     );
   }
   return true;
 }
 
-export function sportsbookRenderIntervalSeconds(settings) {
-  // The full schedule snapshot is the sole synchronization path and runs every ten minutes.
-  return SPORTRADAR_SNAPSHOT_POLL_INTERVAL_SECONDS;
+export function sportsbookRenderIntervalSeconds(settings, requestsPerCycle = SPORTRADAR_DEFAULT_REQUESTS_PER_CYCLE) {
+  const monthlyLimit = Number(settings?.sportradarMaxCallsPer30Days || 0);
+  const initialUsage = Number(settings?.sportradarInitial30DayUsage || 0);
+  const safeBudget = Math.max(0, monthlyLimit - initialUsage - SPORTRADAR_QUOTA_RESERVE_CALLS);
+  const callsPerCycle = Math.max(1, Math.ceil(Number(requestsPerCycle) || 1));
+  if (!Number.isSafeInteger(monthlyLimit) || !Number.isSafeInteger(initialUsage) || safeBudget < callsPerCycle) {
+    throw new Error('Sportradar ten-day polling budget is unavailable after applying current usage and the 50-call reserve.');
+  }
+  const windowSeconds = SPORTRADAR_OPERATION_WINDOW_DAYS * 24 * 60 * 60;
+  const budgetInterval = Math.ceil((windowSeconds * callsPerCycle) / safeBudget);
+  const hourlyLimit = Number(settings?.sportradarSharedMaxCallsPerHour || 0);
+  const hourlyInterval = hourlyLimit > 0 ? Math.ceil((3600 * callsPerCycle) / hourlyLimit) : 0;
+  return Math.max(60, budgetInterval, hourlyInterval);
 }
 
 export function combineSportsbookProviderResults(providerResults, { maxEvents = 0 } = {}) {
