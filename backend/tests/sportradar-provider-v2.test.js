@@ -194,6 +194,39 @@ test('subsequent cycles poll the five-minute Change Log and refresh only changed
   assert.ok(calls[0].pathname.endsWith('/sport_event_markets_changelog.json'));
 });
 
+test('overlapping five-minute Change Log windows do not refetch events already processed', async () => {
+  installRedis();
+  installFullSyncFetch();
+  await fetchSportradarV2({ daysAhead: 1 });
+  const change = {
+    type: 'sport_event',
+    id: 'sr:sport_event:fixture-1',
+    sport_event_markets_odds_change: 1795340290
+  };
+  let eventRefreshCalls = 0;
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/sport_event_markets_changelog.json')) {
+      return json({
+        generated_at: '2026-11-22T12:02:00Z',
+        status: { from: 1795340300, to: 1795340600 },
+        changes: [change]
+      });
+    }
+    if (url.pathname.endsWith('/sport_event_markets.json') && url.pathname.includes('/sport_events/')) {
+      eventRefreshCalls += 1;
+      return json({ ...fixtureEvent('sr:sport_event:fixture-1', '1.95'), generated_at: '2026-11-22T12:02:00Z' });
+    }
+    throw new Error(`Unexpected endpoint: ${url.pathname}`);
+  };
+  const first = await fetchSportradarV2({ daysAhead: 1 });
+  assert.equal(first.diagnostics.eventsRefreshed, 1);
+  assert.equal(eventRefreshCalls, 1);
+  const second = await fetchSportradarV2({ daysAhead: 1 });
+  assert.equal(second.diagnostics.eventsRefreshed, 0);
+  assert.equal(eventRefreshCalls, 1);
+});
+
 test('rolling quota gate rejects calls when the contracted request allowance is exhausted', async () => {
   // The configured limit is 500; seed Redis with the exact same count to exercise fail-closed quota rejection.
   installRedis({ baseline: '500' });
