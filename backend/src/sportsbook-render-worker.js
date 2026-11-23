@@ -72,7 +72,7 @@ console.info(JSON.stringify({
   ingestPath: ingestUrl.pathname
 }));
 
-let requestsPerCycleEstimate = 10;
+let requestsPerCycleEstimate = 11;
 let intervalMs = sportsbookRenderIntervalSeconds(config, requestsPerCycleEstimate) * 1000;
 const MAX_TIMER_DELAY_MS = 2_000_000_000;
 async function sleepInChunks(delayMs, signal) {
