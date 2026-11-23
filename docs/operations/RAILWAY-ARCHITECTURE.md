@@ -1,5 +1,7 @@
 # Railway Architecture
 
+Canonical deployment source: `railway-migration-fix-039`.
+
 ## Runtime services
 
 | Service | Responsibility |
