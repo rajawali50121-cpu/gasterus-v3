@@ -309,6 +309,24 @@
       <div class="table-wrap"><table><thead><tr><th>ID / Tiket</th><th>Pasaran</th><th>Status</th><th>Nominal</th><th>Waktu</th></tr></thead><tbody>${marketRows || '<tr><td class="empty-state" colspan="5">Tidak ada riwayat pada 10 data terbaru.</td></tr>'}</tbody></table></div>
       <div class="panel-header" style="margin-top:20px"><div><h3>Riwayat Sportsbook</h3></div></div>
       <div class="table-wrap"><table><thead><tr><th>ID / Tiket</th><th>Status</th><th>Nominal</th><th>Waktu</th></tr></thead><tbody>${sportsRows || '<tr><td class="empty-state" colspan="4">Tidak ada riwayat pada 10 data terbaru.</td></tr>'}</tbody></table></div>`);
+    const resetForm = document.createElement('form');
+    resetForm.className = 'settings-form';
+    resetForm.innerHTML = '<div class="panel-header" style="margin-top:20px"><div><h3>Reset password member</h3><p>Minimal 10 karakter. Semua sesi login member akan dicabut.</p></div></div><label class="field"><span>Password baru</span><input id="memberNewPassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></label><button class="button button-primary" type="submit">Reset password</button>';
+    view('modalContent').append(resetForm);
+    resetForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const password = view('memberNewPassword').value;
+      if (password.length < 10 || password.length > 128) { showToast('Password harus 10–128 karakter.', true); return; }
+      if (!window.confirm('Reset password member ' + member.username + '?')) return;
+      const button = resetForm.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        await request('/admin-api/owner/members/' + encodeURIComponent(id) + '/reset-password', { method: 'POST', body: JSON.stringify({ password }) });
+        resetForm.reset();
+        showToast('Password ' + member.username + ' berhasil direset. Sesi lama telah dicabut.');
+      } catch (error) { showToast(error.message, true); }
+      finally { button.disabled = false; }
+    });
   }
 
   async function loadReferrals() {
