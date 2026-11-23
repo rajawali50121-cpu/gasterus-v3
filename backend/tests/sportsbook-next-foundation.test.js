@@ -13,9 +13,10 @@ const env = {
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10"
 };
 
-test("config defaults to 180-minute refresh, a two-day window and official Odds Comparison/Soccer v4 base URLs", () => {
+test("config defaults to 150-minute refresh, a two-day window and official Odds Comparison/Soccer v4 base URLs", () => {
   const config = loadSportsbookConfig(env);
-  assert.equal(config.pollIntervalMs, 180 * 60 * 1000);
+  assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
+  assert.equal(config.maxCallsPerHour, 0);
   assert.equal(config.daysAhead, 1);
   assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
@@ -127,15 +128,13 @@ test("daily schedules pagination has a hard page ceiling", async () => {
 });
 
 
-test("quota gate reports the exact hourly or rolling 30-day limit without exposing credentials", async () => {
-  const config = { initialCallsUsed30Days: 10, maxCallsPer30Days: 100, maxCallsPerHour: 20 };
-  const hourlyRedis = { eval: async () => [2, 20, 35, 9000] };
-  await assert.rejects(
-    reserveSportradarCall(hourlyRedis, config),
-    error => error.code === "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED"
-      && error.quotaScope === "hour" && error.quotaUsed === 20
-      && error.quotaLimit === 20 && error.retryAfter === "9"
-  );
+test("hourly internal cap is disabled while rolling 30-day quota remains enforced", async () => {
+  const config = { initialCallsUsed30Days: 10, maxCallsPer30Days: 100, maxCallsPerHour: 0 };
+  const unlimitedHourlyRedis = { eval: async script => {
+    assert.match(script, /hourlyLimit > 0 and hourly >= hourlyLimit/);
+    return [1, 21, 36, 0];
+  } };
+  await assert.doesNotReject(reserveSportradarCall(unlimitedHourlyRedis, config));
   const monthlyRedis = { eval: async () => [0, 4, 100, 0] };
   await assert.rejects(
     reserveSportradarCall(monthlyRedis, config),
@@ -181,7 +180,7 @@ test("quota usage reports rolling hourly and 30-day consumption without exposing
     return [7, 123];
   } }, config, 1_800_000_000_000);
   assert.deepEqual(usage, {
-    hourlyUsed: 7, hourlyLimit: 20, hourlyRemaining: 13,
+    hourlyUsed: 7, hourlyLimit: null, hourlyRemaining: null, hourlyEnforced: false,
     monthlyUsed: 123, monthlyLimit: 500, monthlyRemaining: 377
   });
 });
