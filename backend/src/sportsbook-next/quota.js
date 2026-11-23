@@ -20,19 +20,27 @@ elseif tonumber(baselineAt) < cutoff then
   baselineCount = 0
 end
 
-local hourly = redis.call('ZCOUNT', KEYS[1], now - tonumber(ARGV[4]), '+inf')
-if hourly >= tonumber(ARGV[5]) then return 2 end
-
+local hourlyWindow = tonumber(ARGV[4])
+local hourlyLimit = tonumber(ARGV[5])
+local monthlyLimit = tonumber(ARGV[6])
+local hourly = redis.call('ZCOUNT', KEYS[1], now - hourlyWindow, '+inf')
 local used = tonumber(baselineCount) + redis.call('ZCARD', KEYS[1])
-if used >= tonumber(ARGV[6]) then return 0 end
+local oldest = redis.call('ZRANGEBYSCORE', KEYS[1], now - hourlyWindow, '+inf', 'WITHSCORES', 'LIMIT', 0, 1)
+local retryAfter = 0
+if #oldest >= 2 then
+  retryAfter = math.max(0, tonumber(oldest[2]) + hourlyWindow - now)
+end
+
+if hourly >= hourlyLimit then return {2, hourly, used, retryAfter} end
+if used >= monthlyLimit then return {0, hourly, used, 0} end
 
 redis.call('ZADD', KEYS[1], now, ARGV[7])
 redis.call('EXPIRE', KEYS[1], 2678400)
-return 1
+return {1, hourly + 1, used + 1, 0}
 `;
 
 export async function reserveSportradarCall(redis, config, now = Date.now()) {
-  const allowed = Number(await redis.eval(RESERVE_SCRIPT, {
+  const result = await redis.eval(RESERVE_SCRIPT, {
     keys: [KEY, BASELINE_KEY],
     arguments: [
       String(now - WINDOW_MS),
@@ -43,10 +51,17 @@ export async function reserveSportradarCall(redis, config, now = Date.now()) {
       String(config.maxCallsPer30Days),
       randomUUID()
     ]
-  }));
+  });
+  const values = Array.isArray(result) ? result.map(Number) : [Number(result), 0, config.initialCallsUsed30Days, 0];
+  const [allowed, hourlyUsed, monthlyUsed, retryAfterMs] = values;
   if (allowed === 1) return;
-  const error = new Error(allowed === 2 ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED");
-  error.code = allowed === 2 ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED";
+  const hourly = allowed === 2;
+  const error = new Error(hourly ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED");
+  error.code = hourly ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED";
+  error.quotaScope = hourly ? "hour" : "30_days";
+  error.quotaUsed = hourly ? hourlyUsed : monthlyUsed;
+  error.quotaLimit = hourly ? config.maxCallsPerHour : config.maxCallsPer30Days;
+  error.retryAfter = hourly && retryAfterMs > 0 ? String(Math.ceil(retryAfterMs / 1000)) : null;
   throw error;
 }
 
