@@ -42,7 +42,8 @@ async function runCycle(config, client) {
       if (client.callsUsed30Days - startedCalls >= config.maxCallsPerCycle) break;
       try {
         const result = await client.getSportEventMarkets(event.id);
-        pricedEvents.push({ ...event, ...normalizeEventMarkets(result.body).event, markets: normalizeEventMarkets(result.body).markets });
+        const normalized = normalizeEventMarkets(result.body);
+        pricedEvents.push({ ...event, ...normalized.event, markets: normalized.markets });
       } catch (error) {
         if (error?.code === "SPORTRADAR_RATE_LIMITED" || error?.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED") throw error;
         errors.push({ eventId: event.id, code: error?.code || "EVENT_MARKETS_FAILED" });
