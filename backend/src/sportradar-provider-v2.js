@@ -312,10 +312,22 @@ async function pollChanges(coverage, state) {
     throw new Error('Sportradar Change Log response is missing valid status window or changes array.');
   }
   const lastPollAt = Number(state.lastPollAt || 0);
+  const lastChangeLogTo = Number(state.lastChangeLogTo || 0);
   const gap = lastPollAt > 0 && Date.now() - lastPollAt > 5 * 60 * 1000;
-  const trackedIds = gap ? [...state.events.keys()] : [...new Set(changes
-    .filter(item => item?.type === 'sport_event' && item.id && state.events.has(String(item.id)))
-    .map(item => String(item.id)))];
+  // Sportradar's Change Log is a rolling five-minute window. The same event
+  // therefore appears in several consecutive polls. Use the provider's Unix
+  // change timestamp as a watermark so each event is refreshed only once per
+  // new change, instead of replaying the whole overlapping window every minute.
+  const freshChangedIds = new Set();
+  for (const item of changes) {
+    if (item?.type !== 'sport_event' || !item.id || !state.events.has(String(item.id))) continue;
+    const changedAt = Number(item.sport_event_markets_odds_change);
+    if (!Number.isFinite(changedAt)) {
+      throw new Error('Sportradar Change Log item is missing sport_event_markets_odds_change; refusing to advance the change watermark.');
+    }
+    if (changedAt > lastChangeLogTo) freshChangedIds.add(String(item.id));
+  }
+  const trackedIds = gap ? [...state.events.keys()] : [...freshChangedIds];
   const updated = new Map(state.events);
   for (const eventId of trackedIds) {
     try {
