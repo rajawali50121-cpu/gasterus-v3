@@ -39,7 +39,7 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
           ON CONFLICT(provider_event_id,provider_market_key) DO UPDATE SET
             market_name=excluded.market_name,is_live=excluded.is_live,is_active=TRUE,
             snapshot_at=excluded.snapshot_at,provider_payload=excluded.provider_payload
-        `,[event.id,market.id,market.name||null,market.live===true,fetchedAt,JSON.stringify(market)]);
+        `,[event.id,market.key||`${market.id}|${market.name||market.id}`,market.id,market.name||null,market.live===true,fetchedAt,JSON.stringify(market)]);
         marketCount += 1;
 
         for (const book of market.books||[]) {
