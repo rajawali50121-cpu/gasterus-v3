@@ -45,7 +45,12 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
           playerName: outcome.player_name ?? null
         }];
       });
-      return outcomes.length ? [{ id: book.id, name: book.name ?? null, outcomes }] : [];
+      return outcomes.length ? [{
+        id: book.id, name: book.name ?? null,
+        externalMarketId: book.external_market_id ?? null,
+        externalSportEventId: book.external_sport_event_id ?? null,
+        outcomes
+      }] : [];
     });
     const name = market.name ?? marketId;
     return [{ id: marketId, key: `${marketId}|${name}`, name, live: market.is_live === true, books }];
