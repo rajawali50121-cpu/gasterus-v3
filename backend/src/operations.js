@@ -67,7 +67,7 @@ export async function enforceResponsiblePlay(memberId,{kind,amount,client=null}=
     if(profile.deposit_monthly_limit!==null)assert(Number(totals.m)+amount<=Number(profile.deposit_monthly_limit),409,'Batas deposit bulanan telah tercapai.','RESPONSIBLE_DEPOSIT_MONTHLY_LIMIT');
   }
   if(kind==='BET'&&profile.spend_daily_limit!==null){
-    const totals=(await db.query(`SELECT (COALESCE((SELECT SUM(total_stake) FROM bet_orders WHERE member_id=$1 AND status NOT IN('DRAFT','CANCELLED','VOID') AND created_at>=date_trunc('day',now())),0)+COALESCE((SELECT SUM(total_stake) FROM sportsbook_tickets WHERE member_id=$1 AND status<>'VOID' AND created_at>=date_trunc('day',now())),0))::bigint total`,[memberId])).rows[0];
+    const totals=(await db.query(`SELECT (COALESCE((SELECT SUM(total_stake) FROM bet_orders WHERE member_id=$1 AND status NOT IN('DRAFT','CANCELLED','VOID') AND created_at>=date_trunc('day',now())),0)+COALESCE((SELECT SUM(stake) FROM sportsbook_v2_tickets WHERE member_id=$1 AND status NOT IN('VOID','CANCELLED') AND accepted_at>=date_trunc('day',now())),0))::bigint total`,[memberId])).rows[0];
     assert(Number(totals.total||0)+amount<=Number(profile.spend_daily_limit),409,'Batas pengeluaran harian telah tercapai.','RESPONSIBLE_SPEND_DAILY_LIMIT');
   }
   return mapResponsible(profile);
@@ -81,7 +81,7 @@ export async function getPlayer360(session,memberId){
     canRisk?query(`SELECT id,category,severity,score,title,status,evidence,created_at,resolved_at FROM risk_alerts WHERE member_id=$1 ORDER BY created_at DESC LIMIT 30`,[memberId]):Promise.resolve({rows:[]}),
     query(`SELECT id,case_number,category,priority,status,subject,assigned_to,created_at,updated_at FROM support_cases WHERE member_id=$1 ORDER BY created_at DESC LIMIT 30`,[memberId]),
     canSecurity?query(`SELECT event_type,severity,ip_address,details,created_at FROM security_events WHERE member_id=$1 ORDER BY created_at DESC LIMIT 30`,[memberId]):Promise.resolve({rows:[]}),
-    query(`SELECT (SELECT COUNT(*)::int FROM bet_orders WHERE member_id=$1) lottery_bets,(SELECT COUNT(*)::int FROM sportsbook_tickets WHERE member_id=$1) sportsbook_bets,(SELECT COUNT(*)::int FROM wallet_requests WHERE member_id=$1 AND request_type='DEPOSIT' AND status='APPROVED') deposits,(SELECT COUNT(*)::int FROM wallet_requests WHERE member_id=$1 AND request_type='WITHDRAW' AND status='APPROVED') withdraws`,[memberId])
+    query(`SELECT (SELECT COUNT(*)::int FROM bet_orders WHERE member_id=$1) lottery_bets,(SELECT COUNT(*)::int FROM sportsbook_v2_tickets WHERE member_id=$1) sportsbook_bets,(SELECT COUNT(*)::int FROM wallet_requests WHERE member_id=$1 AND request_type='DEPOSIT' AND status='APPROVED') deposits,(SELECT COUNT(*)::int FROM wallet_requests WHERE member_id=$1 AND request_type='WITHDRAW' AND status='APPROVED') withdraws`,[memberId])
   ]);
   return{...base,compliance:mapCompliance(compliance),responsiblePlay:mapResponsible(responsible),kycReviews:kyc.rows,riskAlerts:risk.rows,supportCases:cases.rows,securityEvents:security.rows,activity:activity.rows[0],capabilities:{compliance:canCompliance,risk:canRisk,security:canSecurity,responsible:canResponsible}};
 }
@@ -140,7 +140,7 @@ export async function reportCenter(session,{days=30}={}){requirePermission(sessi
   query(`SELECT COUNT(*) FILTER(WHERE status IN('OPEN','IN_REVIEW'))::int open,COUNT(*) FILTER(WHERE severity IN('HIGH','CRITICAL') AND status IN('OPEN','IN_REVIEW'))::int high FROM risk_alerts`),
   query(`SELECT COUNT(*) FILTER(WHERE status NOT IN('RESOLVED','CLOSED'))::int open,COUNT(*) FILTER(WHERE priority='URGENT' AND status NOT IN('RESOLVED','CLOSED'))::int urgent FROM support_cases`)
   ]);
-  const betting=await query(`SELECT COALESCE((SELECT SUM(total_stake) FROM bet_orders WHERE created_at>=current_date-$1::int),0)::bigint lottery_stake,COALESCE((SELECT SUM(total_stake) FROM sportsbook_tickets WHERE created_at>=current_date-$1::int),0)::bigint sportsbook_stake`,[d]);
+  const betting=await query(`SELECT COALESCE((SELECT SUM(total_stake) FROM bet_orders WHERE created_at>=current_date-$1::int),0)::bigint lottery_stake,COALESCE((SELECT SUM(stake) FROM sportsbook_v2_tickets WHERE accepted_at>=current_date-$1::int),0)::bigint sportsbook_stake`,[d]);
   return{days:d,members:members.rows[0],risk:risk.rows[0],support:support.rows[0],betting:{lotteryStake:Number(betting.rows[0].lottery_stake),sportsbookStake:Number(betting.rows[0].sportsbook_stake)},daily:daily.rows.map(x=>({date:x.d,deposits:Number(x.deposits),withdraws:Number(x.withdraws),pending:x.pending}))};
 }
 
