@@ -48,6 +48,17 @@ add('GET',new RegExp('^/api/health/toto-markets/detail$'),totoMarketsDetail);
 add('GET',new RegExp('^/api/health/simple$'),simpleHealth);
 add('GET',/^\/healthz$/,async({res})=>{let healthy=false;try{const raw=await redis.get(config.workerHeartbeatKey);healthy=isWorkerHeartbeatFresh(raw,{staleAfterSeconds:Math.max(config.workerHeartbeatMaxAgeSeconds*2,120)});}catch{healthy=false;}ok(res,{status:healthy?'ok':'degraded'},healthy?200:503);});
 
+add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
+  await optionalMemberSession(req);
+  await rateLimit(req,'sportsbook-v2-feed',120,60);
+  const raw=await redis.get('sportsbook:next:snapshot:v1');
+  if(!raw) throw new AppError(503,'Feed Sportradar belum tersedia.','SPORTSBOOK_FEED_UNAVAILABLE');
+  let snapshot;
+  try { snapshot=JSON.parse(raw); } catch { throw new AppError(503,'Snapshot Sportradar tidak valid.','SPORTSBOOK_SNAPSHOT_INVALID'); }
+  const ageMs=Math.max(0,Date.now()-Date.parse(snapshot.fetchedAt||''));
+  if(!Number.isFinite(ageMs)||ageMs>5*60*60*1000) throw new AppError(503,'Feed Sportradar sudah kedaluwarsa.','SPORTSBOOK_FEED_STALE');
+  ok(res,{...snapshot,ageMs,betAcceptanceEnabled:false});
+});
 add('GET',/^\/health$/,async({res})=>ok(res,{status:'ok',service:'core',uptimeSeconds:Math.floor((Date.now()-startedAt)/1000)}));
 add('GET',/^\/ready$/,async({res})=>{
   const [database,cache]=await Promise.all([checkDatabase(),checkRedis()]);
