@@ -47,11 +47,6 @@ add('GET',new RegExp('^/api/health/toto-markets$'),totoMarketsHealth);
 add('GET',new RegExp('^/api/health/toto-markets/detail$'),totoMarketsDetail);
 add('GET',new RegExp('^/api/health/simple$'),simpleHealth);
 add('GET',/^\/healthz$/,async({res})=>{let healthy=false;try{const raw=await redis.get(config.workerHeartbeatKey);healthy=isWorkerHeartbeatFresh(raw,{staleAfterSeconds:Math.max(config.workerHeartbeatMaxAgeSeconds*2,120)});}catch{healthy=false;}ok(res,{status:healthy?'ok':'degraded'},healthy?200:503);});
-  const result=await acceptSportsbookSnapshot(req,{
-    storeSnapshot:snapshot=>storeMergedSportsbookSnapshot(redis,snapshot)
-  });
-  ok(res,result,202);
-});
 
 add('GET',/^\/health$/,async({res})=>ok(res,{status:'ok',service:'core',uptimeSeconds:Math.floor((Date.now()-startedAt)/1000)}));
 add('GET',/^\/ready$/,async({res})=>{
