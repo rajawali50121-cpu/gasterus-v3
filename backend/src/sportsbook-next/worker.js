@@ -25,6 +25,7 @@ async function runCycle(config, client) {
   if (!lock) return { skipped: "another worker owns the poll lock" };
 
   client.cycleCalls = 0;
+  const startedCalls = client.callsUsed30Days;
   const events = new Map();
   const errors = [];
   let quotaLimited = false;
