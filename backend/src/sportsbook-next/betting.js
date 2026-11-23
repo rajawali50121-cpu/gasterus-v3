@@ -7,7 +7,7 @@ import { redis } from "../redis.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
 import { reserveSportradarCall } from "./quota.js";
-import { evaluateSoccer1x2Leg, evaluateTicketStatus, calculateTicketPayout } from "./settlement-rules.js";
+import { evaluateSoccerLeg, evaluateTicketStatus, calculateTicketPayout } from "./settlement-rules.js";
 
 const MAX_LEGS = 10;
 const MAX_STAKE = 1_000_000_000;
@@ -70,6 +70,7 @@ async function fetchFreshLegs(legs) {
       selectionKey: selectionKey(outcome),
       outcomeType: outcome.type || null,
       outcomeName: outcome.name || outcome.type || null,
+      line: outcome.handicap ?? outcome.total ?? outcome.spread ?? outcome.line ?? null,
       acceptedOdds: currentOdds,
       sourceUpdatedAt: response.body.generated_at || new Date().toISOString(),
       eventStartAt: event.start_time
@@ -140,7 +141,7 @@ export async function placeSportsbookBet(memberSession, input) {
       [randomUUID(), ticketId, leg.legNo, leg.eventId, leg.marketKey, leg.marketId, leg.bookId, leg.selectionKey,
         leg.acceptedOdds, new Date(leg.sourceUpdatedAt), JSON.stringify({
           marketName: leg.marketName, marketType: leg.marketType, outcomeType: leg.outcomeType,
-          outcomeName: leg.outcomeName, outcomeId: leg.outcomeId, eventStartAt: leg.eventStartAt
+          outcomeName: leg.outcomeName, line: leg.line, outcomeId: leg.outcomeId, eventStartAt: leg.eventStartAt
         })]);
     }
     const ticket = (await client.query("SELECT * FROM sportsbook_v2_tickets WHERE id=$1", [ticketId])).rows[0];
@@ -186,7 +187,7 @@ export async function refreshAndSettleSportsbookEvent(eventId) {
         WHERE l.ticket_id=$1 ORDER BY l.leg_no FOR UPDATE OF l`, [row.id])).rows;
       const target = legs.find(leg => leg.provider_event_id === eventId && leg.result_status === "PENDING");
       if (!target) continue;
-      const mapped = evaluateSoccer1x2Leg({ marketName: target.market_name || target.result_payload?.marketName, outcomeType: target.result_payload?.outcomeType, homeScore, awayScore, cancelled });
+      const mapped = evaluateSoccerLeg({ marketName: target.market_name || target.result_payload?.marketName, outcomeType: target.result_payload?.outcomeType, outcomeName: target.result_payload?.outcomeName, line: target.result_payload?.line, homeScore, awayScore, cancelled });
       if (!mapped) { pending++; continue; }
       await clientTx.query("UPDATE sportsbook_v2_ticket_legs SET result_status=$1,result_payload=result_payload||$2::jsonb WHERE id=$3",
         [mapped, JSON.stringify({ verifiedResult: { status, homeScore, awayScore, sourceUpdatedAt } }), target.id]);
