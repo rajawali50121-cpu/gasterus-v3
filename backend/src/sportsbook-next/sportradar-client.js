@@ -4,10 +4,11 @@ function safeProviderError(status, body) {
 }
 
 export class SportradarClient {
-  constructor(config, { fetchImpl = fetch, now = () => Date.now() } = {}) {
+  constructor(config, { fetchImpl = fetch, now = () => Date.now(), beforeRequest = null } = {}) {
     this.config = config;
     this.fetch = fetchImpl;
     this.now = now;
+    this.beforeRequest = beforeRequest;
     this.calls = [];
   }
 
@@ -21,6 +22,7 @@ export class SportradarClient {
     if (this.callsUsed30Days >= this.config.maxCallsPer30Days) throw new Error("SPORTRADAR_30_DAY_QUOTA_EXHAUSTED");
     const url = new URL(`${baseUrl}/${String(path).replace(/^\\/+/, "")}.json`);
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
+    if (this.beforeRequest) await this.beforeRequest();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.requestTimeoutMs);
     this.calls.push(this.now());
