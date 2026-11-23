@@ -34,9 +34,9 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
       for (const market of event.markets||[]) {
         await client.query(`
           INSERT INTO sportsbook_v2_markets(
-            provider_event_id,provider_market_id,market_name,is_live,is_active,snapshot_at,provider_payload
-          ) VALUES($1,$2,$3,$4,TRUE,$5,$6::jsonb)
-          ON CONFLICT(provider_event_id,provider_market_id) DO UPDATE SET
+            provider_event_id,provider_market_key,provider_market_id,market_name,is_live,is_active,snapshot_at,provider_payload
+          ) VALUES($1,$2,$3,$4,$5,TRUE,$6,$7::jsonb)
+          ON CONFLICT(provider_event_id,provider_market_key) DO UPDATE SET
             market_name=excluded.market_name,is_live=excluded.is_live,is_active=TRUE,
             snapshot_at=excluded.snapshot_at,provider_payload=excluded.provider_payload
         `,[event.id,market.id,market.name||null,market.live===true,fetchedAt,JSON.stringify(market)]);
@@ -47,18 +47,20 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
             const key=selectionKey(outcome);
             await client.query(`
               INSERT INTO sportsbook_v2_prices(
-                provider_event_id,provider_market_id,provider_book_id,provider_book_name,
-                provider_selection_key,provider_outcome_id,outcome_type,outcome_name,
+                provider_event_id,provider_market_key,provider_market_id,provider_book_id,provider_book_name,
+                provider_selection_key,provider_outcome_id,external_outcome_id,external_market_id,external_sport_event_id,field_id,player_id,player_name,outcome_type,outcome_name,
                 odds_decimal,opening_odds_decimal,line_value,is_active,source_updated_at,provider_payload
-              ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,$12,$13::jsonb)
-              ON CONFLICT(provider_event_id,provider_market_id,provider_book_id,provider_selection_key)
+               ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,TRUE,$18,$19::jsonb)
+              ON CONFLICT(provider_event_id,provider_market_key,provider_book_id,provider_selection_key)
               DO UPDATE SET provider_book_name=excluded.provider_book_name,
-                provider_outcome_id=excluded.provider_outcome_id,outcome_type=excluded.outcome_type,
+                provider_outcome_id=excluded.provider_outcome_id,external_outcome_id=excluded.external_outcome_id,external_market_id=excluded.external_market_id,external_sport_event_id=excluded.external_sport_event_id,field_id=excluded.field_id,player_id=excluded.player_id,player_name=excluded.player_name,outcome_type=excluded.outcome_type,
                 outcome_name=excluded.outcome_name,odds_decimal=excluded.odds_decimal,
                 opening_odds_decimal=excluded.opening_odds_decimal,line_value=excluded.line_value,
                 is_active=TRUE,source_updated_at=excluded.source_updated_at,provider_payload=excluded.provider_payload
             `,[
-              event.id,market.id,book.id,book.name||null,key,outcome.id||null,
+              event.id,market.key||`${market.id}|${market.name||market.id}`,market.id,book.id,book.name||null,key,outcome.id||null,
+              outcome.externalOutcomeId||null,book.externalMarketId||null,book.externalSportEventId||null,
+              outcome.fieldId==null?null:String(outcome.fieldId),outcome.playerId||null,outcome.playerName||null,
               outcome.type||null,outcome.name||null,outcome.oddsDecimal,
               outcome.openingOddsDecimal,outcome.line==null?null:String(outcome.line),
               fetchedAt,JSON.stringify(outcome)
