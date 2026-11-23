@@ -56,11 +56,6 @@ function clockFromMinutes(minutes) {
   return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
 }
 
-  try {
-  } catch (error) {
-    logger.warn('Feed worker sportsbook refresh unavailable', { code: error.code, error: error.message });
-  }
-}
 
 async function main() {
   await connectRedis();
