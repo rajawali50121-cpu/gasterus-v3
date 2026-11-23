@@ -65,7 +65,9 @@ function fakeRedis({ baseline = '0' } = {}) {
   };
 }
 function installRedis(options = {}) {
-  __sportradarV2.setRedisClientForTests(fakeRedis(options));
+  const client = fakeRedis(options);
+  __sportradarV2.setRedisClientForTests(client);
+  return client;
 }
 function json(data, headers = {}) {
   return new Response(JSON.stringify(data), { status: 200, headers });
@@ -264,6 +266,40 @@ test('Change Log includes an event update exactly at the previous global waterma
   assert.equal(delta.events.get(eventId).markets[0].selections[0].odds, 1.88);
   assert.equal(delta.lastChangeByEvent[eventId], 1795340600);
   assert.equal(calls.length, 2);
+});
+
+
+test('Change Log gap performs bounded daily-market resync instead of one request per tracked event', async () => {
+  const client = installRedis();
+  installFullSyncFetch();
+  await fetchSportradarV2({ daysAhead: 1 });
+  const stateKey = 'sportsbook:sportradar:v2:state';
+  const state = JSON.parse(await client.get(stateKey));
+  state.lastPollAt = Date.now() - (6 * 60 * 1000);
+  await client.set(stateKey, JSON.stringify(state));
+
+  const calls = [];
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    calls.push(url);
+    if (url.pathname.endsWith('/sport_event_markets.json') && url.pathname.includes('/schedules/')) {
+      const date = url.pathname.split('/schedules/')[1].split('/')[0];
+      if (date === __sportradarV2.utcDates(1)[1]) {
+        return json({ generated_at: '2026-11-22T12:10:00Z', sport_schedule_sport_event_markets: [] }, { 'x-max-results': '0', 'x-result': '0' });
+      }
+      return json({ generated_at: '2026-11-22T12:10:00Z', sport_schedule_sport_event_markets: [fixtureEvent()] }, { 'x-max-results': '1', 'x-result': '1' });
+    }
+    if (url.pathname.endsWith('/sport_event_markets_changelog.json') || url.pathname.includes('/sport_events/')) {
+      throw new Error(`Unexpected high-volume recovery request: ${url.pathname}`);
+    }
+    throw new Error(`Unexpected endpoint: ${url.pathname}`);
+  };
+  const recovered = await fetchSportradarV2({ daysAhead: 1 });
+  assert.equal(recovered.diagnostics.fullSync, true);
+  assert.equal(recovered.diagnostics.gapResync, true);
+  assert.equal(recovered.events.length, 1);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every(url => url.pathname.includes('/schedules/')));
 });
 
 test('rolling quota gate rejects calls when the contracted request allowance is exhausted', async () => {

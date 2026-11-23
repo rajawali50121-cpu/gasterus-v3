@@ -391,13 +391,14 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const state = stored && Array.isArray(stored.events)
       ? { ...stored, events: new Map(stored.events), lastChangeByEvent: stored.lastChangeByEvent || {} }
       : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0, lastChangeLogTo: 0, lastChangeByEvent: {} };
-    const fullSyncDue = !state.events.size || !state.lastFullSyncAt || Date.now() - state.lastFullSyncAt >= 24 * 60 * 60 * 1000;
+    const changeLogGap = state.lastPollAt > 0 && Date.now() - state.lastPollAt > 5 * 60 * 1000;
+    const fullSyncDue = !state.events.size || !state.lastFullSyncAt || Date.now() - state.lastFullSyncAt >= 24 * 60 * 60 * 1000 || changeLogGap;
     let diagnostics;
     if (fullSyncDue) {
       const full = await fullDailySync(coverage, daysAhead);
       state.events = full.events;
       state.lastFullSyncAt = Date.now();
-      diagnostics = full.diagnostics;
+      diagnostics = { ...full.diagnostics, gapResync: changeLogGap };
     } else {
       const delta = await pollChanges(coverage, state);
       state.events = delta.events;
