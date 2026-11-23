@@ -37,7 +37,7 @@ function internal(request,channel){const expected=channel==='member'?config.memb
 async function rateLimit(request,key,limit,windowSec){const ip=clientIp(request);const redisKey=`rate:${key}:${ip}`;const count=await redis.incr(redisKey);if(count===1)await redis.expire(redisKey,windowSec);if(count>limit){metrics.rateLimited++;throw new AppError(429,'Terlalu banyak permintaan. Coba kembali beberapa saat lagi.','RATE_LIMITED');}}
 async function memberSession(request){internal(request,'member');return session(request,'MEMBER');}
 async function optionalMemberSession(request){internal(request,'member');try{return await session(request,'MEMBER');}catch{return null;}}
-async function ownerSession(request,permission){internal(request,'admin');const s=await session(request,'OWNER');const {rows}=await query(`SELECT username,status,EXISTS(SELECT 1 FROM user_roles WHERE user_id=$1 AND role_code='OWNER') AS is_owner FROM users WHERE id=$1`,[s.userId]);assert(rows[0]?.username==='gasterus'&&rows[0]?.status==='ACTIVE'&&rows[0]?.is_owner,403,'Akses khusus OWNER tidak tersedia.','OWNER_REQUIRED');s.roles=['OWNER'];if(permission)requirePermission(s,permission);return s;}
+async function ownerSession(request,permission){internal(request,'admin');const s=await session(request,'OWNER');const {rows}=await query(`SELECT username,status,EXISTS(SELECT 1 FROM user_roles WHERE user_id=$1 AND role_code='OWNER') AS is_owner FROM users WHERE id=$1`,[s.userId]);assert(rows[0]?.status==='ACTIVE'&&rows[0]?.is_owner,403,'Akses khusus OWNER tidak tersedia.','OWNER_REQUIRED');s.roles=['OWNER'];if(permission)requirePermission(s,permission);return s;}
 
 
 // ============================================================================
