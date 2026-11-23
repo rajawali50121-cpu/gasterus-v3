@@ -89,6 +89,10 @@ export class SportradarClient {
     }
     return items;
   }
+  getDailySportEventMarkets(sportId, date, { start = 0, limit = 50 } = {}) {
+    return this.request(this.config.prematchBaseUrl,
+      `sports/${encodeURIComponent(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets`, { start, limit });
+  }
   getSportEventMarkets(eventId) {
     return this.request(this.config.prematchBaseUrl, `sport_events/${encodeURIComponent(eventId)}/sport_event_markets`);
   }
