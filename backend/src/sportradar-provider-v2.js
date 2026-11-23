@@ -16,7 +16,6 @@ const ROLLING_KEY = 'sportsbook:sportradar:v2:quota:rolling';
 const HOURLY_KEY = 'sportsbook:sportradar:v2:quota:hourly';
 const QPS_KEY = 'sportsbook:sportradar:v2:quota:qps';
 const STATE_TTL_SECONDS = 48 * 60 * 60;
-const QUOTA_RESERVE_CALLS = 50;
 const LEASE_TTL_MS = 30 * 60 * 1000;
 const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
 const discoveryCache = { value: null, expiresAt: 0 };
@@ -338,7 +337,6 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const diagnostics = {
       ...full.diagnostics,
       syncMode: 'full-snapshot',
-      pollingIntervalSeconds: null,
       apiRequests: providerRequestCount - requestCountBefore
     };
     const events = [...state.events.values()];
