@@ -195,31 +195,19 @@ test('worker publishes a valid empty Sportradar schedule without fabricating fix
   assert.deepEqual(snapshot.providerResults[0].events, []);
 });
 
-test('worker uses a single ten-minute full-snapshot cadence regardless of legacy settings', () => {
-  assert.equal(sportsbookRenderIntervalSeconds({
-    sportsbookDailyRefreshEnabled: true,
-    sportradarRefreshSeconds: 60,
-    sportsbookIngestMaxAgeSeconds: 60
-  }), 600);
-  assert.equal(sportsbookRenderIntervalSeconds({
-    sportsbookDailyRefreshEnabled: false,
-    sportradarRefreshSeconds: 3600,
-    sportsbookIngestMaxAgeSeconds: 30
-  }), 600);
-});
-
-test('worker rejects a 1,000-call trial quota before ten-minute full-snapshot polling', () => {
-  assert.equal(SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT, 4320);
-  assert.throws(() => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 1000 }), /at least 4320 calls per 30 days/);
-  assert.equal(assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 4320 }), true);
-  assert.throws(
-    () => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 10000 }, 3),
-    /3 API requests per cycle require at least 12960 calls per 30 days/
-  );
-  assert.throws(
-    () => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 5000, sportradarInitial30DayUsage: 1000 }, 1),
-    /available contracted allowance after current usage is 4000/
-  );
+test('worker calculates a ten-day quota-safe interval from measured snapshot request cost', () => {
+  const settings = { sportradarMaxCallsPer30Days: 1000, sportradarInitial30DayUsage: 0 };
+  assert.equal(sportsbookRenderIntervalSeconds(settings, 10), 9095);
+  assert.equal(sportsbookRenderIntervalSeconds(settings, 11), 10005);
+  assert.equal(assertSportradarQuotaCapacity(settings, 10), true);
+  assert.throws(() => assertSportradarQuotaCapacity({
+    sportradarMaxCallsPer30Days: 1000,
+    sportradarInitial30DayUsage: 950
+  }, 1), /50-call safety reserve/);
+  assert.throws(() => assertSportradarQuotaCapacity({
+    sportradarMaxCallsPer30Days: 1000,
+    sportradarInitial30DayUsage: 951
+  }, 1), /50-call safety reserve/);
 });
 
 test('worker backs off after Sportradar 429 and does not permanently pause until redeploy', async () => {
