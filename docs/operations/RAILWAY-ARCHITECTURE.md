@@ -25,7 +25,8 @@ The integration follows the official Odds Comparison Prematch v2 contract:
 - Market instances are keyed by both provider market ID and market name because one market ID can represent multiple period/inning instances.
 - The official odds change log covers a five-minute window and should be polled at least every five minutes. The current 150-minute discovery mode is therefore display-only; it does not authorize wager acceptance. Bet acceptance remains disabled until an approved fresh-price update path (change-log polling within quota or UOF AMQP credentials) is enabled.
 - Soccer fixtures/results context uses Soccer API v4 feeds and must not be treated as odds.
-- HTTP 429 stops the current cycle. No immediate retry loop or provider fallback is permitted.
+- A Redis-backed rolling 30-day budget and hourly cap reserve every outbound request before it is sent; the initial provider-usage baseline expires from the budget after 30 days.
+- HTTP 429 stops the current cycle. Hourly/monthly quota exhaustion persists any safe partial snapshot and pauses until the next scheduled cycle; no immediate retry loop or provider fallback is permitted.
 - Poll interval default is 150 minutes. Odds older than the configured freshness threshold must never be accepted for a wager.
 
 Quota limits and access level must be set from the actual Sportradar account/package. A valid API key alone does not prove entitlement to every Sportradar product. UOF/AMQP is a separate product path and must not be assumed enabled by a REST key.
