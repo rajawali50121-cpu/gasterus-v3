@@ -1,11 +1,13 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { connectRedis, redis, closeRedis } from "../redis.js";
+import { closeDatabase } from "../db.js";
 import { logger } from "../logger.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
 import { normalizeDailySchedule, normalizeEventMarkets } from "./normalize.js";
 import { reserveSportradarCall } from "./quota.js";
+import { persistSportsbookSnapshot } from "./repository.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
 const LOCK_KEY = "sportsbook:next:poll-lock:v1";
@@ -34,7 +36,7 @@ async function runCycle(config, client) {
         const remaining = config.maxCallsPerCycle - client.cycleCalls;
         if (remaining <= 0) break;
         const rows = await client.getAllDailySchedules(sportId, date, { pageSize: 50, maxPages: Math.min(10, remaining) });
-        for (const event of normalizeDailySchedule({ schedules: rows })) events.set(event.id, event);
+        for (const event of normalizeDailySchedule({ schedules: rows })) events.set(event.id, { ...event, sportId });
       }
       if (client.callsUsed30Days - startedCalls >= config.maxCallsPerCycle) break;
     }
@@ -61,9 +63,10 @@ async function runCycle(config, client) {
       events: pricedEvents,
       errors
     };
+    const persisted = await persistSportsbookSnapshot(pricedEvents, snapshot.fetchedAt);
     await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     await redis.set(HEARTBEAT_KEY, snapshot.fetchedAt, { EX: 600 });
-    return { events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle, errors: errors.length, complete: snapshot.complete, coverageFeeds: Array.isArray(coverage.body?.sports) ? coverage.body.sports.length : null };
+    return { events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle, persisted, errors: errors.length, complete: snapshot.complete, coverageFeeds: Array.isArray(coverage.body?.sports) ? coverage.body.sports.length : null };
   } finally {
     await redis.eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", {
       keys: [LOCK_KEY], arguments: [token]
@@ -117,7 +120,11 @@ process.once("SIGINT", () => { stopping = true; });
 main().catch(async error => {
   logger.error("Sportradar sportsbook worker failed to start", { code: error?.code || "WORKER_START_FAILED", error: error?.message });
   await closeRedis().catch(() => {});
+  await closeDatabase().catch(() => {});
   process.exitCode = 1;
 }).finally(async () => {
-  if (stopping) await closeRedis().catch(() => {});
+  if (stopping) {
+    await closeRedis().catch(() => {});
+    await closeDatabase().catch(() => {});
+  }
 });
