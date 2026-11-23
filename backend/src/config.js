@@ -144,7 +144,7 @@ export const config = Object.freeze({
   // Fail-closed: must be populated from the actual Sportradar contract/current account usage before live calls.
   sportradarMaxCallsPer30Days: naturalInt('SPORTRADAR_MAX_CALLS_PER_30_DAYS', 0, 0),
   sportradarInitial30DayUsage: naturalInt('SPORTRADAR_INITIAL_30_DAY_USAGE', 0, 0),
-  sportradarRefreshSeconds: int('SPORTRADAR_REFRESH_SECONDS', 240, 240, 240),
+  sportradarRefreshSeconds: int('SPORTRADAR_REFRESH_SECONDS', 600, 600, 600),
   sportradarRequestTimeoutMs: int('SPORTRADAR_REQUEST_TIMEOUT_MS', 30000, 5000, 120000),
   sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
   sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
