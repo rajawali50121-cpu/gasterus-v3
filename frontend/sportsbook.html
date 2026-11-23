@@ -16,7 +16,7 @@
   </header>
   <main class="shell">
     <section class="hero">
-      <div><p class="eyebrow">SPORTSRADAR · ODDS COMPARISON</p><h1>Sportsbook</h1><p class="sub">Jadwal dan odds prematch dari Sportradar. Mode tampilan saja; penerimaan taruhan belum diaktifkan.</p></div>
+      <div><p class="eyebrow">SPORTSRADAR · ODDS COMPARISON</p><h1>Sportsbook</h1><p class="sub">Jadwal dan odds prematch dari Sportradar. Odds divalidasi ulang langsung saat tiket dikirim.</p></div>
       <div class="feed-pill" id="feed-status" data-state="loading"><i></i><span>Memuat feed</span></div>
     </section>
     <section class="stats">
@@ -27,6 +27,14 @@
     <section class="notice" id="notice" role="status">Mode read-only. Polling discovery 150 menit tidak memenuhi pembaruan odds 5 menit yang disyaratkan provider untuk menerima taruhan.</section>
     <section class="board-head"><h2>Pertandingan tersedia</h2><button id="refresh" type="button">Periksa feed</button></section>
     <section id="events" class="events" aria-live="polite"><div class="empty">Menghubungkan ke feed Sportradar…</div></section>
+    <section class="betslip" aria-labelledby="betslip-title">
+      <h2 id="betslip-title">Slip taruhan</h2>
+      <div id="slip-items" class="empty">Pilih odds untuk mulai membuat tiket.</div>
+      <label for="stake">Nominal taruhan (IDR)</label>
+      <input id="stake" type="number" min="1" step="1" inputmode="numeric" placeholder="Masukkan nominal">
+      <button id="place-bet" type="button" disabled>Kirim taruhan</button>
+      <p id="bet-message" role="status" aria-live="polite"></p>
+    </section>
   </main>
   <footer>GASTERUS · Sportsbook data powered by Sportradar</footer>
   <script type="module" src="/js/loader-3d.js?v=20260925-1"></script>
