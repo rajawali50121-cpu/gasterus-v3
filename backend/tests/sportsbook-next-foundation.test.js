@@ -86,3 +86,38 @@ test("client calls documented endpoints, authenticates by x-api-key and stops on
   assert.match(requested, /sports\/sr%3Asport%3A1\/schedules\/2026-11-23\/schedules\.json\?start=0&limit=50/);
   assert.equal(calls, 1);
 });
+
+test("daily schedules use bounded offset pagination and stop at provider total", async () => {
+  const config = loadSportsbookConfig(env);
+  const offsets = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      const parsed = new URL(url);
+      const start = Number(parsed.searchParams.get("start"));
+      offsets.push(start);
+      const count = start === 0 ? 50 : 20;
+      return {
+        ok: true, status: 200,
+        headers: { get: name => name === "x-max-results" ? "70" : name === "x-result" ? String(count) : null },
+        json: async () => ({ schedules: Array.from({ length: count }, (_, i) => ({ id: start + i })) })
+      };
+    }
+  });
+  const rows = await client.getAllDailySchedules("sr:sport:1", "2026-11-23");
+  assert.equal(rows.length, 70);
+  assert.deepEqual(offsets, [0, 50]);
+});
+
+test("daily schedules pagination has a hard page ceiling", async () => {
+  const config = loadSportsbookConfig(env);
+  let calls = 0;
+  const client = new SportradarClient(config, {
+    fetchImpl: async () => {
+      calls += 1;
+      return { ok: true, status: 200, headers: { get: () => "10000" }, json: async () => ({ schedules: Array.from({ length: 50 }, () => ({})) }) };
+    }
+  });
+  const rows = await client.getAllDailySchedules("sr:sport:1", "2026-11-23", { maxPages: 3 });
+  assert.equal(rows.length, 150);
+  assert.equal(calls, 3);
+});
