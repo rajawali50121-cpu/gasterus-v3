@@ -16,7 +16,7 @@ test('stale non-executable Railway snapshot is removed and the canonical deploym
   const architecture=read('docs/operations/RAILWAY-ARCHITECTURE.md');
   assert.match(workflow,/railway-migration-fix-039/);
   assert.match(architecture,/Canonical deployment source: `railway-migration-fix-039`/);
-  assert.match(architecture,/Sportradar API v2/);
+  assert.match(architecture,/Odds Comparison Prematch v2/);
 });
 
 
