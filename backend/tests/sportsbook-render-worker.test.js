@@ -214,7 +214,7 @@ test('worker rejects a 1,000-call trial quota before ten-minute full-snapshot po
   assert.equal(assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 4320 }), true);
   assert.throws(
     () => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 10000 }, 3),
-    /3 API requests per cycle require 12960 calls per 30 days/
+    /3 API requests per cycle require at least 12960 calls per 30 days/
   );
   assert.throws(
     () => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 5000, sportradarInitial30DayUsage: 1000 }, 1),
