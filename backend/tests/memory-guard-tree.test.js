@@ -180,7 +180,7 @@ test('startMemoryGuard melaporkan sumber batas tree RSS', () => {
 });
 
 test('renderer mendaftarkan anak dan membersihkan lewat process group', () => {
-  const src = readSrc('sportsbook-browser-renderer.js');
+  const src = readSrc('browser-page-renderer.js');
   // Spawn harus detached agar kill(-pid) menyapu seluruh sub-proses Chromium.
   assert.match(src, /spawn\(executable, args, \{[^}]*detached: IS_POSIX/s);
   // Anak didaftarkan ke memory-guard supaya RSS-nya ikut dipantau.
