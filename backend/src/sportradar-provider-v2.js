@@ -16,6 +16,7 @@ const ROLLING_KEY = 'sportsbook:sportradar:v2:quota:rolling';
 const HOURLY_KEY = 'sportsbook:sportradar:v2:quota:hourly';
 const QPS_KEY = 'sportsbook:sportradar:v2:quota:qps';
 const STATE_TTL_SECONDS = 48 * 60 * 60;
+const QUOTA_RESERVE_CALLS = 50;
 const LEASE_TTL_MS = 30 * 60 * 1000;
 const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
 const discoveryCache = { value: null, expiresAt: 0 };
@@ -84,7 +85,7 @@ async function reserveRequest() {
     redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', tonumber(ARGV[6]) - 3600)
     local monthly = redis.call('ZCARD', KEYS[2])
     local hourly = redis.call('ZCARD', KEYS[3])
-    if baseline + monthly >= tonumber(ARGV[1]) then return -1 end
+    if baseline + monthly >= (tonumber(ARGV[1]) - 50) then return -1 end
     if tonumber(ARGV[2]) > 0 and hourly >= tonumber(ARGV[2]) then return -2 end
     if redis.call('SET', KEYS[4], ARGV[3], 'NX', 'PX', ARGV[4]) == false then return 0 end
     redis.call('ZADD', KEYS[2], ARGV[5], ARGV[3])
@@ -337,7 +338,7 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const diagnostics = {
       ...full.diagnostics,
       syncMode: 'full-snapshot',
-      pollingIntervalSeconds: 600,
+      pollingIntervalSeconds: null,
       apiRequests: providerRequestCount - requestCountBefore
     };
     const events = [...state.events.values()];
