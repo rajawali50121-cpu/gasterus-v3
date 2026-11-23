@@ -6,7 +6,7 @@ import { logger } from "../logger.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
 import { normalizeDailySportEventMarkets } from "./normalize.js";
-import { reserveSportradarCall } from "./quota.js";
+import { getSportradarQuotaUsage, reserveSportradarCall } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
@@ -36,7 +36,7 @@ async function runCycle(config, client) {
   try {
     // The configured sport IDs are already known. Pull each sport/date board
     // in one bulk request instead of one schedule request plus one request per event.
-    // This keeps the 150-minute discovery mode within the provider request budget.
+    // Two-day discovery window; quota reservations remain authoritative across workers.
     for (const sportId of config.sportIds) {
       for (let day = 0; day <= config.daysAhead; day += 1) {
         if (client.cycleCalls >= config.maxCallsPerCycle) { budgetLimited = true; break; }
@@ -127,7 +127,8 @@ async function main() {
     let nextDelayMs = config.pollIntervalMs;
     try {
       const result = await runCycle(config, client);
-      logger.info("Sportradar sportsbook poll completed", result);
+      const quotaUsage = await getSportradarQuotaUsage(redis, config).catch(() => null);
+      logger.info("Sportradar sportsbook poll completed", { ...result, quotaUsage });
       if (result.quotaLimited && result.quotaReason === "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED") {
         const retrySeconds = Number(result.quotaDetails?.retryAfter);
         if (Number.isFinite(retrySeconds) && retrySeconds > 0) {
