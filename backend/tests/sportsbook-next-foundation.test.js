@@ -88,7 +88,7 @@ test("client calls documented endpoints, authenticates by x-api-key and stops on
     }
   });
   await assert.rejects(client.getDailySchedules("sr:sport:1", "2026-11-23"), error => error.code === "SPORTRADAR_RATE_LIMITED" && error.retryAfter === "900");
-  assert.match(requested, /sports\/sr%3Asport%3A1\/schedules\/2026-11-23\/schedules\.json\?start=0&limit=50/);
+  assert.match(requested, /sports\\/sr:sport:1\\/schedules\/2026-11-23\/schedules\.json\?start=0&limit=50/);
   assert.equal(calls, 1);
 });
 
@@ -248,6 +248,28 @@ test("bulk daily markets reads the official Prematch root key and logs safe resp
   assert.deepEqual(diagnostic.topLevelKeys, ["generated_at", "sport_schedule_sport_event_markets"]);
   assert.deepEqual(diagnostic.arrayCounts, { sport_schedule_sport_event_markets: 1 });
   assert.deepEqual(diagnostic.pagination, { maxResults: "1", offset: "0", result: "1" });
+});
+
+test("normalizer accepts the documented raw sport_schedule_sport_event_markets response", () => {
+  const rows = normalizeDailySportEventMarkets({
+    generated_at: "2026-11-24T00:00:00Z",
+    sport_schedule_sport_event_markets: [{
+      sport_event: {
+        id: "sr:sport_event:654", start_time: "2026-11-25T12:00:00Z", status: "not_started",
+        competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }]
+      },
+      markets: [{
+        id: "sr:market:1", name: "1x2", is_live: false,
+        books: [{ id: "sr:book:1", name: "Book", outcomes: [
+          { id: "sr:outcome:1", type: "home", field_id: "1", odds_decimal: "2.15" }
+        ] }]
+      }]
+    }]
+  }, "sr:sport:1");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "sr:sport_event:654");
+  assert.equal(rows[0].markets[0].books[0].outcomes[0].fieldId, "1");
+  assert.equal(rows[0].markets[0].books[0].outcomes[0].oddsDecimal, 2.15);
 });
 
 test("bulk daily markets normalize embedded event boards without per-event follow-up calls", () => {
