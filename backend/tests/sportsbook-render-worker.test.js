@@ -17,7 +17,6 @@ const {
   combineSportsbookProviderResults,
   sportsbookRenderIntervalSeconds,
   assertSportradarQuotaCapacity,
-  SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT
 } = await import('../src/sportsbook-render-worker-core.js');
 const { validateSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
 const { __sportradarNormalizer } = await import('../src/sportradar-normalizer.js');
