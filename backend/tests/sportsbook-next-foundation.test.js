@@ -57,6 +57,7 @@ test("event market normalization follows documented odds_decimal and removed boo
   assert.equal(snapshot.markets[0].books.length, 1);
   assert.equal(snapshot.markets[0].books[0].outcomes.length, 1);
   assert.equal(snapshot.markets[0].books[0].outcomes[0].oddsDecimal, 2.1);
+  assert.equal(snapshot.markets[0].key, "sr:market:251|Winner");
 });
 
 test("Soccer result normalizer requires a Sportradar event ID", () => {
