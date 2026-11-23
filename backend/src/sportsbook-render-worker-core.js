@@ -17,17 +17,6 @@ function wibParts(date = new Date()) {
   };
 }
 
-export function nextSportsbookDailyRefreshMs(settings, now = Date.now()) {
-  const targetHour = Number(settings?.sportsbookDailyRefreshHourWib ?? 0);
-  const targetMinute = Number(settings?.sportsbookDailyRefreshMinuteWib ?? 5);
-  const current = wibParts(new Date(now));
-  const currentMinutes = current.hour * 60 + current.minute;
-  const targetMinutes = targetHour * 60 + targetMinute;
-  let deltaMinutes = targetMinutes - currentMinutes;
-  if (deltaMinutes <= 0) deltaMinutes += 24 * 60;
-  return deltaMinutes * 60 * 1000;
-}
-
 export function sportsbookRenderIntervalSeconds(settings) {
   if (settings?.sportsbookDailyRefreshEnabled === true) return 60;
   const freshnessInterval = Math.floor(Number(settings?.sportsbookIngestMaxAgeSeconds) / 2);

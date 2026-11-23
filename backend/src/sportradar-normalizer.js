@@ -1,11 +1,6 @@
 import { createHash } from 'node:crypto';
-import { config } from './config.js';
-import { logger } from './logger.js';
 
 const PROVIDER = 'sportradar';
-const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/production/v2/en';
-const PAGE_SIZE = 50;
-const DEFAULT_SPORT_IDS = ['sr:sport:1'];
 
 function clean(value, max = 160) {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -21,132 +16,6 @@ function iso(value) {
 }
 function hash(...parts) {
   return createHash('sha256').update(parts.map(value => clean(value, 500)).join('|')).digest('hex').slice(0, 28);
-}
-function apiKey() { return config.sportradarApiKey || ''; }
-function baseUrl() { return (config.sportradarBaseUrl || DEFAULT_BASE_URL).replace(/\/+$/, ''); }
-function headers() { return { 'x-api-key': apiKey(), accept: 'application/json' }; }
-
-const callState = { lastCallAt: 0, hourStart: 0, callsThisHour: 0 };
-function resetHourIfNeeded(now = Date.now()) {
-  if (!callState.hourStart || now - callState.hourStart >= 3600000) {
-    callState.hourStart = now;
-    callState.callsThisHour = 0;
-  }
-}
-function callsRemaining() {
-  resetHourIfNeeded();
-  const configured = Number(config.sportradarMaxCallsPerHour || 0);
-  return configured > 0 ? Math.max(0, configured - callState.callsThisHour) : Infinity;
-}
-async function throttle() {
-  const minInterval = Math.max(0, Number(config.sportradarMinIntervalMs || 1100));
-  const wait = minInterval - (Date.now() - callState.lastCallAt);
-  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
-}
-function retryDelay(response, attempt) {
-  const value = response.headers?.get?.('retry-after');
-  if (value) {
-    const seconds = Number(value);
-    if (Number.isFinite(seconds)) return Math.max(1000, seconds * 1000);
-    const date = Date.parse(value);
-    if (Number.isFinite(date)) return Math.max(1000, date - Date.now());
-  }
-  return Math.min(120000, 5000 * (2 ** attempt));
-}
-async function fetchJson(url, maxRetries = 3) {
-  let lastError;
-  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-    if (callsRemaining() <= 0) {
-      throw new Error('Sportradar configured hourly API-call budget exhausted; current cycle is incomplete and was not published.');
-    }
-    await throttle();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), config.sportradarRequestTimeoutMs || 30000);
-    try {
-      callState.lastCallAt = Date.now();
-      callState.callsThisHour += 1;
-      const response = await fetch(url, { headers: headers(), signal: controller.signal });
-      if (response.status === 429) {
-        const retryAfter = response.headers?.get?.('retry-after') || null;
-        const rateLimit = {
-          limit: response.headers?.get?.('x-ratelimit-limit') || null,
-          remaining: response.headers?.get?.('x-ratelimit-remaining') || null,
-          reset: response.headers?.get?.('x-ratelimit-reset') || null
-        };
-        const body = clean(await response.text().catch(() => ''), 180);
-        const path = new URL(url).pathname;
-        lastError = new Error(
-          `Sportradar rate limited (HTTP 429; path=${path}; retryAfter=${retryAfter || 'not-provided'}; rateLimit=${JSON.stringify(rateLimit)}; response=${body || 'empty'}).`
-        );
-        // "Limit Exceeded" is a provider-side request limit response. The body does not
-        // distinguish QPS from rolling quota; without Retry-After, defer to the next scheduled run.
-        if (/Limit Exceeded/i.test(body)) {
-          lastError.code = 'SPORTRADAR_LIMIT_EXCEEDED';
-          throw lastError;
-        }
-        if (attempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, retryDelay(response, attempt)));
-          continue;
-        }
-        throw lastError;
-      }
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        throw new Error(`Sportradar responded HTTP ${response.status}: ${body.slice(0, 240)}`);
-      }
-      return { data: await response.json(), headers: response.headers };
-    } catch (error) {
-      lastError = error;
-      if (error?.code === 'SPORTRADAR_LIMIT_EXCEEDED') throw error;
-      if (attempt < maxRetries && !String(error?.message || String(error)).startsWith('Sportradar rate limited (HTTP 429')) {
-        await new Promise(resolve => setTimeout(resolve, Math.min(10000, 1000 * (attempt + 1))));
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  throw lastError || new Error('Sportradar request failed.');
-}
-
-function wibDateParts(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
-  return { year: Number(values.year), month: Number(values.month), day: Number(values.day) };
-}
-function dateKeyFromUtc(date) { return date.toISOString().slice(0, 10); }
-function dateBounds(daysAhead, now = new Date()) {
-  const { year, month, day } = wibDateParts(now);
-  const start = Date.parse(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T00:00:00+07:00`);
-  const end = start + (Math.max(1, daysAhead) + 1) * 86400000 - 1;
-  return { start, end };
-}
-function requestedDates(daysAhead, now = new Date()) {
-  const bounds = dateBounds(daysAhead, now);
-  const firstUtcDay = Math.floor(bounds.start / 86400000) * 86400000;
-  const lastUtcDay = Math.floor(bounds.end / 86400000) * 86400000;
-  const dates = [];
-  for (let day = firstUtcDay; day <= lastUtcDay; day += 86400000) {
-    dates.push(dateKeyFromUtc(new Date(day)));
-  }
-  return dates;
-}
-function competitorName(competitor) {
-  return competitor && typeof competitor === 'object'
-    ? clean(competitor.name || competitor.display_name, 120) || null
-    : null;
-}
-function leagueName(raw, item = null) {
-  const context = raw?.sport_event_context || item?.sport_event_context || {};
-  return clean(
-    context.competition?.name
-      || context.tournament?.name
-      || context.stage?.name
-      || context.category?.name
-      || 'Unclassified competition',
-    120
-  );
 }
 function isRemovedFlag(value) {
   return value === true || String(value ?? '').trim().toLowerCase() === 'true';
@@ -207,26 +76,8 @@ function normalizeScheduleEvent(raw, item = null, sport = null, generatedAt = nu
     }
   };
 }
-function marketIdNumber(value) {
-  const match = String(value ?? '').match(/(?:^|:)market:(\d+)$/);
-  return match ? Number(match[1]) : null;
-}
-const MARKET_TYPE_BY_ID = new Map([
-  [1, '1X2'], [10, 'DOUBLE_CHANCE'], [11, 'DRAW_NO_BET'],
-  [14, 'EUROPEAN_HANDICAP'], [16, 'HANDICAP'], [18, 'TOTALS'],
-  [26, 'OTHER'], [29, 'BTTS'], [45, 'CORRECT_SCORE'],
-  [60, '1X2'], [64, 'DRAW_NO_BET'],
-  [66, 'HANDICAP'], [68, 'TOTALS'], [69, 'TEAM_TOTAL'], [70, 'TEAM_TOTAL']
-]);
-const MARKET_PERIOD_BY_ID = new Map([
-  [26, 'FT'],
-  [60, '1H'], [64, '1H'], [66, '1H'],
-  [68, '1H'], [69, '1H'], [70, '1H'],
-  [83, '2H'], [231, '2H'], [232, '2H'], [293, '2H'], [294, '2H']
-]);
-export function marketType(name, outcomeCount = null, hasDrawOutcome = false, marketId = null) {
-  const idType = MARKET_TYPE_BY_ID.get(marketIdNumber(marketId));
-  if (idType) return idType;
+
+export function marketType(name, outcomeCount = null, hasDrawOutcome = false) {
   const value = clean(name, 120).toLowerCase();
   if (/\bhalf.?time.*full.?time|first.?half.*full.?time|1st.?half.*full.?time|\bht\s*[/\-]?\s*ft\b/.test(value)) return 'HT_FT';
   if (/european.?handicap|three.?way.?handicap/.test(value)) return 'EUROPEAN_HANDICAP';
@@ -278,10 +129,6 @@ export function periodFromMarket(name, metadata = {}) {
     if (period && period !== 'FT') return period;
     if (period === 'FT') genericPeriod = period;
   }
-  // A documented first-half market ID is more specific than generic metadata
-  // such as period="match"; do not silently downgrade it to full time.
-  const idPeriod = MARKET_PERIOD_BY_ID.get(marketIdNumber(metadata.id || metadata.market_id));
-  if (idPeriod) return idPeriod;
   if (genericPeriod) return genericPeriod;
   // Sportradar Odds Comparison uses generic names such as "handicap" and
   // "handicap {hcp}". marketType() needs outcome count to classify those,
@@ -292,15 +139,9 @@ export function periodFromMarket(name, metadata = {}) {
   if (marketType(value) !== 'OTHER') return 'FT';
   return 'UNCLASSIFIED';
 }
-function sportradarOutcomeType(marketId, outcome) {
-  const marketNumber = marketIdNumber(marketId);
-  const outcomeId = String(outcome?.id || '').match(/(?:^|:)outcome:(\d+)$/)?.[1] || null;
-  const documented = marketNumber === 14
-    ? ({ '1711': 'home', '1712': 'draw', '1713': 'away' })[outcomeId]
-    : marketNumber === 16
-      ? ({ '1714': 'home', '1715': 'away' })[outcomeId]
-      : null;
-  return documented || null;
+function sportradarOutcomeType(_marketId, outcome) {
+  const value = clean(outcome?.type, 40).toLowerCase();
+  return value || null;
 }
 
 function handicapSpecifier(market) {
@@ -355,7 +196,7 @@ function normalizeOdds(event, raw) {
       const outcomeName = clean(outcome?.name || outcome?.label, 80).toLowerCase();
       return outcomeType === 'draw' || outcomeName === 'draw' || outcomeName === 'x';
     }));
-    const type = marketType(marketName, outcomeCount, hasDrawOutcome, marketId);
+    const type = marketType(marketName, outcomeCount, hasDrawOutcome);
     diagnostics.marketIdCounts[marketId] = (diagnostics.marketIdCounts[marketId] || 0) + 1;
     const period = periodFromMarket(marketName, market);
     diagnostics.periodCounts[period] = (diagnostics.periodCounts[period] || 0) + 1;
@@ -370,7 +211,7 @@ function normalizeOdds(event, raw) {
     }
     // Capture a tiny, sanitized sample for the documented handicap markets only.
     // Never log full provider payloads, credentials, headers, or bookmaker names.
-    if ([14, 16].includes(marketIdNumber(marketId)) && diagnostics.outcomeSamples.length < 2 && !diagnostics.outcomeSamples.some(sample => sample.marketId === marketId)) {
+    if (/handicap|spread/i.test(marketName) && diagnostics.outcomeSamples.length < 2 && !diagnostics.outcomeSamples.some(sample => sample.marketId === marketId)) {
       const sampleBook = books.find(candidate => Array.isArray(candidate?.outcomes) && candidate.outcomes.length);
       if (sampleBook) {
         diagnostics.outcomeSamples.push({
@@ -410,12 +251,8 @@ function normalizeOdds(event, raw) {
         if (outcomeRemoved) diagnostics.removedOutcomesRetained += 1;
         const odds = number(outcome.odds_decimal);
         if (odds === null) diagnostics.outcomesWithoutDecimalOddsRetained += 1;
-        const documentedOutcomeType = sportradarOutcomeType(marketId, outcome);
-        const strictDocumentedMarket = [14, 16].includes(marketIdNumber(marketId));
-        const normalizedOutcomeType = strictDocumentedMarket
-          ? documentedOutcomeType
-          : (String(outcome.type || '').toLowerCase() || null);
-        const normalizedOutcome = documentedOutcomeType ? { ...outcome, type: documentedOutcomeType } : outcome;
+        const normalizedOutcomeType = sportradarOutcomeType(marketId, outcome);
+        const normalizedOutcome = normalizedOutcomeType ? { ...outcome, type: normalizedOutcomeType } : outcome;
         const label = selectionLabel(normalizedOutcome, event, type);
         const documentedHcp = type === 'EUROPEAN_HANDICAP' ? handicapSpecifier(market) : null;
         const rawLine = outcome.handicap ?? outcome.spread ?? outcome.total ?? documentedHcp;
@@ -478,124 +315,3 @@ function normalizeOdds(event, raw) {
 }
 
 export const __sportradarNormalizer = { marketType, periodFromMarket, normalizeOdds, normalizedEventStatus, sportradarOutcomeType, handicapSpecifier };
-
-export async function fetchSportradar({
-  maxEvents = 0,
-  maxPages = 0,
-  daysAhead = config.sportradarDaysAhead
-} = {}) {
-  if (!config.sportradarEnabled) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_ENABLED=false'] };
-  if (!apiKey()) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_API_KEY is not configured'] };
-
-  // Discover sport IDs from the official Sports feed; select the configured product scope.
-  const sportsResponse = await fetchJson(`${baseUrl()}/sports.json`);
-  const availableSports = Array.isArray(sportsResponse.data?.sports) ? sportsResponse.data.sports : [];
-  if (!availableSports.length) throw new Error('Sportradar Sports feed returned no sports array; snapshot was not published.');
-  const requestedIds = String(config.sportradarSportIds || DEFAULT_SPORT_IDS.join(','))
-    .split(',').map(value => value.trim()).filter(Boolean);
-  const selectedSports = requestedIds.includes('*')
-    ? availableSports
-    : availableSports.filter(sport => requestedIds.includes(String(sport.id)));
-  const missingSportIds = requestedIds.filter(id => id !== '*' && !availableSports.some(sport => String(sport.id) === id));
-  if (missingSportIds.length) {
-    throw new Error(`Configured Sportradar sport IDs are absent from the official Sports feed: ${missingSportIds.join(', ')}`);
-  }
-  if (!selectedSports.length) throw new Error('No configured Sportradar sport IDs were found in the Sports feed.');
-
-  const days = Math.max(1, Number(daysAhead) || 3);
-  const dates = requestedDates(days);
-  const allEvents = [];
-  const seenIds = new Set();
-  const diagnostics = {
-    sportsDiscovered: availableSports.length,
-    sportsFeedGeneratedAt: sportsResponse.data?.generated_at || null,
-    accessPipeline: sportsResponse.headers?.get?.('x-origin-id') || 'unknown',
-    sportsSelected: selectedSports.map(sport => ({ id: sport.id, name: sport.name, type: sport.type })),
-    datesRequested: dates.length, pagesFetched: 0, eventsSeen: 0, eventsAccepted: 0,
-    eventsSkipped: {}, odds: {
-      marketsSeen: 0, booksSeen: 0, outcomesSeen: 0,
-      removedBooksRetained: 0, removedOutcomesRetained: 0,
-      outcomesWithoutDecimalOddsRetained: 0,
-      periodCounts: {},
-      marketIdCounts: {},
-      periodSamples: [],
-      outcomeSamples: []
-    }
-  };
-
-  for (const sport of selectedSports) {
-    for (const date of dates) {
-      let start = 0;
-      while (true) {
-        const url = new URL(`${baseUrl()}/sports/${encodeURIComponent(sport.id)}/schedules/${date}/sport_event_markets.json`);
-        url.searchParams.set('limit', String(PAGE_SIZE));
-        url.searchParams.set('start', String(start));
-        const { data, headers: responseHeaders } = await fetchJson(url.toString());
-        diagnostics.pagesFetched += 1;
-        const items = Array.isArray(data?.sport_schedule_sport_event_markets) ? data.sport_schedule_sport_event_markets : [];
-        const maxResultsHeader = responseHeaders?.get?.('x-max-results');
-        const maxResults = maxResultsHeader === null || maxResultsHeader === undefined ? null : Number(maxResultsHeader);
-        if (!items.length) {
-          if (Number.isFinite(maxResults) && start < maxResults) {
-            throw new Error(`Sportradar returned an empty page at offset ${start} while x-max-results reports ${maxResults}; partial data is not published.`);
-          }
-          break;
-        }
-        diagnostics.eventsSeen += items.length;
-
-        for (const item of items) {
-          const normalized = normalizeScheduleEvent(item?.sport_event, item, sport, data?.generated_at || null);
-          if (!normalized.event) {
-            const reason = normalized.reason || 'invalid-documented-event';
-            diagnostics.eventsSkipped[reason] = (diagnostics.eventsSkipped[reason] || 0) + 1;
-            continue;
-          }
-          const event = normalized.event;
-          if (seenIds.has(event.id)) {
-            diagnostics.eventsSkipped.duplicate_provider_id = (diagnostics.eventsSkipped.duplicate_provider_id || 0) + 1;
-            continue;
-          }
-          seenIds.add(event.id);
-          const odds = normalizeOdds(event, item);
-          event.markets = odds.markets;
-          for (const key of Object.keys(diagnostics.odds)) {
-            if (key === 'marketIdCounts') {
-              for (const [marketId, count] of Object.entries(odds.diagnostics.marketIdCounts || {})) {
-                diagnostics.odds.marketIdCounts[marketId] = (diagnostics.odds.marketIdCounts[marketId] || 0) + count;
-              }
-            } else if (key === 'periodCounts') {
-              for (const [period, count] of Object.entries(odds.diagnostics.periodCounts || {})) {
-                diagnostics.odds.periodCounts[period] = (diagnostics.odds.periodCounts[period] || 0) + count;
-              }
-            } else if (key === 'periodSamples') {
-              diagnostics.odds.periodSamples.push(...(odds.diagnostics.periodSamples || []).slice(0, Math.max(0, 20 - diagnostics.odds.periodSamples.length)));
-            } else if (key === 'outcomeSamples') {
-              diagnostics.odds.outcomeSamples.push(...(odds.diagnostics.outcomeSamples || []).slice(0, Math.max(0, 24 - diagnostics.odds.outcomeSamples.length)));
-            } else {
-              diagnostics.odds[key] += odds.diagnostics[key] || 0;
-            }
-          }
-          allEvents.push(event);
-          diagnostics.eventsAccepted += 1;
-        }
-
-        start += items.length;
-        if (Number.isFinite(maxResults)) {
-          if (start >= maxResults) break;
-        } else if (items.length < PAGE_SIZE) {
-          break;
-        }
-      }
-    }
-  }
-
-  const result = {
-    provider: PROVIDER, enabled: true, events: allEvents, errors: [], transportOk: true,
-    diagnostics: { ...diagnostics, calls: diagnostics.pagesFetched + 1 }
-  };
-  logger.info('Sportradar prematch ingestion completed', {
-    events: diagnostics.eventsAccepted, sports: diagnostics.sportsSelected.length,
-    pages: diagnostics.pagesFetched, diagnostics
-  });
-  return result;
-}

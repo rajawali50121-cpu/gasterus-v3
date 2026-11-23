@@ -18,9 +18,28 @@ const {
   sportsbookRenderIntervalSeconds
 } = await import('../src/sportsbook-render-worker-core.js');
 const { validateSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
-const { __sportradarNormalizer } = await import('../src/sportradar-provider.js');
+const { __sportradarNormalizer } = await import('../src/sportradar-normalizer.js');
+const { __sportradarV2 } = await import('../src/sportradar-provider-v2.js');
 
 const NOW = Date.UTC(2026, 10, 19, 0, 0, 0);
+
+test('Sportradar daily market feed accepts its schedule wrapper and reports unknown shapes safely', () => {
+  const items = [{ sport_event: { id: 'sr:sport_event:contract' }, markets: [] }];
+  assert.deepEqual(__sportradarV2.responseItems({ sport_schedule_sport_event_markets: items }), items);
+  assert.deepEqual(__sportradarV2.responseItems({ sport_event_markets: items }), items);
+  assert.equal(__sportradarV2.responseItems({ schedules: items }), null);
+  const shape = __sportradarV2.safePayloadShape({
+    sport_schedule_sport_event_markets: items,
+    generated_at: '2026-11-19T00:00:00Z'
+  });
+  assert.deepEqual(shape.topLevelKeys, ['sport_schedule_sport_event_markets', 'generated_at']);
+  assert.deepEqual(shape.arrays[0], {
+    key: 'sport_schedule_sport_event_markets',
+    count: 1,
+    firstItemKeys: ['sport_event', 'markets']
+  });
+});
+
 
 function event(id = 'sr-event-1') {
   return {
@@ -191,6 +210,15 @@ test('worker cadence follows Sportradar freshness or the daily WIB schedule', ()
     sportradarRefreshSeconds: 300,
     sportsbookIngestMaxAgeSeconds: 60
   }), 30);
+});
+
+test('worker backs off after Sportradar 429 and does not permanently pause until redeploy', async () => {
+  const workerSource = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
+  );
+  assert.match(workerSource, /exponential429Backoff/);
+  assert.match(workerSource, /retryAfterMs/);
+  assert.doesNotMatch(workerSource, /provider-limit-circuit-open|polling-paused-until-redeploy/);
 });
 
 test('worker continuously polls the Sportradar change log instead of using the daily cron gate', async () => {

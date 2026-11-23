@@ -47,13 +47,7 @@ export const config = Object.freeze({
   // remains governed separately by sportsbookIngestMaxAgeSeconds.
   sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 14400, 180, 604800),
   sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
-  sportsbookDailyRefreshHourWib: int('SPORTSBOOK_DAILY_REFRESH_HOUR_WIB', 0, 0, 23),
-  sportsbookDailyRefreshMinuteWib: int('SPORTSBOOK_DAILY_REFRESH_MINUTE_WIB', 5, 0, 59),
   sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 7, 1, 365),
-  // No artificial event/page caps: pagination is exhausted to the last page
-  // returned by the API. Zero = unlimited (API quota is the only real ceiling).
-  sportsbookRenderMaxEvents: unboundedInt('SPORTSBOOK_RENDER_MAX_EVENTS', 0, 0),
-  sportsbookRenderMaxPages: unboundedInt('SPORTSBOOK_RENDER_MAX_PAGES', 0, 0),
   memberSessionTtl: int('MEMBER_SESSION_TTL_SECONDS', 43200, 900, 604800),
   ownerSessionTtl: int('OWNER_SESSION_TTL_SECONDS', 900, 900, 86400), // R6.94: 15-minute admin session (idle refresh)
   highValueThreshold: int('HIGH_VALUE_APPROVAL_THRESHOLD', 1000000, 10000, 200000000),
@@ -143,12 +137,10 @@ export const config = Object.freeze({
   sportradarBaseUrl: text('SPORTRADAR_BASE_URL', 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en'),
   sportradarSportIds: text('SPORTRADAR_SPORT_IDS', 'sr:sport:1'),
   sportradarDaysAhead: int('SPORTRADAR_DAYS_AHEAD', 7, 1, 365),
-  sportradarMaxPages: unboundedInt('SPORTRADAR_MAX_PAGES', 0, 0),
-  sportradarMaxEvents: unboundedInt('SPORTRADAR_MAX_EVENTS', 0, 0),
-  sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 1100, 100, 30000),
+  sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 2000, 100, 30000),
   // Zero disables the local ceiling; the provider account's actual quota and HTTP 429 remain authoritative.
   sportradarMaxCallsPerHour: unboundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 0, 0),
-  sportradarSharedMaxCallsPerHour: boundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 20, 1, 1000),
+  sportradarSharedMaxCallsPerHour: naturalInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 0, 0),
   // Fail-closed: must be populated from the actual Sportradar contract/current account usage before live calls.
   sportradarMaxCallsPer30Days: naturalInt('SPORTRADAR_MAX_CALLS_PER_30_DAYS', 0, 0),
   sportradarInitial30DayUsage: naturalInt('SPORTRADAR_INITIAL_30_DAY_USAGE', 0, 0),
@@ -164,12 +156,8 @@ export const config = Object.freeze({
   sportsbookArtworkMaxLookupsPerMinute: int('SPORTSBOOK_ARTWORK_MAX_LOOKUPS_PER_MINUTE', 20, 1, 30),
   sportsbookArtworkMaxLookupsPerRefresh: int('SPORTSBOOK_ARTWORK_MAX_LOOKUPS_PER_REFRESH', 16, 1, 30),
   sportsbookArtworkTimeoutMs: int('SPORTSBOOK_ARTWORK_TIMEOUT_MS', 5000, 1000, 15000),
-  // R6.9.0.15: Gasterus-owned public market feed. No commercial odds-provider credential is required.
-  // Upcoming fixtures + bookmaker anchor prices are collected from Football-Data's downloadable public CSV,
-  // then normalized and expanded by Gasterus's own probability/market engine.
+  // Member visibility horizon for verified Sportradar prematch events.
   sportsbookMemberHorizonDays: int('SPORTSBOOK_MEMBER_HORIZON_DAYS', 30, 1, 60),
-  sportsbookMemberMaxEvents: unboundedInt('SPORTSBOOK_MEMBER_MAX_EVENTS', 0, 0),
-  sportsFeedRequestTimeoutMs: int('SPORTS_FEED_REQUEST_TIMEOUT_MS', 12000, 2000, 30000),
   sportsbookProviderFailureThreshold: int('SPORTSBOOK_PROVIDER_FAILURE_THRESHOLD', 3, 1, 20),
   sportsbookProviderRecoverySuccesses: int('SPORTSBOOK_PROVIDER_RECOVERY_SUCCESSES', 2, 1, 20),
   sportsbookProviderCooldownSeconds: int('SPORTSBOOK_PROVIDER_COOLDOWN_SECONDS', 30, 5, 3600),

@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
-import { __sportradarNormalizer } from './sportradar-provider.js';
+import { __sportradarNormalizer } from './sportradar-normalizer.js';
+import { buildSportradarHeaders, buildSportradarProductBaseUrl, getSportradarAccessFromPrematchBaseUrl } from './sportradar-products.js';
 import { connectRedis, redis } from './redis.js';
 import { logger } from './logger.js';
 
 const PROVIDER = 'sportradar';
+const DEFAULT_BASE_URL = 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en';
 const PAGE_SIZE = 50;
 const STATE_KEY = 'sportsbook:sportradar:v2:state';
 const LEASE_KEY = 'sportsbook:sportradar:v2:lease';
@@ -32,7 +34,11 @@ function utcDates(daysAhead, now = new Date()) {
   }
   return dates;
 }
-function baseUrl() { return String(config.sportradarBaseUrl).replace(/\/+$/, ''); }
+function baseUrl() {
+  const configured = config.sportradarBaseUrl || DEFAULT_BASE_URL;
+  const { accessLevel, languageCode } = getSportradarAccessFromPrematchBaseUrl(configured);
+  return buildSportradarProductBaseUrl('prematchV2', { accessLevel, languageCode });
+}
 function parseDate(value) {
   const parsed = Date.parse(value || '');
   return Number.isFinite(parsed) ? parsed : null;
@@ -110,14 +116,23 @@ async function requestJson(path, params = {}) {
   const timeout = setTimeout(() => controller.abort(), Number(config.sportradarRequestTimeoutMs || 30000));
   try {
     const response = await fetch(url, {
-      headers: { 'x-api-key': config.sportradarApiKey, accept: 'application/json' },
+      headers: buildSportradarHeaders(config.sportradarApiKey),
       signal: controller.signal
     });
     if (response.status === 429) {
       const retryAfter = response.headers?.get?.('retry-after');
+      let retryAfterMs = 0;
+      if (retryAfter) {
+        const seconds = Number(retryAfter);
+        const retryAt = Date.parse(retryAfter);
+        retryAfterMs = Number.isFinite(seconds)
+          ? Math.max(0, seconds * 1000)
+          : Number.isFinite(retryAt) ? Math.max(0, retryAt - Date.now()) : 0;
+      }
       const body = clean(await response.text().catch(() => ''), 160);
-      const error = new Error(`Sportradar HTTP 429; retry-after=${retryAfter || 'not-provided'}; ${body}`);
+      const error = new Error(`Sportradar Limit Exceeded (HTTP 429); retry-after=${retryAfter || 'not-provided'}; ${body}`);
       error.code = 'SPORTRADAR_LIMIT_EXCEEDED';
+      error.retryAfterMs = retryAfterMs;
       throw error;
     }
     if (response.status === 404) {
@@ -129,13 +144,46 @@ async function requestJson(path, params = {}) {
       const body = clean(await response.text().catch(() => ''), 200);
       throw new Error(`Sportradar HTTP ${response.status} at ${url.pathname}: ${body}`);
     }
-    return { data: await response.json(), headers: response.headers };
+    const data = await response.json();
+    return {
+      data,
+      headers: response.headers,
+      status: response.status,
+      responseMeta: {
+        contentType: response.headers?.get?.('content-type') || null,
+        originId: response.headers?.get?.('x-origin-id') || null,
+        result: response.headers?.get?.('x-result') || null,
+        maxResults: response.headers?.get?.('x-max-results') || null
+      }
+    };
   } finally {
     clearTimeout(timeout);
   }
 }
 function responseItems(data) {
-  return Array.isArray(data?.sport_event_markets) ? data.sport_event_markets : null;
+  if (Array.isArray(data?.sport_schedule_sport_event_markets)) {
+    return data.sport_schedule_sport_event_markets;
+  }
+  if (Array.isArray(data?.sport_event_markets)) return data.sport_event_markets;
+  return null;
+}
+function safePayloadShape(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { payloadType: Array.isArray(data) ? 'array' : typeof data };
+  }
+  return {
+    topLevelKeys: Object.keys(data).slice(0, 24),
+    arrays: Object.entries(data)
+      .filter(([, value]) => Array.isArray(value))
+      .slice(0, 12)
+      .map(([key, value]) => ({
+        key,
+        count: value.length,
+        firstItemKeys: value[0] && typeof value[0] === 'object' && !Array.isArray(value[0])
+          ? Object.keys(value[0]).slice(0, 20)
+          : []
+      }))
+  };
 }
 async function discoverCoverage() {
   if (discoveryCache.value && discoveryCache.expiresAt > Date.now()) return discoveryCache.value;
@@ -161,7 +209,11 @@ async function discoverCoverage() {
     if (competitions.some(item => item.markets === true)) covered.push(sport);
   }
   if (!covered.length) throw new Error('No configured sport has prematch markets=true coverage.');
-  const result = { sports: covered, books };
+  const result = {
+    sports: covered,
+    books,
+    accessTier: booksResponse.responseMeta?.originId || null
+  };
   discoveryCache.value = result;
   discoveryCache.expiresAt = Date.now() + DISCOVERY_TTL_MS;
   return result;
@@ -207,13 +259,23 @@ async function fullDailySync(coverage, daysAhead) {
     for (const date of utcDates(daysAhead)) {
       let start = 0;
       while (true) {
-        const { data, headers } = await requestJson(
+        const { data, headers, status, responseMeta } = await requestJson(
           `sports/${sport.id}/schedules/${date}/sport_event_markets.json`,
           { start, limit: PAGE_SIZE, live: false }
         );
         diagnostics.pagesFetched += 1;
         const items = responseItems(data);
-        if (!items) throw new Error('Daily Sport Event Markets payload is missing sport_event_markets; refusing incomplete sync.');
+        if (!items) {
+          const payloadDiagnostics = {
+            feed: 'daily-sport-event-markets',
+            httpStatus: status ?? null,
+            ...responseMeta,
+            payload: safePayloadShape(data)
+          };
+          const error = new Error('Daily Sport Event Markets response shape does not match the documented sport_event_markets array; refusing incomplete sync.');
+          error.diagnostics = payloadDiagnostics;
+          throw error;
+        }
         if (!parseDate(data.generated_at)) throw new Error('Daily Sport Event Markets payload is missing a valid generated_at timestamp.');
         const total = Number(headers?.get?.('x-max-results'));
         const pageCount = Number(headers?.get?.('x-result'));
@@ -259,23 +321,31 @@ async function pollChanges(coverage, state) {
     throw new Error('Sportradar Change Log response is missing valid status window or changes array.');
   }
   const lastPollAt = Number(state.lastPollAt || 0);
+  const lastChangeLogTo = Number(state.lastChangeLogTo || 0);
+  const lastChangeByEvent = { ...(state.lastChangeByEvent || {}) };
   const gap = lastPollAt > 0 && Date.now() - lastPollAt > 5 * 60 * 1000;
-  const trackedIds = gap ? [...state.events.keys()] : [...new Set(changes
-    .filter(item => item?.type === 'sport_event' && item.id && state.events.has(String(item.id)))
-    .map(item => String(item.id)))];
-  const updated = new Map(state.events);
-  const changedIds = new Set(trackedIds);
-  for (const [eventId, event] of updated.entries()) {
-    if (changedIds.has(eventId)) continue;
-    updated.set(eventId, {
-      ...event,
-      markets: (event.markets || []).map(market => ({
-        ...market,
-        updatedAt: verifiedAt,
-        selections: (market.selections || []).map(selection => ({ ...selection, updatedAt: verifiedAt }))
-      }))
-    });
+  // Sportradar's Change Log is a rolling five-minute window. The same event
+  // therefore appears in several consecutive polls. Use the provider's Unix
+  // change timestamp as a watermark so each event is refreshed only once per
+  // new change, instead of replaying the whole overlapping window every minute.
+  const freshChangedIds = new Set();
+  for (const item of changes) {
+    if (item?.type !== 'sport_event' || !item.id || !state.events.has(String(item.id))) continue;
+    const changedAt = Number(item.sport_event_markets_odds_change);
+    if (!Number.isFinite(changedAt)) {
+      throw new Error('Sportradar Change Log item is missing sport_event_markets_odds_change; refusing to advance the change watermark.');
+    }
+    const eventId = String(item.id);
+    const previousEventChange = Number(lastChangeByEvent[eventId] || 0);
+    // Include the watermark second once per event: provider timestamps have
+    // one-second precision, so strict global `>` can drop a boundary update.
+    if (changedAt >= lastChangeLogTo && changedAt > previousEventChange) {
+      freshChangedIds.add(eventId);
+      lastChangeByEvent[eventId] = changedAt;
+    }
   }
+  const trackedIds = gap ? [...state.events.keys()] : [...freshChangedIds];
+  const updated = new Map(state.events);
   for (const eventId of trackedIds) {
     try {
       const next = await refreshOneEvent(eventId, updated.get(eventId), coverage.sports);
@@ -293,6 +363,7 @@ async function pollChanges(coverage, state) {
     diagnostics: { fullSync: false, changeLogChanges: changes.length, eventsRefreshed: trackedIds.length, gapReconciled: gap, changeLogWindow: { from: windowFrom, to: windowTo } },
     lastPollAt: Date.now(),
     lastChangeLogTo: windowTo,
+    lastChangeByEvent,
     verifiedAt
   };
 }
@@ -307,8 +378,8 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const rawState = await redisClient.get(STATE_KEY);
     let stored = rawState ? JSON.parse(rawState) : null;
     const state = stored && Array.isArray(stored.events)
-      ? { ...stored, events: new Map(stored.events) }
-      : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0, lastChangeLogTo: 0 };
+      ? { ...stored, events: new Map(stored.events), lastChangeByEvent: stored.lastChangeByEvent || {} }
+      : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0, lastChangeLogTo: 0, lastChangeByEvent: {} };
     const fullSyncDue = !state.events.size || !state.lastFullSyncAt || Date.now() - state.lastFullSyncAt >= 24 * 60 * 60 * 1000;
     let diagnostics;
     if (fullSyncDue) {
@@ -331,15 +402,17 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
       lastPollAt: state.lastPollAt || Date.now(),
       lastFullSyncAt: state.lastFullSyncAt,
       lastChangeLogTo: state.lastChangeLogTo || 0,
+      lastChangeByEvent: state.lastChangeByEvent || {},
       generatedAt
     }), { EX: STATE_TTL_SECONDS });
     logger.info('Sportradar v2 sync completed', {
       events: events.length, sports: coverage.sports.length,
+      books: coverage.books.length, accessTier: coverage.accessTier,
       fullSync: diagnostics.fullSync, eventsRefreshed: diagnostics.eventsRefreshed || 0
     });
     return {
       provider: PROVIDER, enabled: true, events, errors: [], transportOk: true,
-      diagnostics: { apiVersion: 'oddscomparison-prematch-v2', ...diagnostics, booksDiscovered: coverage.books.length }
+      diagnostics: { apiVersion: 'oddscomparison-prematch-v2', ...diagnostics, booksDiscovered: coverage.books.length, accessTier: coverage.accessTier }
     };
   } finally {
     await releaseLease(lease).catch(error => logger.error('Sportradar lease release failed', { error: error.message }));
@@ -347,6 +420,6 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
 }
 
 export const __sportradarV2 = {
-  utcDates, responseItems, buildEvent,
+  utcDates, responseItems, safePayloadShape, buildEvent, baseUrl, pollChanges,
   setRedisClientForTests(client) { redisClient = client; discoveryCache.value = null; discoveryCache.expiresAt = 0; }
 };

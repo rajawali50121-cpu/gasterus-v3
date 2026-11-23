@@ -15,7 +15,7 @@ Object.assign(process.env, {
 });
 
 const { evaluateSportsbookLeg } = await import('../src/sportsbook-result-evaluator.js');
-const { __sportradarNormalizer } = await import('../src/sportradar-provider.js');
+const { __sportradarNormalizer } = await import('../src/sportradar-normalizer.js');
 
 test('Sportradar event retains HT market metadata without claiming HT result authority', () => {
   const event = {
@@ -194,7 +194,7 @@ test('Sportradar generic metadata does not override HT encoded in market name', 
     && m.selections.some(selection => selection.odds === 1.88)));
 });
 
-test('Sportradar classifies generic market names from documented market IDs before FT fallback', () => {
+test('Sportradar market IDs are retained but never override documented market names and periods', () => {
   const event = { id: 'sr-market-id-periods', home: { name: 'Home' }, away: { name: 'Away' } };
   const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [
     { id: 'sr:market:60', name: '1x2', books: [{ id: 'b1', outcomes: [
@@ -202,7 +202,7 @@ test('Sportradar classifies generic market names from documented market IDs befo
       { id: 'd60', type: 'draw', odds_decimal: '3.20' },
       { id: 'a60', type: 'away', odds_decimal: '3.80' }
     ] }] },
-    { id: 'sr:market:66', name: 'handicap', period: 'match', books: [{ id: 'b1', outcomes: [
+    { id: 'sr:market:66', name: '1st half - handicap', period: 'match', books: [{ id: 'b1', outcomes: [
       { id: 'h66', type: 'home', odds_decimal: '1.91', handicap: '-0.5' },
       { id: 'a66', type: 'away', odds_decimal: '1.91', handicap: '+0.5' }
     ] }] },
@@ -215,10 +215,9 @@ test('Sportradar classifies generic market names from documented market IDs befo
       { id: 'a16', type: 'away', odds_decimal: '1.91', handicap: '+0.5' }
     ] }] }
   ] });
-
-  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:60' && m.type === '1X2' && m.period === '1H'));
+  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:60' && m.type === '1X2' && m.period === 'FT'));
   assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:66' && m.type === 'HANDICAP' && m.period === '1H'));
-  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:68' && m.type === 'TOTALS' && m.period === '1H'));
+  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:68' && m.type === 'TOTALS' && m.period === 'FT'));
   assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:16' && m.type === 'HANDICAP' && m.period === 'FT'));
 });
 
@@ -235,15 +234,14 @@ test('Sportradar records market IDs for feed-level diagnostics', () => {
 });
 
 
-test('Sportradar classifies documented soccer odd/even market ID 26 as full time', () => {
-  const event = { id: 'sr-market-26-ft', home: { name: 'Home' }, away: { name: 'Away' } };
+test('unknown Sportradar market IDs do not fabricate a bettable market type or period', () => {
+  const event = { id: 'sr-market-26-unknown', home: { name: 'Home' }, away: { name: 'Away' } };
   const normalized = __sportradarNormalizer.normalizeOdds(event, { markets: [
     { id: 'sr:market:26', name: 'odd/even', books: [{ id: 'b1', outcomes: [
       { id: 'odd', name: 'Odd', odds_decimal: '1.90' },
       { id: 'even', name: 'Even', odds_decimal: '1.90' }
     ] }] }
   ] });
-  assert.ok(normalized.markets.some(m => m.sourceMarketId === 'sr:market:26' && m.period === 'FT'));
-  assert.equal(normalized.diagnostics.periodCounts.FT, 1);
-  assert.equal(normalized.diagnostics.periodCounts.UNCLASSIFIED || 0, 0);
+  assert.equal(normalized.markets[0].type, 'OTHER');
+  assert.equal(normalized.markets[0].period, 'UNCLASSIFIED');
 });
