@@ -104,7 +104,7 @@ function installFullSyncFetch({ secondDateEmpty = true } = {}) {
     const url = new URL(String(input));
     calls.push(url);
     if (url.pathname.endsWith('/sports.json')) return json({ sports: [{ id: 'sr:sport:1', name: 'Soccer', type: 'competition' }] });
-    if (url.pathname.endsWith('/books.json')) return json({ books: [{ id: 'sr:book:25080', name: 'consensus' }] }, { 'x-origin-id': 'MARKET_ORIGIN_CORE_CRAWLERS' });
+    if (url.pathname.endsWith('/books.json')) return json({ books: [{ id: 'sr:book:25080', name: 'consensus' }] }, { 'x-origin-id': 'MARKET_ORIGIN_MAGIC_CRAWLERS' });
     if (url.pathname.endsWith('/competitions.json')) return json({ competitions: [{ id: 'sr:competition:1', name: 'League', markets: true }] });
     if (url.pathname.includes('/sport_event_markets.json')) {
       assert.equal(url.searchParams.get('limit'), '50');
@@ -136,7 +136,7 @@ test('full sync follows documented v2 discovery and daily market paths, preservi
   assert.equal(result.events[0].markets.length, 1);
   assert.equal(result.events[0].markets[0].sourceBookId, 'sr:book:25080');
   assert.equal(result.events[0].markets[0].selections[0].updatedAt, '2026-11-22T12:00:00.000Z');
-  assert.equal(result.diagnostics.accessTier, 'MARKET_ORIGIN_CORE_CRAWLERS');
+  assert.equal(result.diagnostics.accessTier, 'MARKET_ORIGIN_MAGIC_CRAWLERS');
   assert.deepEqual(calls.map(url => url.pathname.split('/').pop()), [
     'sports.json', 'books.json', 'competitions.json', 'sport_event_markets.json', 'sport_event_markets.json'
   ]);
