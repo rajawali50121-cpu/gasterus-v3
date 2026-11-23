@@ -197,13 +197,54 @@ test("bulk pagination continues on a full page when provider pagination headers 
       const count = start === 0 ? 50 : 3;
       return {
         ok: true, status: 200, headers: { get: () => null },
-        json: async () => ({ sport_events: Array.from({ length: count }, (_, i) => ({ sport_event: { id: `sr:sport_event:${start+i}` }, markets: [] })) })
+        json: async () => ({ sport_schedule_sport_event_markets: Array.from({ length: count }, (_, i) => ({ sport_event: { id: `sr:sport_event:${start+i}` }, markets: [] })) })
       };
     }
   });
   const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-24", { maxPages: 3 });
   assert.equal(result.body.sport_events.length, 53);
   assert.deepEqual(offsets, [0, 50]);
+});
+
+
+test("bulk daily markets reads the official Prematch root key and logs safe response metadata", async () => {
+  const config = loadSportsbookConfig(env);
+  let diagnostic = null;
+  const client = new SportradarClient(config, {
+    onResponse: value => { diagnostic = value; },
+    fetchImpl: async () => ({
+      ok: true, status: 200,
+      headers: { get: name => ({
+        "content-type": "application/json",
+        "content-length": "512",
+        "x-max-results": "1",
+        "x-offset": "0",
+        "x-result": "1"
+      }[name] ?? null) },
+      json: async () => ({
+        generated_at: "2026-11-24T00:00:00Z",
+        sport_schedule_sport_event_markets: [{
+          sport_event: {
+            id: "sr:sport_event:987", start_time: "2026-11-25T20:00:00Z", status: "not_started",
+            competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }]
+          },
+          markets: [{
+            id: "sr:market:1", name: "Winner", is_live: false,
+            books: [{ id: "sr:book:1", name: "Book", outcomes: [
+              { id: "sr:outcome:1", type: "home", odds_decimal: "2.10" }
+            ] }]
+          }]
+        }]
+      })
+    })
+  });
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25");
+  assert.equal(result.body.sport_events.length, 1);
+  assert.equal(result.body.sport_events[0].sport_event.id, "sr:sport_event:987");
+  assert.equal(diagnostic.httpStatus, 200);
+  assert.deepEqual(diagnostic.topLevelKeys, ["generated_at", "sport_schedule_sport_event_markets"]);
+  assert.deepEqual(diagnostic.arrayCounts, { sport_schedule_sport_event_markets: 1 });
+  assert.deepEqual(diagnostic.pagination, { maxResults: "1", offset: "0", result: "1" });
 });
 
 test("bulk daily markets normalize embedded event boards without per-event follow-up calls", () => {
@@ -238,7 +279,7 @@ test("bulk daily markets paginate with a hard page ceiling", async () => {
       return {
         ok: true, status: 200,
         headers: { get: name => name === "x-max-results" ? "60" : name === "x-result" ? String(count) : null },
-        json: async () => ({ sport_events: Array.from({ length: count }, (_, i) => ({ sport_event: { id: `sr:sport_event:${start+i}` }, markets: [] })) })
+        json: async () => ({ sport_schedule_sport_event_markets: Array.from({ length: count }, (_, i) => ({ sport_event: { id: `sr:sport_event:${start+i}` }, markets: [] })) })
       };
     }
   });
