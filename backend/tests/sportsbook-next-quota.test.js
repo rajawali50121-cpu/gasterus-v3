@@ -23,3 +23,11 @@ test("quota exhaustion fails closed without retrying", async () => {
   );
   assert.equal(calls, 1);
 });
+
+test("hourly quota exhaustion has its own fail-closed signal", async () => {
+  const redis = { eval: async () => 2 };
+  await assert.rejects(
+    reserveSportradarCall(redis, { initialCallsUsed30Days: 0, maxCallsPer30Days: 100, maxCallsPerHour: 20 }, 1_800_000_000_000),
+    error => error.code === "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED"
+  );
+});
