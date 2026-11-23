@@ -2,6 +2,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { query, tx } from "../db.js";
 import { AppError, assert } from "../errors.js";
 import { postTransfer, postSystemTransfer, SYSTEM_ACCOUNTS } from "../ledger.js";
+import { enforceResponsiblePlay } from "../operations.js";
 import { redis } from "../redis.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
@@ -99,6 +100,7 @@ export async function placeSportsbookBet(memberSession, input) {
     const prior = await client.query("SELECT * FROM sportsbook_v2_tickets WHERE member_id=$1 AND idempotency_key=$2 FOR UPDATE", [memberSession.userId, idempotencyKey]);
     if (prior.rows[0]) { assert(prior.rows[0].metadata?.requestHash === requestHash, 409, "Idempotency-Key sudah dipakai untuk isi taruhan yang berbeda.", "IDEMPOTENCY_KEY_REUSED"); return { duplicate: true, ticket: prior.rows[0] }; }
 
+    await enforceResponsiblePlay(memberSession.userId, { kind: "BET", amount: stake, client, sessionCreatedAt: memberSession.createdAt });
     const ticketId = randomUUID();
     const inv = invoice();
     const ledger = await postTransfer(client, {
@@ -177,6 +179,7 @@ export async function refreshAndSettleSportsbookEvent(eventId) {
     let settled = 0, pending = 0;
     for (const row of tickets.rows) {
       const locked = (await clientTx.query("SELECT * FROM sportsbook_v2_tickets WHERE id=$1 FOR UPDATE", [row.id])).rows[0];
+      if (!locked || locked.status !== "OPEN") continue;
       const legs = (await clientTx.query(`SELECT l.*,m.market_name FROM sportsbook_v2_ticket_legs l
         LEFT JOIN sportsbook_v2_markets m ON m.provider_event_id=l.provider_event_id AND m.provider_market_key=l.provider_market_key
         WHERE l.ticket_id=$1 ORDER BY l.leg_no FOR UPDATE OF l`, [row.id])).rows;
