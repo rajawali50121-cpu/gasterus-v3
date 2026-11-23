@@ -212,6 +212,14 @@ test('worker rejects a 1,000-call trial quota before ten-minute full-snapshot po
   assert.equal(SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT, 4320);
   assert.throws(() => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 1000 }), /at least 4320 calls per 30 days/);
   assert.equal(assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 4320 }), true);
+  assert.throws(
+    () => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 10000 }, 3),
+    /3 API requests per cycle require 12960 calls per 30 days/
+  );
+  assert.throws(
+    () => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 5000, sportradarInitial30DayUsage: 1000 }, 1),
+    /available contracted allowance after current usage is 4000/
+  );
 });
 
 test('worker backs off after Sportradar 429 and does not permanently pause until redeploy', async () => {
