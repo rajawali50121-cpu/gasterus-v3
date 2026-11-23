@@ -333,8 +333,8 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const rawState = await redisClient.get(STATE_KEY);
     let stored = rawState ? JSON.parse(rawState) : null;
     const state = stored && Array.isArray(stored.events)
-      ? { ...stored, events: new Map(stored.events), lastChangeByEvent: stored.lastChangeByEvent || {} }
-      : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0, lastChangeLogTo: 0, lastChangeByEvent: {} };
+      ? { ...stored, events: new Map(stored.events) }
+      : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0 };
     const requestCountBefore = providerRequestCount;
     // Authoritative snapshot sync: never rely on the rolling five-minute Change Log
     // when the configured provider cadence is ten minutes.
