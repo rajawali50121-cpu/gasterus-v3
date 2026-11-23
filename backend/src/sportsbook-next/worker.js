@@ -121,24 +121,12 @@ async function runChangeLogCycle(config, client) {
     const lastSuccess = await redis.get(CHANGE_LOG_LAST_SUCCESS_KEY);
     const fullReconcile = shouldReconcileChangeLog(lastSuccess, now);
     const tracked = new Map(snapshot.events.map(event => [event.id, event]));
-    const changed = new Set();
-
-    if (fullReconcile) {
-      for (const eventId of tracked.keys()) changed.add(eventId);
-    }
-
-    // The feed reports changes in a rolling five-minute window. If that window
-    // may have been missed, first reconcile every tracked event, then consume
-    // the current change log so no changes during reconciliation are lost.
-    const changeLogResult = await client.getSportEventMarketsChangeLog();
-    for (const eventId of getChangedSportEventIds(changeLogResult.body, new Set(tracked.keys()))) {
-      changed.add(eventId);
-    }
-
     const refreshed = [];
-    for (const eventId of changed) {
+    const refreshedIds = new Set();
+
+    const refreshEvent = async eventId => {
       const previous = tracked.get(eventId);
-      if (!previous) continue;
+      if (!previous || refreshedIds.has(eventId)) return;
       const result = await client.getSportEventMarkets(eventId);
       const normalized = normalizeEventMarkets(result.body, new Date().toISOString());
       if (normalized.event.id !== eventId) {
@@ -151,7 +139,23 @@ async function runChangeLogCycle(config, client) {
         competitionId: previous.competitionId ?? null,
         markets: normalized.markets
       });
+      refreshedIds.add(eventId);
+    };
+
+    // The five-minute change-log window cannot be replayed. After startup or
+    // a missed window, refresh all tracked boards first, then consume the
+    // current change log and refresh any additional events it reports.
+    if (fullReconcile) {
+      for (const eventId of tracked.keys()) await refreshEvent(eventId);
     }
+
+    const changeLogResult = await client.getSportEventMarketsChangeLog();
+    const changeLogEnd = Number(changeLogResult.body?.status?.to);
+    const lastSuccessfulPollAt = Number.isFinite(changeLogEnd) && changeLogEnd > 0
+      ? changeLogEnd * 1000
+      : Date.now();
+    const changedIds = getChangedSportEventIds(changeLogResult.body, new Set(tracked.keys()));
+    for (const eventId of changedIds) await refreshEvent(eventId);
 
     const fetchedAt = new Date().toISOString();
     if (refreshed.length) {
@@ -167,13 +171,15 @@ async function runChangeLogCycle(config, client) {
     await redis.set(FEED_STATUS_KEY, JSON.stringify({
       attemptedAt: fetchedAt, complete: true, quotaLimited: false,
       quotaReason: null, budgetLimited: false, errorCount: 0,
-      changeLogPoll: true, fullReconcile, changedEvents: changed.size,
+      changeLogPoll: true, fullReconcile, changedEvents: changedIds.length,
       refreshedEvents: refreshed.length
     }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
-    await redis.set(CHANGE_LOG_LAST_SUCCESS_KEY, String(now), { EX: 30 * 24 * 60 * 60 });
+    // Store the change-log window end, not completion time: slow event refreshes
+    // must not hide a gap that could make the next five-minute window unqueryable.
+    await redis.set(CHANGE_LOG_LAST_SUCCESS_KEY, String(lastSuccessfulPollAt), { EX: 30 * 24 * 60 * 60 });
     await redis.set(HEARTBEAT_KEY, fetchedAt, { EX: 600 });
     return {
-      calls: client.cycleCalls, fullReconcile, changedEvents: changed.size,
+      calls: client.cycleCalls, fullReconcile, changedEvents: changedIds.length,
       refreshedEvents: refreshed.length, complete: true
     };
   } catch (error) {
@@ -249,10 +255,14 @@ async function main() {
     now = Date.now();
     if (config.changeLogEnabled && now >= nextChangeLogAt) {
       client.cycleCalls = 0;
+      const changeLogCycleStartedAt = Date.now();
       try {
         const result = await runChangeLogCycle(config, client);
         const quotaUsage = await getSportradarQuotaUsage(redis, config).catch(() => null);
         logger.info("Sportradar Prematch change-log refresh completed", { ...result, quotaUsage });
+        // Schedule from cycle start so network/DB work does not push polling
+        // beyond the provider's rolling five-minute window.
+        nextChangeLogAt = Math.max(Date.now(), changeLogCycleStartedAt + config.changeLogPollMs);
       } catch (error) {
         logger.warn("Sportradar Prematch change-log refresh stopped safely", {
           code: error?.code || "SPORTRADAR_CHANGELOG_POLL_FAILED",
@@ -268,7 +278,6 @@ async function main() {
           : config.changeLogPollMs;
         nextChangeLogAt = Date.now() + retryDelayMs;
       }
-      if (nextChangeLogAt <= Date.now()) nextChangeLogAt = Date.now() + config.changeLogPollMs;
     }
 
     const nextRunAt = config.changeLogEnabled
