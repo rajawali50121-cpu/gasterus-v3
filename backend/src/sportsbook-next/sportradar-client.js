@@ -20,7 +20,7 @@ export class SportradarClient {
 
   async request(baseUrl, path, query = {}) {
     if (this.callsUsed30Days >= this.config.maxCallsPer30Days) throw new Error("SPORTRADAR_30_DAY_QUOTA_EXHAUSTED");
-    const url = new URL(`${baseUrl}/${String(path).replace(/^\\/+/, "")}.json`);
+    const url = new URL(`${baseUrl}/${String(path).replace(/^\/+/, "")}.json`);
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     if (this.beforeRequest) await this.beforeRequest();
     const controller = new AbortController();
