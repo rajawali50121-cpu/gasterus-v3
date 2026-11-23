@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { query, tx } from "../db.js";
 import { AppError, assert } from "../errors.js";
-import { postTransfer, postSystemTransfer, SYSTEM_ACCOUNTS } from "../ledger.js";
+import { postTransfer, postSystemTransfer, memberAccount, SYSTEM_ACCOUNTS } from "../ledger.js";
 import { enforceResponsiblePlay } from "../operations.js";
 import { redis } from "../redis.js";
 import { loadSportsbookConfig } from "./config.js";
@@ -186,6 +186,9 @@ export async function refreshAndSettleSportsbookEvent(eventId) {
       const amount = finalStatus === "VOID" ? Number(locked.stake)
         : finalStatus === "WON" ? calculateTicketPayout(Number(locked.stake), settledLegs) : 0;
       if (finalStatus === "LOST") {
+        const accounts = await clientTx.query("SELECT account_code,current_balance FROM ledger_accounts WHERE account_code=ANY($1::text[]) ORDER BY account_code FOR UPDATE", [[SYSTEM_ACCOUNTS.CLEARING, SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD]]);
+        const holdAccount = accounts.rows.find(account => account.account_code === SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD);
+        assert(holdAccount && Number(holdAccount.current_balance) >= Number(locked.stake), 409, "Saldo dana sportsbook hold tidak mencukupi untuk settlement.", "SPORTSBOOK_HOLD_INSUFFICIENT");
         const transfer = await postSystemTransfer(clientTx, {
           fromCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD, toCode: SYSTEM_ACCOUNTS.CLEARING, amount: Number(locked.stake),
           type: "SPORTSBOOK_BET_LOST", referenceType: "SPORTSBOOK_V2_TICKET", referenceId: locked.id,
@@ -193,6 +196,9 @@ export async function refreshAndSettleSportsbookEvent(eventId) {
         });
         assert(!transfer.duplicate, 409, "Settlement loss sudah pernah diproses.", "SPORTSBOOK_SETTLEMENT_DUPLICATE");
       } else {
+        await memberAccount(clientTx, locked.member_id, true);
+        const hold = await clientTx.query("SELECT current_balance FROM ledger_accounts WHERE account_code=$1 FOR UPDATE", [SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD]);
+        assert(hold.rows[0] && Number(hold.rows[0].current_balance) >= amount, 409, "Saldo dana sportsbook hold tidak mencukupi untuk payout/refund.", "SPORTSBOOK_HOLD_INSUFFICIENT");
         const transfer = await postTransfer(clientTx, {
           memberId: locked.member_id, systemCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD, memberDelta: amount,
           type: finalStatus === "WON" ? "SPORTSBOOK_PAYOUT" : "SPORTSBOOK_VOID_REFUND",
