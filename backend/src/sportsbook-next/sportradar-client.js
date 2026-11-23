@@ -9,6 +9,12 @@ function safeProviderError(status) {
   return providerError(`SPORTRADAR_HTTP_${status}`, `Sportradar request failed (HTTP ${status})`, { httpStatus: status });
 }
 
+function encodeUrnPathSegment(value) {
+  // Sportradar examples use colon-delimited URNs as literal path segments.
+  // Keep the separators intact while still escaping any other unsafe chars.
+  return encodeURIComponent(String(value)).replace(/%3A/gi, ":");
+}
+
 export class SportradarClient {
   constructor(config, { fetchImpl = fetch, now = () => Date.now(), beforeRequest = null, onResponse = null } = {}) {
     this.config = config;
@@ -86,10 +92,10 @@ export class SportradarClient {
 
   getSports() { return this.request(this.config.prematchBaseUrl, "sports"); }
   getBooks() { return this.request(this.config.prematchBaseUrl, "books"); }
-  getCompetitions(sportId) { return this.request(this.config.prematchBaseUrl, `sports/${encodeURIComponent(sportId)}/competitions`); }
+  getCompetitions(sportId) { return this.request(this.config.prematchBaseUrl, `sports/${encodeUrnPathSegment(sportId)}/competitions`); }
   getDailySchedules(sportId, date, { start = 0, limit = 50 } = {}) {
     return this.request(this.config.prematchBaseUrl,
-      `sports/${encodeURIComponent(sportId)}/schedules/${encodeURIComponent(date)}/schedules`, { start, limit });
+      `sports/${encodeUrnPathSegment(sportId)}/schedules/${encodeURIComponent(date)}/schedules`, { start, limit });
   }
   async getAllDailySchedules(sportId, date, { pageSize = 50, maxPages = 20 } = {}) {
     const items = [];
@@ -122,7 +128,7 @@ export class SportradarClient {
   }
   getDailySportEventMarkets(sportId, date, { start = 0, limit = 50 } = {}) {
     return this.request(this.config.prematchBaseUrl,
-      `sports/${encodeURIComponent(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets`, { start, limit });
+      `sports/${encodeUrnPathSegment(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets`, { start, limit });
   }
   async getAllDailySportEventMarkets(sportId, date, { pageSize = 50, maxPages = 10 } = {}) {
     const items = [];
@@ -163,7 +169,7 @@ export class SportradarClient {
     return { body: { sport_events: items } };
   }
   getSportEventMarkets(eventId) {
-    return this.request(this.config.prematchBaseUrl, `sport_events/${encodeURIComponent(eventId)}/sport_event_markets`);
+    return this.request(this.config.prematchBaseUrl, `sport_events/${encodeUrnPathSegment(eventId)}/sport_event_markets`);
   }
   getSportEventMarketsChangeLog() {
     return this.request(this.config.prematchBaseUrl, "sport_event_markets_changelog");
