@@ -15,7 +15,9 @@ Object.assign(process.env, {
 const {
   buildSportsbookRenderSnapshot,
   combineSportsbookProviderResults,
-  sportsbookRenderIntervalSeconds
+  sportsbookRenderIntervalSeconds,
+  assertSportradarQuotaCapacity,
+  SPORTRADAR_MIN_MONTHLY_CALLS_FOR_CHANGELOG
 } = await import('../src/sportsbook-render-worker-core.js');
 const { validateSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
 const { __sportradarNormalizer } = await import('../src/sportradar-normalizer.js');
@@ -193,23 +195,23 @@ test('worker publishes a valid empty Sportradar schedule without fabricating fix
   assert.deepEqual(snapshot.providerResults[0].events, []);
 });
 
-test('worker cadence follows Sportradar freshness or the daily WIB schedule', () => {
+test('worker never polls the five-minute Sportradar Change Log faster than the safe four-minute cadence', () => {
   assert.equal(sportsbookRenderIntervalSeconds({
     sportsbookDailyRefreshEnabled: true,
-    sportradarRefreshSeconds: 300,
-    sportsbookIngestMaxAgeSeconds: 600
-  }), 60);
-  assert.equal(sportsbookRenderIntervalSeconds({
-    sportsbookDailyRefreshEnabled: false,
-    sportradarEnabled: true,
-    sportradarRefreshSeconds: 45,
-    sportsbookIngestMaxAgeSeconds: 600
-  }), 45);
-  assert.equal(sportsbookRenderIntervalSeconds({
-    sportsbookDailyRefreshEnabled: false,
-    sportradarRefreshSeconds: 300,
+    sportradarRefreshSeconds: 60,
     sportsbookIngestMaxAgeSeconds: 60
-  }), 30);
+  }), 240);
+  assert.equal(sportsbookRenderIntervalSeconds({
+    sportsbookDailyRefreshEnabled: false,
+    sportradarRefreshSeconds: 3600,
+    sportsbookIngestMaxAgeSeconds: 30
+  }), 240);
+});
+
+test('worker rejects a 1,000-call trial quota before any continuous Change Log polling', () => {
+  assert.equal(SPORTRADAR_MIN_MONTHLY_CALLS_FOR_CHANGELOG, 10800);
+  assert.throws(() => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 1000 }), /at least 10800 calls per 30 days/);
+  assert.equal(assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 10800 }), true);
 });
 
 test('worker backs off after Sportradar 429 and does not permanently pause until redeploy', async () => {
@@ -228,7 +230,8 @@ test('worker continuously polls the Sportradar change log instead of using the d
     fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
   );
   assert.match(workerSource, /fetchSportradarV2/);
-  assert.match(workerSource, /Sportradar prematch change log is a rolling five-minute window/);
+  assert.match(workerSource, /Sportradar prematch Change Log is a rolling five-minute window/);
+  assert.match(workerSource, /assertSportradarQuotaCapacity\(config\)/);
   assert.match(workerSource, /if \(cronOnce\) \{[\s\S]*?break;/);
   assert.doesNotMatch(workerSource, /nextSportsbookDailyRefreshMs|dailySlotDue/);
 });
