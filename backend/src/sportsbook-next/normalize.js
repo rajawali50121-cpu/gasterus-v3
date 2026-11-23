@@ -38,12 +38,17 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
           name: outcome.name ?? null,
           oddsDecimal: price,
           openingOddsDecimal: Number.isFinite(Number(outcome.open_odds_decimal)) ? Number(outcome.open_odds_decimal) : null,
-          line: outcome.line ?? null
+          line: outcome.handicap ?? outcome.total ?? outcome.spread ?? outcome.line ?? null,
+          fieldId: outcome.field_id ?? null,
+          externalOutcomeId: outcome.external_outcome_id ?? null,
+          playerId: outcome.player_id ?? null,
+          playerName: outcome.player_name ?? null
         }];
       });
       return outcomes.length ? [{ id: book.id, name: book.name ?? null, outcomes }] : [];
     });
-    return [{ id: marketId, name: market.name ?? null, live: market.is_live === true, books }];
+    const name = market.name ?? marketId;
+    return [{ id: marketId, key: `${marketId}|${name}`, name, live: market.is_live === true, books }];
   });
   return {
     schemaVersion: 1,
