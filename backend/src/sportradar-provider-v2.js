@@ -130,9 +130,20 @@ async function requestJson(path, params = {}) {
           : Number.isFinite(retryAt) ? Math.max(0, retryAt - Date.now()) : 0;
       }
       const body = clean(await response.text().catch(() => ''), 160);
+      const responseDiagnostics = {
+        httpStatus: 429,
+        retryAfter: retryAfter || null,
+        rateLimitLimit: response.headers?.get?.('x-ratelimit-limit') || response.headers?.get?.('x-rate-limit-limit') || null,
+        rateLimitRemaining: response.headers?.get?.('x-ratelimit-remaining') || response.headers?.get?.('x-rate-limit-remaining') || null,
+        rateLimitReset: response.headers?.get?.('x-ratelimit-reset') || response.headers?.get?.('x-rate-limit-reset') || null,
+        rateLimitBucket: response.headers?.get?.('x-ratelimit-bucket') || response.headers?.get?.('x-rate-limit-bucket') || null,
+        originId: response.headers?.get?.('x-origin-id') || null,
+        result: response.headers?.get?.('x-result') || null
+      };
       const error = new Error(`Sportradar Limit Exceeded (HTTP 429); retry-after=${retryAfter || 'not-provided'}; ${body}`);
       error.code = 'SPORTRADAR_LIMIT_EXCEEDED';
       error.retryAfterMs = retryAfterMs;
+      error.diagnostics = responseDiagnostics;
       throw error;
     }
     if (response.status === 404) {
