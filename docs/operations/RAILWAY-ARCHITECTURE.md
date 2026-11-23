@@ -9,7 +9,7 @@ Canonical deployment source: `railway-migration-fix-039`.
 | `gasterus-v3` | Public API, authentication, member/admin APIs, TOTO, wallet, ledger and existing application logic |
 | PostgreSQL | Durable application, member, ticket and financial records |
 | Redis | Cache, queues, coordination and worker heartbeats |
-| `sportsbook-render-worker` | Dedicated replacement Sportradar ingestion worker; isolated from the shared TOTO/financial workers |
+| Dedicated Sportradar v2 worker | Isolated odds ingestion, quota enforcement and snapshot persistence; no TOTO or wallet scheduler coupling |
 | `gasterus-db-migration` | One-shot reviewed database migrations |
 
 ## Sportradar sportsbook replacement
