@@ -3,7 +3,7 @@
    Untuk PWA: Offline caching dasar
    ========================================================================== */
 
-const CACHE_NAME = 'gasterus-v3-cache-v14-casino-lobby';
+const CACHE_NAME = 'gasterus-v3-cache-v15-sportsbook-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -16,6 +16,7 @@ const STATIC_ASSETS = [
   '/number-history.html',
   '/promotion.html',
   '/casino.html',
+  '/sportsbook.html',
   '/privacy.html',
   '/referral.html',
   '/rules.html',
