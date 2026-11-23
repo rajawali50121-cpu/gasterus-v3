@@ -88,7 +88,7 @@ test("client calls documented endpoints, authenticates by x-api-key and stops on
     }
   });
   await assert.rejects(client.getDailySchedules("sr:sport:1", "2026-11-23"), error => error.code === "SPORTRADAR_RATE_LIMITED" && error.retryAfter === "900");
-  assert.match(requested, /sports\\/sr:sport:1\\/schedules\/2026-11-23\/schedules\.json\?start=0&limit=50/);
+  assert.match(requested, /sports\/sr:sport:1\/schedules\/2026-11-23\/schedules\.json\?start=0&limit=50/);
   assert.equal(calls, 1);
 });
 
@@ -174,7 +174,7 @@ test("client preserves safe HTTP status codes for provider diagnostics", async (
 });
 
 test("quota usage reports rolling hourly and 30-day consumption without exposing keys", async () => {
-  const config = { initialCallsUsed30Days: 10, maxCallsPer30Days: 500, maxCallsPerHour: 20 };
+  const config = { initialCallsUsed30Days: 10, maxCallsPer30Days: 500, maxCallsPerHour: 0 };
   const usage = await getSportradarQuotaUsage({ eval: async (_script, args) => {
     assert.deepEqual(args.keys, ["sportsbook:next:sportradar:quota:v1", "sportsbook:next:sportradar:quota-baseline:v1"]);
     return [7, 123];
