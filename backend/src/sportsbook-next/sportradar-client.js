@@ -52,6 +52,27 @@ export class SportradarClient {
     return this.request(this.config.prematchBaseUrl,
       `sports/${encodeURIComponent(sportId)}/schedules/${encodeURIComponent(date)}/schedules`, { start, limit });
   }
+  async getAllDailySchedules(sportId, date, { pageSize = 50, maxPages = 20 } = {}) {
+    const items = [];
+    let start = 0;
+    for (let page = 0; page < maxPages; page += 1) {
+      const result = await this.getDailySchedules(sportId, date, { start, limit: pageSize });
+      const rows = result.body?.schedules ?? [];
+      items.push(...rows);
+      const reported = Number(result.headers.get("x-max-results"));
+      const received = Number(result.headers.get("x-result"));
+      if (Number.isFinite(reported) && reported > start + rows.length) {
+        start += rows.length || pageSize;
+        continue;
+      }
+      if (Number.isFinite(received) && received >= pageSize) {
+        start += rows.length || pageSize;
+        continue;
+      }
+      break;
+    }
+    return items;
+  }
   getSportEventMarkets(eventId) {
     return this.request(this.config.prematchBaseUrl, `sport_events/${encodeURIComponent(eventId)}/sport_event_markets`);
   }
