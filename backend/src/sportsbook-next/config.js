@@ -22,7 +22,7 @@ export function loadSportsbookConfig(env = process.env) {
   // budget and per-cycle ceiling remain enforced as independent safeguards.
   const maxCallsPerHour = 0;
   const changeLogEnabled = String(env.SPORTRADAR_CHANGELOG_ENABLED || "false").toLowerCase() === "true";
-  const changeLogPollSeconds = requiredPositiveInteger("SPORTRADAR_CHANGELOG_POLL_SECONDS", env.SPORTRADAR_CHANGELOG_POLL_SECONDS ?? 300);
+  const changeLogPollSeconds = requiredPositiveInteger("SPORTRADAR_CHANGELOG_POLL_SECONDS", env.SPORTRADAR_CHANGELOG_POLL_SECONDS ?? 240);
   if (changeLogPollSeconds < 60 || changeLogPollSeconds > 300) {
     throw new Error("SPORTRADAR_CHANGELOG_POLL_SECONDS must be between 60 and 300 seconds");
   }
