@@ -34,7 +34,7 @@ export function assertSportradarQuotaCapacity(settings, requestsPerCycle = 1) {
       initialUsage < 0 || initialUsage > monthlyLimit ||
       availableMonthlyCalls < requiredMonthlyCalls) {
     throw new Error(
-      `Sportradar quota is insufficient for ten-minute full-snapshot polling: ${callsPerCycle} API requests per cycle require ${requiredMonthlyCalls} calls per 30 days; available contracted allowance after current usage is ${Math.max(0, availableMonthlyCalls)} of ${Number.isFinite(monthlyLimit) ? monthlyLimit : 0}. This excludes future growth in schedule pagination. Upgrade the provider quota or reduce the covered sports/date horizon.`
+      `Sportradar quota is insufficient for ten-minute full-snapshot polling: ${callsPerCycle} API requests per cycle require at least ${requiredMonthlyCalls} calls per 30 days; available contracted allowance after current usage is ${Math.max(0, availableMonthlyCalls)} of ${Number.isFinite(monthlyLimit) ? monthlyLimit : 0}. This excludes future growth in schedule pagination. Upgrade the provider quota or reduce the covered sports/date horizon.`
     );
   }
   const hourlyLimit = Number(settings?.sportradarSharedMaxCallsPerHour || 0);
