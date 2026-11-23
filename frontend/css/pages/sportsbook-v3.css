@@ -4714,11 +4714,12 @@ body.sb-page.sb-premium .sb-error {
 }
 @media (max-width: 1100px) {
   body.sb-page.sb-premium .sb-layout {
-    grid-template-columns: 190px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
+  body.sb-page.sb-premium .sb-sidebar { display: none; }
   body.sb-page.sb-premium .sb-betslip {
     position: static;
-    grid-column: 2;
+    grid-column: 1;
   }
 }
 @media (max-width: 760px) {
