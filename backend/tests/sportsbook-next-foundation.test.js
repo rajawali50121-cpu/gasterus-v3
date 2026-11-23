@@ -240,6 +240,10 @@ test("bulk daily markets reads the official Prematch root key and logs safe resp
   const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25");
   assert.equal(result.body.sport_events.length, 1);
   assert.equal(result.body.sport_events[0].sport_event.id, "sr:sport_event:987");
+  const normalized = normalizeDailySportEventMarkets(result.body, "sr:sport:1");
+  assert.equal(normalized.length, 1);
+  assert.equal(normalized[0].id, "sr:sport_event:987");
+  assert.equal(normalized[0].markets[0].books[0].outcomes[0].oddsDecimal, 2.1);
   assert.equal(diagnostic.httpStatus, 200);
   assert.deepEqual(diagnostic.topLevelKeys, ["generated_at", "sport_schedule_sport_event_markets"]);
   assert.deepEqual(diagnostic.arrayCounts, { sport_schedule_sport_event_markets: 1 });
@@ -285,4 +289,19 @@ test("bulk daily markets paginate with a hard page ceiling", async () => {
   const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-23", { maxPages: 3 });
   assert.equal(result.body.sport_events.length, 60);
   assert.deepEqual(offsets, [0, 50]);
+});
+
+
+test("bulk daily markets fails loudly when the documented response array is missing", async () => {
+  const config = loadSportsbookConfig(env);
+  const client = new SportradarClient(config, {
+    fetchImpl: async () => ({
+      ok: true, status: 200, headers: { get: () => null },
+      json: async () => ({ unexpected_payload: [] })
+    })
+  });
+  await assert.rejects(
+    client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25"),
+    error => error.code === "SPORTRADAR_BULK_MARKETS_SHAPE_INVALID"
+  );
 });
