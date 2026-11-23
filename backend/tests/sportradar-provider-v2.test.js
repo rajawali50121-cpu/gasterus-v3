@@ -197,7 +197,7 @@ test('subsequent cycles poll the five-minute Change Log and refresh only changed
 });
 
 test('overlapping five-minute Change Log windows do not refetch events already processed', async () => {
-  installRedis();
+  const client = installRedis();
   installFullSyncFetch();
   await fetchSportradarV2({ daysAhead: 1 });
   const change = {
@@ -224,6 +224,8 @@ test('overlapping five-minute Change Log windows do not refetch events already p
   const first = await fetchSportradarV2({ daysAhead: 1 });
   assert.equal(first.diagnostics.eventsRefreshed, 1);
   assert.equal(eventRefreshCalls, 1);
+  const persisted = JSON.parse(await client.get('sportsbook:sportradar:v2:state'));
+  assert.equal(persisted.lastChangeByEvent[change.id], change.sport_event_markets_odds_change);
   const second = await fetchSportradarV2({ daysAhead: 1 });
   assert.equal(second.diagnostics.eventsRefreshed, 0);
   assert.equal(eventRefreshCalls, 1);
