@@ -7,6 +7,7 @@ import { redis } from "../redis.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
 import { reserveSportradarCall } from "./quota.js";
+import { evaluateSoccer1x2Leg, evaluateTicketStatus, calculateTicketPayout } from "./settlement-rules.js";
 
 const MAX_LEGS = 10;
 const MAX_STAKE = 1_000_000_000;
@@ -137,16 +138,6 @@ export async function placeSportsbookBet(memberSession, input) {
   }, { isolation: "SERIALIZABLE" });
 }
 
-function resultForLeg(leg, result) {
-  if (result.cancelled) return "VOID";
-  const type = String(leg.result_payload?.outcomeType || leg.outcome_type || "").toLowerCase();
-  const marketName = String(leg.market_name || leg.result_payload?.marketName || "").toLowerCase();
-  if (!/(1x2|3.?way|winner|moneyline)/.test(marketName)) return null;
-  const winner = result.homeScore > result.awayScore ? "home" : result.homeScore < result.awayScore ? "away" : "draw";
-  if (type === "home" || type === "away" || type === "draw") return type === winner ? "WON" : "LOST";
-  return null;
-}
-
 export async function refreshAndSettleSportsbookEvent(eventId) {
   assert(/^sr:sport_event:\d+$/.test(String(eventId || "")), 400, "ID pertandingan tidak valid.", "SPORTSBOOK_EVENT_ID_INVALID");
   const eventRow = (await query("SELECT scheduled_at FROM sportsbook_v2_events WHERE provider_event_id=$1", [eventId])).rows[0];
@@ -185,26 +176,15 @@ export async function refreshAndSettleSportsbookEvent(eventId) {
         WHERE l.ticket_id=$1 ORDER BY l.leg_no FOR UPDATE OF l`, [row.id])).rows;
       const target = legs.find(leg => leg.provider_event_id === eventId && leg.result_status === "PENDING");
       if (!target) continue;
-      const mapped = resultForLeg({ ...target, result_payload: target.result_payload }, { homeScore, awayScore, cancelled });
+      const mapped = evaluateSoccer1x2Leg({ marketName: target.market_name || target.result_payload?.marketName, outcomeType: target.result_payload?.outcomeType, homeScore, awayScore, cancelled });
       if (!mapped) { pending++; continue; }
       await clientTx.query("UPDATE sportsbook_v2_ticket_legs SET result_status=$1,result_payload=result_payload||$2::jsonb WHERE id=$3",
         [mapped, JSON.stringify({ verifiedResult: { status, homeScore, awayScore, sourceUpdatedAt } }), target.id]);
-      const statuses = legs.map(leg => leg.id === target.id ? mapped : leg.result_status);
-      let finalStatus = null;
-      if (statuses.includes("LOST")) finalStatus = "LOST";
-      else if (statuses.every(value => value === "WON" || value === "VOID" || value === "PUSH")) {
-        finalStatus = statuses.every(value => value !== "WON") ? "VOID" : "WON";
-      }
+      const settledLegs = legs.map(leg => leg.id === target.id ? { ...leg, result_status: mapped } : leg);
+      const finalStatus = evaluateTicketStatus(settledLegs.map(leg => leg.result_status));
       if (!finalStatus) { pending++; continue; }
-      let amount = 0;
-      if (finalStatus === "VOID") amount = Number(locked.stake);
-      if (finalStatus === "WON") {
-        const settledOdds = legs.reduce((product, leg) => {
-          if (leg.id === target.id ? mapped === "VOID" : leg.result_status === "VOID" || leg.result_status === "PUSH") return product;
-          return product * Number(leg.accepted_odds);
-        }, 1);
-        amount = Math.floor(Number(locked.stake) * settledOdds);
-      }
+      const amount = finalStatus === "VOID" ? Number(locked.stake)
+        : finalStatus === "WON" ? calculateTicketPayout(Number(locked.stake), settledLegs) : 0;
       if (finalStatus === "LOST") {
         const transfer = await postSystemTransfer(clientTx, {
           fromCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD, toCode: SYSTEM_ACCOUNTS.CLEARING, amount: Number(locked.stake),
