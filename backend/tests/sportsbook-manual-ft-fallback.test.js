@@ -54,25 +54,25 @@ function event({ live = false, status = 'SCHEDULED', markets = [market('FT'), ma
   };
 }
 
-test('healthy Sportradar prematch FT and priced HT markets are bettable with explicit manual settlement', () => {
+test('Sportradar odds and manual-ops markers cannot unlock new FT or HT markets', () => {
   const [merged] = mergeProviderEvents([{
     provider: 'sportradar',
     enabled: true,
     events: [event()]
   }], { enabled: true });
-  assert.deepEqual(merged._settlementReadySources, ['sportradar', 'manual-ops']);
-  assert.equal(merged.markets.find(item => item.period === 'FT').suspended, false);
-  assert.equal(merged.markets.find(item => item.period === '1H').suspended, false);
-  assert.equal(merged.markets.find(item => item.period === '1H').oddsDisplayOnly, false);
-  assert.equal(merged._settlementMode, 'MANUAL_FT_HT_FALLBACK');
+  assert.deepEqual(merged._settlementReadySources, ['sportradar']);
+  assert.equal(merged.markets.find(item => item.period === 'FT').suspended, true);
+  assert.equal(merged.markets.find(item => item.period === '1H').suspended, true);
+  assert.equal(merged.markets.find(item => item.period === '1H').oddsDisplayOnly, true);
+  assert.equal(merged._settlementMode, undefined);
   const authority = eventSettlementAuthority(merged);
-  assert.equal(authority.ft, true);
+  assert.equal(authority.ft, false);
   assert.equal(authority.ht, false);
   assert.equal(authority.automaticFt, false);
-  assert.equal(authority.manualFt, true);
+  assert.equal(authority.manualFt, false);
 });
 
-test('manual FT authority cannot unlock HT/FT combo markets without HT authority', () => {
+test('legacy manual-ops source cannot unlock FT or HT/FT combo markets', () => {
   const htFt = market('HT_FT', 'market-HT_FT');
   htFt.type = 'HT_FT';
   const [merged] = mergeProviderEvents([{
@@ -80,7 +80,7 @@ test('manual FT authority cannot unlock HT/FT combo markets without HT authority
     enabled: true,
     events: [event({ markets: [market('FT'), htFt] })]
   }], { enabled: true });
-  assert.equal(merged.markets.find(item => item.period === 'FT').suspended, false);
+  assert.equal(merged.markets.find(item => item.period === 'FT').suspended, true);
   assert.equal(merged.markets.find(item => item.period === 'HT_FT').suspended, true);
 });
 
@@ -129,13 +129,14 @@ test('manual operator HT betting never becomes automatic HT settlement authority
   assert.equal(evaluateSportsbookLeg(htLeg, { ...result, settlementAuthority: manual }), null);
 });
 
-test('settlement summary exposes manual FT but never automatic or HT authority', () => {
+test('settlement summary excludes legacy manual-ops as new market authority', () => {
   const summary = settlementAuthoritySummary([{
     _sources: ['sportradar', 'manual-ops'],
     _settlementReadySources: ['sportradar', 'manual-ops']
   }]);
-  assert.equal(summary.ftEvents, 1);
+  assert.equal(summary.ftEvents, 0);
   assert.equal(summary.htEvents, 0);
   assert.equal(summary.automaticFtEvents, 0);
-  assert.equal(summary.manualFtEvents, 1);
+  assert.equal(summary.manualFtEvents, 0);
+  assert.deepEqual(summary.sources, []);
 });
