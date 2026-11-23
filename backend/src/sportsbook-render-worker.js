@@ -50,8 +50,8 @@ if (config.nodeEnv === 'production') {
     throw new Error('Production sportsbook worker requires production Sportradar access.');
   }
 }
-// Fail before making any provider request when the contracted quota cannot
-// sustain the ten-minute full-snapshot baseline.
+// Fail before making provider requests when the remaining quota cannot cover
+// a conservative first snapshot plus the 50-call safety reserve.
 assertSportradarQuotaCapacity(config);
 
 const endpoint = String(process.env.SPORTSBOOK_INGEST_URL || '').trim();
