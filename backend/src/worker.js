@@ -477,9 +477,6 @@ async function main() {
     queue: config.queueName,
     processingQueue
   });
-    enabled: config.sportsbookAutoSettlementEnabled,
-    seconds: config.sportsbookAutoSettlementSeconds
-  });
 
   let lastTotoSettlement = 0;
   let lastMoneyCleanup = 0;
