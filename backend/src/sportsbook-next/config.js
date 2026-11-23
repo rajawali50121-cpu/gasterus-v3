@@ -21,6 +21,15 @@ export function loadSportsbookConfig(env = process.env) {
   // GASTERUS does not impose a rolling one-hour cap. The rolling 30-day
   // budget and per-cycle ceiling remain enforced as independent safeguards.
   const maxCallsPerHour = 0;
+  const changeLogEnabled = String(env.SPORTRADAR_CHANGELOG_ENABLED || "false").toLowerCase() === "true";
+  const changeLogPollSeconds = requiredPositiveInteger("SPORTRADAR_CHANGELOG_POLL_SECONDS", env.SPORTRADAR_CHANGELOG_POLL_SECONDS ?? 300);
+  if (changeLogPollSeconds < 60 || changeLogPollSeconds > 300) {
+    throw new Error("SPORTRADAR_CHANGELOG_POLL_SECONDS must be between 60 and 300 seconds");
+  }
+  const minimumChangeLogCalls30Days = Math.ceil((30 * 24 * 60 * 60) / changeLogPollSeconds);
+  if (changeLogEnabled && maxCallsPer30Days < minimumChangeLogCalls30Days + maxCallsPerCycle) {
+    throw new Error("SPORTRADAR_CHANGELOG_ENABLED requires a 30-day request budget covering every change-log poll plus the per-cycle safety reserve");
+  }
   const daysAhead = requiredPositiveInteger("SPORTRADAR_DAYS_AHEAD", env.SPORTRADAR_DAYS_AHEAD ?? 1);
   const sportIds = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").map(v => v.trim()).filter(Boolean);
   if (!sportIds.length || sportIds.some(id => !/^sr:sport:\d+$/.test(id))) throw new Error("SPORTRADAR_SPORT_IDS must be comma-separated Sportradar sport URNs");
@@ -29,6 +38,8 @@ export function loadSportsbookConfig(env = process.env) {
     apiKey, accessLevel, language, sportIds, daysAhead,
     pollIntervalMs: pollMinutes * MINUTE,
     maxCallsPerCycle, maxCallsPerHour, maxCallsPer30Days, initialCallsUsed30Days,
+    changeLogEnabled, changeLogPollMs: changeLogPollSeconds * 1000,
+    minimumChangeLogCalls30Days,
     maxSnapshotAgeMs: pollMinutes * MINUTE * 2,
     prematchBaseUrl: `https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${language}`,
     soccerBaseUrl: `https://api.sportradar.com/soccer/${accessLevel}/v4/${language}`,
