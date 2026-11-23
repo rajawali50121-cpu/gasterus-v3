@@ -72,8 +72,8 @@ console.info(JSON.stringify({
   ingestPath: ingestUrl.pathname
 }));
 
-const snapshotIntervalSeconds = sportsbookRenderIntervalSeconds(config);
-const intervalMs = snapshotIntervalSeconds * 1000;
+let requestsPerCycleEstimate = 10;
+let intervalMs = sportsbookRenderIntervalSeconds(config, requestsPerCycleEstimate) * 1000;
 const MAX_TIMER_DELAY_MS = 2_000_000_000;
 async function sleepInChunks(delayMs, signal) {
   let remaining = Math.max(0, Number(delayMs) || 0);
@@ -101,6 +101,9 @@ while (!shutdown.signal.aborted) {
       fetchSportradar: () => fetchSportradarV2({}),
     });
     const snapshotBuiltAt = Date.now();
+    const providerDiagnostics = snapshot.providerResults.find(result => result.provider === 'sportradar')?.diagnostics || {};
+    requestsPerCycleEstimate = Math.max(requestsPerCycleEstimate, Number(providerDiagnostics.apiRequests || 0));
+    intervalMs = sportsbookRenderIntervalSeconds(config, requestsPerCycleEstimate) * 1000;
     const accepted = await postSportsbookSnapshot(endpoint, snapshot, {
       secret: config.sportsbookIngestHmacSecret,
     });
@@ -123,6 +126,7 @@ while (!shutdown.signal.aborted) {
       buildDurationMs: snapshotBuiltAt - cycleStartedAt,
       deliveryDurationMs: acceptedAt - snapshotBuiltAt,
       cycleDurationMs: acceptedAt - cycleStartedAt,
+      requestsPerCycleEstimate,
       nextRefreshInMs: Math.max(0, intervalMs - (acceptedAt - cycleStartedAt))
     }));
     nextDelayMs = Math.max(0, intervalMs - (acceptedAt - cycleStartedAt));
