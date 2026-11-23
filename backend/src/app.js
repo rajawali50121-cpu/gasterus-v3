@@ -27,6 +27,7 @@ import { totoMarketsHealth, totoMarketsDetail, simpleHealth } from './health-che
 import { requestMemberPasswordReset, resetMemberPasswordByToken } from './password-reset.js';
 import { casinoProviders, casinoGames, casinoPassthrough, casinoRapidApiStatus, diagnoseCasinoUpstream, launchCasinoGame } from './casino-rapidapi.js';
 import { processBetnexCallback, recordBetnexCallbackLog } from './casino-wallet.js';
+import { placeSportsbookBet, refreshAndSettleSportsbookEvent } from './sportsbook-next/betting.js';
 
 const startedAt=Date.now();const metrics={requests:0,errors:0,rateLimited:0,latencyTotal:0};
 const route=(method,pattern,handler,options={})=>({method,pattern,handler,...options});
@@ -57,7 +58,20 @@ add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
   try { snapshot=JSON.parse(raw); } catch { throw new AppError(503,'Snapshot Sportradar tidak valid.','SPORTSBOOK_SNAPSHOT_INVALID'); }
   const ageMs=Math.max(0,Date.now()-Date.parse(snapshot.fetchedAt||''));
   if(!Number.isFinite(ageMs)||ageMs>5*60*60*1000) throw new AppError(503,'Feed Sportradar sudah kedaluwarsa.','SPORTSBOOK_FEED_STALE');
-  ok(res,{...snapshot,ageMs,betAcceptanceEnabled:false});
+  ok(res,{...snapshot,ageMs,betAcceptanceEnabled:process.env.SPORTSBOOK_V2_BET_ACCEPTANCE_ENABLED==='true'});
+});
+add('POST',/^\\/api\\/member\\/sportsbook\\/v2\\/tickets$/,async({req,res,ip})=>{
+  const s=await memberSession(req);requireCsrf(req,s);await rateLimit(req,'sportsbook-v2-place',12,60);
+  assert(process.env.SPORTSBOOK_V2_BET_ACCEPTANCE_ENABLED==='true',503,'Penerimaan taruhan sportsbook sedang dinonaktifkan.','SPORTSBOOK_BETTING_DISABLED');
+  const result=await placeSportsbookBet(s,await body(req,30000));ok(res,result,result.duplicate?200:201);
+});
+add('GET',/^\\/api\\/member\\/sportsbook\\/v2\\/tickets$/,async({req,res,url})=>{
+  const s=await memberSession(req);const limit=asInt(url.searchParams.get('limit'),50,1,100);
+  const result=await query('SELECT * FROM sportsbook_v2_tickets WHERE member_id=$1 ORDER BY accepted_at DESC LIMIT $2',[s.userId,limit]);ok(res,{tickets:result.rows});
+});
+add('POST',/^\\/api\\/owner\\/sportsbook\\/v2\\/events\\/(?<eventId>sr:sport_event:\\d+)\\/settle$/,async({req,res,params})=>{
+  const s=await ownerSession(req,'settlements:request');requireCsrf(req,s);await rateLimit(req,'sportsbook-v2-settlement',30,60);
+  ok(res,await refreshAndSettleSportsbookEvent(params.eventId));
 });
 add('GET',/^\/health$/,async({res})=>ok(res,{status:'ok',service:'core',uptimeSeconds:Math.floor((Date.now()-startedAt)/1000)}));
 add('GET',/^\/ready$/,async({res})=>{
