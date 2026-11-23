@@ -11,8 +11,8 @@
   const state = { me: null, view: 'dashboard', page: 1, betType: 'market', betRows: [], filters: {}, toastTimer: 0 };
 
   const titles = {
-    dashboard: 'Dashboard', deposits: 'Deposit management', withdrawals: 'Withdrawal management',
-    members: 'Member management', bets: 'Bet history', activity: 'Activity log', account: 'Owner account'
+    dashboard: 'Dashboard', deposits: 'Deposit management', withdrawals: 'Withdrawal management', transactions: 'Riwayat transaksi',
+    members: 'Member management', referrals: 'Referral management', bets: 'Bet history', activity: 'Activity log', account: 'Owner account'
   };
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -219,9 +219,10 @@
   }
 
   async function loadWallets() {
-    const type = state.view === 'deposits' ? 'DEPOSIT' : 'WITHDRAW';
+    const type = state.view === 'deposits' ? 'DEPOSIT' : state.view === 'withdrawals' ? 'WITHDRAW' : '';
     const filters = state.filters[state.view] || (state.filters[state.view] = { search: '', status: '', from: '', to: '' });
-    const params = new URLSearchParams({ type, limit: String(PAGE_SIZE + 1), offset: String((state.page - 1) * PAGE_SIZE) });
+    const params = new URLSearchParams({ limit: String(PAGE_SIZE + 1), offset: String((state.page - 1) * PAGE_SIZE) });
+    if (type) params.set('type', type);
     if (filters.search) params.set('q', filters.search);
     if (filters.status) params.set('status', filters.status);
     if (filters.from) params.set('from', filters.from);
@@ -230,20 +231,20 @@
     const hasNext = result.length > PAGE_SIZE;
     const rows = result.slice(0, PAGE_SIZE);
     state.walletRows = rows;
-    const html = `<div class="page-heading"><div><h2>${type === 'DEPOSIT' ? 'Deposit requests' : 'Withdrawal requests'}</h2><p>Daftar transaksi wallet resmi dengan filter server-side dan pagination.</p></div><button class="button" id="refreshTable">Refresh</button></div>
+    const html = `<div class="page-heading"><div><h2>${type === 'DEPOSIT' ? 'Deposit requests' : type === 'WITHDRAW' ? 'Withdrawal requests' : 'Seluruh transaksi wallet'}</h2><p>Daftar transaksi wallet resmi dengan filter server-side dan pagination.</p></div><button class="button" id="refreshTable">Refresh</button></div>
       <section class="panel"><div class="toolbar" style="margin-bottom:13px">
         <input class="filter-input search" id="searchFilter" value="${esc(filters.search)}" placeholder="Cari username, ID transaksi, nominal" aria-label="Cari transaksi">
         <select class="filter-select" id="statusFilter" aria-label="Filter status"><option value="">Semua status</option>${['PENDING','AWAITING_SECOND_APPROVAL','PROCESSING','APPROVED','REJECTED','FAILED','REVERSED'].map(value => `<option ${filters.status === value ? 'selected' : ''}>${value}</option>`).join('')}</select>
         <input class="filter-input" type="date" id="fromFilter" value="${esc(filters.from)}" aria-label="Tanggal mulai">
         <input class="filter-input" type="date" id="toFilter" value="${esc(filters.to)}" aria-label="Tanggal akhir">
       </div><div class="table-wrap"><table><thead><tr><th>Transaksi</th><th>Member</th><th>Nominal</th><th>Metode / tujuan</th><th>Status</th><th>Status dana</th><th>Aksi</th></tr></thead><tbody id="walletTable"></tbody></table></div><div id="pagination"></div></section>`;
-    shell(html, titles[state.view], `Pemeriksaan dan pemrosesan ${type === 'DEPOSIT' ? 'deposit' : 'withdrawal'} melalui service wallet resmi.`);
+    shell(html, titles[state.view], `${type ? 'Pemeriksaan dan pemrosesan ' + (type === 'DEPOSIT' ? 'deposit' : 'withdrawal') + ' melalui service wallet resmi.' : 'Riwayat seluruh deposit dan withdrawal member.'}`);
     view('walletTable').innerHTML = rows.map(row => {
-      const destination = type === 'WITHDRAW'
+      const destination = row.requestType === 'WITHDRAW'
         ? [row.payoutSnapshot?.bankName, row.payoutSnapshot?.accountName, row.payoutSnapshot?.accountNumber].filter(Boolean).join(' · ')
         : row.paymentMethod?.name || row.paymentMethod?.methodType || '—';
       let actions = `<button class="button" data-detail="${esc(row.id)}">Detail</button>`;
-      if (row.status === 'PENDING') {
+      if (type && row.status === 'PENDING') {
         actions += ` <button class="button button-success" data-wallet="${esc(row.id)}" data-action="APPROVED">${type === 'WITHDRAW' ? 'Otorisasi' : 'Setujui'}</button> <button class="button button-danger" data-wallet="${esc(row.id)}" data-action="REJECTED">Tolak</button>`;
       } else if (type === 'WITHDRAW' && row.status === 'PROCESSING') {
         actions += ` <button class="button button-success" data-wallet="${esc(row.id)}" data-action="PAID">Payout selesai</button> <button class="button button-danger" data-wallet="${esc(row.id)}" data-action="FAILED">Payout gagal</button>`;
@@ -308,6 +309,36 @@
       <div class="table-wrap"><table><thead><tr><th>ID / Tiket</th><th>Pasaran</th><th>Status</th><th>Nominal</th><th>Waktu</th></tr></thead><tbody>${marketRows || '<tr><td class="empty-state" colspan="5">Tidak ada riwayat pada 10 data terbaru.</td></tr>'}</tbody></table></div>
       <div class="panel-header" style="margin-top:20px"><div><h3>Riwayat Sportsbook</h3></div></div>
       <div class="table-wrap"><table><thead><tr><th>ID / Tiket</th><th>Status</th><th>Nominal</th><th>Waktu</th></tr></thead><tbody>${sportsRows || '<tr><td class="empty-state" colspan="4">Tidak ada riwayat pada 10 data terbaru.</td></tr>'}</tbody></table></div>`);
+    const resetForm = document.createElement('form');
+    resetForm.className = 'settings-form';
+    resetForm.innerHTML = '<div class="panel-header" style="margin-top:20px"><div><h3>Reset password member</h3><p>Minimal 10 karakter. Semua sesi login member akan dicabut.</p></div></div><label class="field"><span>Password baru</span><input id="memberNewPassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></label><button class="button button-primary" type="submit">Reset password</button>';
+    view('modalContent').append(resetForm);
+    resetForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const password = view('memberNewPassword').value;
+      if (password.length < 10 || password.length > 128) { showToast('Password harus 10–128 karakter.', true); return; }
+      if (!window.confirm('Reset password member ' + member.username + '?')) return;
+      const button = resetForm.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        await request('/admin-api/owner/members/' + encodeURIComponent(id) + '/reset-password', { method: 'POST', body: JSON.stringify({ password }) });
+        resetForm.reset();
+        showToast('Password ' + member.username + ' berhasil direset. Sesi lama telah dicabut.');
+      } catch (error) { showToast(error.message, true); }
+      finally { button.disabled = false; }
+    });
+  }
+
+  async function loadReferrals() {
+    const rows = await request('/admin-api/owner/referrals?limit=500');
+    const search = String(state.filters.referrals?.search || '').toLowerCase();
+    const filtered = rows.filter(row => !search || [row.referrerUsername, row.referredUsername, row.inviteCode].some(value => String(value || '').toLowerCase().includes(search)));
+    const html = '<div class="page-heading"><div><h2>Referral network</h2><p>Hubungan referral aktual dari database website.</p></div><button class="button" id="refreshTable">Refresh</button></div><section class="panel"><div class="toolbar" style="margin-bottom:13px"><input class="filter-input search" id="referralSearch" placeholder="Cari referrer, downline, atau kode referral" aria-label="Cari referral"></div><div class="table-wrap"><table><thead><tr><th>Pengundang</th><th>Member terdaftar</th><th>Kode referral</th><th>Status</th><th>Tanggal</th></tr></thead><tbody id="referralTable"></tbody></table></div><div class="table-footer"><span>' + filtered.length + ' hubungan referral · maksimal 500 data terbaru</span></div></section>';
+    shell(html, titles.referrals, 'Pantau referral dan downline member.');
+    view('referralSearch').value = state.filters.referrals?.search || '';
+    view('referralTable').innerHTML = filtered.map(row => '<tr><td class="cell-primary">' + esc(row.referrerUsername) + '</td><td>' + esc(row.referredUsername) + '</td><td class="cell-sub">' + esc(row.inviteCode) + '</td><td>' + status(row.status) + '</td><td>' + esc(date(row.createdAt)) + '</td></tr>').join('') || '<tr><td class="empty-state" colspan="5">Belum ada hubungan referral.</td></tr>';
+    view('referralSearch').addEventListener('input', () => { state.filters.referrals = { search: view('referralSearch').value.trim() }; clearTimeout(state.filterTimer); state.filterTimer = setTimeout(() => void loadReferrals().catch(showPageError), 250); });
+    view('refreshTable').addEventListener('click', () => void loadCurrent().catch(showPageError));
   }
 
   async function loadBets() {
@@ -461,8 +492,8 @@
 
   async function loadCurrent() {
     const loaders = {
-      dashboard: loadDashboard, deposits: loadWallets, withdrawals: loadWallets,
-      members: loadMembers, bets: loadBets, activity: loadActivity, account: loadAccount
+      dashboard: loadDashboard, deposits: loadWallets, withdrawals: loadWallets, transactions: loadWallets,
+      members: loadMembers, referrals: loadReferrals, bets: loadBets, activity: loadActivity, account: loadAccount
     };
     try { await loaders[state.view](); }
     catch (error) { showPageError(error); }
@@ -543,7 +574,7 @@
 
   request('/admin-api/owner/me')
     .then(me => {
-      if (me.user?.username !== 'gasterus' || !(me.roles || []).includes('OWNER')) {
+      if (!(me.roles || []).includes('OWNER')) {
         throw new Error('Sesi ini tidak memiliki akses OWNER.');
       }
       state.me = { ...me, csrfToken: me.csrfToken };

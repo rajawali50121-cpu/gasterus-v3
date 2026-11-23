@@ -109,7 +109,7 @@ export async function loginMember(input,ip='',userAgent='') {
 }
 export async function loginOwner(input,ip='',userAgent='') {
   const username=String(input.username||'').trim();
-  assert(username==='gasterus',401,'Username atau password salah.','LOGIN_FAILED');
+  assert(username.length>=3&&username.length<=64,401,'Username atau password salah.','LOGIN_FAILED');
   const {rows}=await query(`SELECT u.*,a.current_balance FROM users u LEFT JOIN ledger_accounts a ON a.owner_user_id=u.id WHERE u.username=$1`,[username]);
   const user=rows[0]; const valid=Boolean(user&&await verifyPassword(input.password,user.password_hash));
   if(!valid){await recordSecurityEvent({memberId:user?.id||null,channel:'ADMIN',eventType:'ADMIN_LOGIN_FAILED',severity:'HIGH',usernameHint:username,ip,userAgent});assert(false,401,'Username atau password salah.','LOGIN_FAILED');}
@@ -124,10 +124,10 @@ export async function changeOwnerPassword(ownerSession,input,ip=''){
   const newPassword=String(input.newPassword||'');
   assert(newPassword.length>=10&&newPassword.length<=128,400,'Password baru harus 10-128 karakter.','PASSWORD_INVALID');
   assert(newPassword!==currentPassword,400,'Password baru harus berbeda dari password saat ini.','PASSWORD_UNCHANGED');
-  const current=(await query(`SELECT password_hash FROM users WHERE id=$1 AND username='gasterus' AND status='ACTIVE' AND EXISTS(SELECT 1 FROM user_roles WHERE user_id=$1 AND role_code='OWNER')`,[ownerSession.userId])).rows[0];
+  const current=(await query(`SELECT password_hash FROM users WHERE id=$1 AND status='ACTIVE' AND EXISTS(SELECT 1 FROM user_roles WHERE user_id=$1 AND role_code='OWNER')`,[ownerSession.userId])).rows[0];
   assert(current&&await verifyPassword(currentPassword,current.password_hash),401,'Password saat ini tidak sesuai.','CURRENT_PASSWORD_INVALID');
   const passwordHash=await hashPassword(newPassword);
-  const updated=await query(`UPDATE users SET password_hash=$1,updated_at=now() WHERE id=$2 AND username='gasterus' AND status='ACTIVE' AND password_hash=$3 AND EXISTS(SELECT 1 FROM user_roles WHERE user_id=$2 AND role_code='OWNER') RETURNING id`,[passwordHash,ownerSession.userId,current.password_hash]);
+  const updated=await query(`UPDATE users SET password_hash=$1,updated_at=now() WHERE id=$2 AND status='ACTIVE' AND password_hash=$3 AND EXISTS(SELECT 1 FROM user_roles WHERE user_id=$2 AND role_code='OWNER') RETURNING id`,[passwordHash,ownerSession.userId,current.password_hash]);
   assert(updated.rows[0],409,'Password berubah bersamaan. Silakan coba kembali.','PASSWORD_CHANGE_CONFLICT');
   let revokedSessions=0;
   const currentKey=sessionKey('OWNER',ownerSession.token);
