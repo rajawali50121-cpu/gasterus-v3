@@ -50,11 +50,18 @@ async function load(){
     else root.append(el("div","empty","Belum ada pertandingan dengan data odds pada siklus ini."));
     countEl.textContent=events.length.toLocaleString("id-ID");
     updatedEl.textContent=snapshot.fetchedAt?new Date(snapshot.fetchedAt).toLocaleString("id-ID"):"—";
-    const complete=snapshot.complete===true;
-    setStatus(complete?"ready":"error",complete?"Feed tersinkron":"Feed parsial");
+    const complete=snapshot.complete===true
+      && snapshot.quotaLimited!==true
+      && snapshot.budgetLimited!==true
+      && (!Array.isArray(snapshot.errors)||snapshot.errors.length===0);
+    setStatus(complete?"ready":"error",complete?"Feed tersinkron":"Feed belum lengkap");
     notice.textContent=complete
       ?'Data berasal dari Sportradar Odds Comparison Prematch v2. Mode read-only: polling katalog 150 menit tidak memenuhi cadence change-log 5 menit untuk taruhan aktif.'
-      :"Feed belum lengkap. Data parsial hanya untuk tampilan; penerimaan taruhan uang nyata belum diaktifkan.";
+      :snapshot.quotaLimited
+        ?'Feed belum lengkap karena batas kuota Sportradar. Snapshot parsial tidak dipublikasikan.'
+        :snapshot.budgetLimited
+          ?'Feed belum lengkap karena anggaran request siklus tercapai. Snapshot parsial tidak dipublikasikan.'
+          :'Feed belum lengkap. Snapshot parsial tidak dianggap tersinkron dan taruhan tetap dinonaktifkan.';
   }catch(error){
     root.replaceChildren(el("div","empty",error.message));
     countEl.textContent="—";updatedEl.textContent="—";setStatus("error","Feed tidak tersedia");

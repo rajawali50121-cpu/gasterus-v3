@@ -1,6 +1,12 @@
-function safeProviderError(status, body) {
-  const message = typeof body?.message === "string" ? body.message : `Sportradar request failed (HTTP ${status})`;
-  return new Error(message.slice(0, 240));
+function providerError(code, message, details = {}) {
+  const error = new Error(message);
+  error.code = code;
+  Object.assign(error, details);
+  return error;
+}
+
+function safeProviderError(status) {
+  return providerError(`SPORTRADAR_HTTP_${status}`, `Sportradar request failed (HTTP ${status})`, { httpStatus: status });
 }
 
 export class SportradarClient {
@@ -19,7 +25,13 @@ export class SportradarClient {
   }
 
   async request(baseUrl, path, query = {}) {
-    if (this.callsUsed30Days >= this.config.maxCallsPer30Days) throw new Error("SPORTRADAR_30_DAY_QUOTA_EXHAUSTED");
+    // In production, beforeRequest reserves quota atomically in Redis across all workers.
+    // The local counter is only a fallback for standalone client use without that hook.
+    if (!this.beforeRequest && this.callsUsed30Days >= this.config.maxCallsPer30Days) {
+      throw providerError("SPORTRADAR_30_DAY_QUOTA_EXHAUSTED", "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED", {
+        quotaScope: "30_days", quotaUsed: this.callsUsed30Days, quotaLimit: this.config.maxCallsPer30Days
+      });
+    }
     const url = new URL(`${baseUrl}/${String(path).replace(/^\/+/, "")}.json`);
     for (const [key, value] of Object.entries(query)) if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     if (this.beforeRequest) await this.beforeRequest();
@@ -34,13 +46,15 @@ export class SportradarClient {
       });
       const body = await response.json().catch(() => null);
       if (response.status === 429) {
-        const error = new Error("SPORTRADAR_RATE_LIMITED");
-        error.code = "SPORTRADAR_RATE_LIMITED";
-        error.retryAfter = response.headers.get("retry-after");
-        throw error;
+        throw providerError("SPORTRADAR_RATE_LIMITED", "Sportradar rate limit reached (HTTP 429)", {
+          httpStatus: 429,
+          retryAfter: response.headers.get("retry-after")
+        });
       }
-      if (!response.ok) throw safeProviderError(response.status, body);
-      if (!body || typeof body !== "object") throw new Error("SPORTRADAR_INVALID_JSON");
+      if (!response.ok) throw safeProviderError(response.status);
+      if (!body || typeof body !== "object") {
+        throw providerError("SPORTRADAR_INVALID_JSON", "Sportradar returned invalid JSON");
+      }
       return { body, headers: response.headers };
     } finally {
       clearTimeout(timeout);

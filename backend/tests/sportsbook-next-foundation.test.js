@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadSportsbookConfig } from "../src/sportsbook-next/config.js";
 import { SportradarClient } from "../src/sportsbook-next/sportradar-client.js";
+import { reserveSportradarCall } from "../src/sportsbook-next/quota.js";
 import { normalizeDailySchedule, normalizeEventMarkets, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
 
 const env = {
@@ -122,4 +123,52 @@ test("daily schedules pagination has a hard page ceiling", async () => {
   const rows = await client.getAllDailySchedules("sr:sport:1", "2026-11-23", { maxPages: 3 });
   assert.equal(rows.length, 150);
   assert.equal(calls, 3);
+});
+
+
+test("quota gate reports the exact hourly or rolling 30-day limit without exposing credentials", async () => {
+  const config = { initialCallsUsed30Days: 10, maxCallsPer30Days: 100, maxCallsPerHour: 20 };
+  const hourlyRedis = { eval: async () => [2, 20, 35, 9000] };
+  await assert.rejects(
+    reserveSportradarCall(hourlyRedis, config),
+    error => error.code === "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED"
+      && error.quotaScope === "hour" && error.quotaUsed === 20
+      && error.quotaLimit === 20 && error.retryAfter === "9"
+  );
+  const monthlyRedis = { eval: async () => [0, 4, 100, 0] };
+  await assert.rejects(
+    reserveSportradarCall(monthlyRedis, config),
+    error => error.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"
+      && error.quotaScope === "30_days" && error.quotaUsed === 100
+      && error.quotaLimit === 100
+  );
+});
+
+test("Redis quota reservation remains authoritative when local process counter is stale", async () => {
+  const config = loadSportsbookConfig({ ...env, SPORTRADAR_INITIAL_30_DAY_USAGE: "100" });
+  let reserved = false;
+  const client = new SportradarClient(config, {
+    beforeRequest: async () => { reserved = true; },
+    fetchImpl: async () => ({
+      ok: true, status: 200, headers: { get: () => null },
+      json: async () => ({ sports: [] })
+    })
+  });
+  const result = await client.getSports();
+  assert.equal(reserved, true);
+  assert.deepEqual(result.body, { sports: [] });
+});
+
+test("client preserves safe HTTP status codes for provider diagnostics", async () => {
+  const config = loadSportsbookConfig(env);
+  const client = new SportradarClient(config, {
+    fetchImpl: async () => ({
+      ok: false, status: 403, headers: { get: () => null },
+      json: async () => ({ message: "sensitive provider payload must not be logged" })
+    })
+  });
+  await assert.rejects(client.getSports(), error =>
+    error.code === "SPORTRADAR_HTTP_403" && error.httpStatus === 403
+      && !error.message.includes("sensitive")
+  );
 });
