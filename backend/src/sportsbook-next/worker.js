@@ -5,7 +5,7 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
-import { normalizeDailySchedule, normalizeEventMarkets } from "./normalize.js";
+import { normalizeDailySportEventMarkets } from "./normalize.js";
 import { reserveSportradarCall } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
 
@@ -34,26 +34,17 @@ async function runCycle(config, client) {
   let budgetLimited = false;
   let coverage = null;
   try {
-    try {
-      coverage = await client.getSports();
-    } catch (error) {
-      if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
-        quotaLimited = true;
-        quotaReason = error.code;
-        quotaDetails = { scope: error.quotaScope || null, used: error.quotaUsed ?? null, limit: error.quotaLimit ?? null, retryAfter: error.retryAfter || null };
-      } else {
-        throw error;
-      }
-    }
-    for (const sportId of (quotaLimited ? [] : config.sportIds)) {
+    // The configured sport IDs are already known. Pull each sport/date board
+    // in one bulk request instead of one schedule request plus one request per event.
+    // This keeps the 150-minute discovery mode within the provider request budget.
+    for (const sportId of config.sportIds) {
       for (let day = 0; day <= config.daysAhead; day += 1) {
         if (client.cycleCalls >= config.maxCallsPerCycle) { budgetLimited = true; break; }
         const date = utcDate(day);
-        const remaining = config.maxCallsPerCycle - client.cycleCalls;
-        if (remaining <= 0) break;
         try {
-          const rows = await client.getAllDailySchedules(sportId, date, { pageSize: 50, maxPages: Math.min(10, remaining) });
-          for (const event of normalizeDailySchedule({ schedules: rows })) events.set(event.id, { ...event, sportId });
+          const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 10 });
+          const rows = normalizeDailySportEventMarkets(result.body, sportId);
+          for (const event of rows) events.set(event.id, event);
         } catch (error) {
           if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
             quotaLimited = true;
@@ -64,29 +55,10 @@ async function runCycle(config, client) {
           throw error;
         }
       }
-      if (quotaLimited) break;
-      if (client.cycleCalls >= config.maxCallsPerCycle) { budgetLimited = true; break; }
+      if (quotaLimited || budgetLimited) break;
     }
 
-    const pricedEvents = [];
-    for (const event of events.values()) {
-      if (quotaLimited) break;
-      if (client.cycleCalls >= config.maxCallsPerCycle) { budgetLimited = true; break; }
-      try {
-        const result = await client.getSportEventMarkets(event.id);
-        const normalized = normalizeEventMarkets(result.body);
-        pricedEvents.push({ ...event, ...normalized.event, markets: normalized.markets });
-      } catch (error) {
-        if (error?.code === "SPORTRADAR_RATE_LIMITED" || error?.httpStatus === 401 || error?.httpStatus === 403 || error?.httpStatus >= 500) throw error;
-        if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
-          quotaLimited = true;
-          quotaReason = error.code;
-          quotaDetails = { scope: error.quotaScope || null, used: error.quotaUsed ?? null, limit: error.quotaLimit ?? null, retryAfter: error.retryAfter || null };
-          break;
-        }
-        errors.push({ eventId: event.id, code: error?.code || "EVENT_MARKETS_FAILED" });
-      }
-    }
+    const pricedEvents = [...events.values()];
 
     const snapshot = {
       schemaVersion: 1,
@@ -115,7 +87,7 @@ async function runCycle(config, client) {
       events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle,
       persisted, errors: errors.length, quotaLimited, quotaReason, quotaDetails, budgetLimited, emptyFeed: snapshot.emptyFeed,
       complete: snapshot.complete,
-      coverageFeeds: Array.isArray(coverage?.body?.sports) ? coverage.body.sports.length : null
+      coverageFeeds: null
     };
   } catch (error) {
     await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: new Date().toISOString(), complete: false, providerError: error?.code || "SPORTRADAR_POLL_FAILED", httpStatus: error?.httpStatus || null, retryAfter: error?.retryAfter || null }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) }).catch(() => {});
@@ -146,7 +118,8 @@ async function main() {
     sportCount: config.sportIds.length,
     daysAhead: config.daysAhead,
     maxCallsPerCycle: config.maxCallsPerCycle,
-    quotaLimit30Days: config.maxCallsPer30Days
+    quotaLimit30Days: config.maxCallsPer30Days,
+    syncStrategy: "daily-sport-event-markets-bulk"
   });
 
   while (!stopping) {

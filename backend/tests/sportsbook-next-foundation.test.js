@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { loadSportsbookConfig } from "../src/sportsbook-next/config.js";
 import { SportradarClient } from "../src/sportsbook-next/sportradar-client.js";
 import { reserveSportradarCall } from "../src/sportsbook-next/quota.js";
-import { normalizeDailySchedule, normalizeEventMarkets, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
+import { normalizeDailySchedule, normalizeDailySportEventMarkets, normalizeEventMarkets, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
 
 const env = {
   SPORTRADAR_API_KEY: "test-key",
@@ -171,4 +171,45 @@ test("client preserves safe HTTP status codes for provider diagnostics", async (
     error.code === "SPORTRADAR_HTTP_403" && error.httpStatus === 403
       && !error.message.includes("sensitive")
   );
+});
+
+test("bulk daily markets normalize embedded event boards without per-event follow-up calls", () => {
+  const rows = normalizeDailySportEventMarkets({ sport_events: [{
+    sport_event: {
+      id: "sr:sport_event:456", start_time: "2026-11-23T12:00:00Z", status: "not_started",
+      competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }]
+    },
+    sport_event_context: { competition: { id: "sr:competition:1", name: "League" } },
+    markets: [{
+      id: "sr:market:1", name: "1x2", is_live: false,
+      books: [{ id: "sr:book:1", name: "Book", outcomes: [
+        { id: "sr:outcome:1", type: "home", odds_decimal: "2.0" }
+      ] }]
+    }]
+  }] }, "sr:sport:1");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "sr:sport_event:456");
+  assert.equal(rows[0].competition, "League");
+  assert.equal(rows[0].markets[0].books[0].outcomes[0].oddsDecimal, 2);
+});
+
+test("bulk daily markets paginate with a hard page ceiling", async () => {
+  const config = loadSportsbookConfig(env);
+  const offsets = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      const parsed = new URL(url);
+      const start = Number(parsed.searchParams.get("start"));
+      offsets.push(start);
+      const count = start === 0 ? 50 : 10;
+      return {
+        ok: true, status: 200,
+        headers: { get: name => name === "x-max-results" ? "60" : name === "x-result" ? String(count) : null },
+        json: async () => ({ sport_events: Array.from({ length: count }, (_, i) => ({ sport_event: { id: `sr:sport_event:${start+i}` }, markets: [] })) })
+      };
+    }
+  });
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-23", { maxPages: 3 });
+  assert.equal(result.body.sport_events.length, 60);
+  assert.deepEqual(offsets, [0, 50]);
 });
