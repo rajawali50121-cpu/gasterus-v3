@@ -230,7 +230,7 @@ test('worker continuously polls full Sportradar snapshots instead of using the d
     fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
   );
   assert.match(workerSource, /fetchSportradarV2/);
-  assert.match(workerSource, /Sportradar prematch Change Log is a rolling five-minute window/);
+  assert.match(workerSource, /Full prematch schedule snapshot/);
   assert.match(workerSource, /assertSportradarQuotaCapacity\(config\)/);
   assert.match(workerSource, /if \(cronOnce\) \{[\s\S]*?break;/);
   assert.doesNotMatch(workerSource, /nextSportsbookDailyRefreshMs|dailySlotDue/);
