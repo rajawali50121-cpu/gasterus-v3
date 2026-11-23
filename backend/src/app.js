@@ -65,11 +65,11 @@ add('POST',/^\/api\/member\/sportsbook\/v2\/tickets$/,async({req,res,ip})=>{
   assert(process.env.SPORTSBOOK_V2_BET_ACCEPTANCE_ENABLED==='true',503,'Penerimaan taruhan sportsbook sedang dinonaktifkan.','SPORTSBOOK_BETTING_DISABLED');
   const result=await placeSportsbookBet(s,await body(req,30000));ok(res,result,result.duplicate?200:201);
 });
-add('GET',/^\\/api\\/member\\/sportsbook\\/v2\\/tickets$/,async({req,res,url})=>{
+add('GET',/^\/api\/member\/sportsbook\/v2\/tickets$/,async({req,res,url})=>{
   const s=await memberSession(req);const limit=asInt(url.searchParams.get('limit'),50,1,100);
   const result=await query('SELECT * FROM sportsbook_v2_tickets WHERE member_id=$1 ORDER BY accepted_at DESC LIMIT $2',[s.userId,limit]);ok(res,{tickets:result.rows});
 });
-add('POST',/^\\/api\\/owner\\/sportsbook\\/v2\\/events\\/(?<eventId>sr:sport_event:\\d+)\\/settle$/,async({req,res,params})=>{
+add('POST',/^\/api\/owner\/sportsbook\/v2\/events\/(?<eventId>sr:sport_event:\d+)\/settle$/,async({req,res,params})=>{
   const s=await ownerSession(req,'settlements:request');requireCsrf(req,s);await rateLimit(req,'sportsbook-v2-settlement',30,60);
   ok(res,await refreshAndSettleSportsbookEvent(params.eventId));
 });
