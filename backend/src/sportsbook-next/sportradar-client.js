@@ -93,6 +93,28 @@ export class SportradarClient {
     return this.request(this.config.prematchBaseUrl,
       `sports/${encodeURIComponent(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets`, { start, limit });
   }
+  async getAllDailySportEventMarkets(sportId, date, { pageSize = 50, maxPages = 10 } = {}) {
+    const items = [];
+    let start = 0;
+    for (let page = 0; page < maxPages; page += 1) {
+      const result = await this.getDailySportEventMarkets(sportId, date, { start, limit: pageSize });
+      const rows = result.body?.sport_events ?? result.body?.events ?? result.body?.schedules ?? [];
+      if (!Array.isArray(rows)) throw providerError("SPORTRADAR_BULK_MARKETS_SHAPE_INVALID", "Sportradar bulk markets payload has no event array");
+      items.push(...rows);
+      const reported = Number(result.headers.get("x-max-results"));
+      const received = Number(result.headers.get("x-result"));
+      if (Number.isFinite(reported) && reported > start + rows.length) {
+        start += rows.length || pageSize;
+        continue;
+      }
+      if (Number.isFinite(received) && received >= pageSize) {
+        start += rows.length || pageSize;
+        continue;
+      }
+      break;
+    }
+    return { body: { sport_events: items } };
+  }
   getSportEventMarkets(eventId) {
     return this.request(this.config.prematchBaseUrl, `sport_events/${encodeURIComponent(eventId)}/sport_event_markets`);
   }
