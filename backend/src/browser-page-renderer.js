@@ -305,14 +305,14 @@ async function renderOnce(url, options = {}) {
         awaitPromise: true
       });
       html = String(result?.result?.value || '');
-      if (Buffer.byteLength(html) > maxBytes) throw new Error('DOM hasil render Chromium melebihi batas ukuran Sportsbook source.');
+      if (Buffer.byteLength(html) > maxBytes) throw new Error('DOM hasil render Chromium melebihi batas ukuran browser-rendered source.');
       markerReady = /\bOddsTab[LR]?\b|bu:od:(?:afa:ev|go:ev):\d+|"(?:odds|markets?|selections?)"\s*:/i.test(html);
       if (markerReady) break;
       if (Date.now() - startedAt >= settleMs) break;
       await sleep(500);
     }
     offLoad();
-    if (!html) throw new Error('Chromium tidak menghasilkan DOM untuk Sportsbook source.');
+    if (!html) throw new Error('Chromium tidak menghasilkan DOM untuk browser-rendered source.');
     const locationResult = await client.send('Runtime.evaluate', {
       expression: 'String(location.href || "")', returnByValue: true, awaitPromise: true
     });
