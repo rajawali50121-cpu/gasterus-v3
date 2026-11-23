@@ -44,6 +44,8 @@ async function fetchFreshLegs(legs) {
   const { client } = providerClient();
   const verified = [];
   for (const leg of legs) {
+    const catalogued = (await query("SELECT provider_event_id FROM sportsbook_v2_events WHERE provider_event_id=$1", [leg.eventId])).rows[0];
+    assert(catalogued, 409, "Pertandingan belum masuk katalog Sportradar. Perbarui daftar pertandingan lalu coba lagi.", "SPORTSBOOK_EVENT_NOT_CATALOGUED");
     const response = await client.getSportEventMarkets(leg.eventId);
     const event = response.body?.sport_event;
     assert(event?.id === leg.eventId, 503, "Sportradar tidak mengembalikan pertandingan yang diminta.", "SPORTSBOOK_PROVIDER_EVENT_MISMATCH");
@@ -64,6 +66,7 @@ async function fetchFreshLegs(legs) {
       marketKey: `${market.id}|${market.name || market.id}`,
       marketName: market.name || market.id,
       marketType: String(market.name || "").toLowerCase(),
+      marketPayload: market,
       selectionKey: selectionKey(outcome),
       outcomeType: outcome.type || null,
       outcomeName: outcome.name || outcome.type || null,
@@ -124,6 +127,13 @@ export async function placeSportsbookBet(memberSession, input) {
       JSON.stringify({ provider: "sportradar-odds-comparison-prematch-v2", acceptedAt: new Date().toISOString(), requestHash })]);
 
     for (const leg of legs) {
+      await client.query(`INSERT INTO sportsbook_v2_markets
+        (provider_event_id,provider_market_key,provider_market_id,market_name,is_live,is_active,snapshot_at,provider_payload)
+        VALUES($1,$2,$3,$4,$5,TRUE,$6,$7::jsonb)
+        ON CONFLICT(provider_event_id,provider_market_key) DO UPDATE SET
+          market_name=excluded.market_name,is_live=excluded.is_live,is_active=TRUE,
+          snapshot_at=excluded.snapshot_at,provider_payload=excluded.provider_payload`,
+      [leg.eventId,leg.marketKey,leg.marketId,leg.marketName,false,new Date(leg.sourceUpdatedAt),JSON.stringify(leg.marketPayload)]);
       await client.query(`INSERT INTO sportsbook_v2_ticket_legs
         (id,ticket_id,leg_no,provider_event_id,provider_market_key,provider_market_id,provider_book_id,provider_selection_key,accepted_odds,source_updated_at,result_payload)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
