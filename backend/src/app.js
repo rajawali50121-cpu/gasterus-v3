@@ -51,6 +51,16 @@ add('GET',/^\/healthz$/,async({res})=>{let healthy=false;try{const raw=await red
 add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
   await optionalMemberSession(req);
   await rateLimit(req,'sportsbook-v2-feed',120,60);
+  const feedStatusRaw=await redis.get('sportsbook:next:feed-status:v1');
+  if(feedStatusRaw){
+    let feedStatus;
+    try{feedStatus=JSON.parse(feedStatusRaw);}catch{throw new AppError(503,'Status feed Sportradar tidak valid.','SPORTSBOOK_STATUS_INVALID');}
+    if(feedStatus.complete!==true){
+      const code=feedStatus.quotaLimited?'SPORTSBOOK_QUOTA_LIMITED':feedStatus.budgetLimited?'SPORTSBOOK_CYCLE_BUDGET_EXHAUSTED':feedStatus.providerError==='SPORTRADAR_RATE_LIMITED'?'SPORTSBOOK_PROVIDER_RATE_LIMITED':'SPORTSBOOK_FEED_INCOMPLETE';
+      const message=feedStatus.quotaLimited?'Kuota Sportradar membatasi siklus feed.':feedStatus.budgetLimited?'Anggaran request siklus Sportradar tercapai.':feedStatus.providerError==='SPORTRADAR_RATE_LIMITED'?'Sportradar sedang membatasi request (HTTP 429).':'Feed Sportradar belum lengkap.';
+      throw new AppError(503,message,code);
+    }
+  }
   const raw=await redis.get('sportsbook:next:snapshot:v1');
   if(!raw) throw new AppError(503,'Feed Sportradar belum tersedia.','SPORTSBOOK_FEED_UNAVAILABLE');
   let snapshot;
