@@ -18,6 +18,7 @@ export function loadSportsbookConfig(env = process.env) {
   }
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
   const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? 80);
+  const maxCallsPerHour = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_HOUR", env.SPORTRADAR_MAX_CALLS_PER_HOUR ?? 20);
   const daysAhead = requiredPositiveInteger("SPORTRADAR_DAYS_AHEAD", env.SPORTRADAR_DAYS_AHEAD ?? 7);
   const sportIds = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").map(v => v.trim()).filter(Boolean);
   if (!sportIds.length || sportIds.some(id => !/^sr:sport:\d+$/.test(id))) throw new Error("SPORTRADAR_SPORT_IDS must be comma-separated Sportradar sport URNs");
@@ -25,7 +26,7 @@ export function loadSportsbookConfig(env = process.env) {
   return Object.freeze({
     apiKey, accessLevel, language, sportIds, daysAhead,
     pollIntervalMs: pollMinutes * MINUTE,
-    maxCallsPerCycle, maxCallsPer30Days, initialCallsUsed30Days,
+    maxCallsPerCycle, maxCallsPerHour, maxCallsPer30Days, initialCallsUsed30Days,
     maxSnapshotAgeMs: pollMinutes * MINUTE * 2,
     prematchBaseUrl: `https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${language}`,
     soccerBaseUrl: `https://api.sportradar.com/soccer/${accessLevel}/v4/${language}`,
