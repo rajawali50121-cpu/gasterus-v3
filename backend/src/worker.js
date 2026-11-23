@@ -5,9 +5,7 @@ import { tx, closeDatabase, query } from './db.js';
 import { logger } from './logger.js';
 import { postSystemTransfer, postTransfer, SYSTEM_ACCOUNTS, verifyLedger } from './ledger.js';
 import { createMemberNotification } from './notifications.js';
-import { autoSettleSportsbookTickets } from './sportsbook-auto-settlement.js';
 import { autoSettleTotoPeriods } from './toto-auto-settlement.js';
-import { retryPendingSportsbookSettlementCorrections } from './sportsbook-betting.js';
 import { LOTTERY_WIN_PROBABILITY, calculateLotteryPricing, evaluateLotterySelection, legacyGameCode } from './lottery-games.js';
 import { expireStaleWalletApprovals } from './money.js';
 import { startMemoryGuard } from './memory-guard.js';
@@ -479,12 +477,7 @@ async function main() {
     queue: config.queueName,
     processingQueue
   });
-  logger.info('Sportsbook auto-settlement scheduler initialized', {
-    enabled: config.sportsbookAutoSettlementEnabled,
-    seconds: config.sportsbookAutoSettlementSeconds
-  });
 
-  let lastSportsbookSettlement = 0;
   let lastTotoSettlement = 0;
   let lastMoneyCleanup = 0;
   let lastDurableQueueRecovery = 0;
@@ -504,17 +497,6 @@ async function main() {
       logger.warn('Outbox dispatch cycle unavailable', { error: error.message });
     }
     if(Date.now()-lastMoneyCleanup>=60000){lastMoneyCleanup=Date.now();try{const expired=await expireStaleWalletApprovals();if(expired)logger.warn('Expired wallet approvals released safely',{expired});}catch(error){logger.warn('Money approval cleanup unavailable',{error:error.message});}}
-    if (config.sportsbookAutoSettlementEnabled && Date.now() - lastSportsbookSettlement >= config.sportsbookAutoSettlementSeconds * 1000) {
-      logger.info('Sportsbook auto-settlement scheduler invoking', { enabled: config.sportsbookAutoSettlementEnabled, elapsedMs: Date.now() - lastSportsbookSettlement });
-      lastSportsbookSettlement = Date.now();
-      try {
-        const summary = await autoSettleSportsbookTickets();
-        const corrections = await retryPendingSportsbookSettlementCorrections({ limit: 50 });
-        if (summary.checked || corrections.checked) logger.info('Sportsbook auto-settlement cycle completed', { ...summary, correctionRetry: corrections });
-      } catch (error) {
-        logger.warn('Sportsbook auto-settlement cycle unavailable', { error: error.message });
-      }
-    }
     if (config.totoAutoSettlementEnabled && Date.now() - lastTotoSettlement >= config.totoAutoSettlementSeconds * 1000) {
       lastTotoSettlement = Date.now();
       try {

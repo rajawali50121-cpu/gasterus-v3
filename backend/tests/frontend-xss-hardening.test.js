@@ -61,10 +61,10 @@ test('server-fed frontend renderers escape dynamic values before HTML interpolat
   const marketPlay = read('frontend/js/market-play.js');
   const transaction = read('frontend/js/transaction.js');
   const register = read('frontend/js/register.js');
-  const sportsbook = read('frontend/js/sportsbook.js');
+  const sportsbook = read('frontend/js/sportsbook-v2.js');
   const index = read('frontend/index.html');
 
-  for (const [name, source] of Object.entries({ member, landing, marketPlay, transaction, register, sportsbook })) {
+  for (const [name, source] of Object.entries({ member, landing, marketPlay, transaction, register })) {
     assert.match(source, /escapeHtml/, `${name} must import/use escapeHtml`);
   }
   assert.match(member, /escapeHtml\(m\.name/);
@@ -76,7 +76,9 @@ test('server-fed frontend renderers escape dynamic values before HTML interpolat
   assert.match(marketPlay, /escapeHtml\(r\.selection\s*(?:\|\|\s*''\s*)?\)/);
   assert.match(register, /escapeHtml\(data\.image\)/);
   assert.match(transaction, /escapeHtml\(String\(m\.id\)\)/);
-  assert.match(sportsbook, /escapeHtml\(String\(s\.odds\)\)/);
+  assert.match(sportsbook, /textContent/);
+  assert.match(sportsbook, /createTextNode/);
+  assert.doesNotMatch(sportsbook, /innerHTML/);
   assert.match(index, /escapeHtml\(result\)/);
   assert.match(index, /escapeHtml\(marketSlug\)/);
 });

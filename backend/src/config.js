@@ -14,7 +14,6 @@ if (existsSync(localEnvFile)) {
 const isRailwayRuntime = Boolean(process.env.RAILWAY_ENVIRONMENT_ID || process.env.RAILWAY_DEPLOYMENT_ID);
 const isProduction = process.env.NODE_ENV === 'production' || isRailwayRuntime;
 const isTestRuntime = process.env.NODE_ENV === 'test' || (!process.env.NODE_ENV && !isRailwayRuntime);
-const isSportsbookRenderWorker = process.env.SPORTSBOOK_RENDER_WORKER === 'true';
 const testSecret = (name, min, fallback) => {
   if (!isTestRuntime) return requiredSecret(name, min);
   const value = String(process.env[name] ?? fallback).trim();
@@ -31,23 +30,16 @@ export const config = Object.freeze({
   nodeEnv: isProduction ? 'production' : (process.env.NODE_ENV || 'development'),
   host: process.env.HOST || '0.0.0.0',
   port: int('PORT', 8080, 1, 65535),
-  databaseUrl: isSportsbookRenderWorker ? optionalSecret('DATABASE_URL') : testSecret('DATABASE_URL', 12, 'postgresql://user:pass@localhost:5432/gasterus_test'),
+  databaseUrl: testSecret('DATABASE_URL', 12, 'postgresql://user:pass@localhost:5432/gasterus_test'),
+  redisUrl: testSecret('REDIS_URL', 12, 'redis://localhost:6379/0'),
   databaseSsl: bool('DATABASE_SSL', false),
   pgPoolMax: int('PG_POOL_MAX', 15, 2, 100),
-  redisUrl: isSportsbookRenderWorker ? optionalSecret('REDIS_URL') : testSecret('REDIS_URL', 12, 'redis://localhost:6379/0'),
   memberProxySecret: testSecret('MEMBER_PROXY_SECRET', 32, 'test-member-proxy-secret-0123456789'),
   adminProxySecret: testSecret('ADMIN_PROXY_SECRET', 32, 'test-admin-proxy-secret-0123456789'),
   opsInternalSecret: testSecret('OPS_INTERNAL_SECRET', 32, 'test-ops-internal-secret-0123456789'),
   sessionHmacKey: testSecret('SESSION_HMAC_KEY', 32, 'test-session-hmac-key-passphrase-123'),
   apiKeyPepper: testSecret('API_KEY_PEPPER', 32, 'test-api-key-pepper-passphrase-1234'),
   mfaEncryptionKeyBase64: testSecret('MFA_ENCRYPTION_KEY_BASE64', 40, Buffer.alloc(32, 7).toString('base64')),
-  sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
-  sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 3600),
-  // Snapshot render data must expire within 4 hours; ingest request signature freshness
-  // remains governed separately by sportsbookIngestMaxAgeSeconds.
-  sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 14400, 180, 604800),
-  sportsbookDailyRefreshEnabled: bool('SPORTSBOOK_DAILY_REFRESH_ENABLED', true),
-  sportsbookPrematchWindowDays: int('SPORTSBOOK_PREMATCH_WINDOW_DAYS', 7, 1, 365),
   memberSessionTtl: int('MEMBER_SESSION_TTL_SECONDS', 43200, 900, 604800),
   ownerSessionTtl: int('OWNER_SESSION_TTL_SECONDS', 900, 900, 86400), // R6.94: 15-minute admin session (idle refresh)
   highValueThreshold: int('HIGH_VALUE_APPROVAL_THRESHOLD', 1000000, 10000, 200000000),
@@ -115,92 +107,17 @@ export const config = Object.freeze({
   totoSourceRotationEnabled: bool('TOTO_SOURCE_ROTATION_ENABLED', true),
 
   // Background feed/collector process is separate from settlement (feed-worker.js).
-  sportsSourceBackgroundPollEnabled: bool('SPORTS_SOURCE_BACKGROUND_POLL_ENABLED', true),
   feedWorkerEnabled: bool('FEED_WORKER_ENABLED', true),
-  // Explicit feed cadence/freshness settings consumed by sportsbook-feed.js.
-  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 90, 15, 3600),
-  sportsFeedStaleSeconds: int('SPORTS_FEED_STALE_SECONDS', 900, 60, 7200),
   // Event dan payload TIDAK dibatasi di sisi feed; semua event dari provider
   // lewat tanpa potongan. Batas fisik (memori worker, Redis) tetap berlaku.
   // Zero = no cap; pagination dihabiskan sampai halaman terakhir API.
-  sportsFeedMaxEvents: unboundedInt('SPORTS_FEED_MAX_EVENTS', 0, 0),
-  sportsFeedMaxCacheBytes: unboundedInt('SPORTS_FEED_MAX_CACHE_BYTES', 0, 0),
-  // Provider cache tidak dibatasi jumlah entri atau byte; eviction diatur TTL saja.
-  sportsProviderCacheMaxEntries: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_ENTRIES', 0, 0),
-  sportsProviderCacheMaxEntryBytes: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_ENTRY_BYTES', 0, 0),
-  sportsProviderCacheMaxTotalBytes: unboundedInt('SPORTS_PROVIDER_CACHE_MAX_TOTAL_BYTES', 0, 0),
 
-  // Sportradar is the sole sportsbook odds provider. Its credential exists only on the isolated worker.
-  // Sportradar is the sole production sportsbook fixtures and odds provider.
-  sportradarApiKey: optionalSecret('SPORTRADAR_API_KEY'),
-  sportradarEnabled: bool('SPORTRADAR_ENABLED', true),
-  sportradarBaseUrl: text('SPORTRADAR_BASE_URL', 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en'),
-  sportradarSportIds: text('SPORTRADAR_SPORT_IDS', 'sr:sport:1'),
-  sportradarDaysAhead: int('SPORTRADAR_DAYS_AHEAD', 7, 1, 365),
-  sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 2000, 100, 30000),
-  // Zero disables the local ceiling; the provider account's actual quota and HTTP 429 remain authoritative.
-  sportradarMaxCallsPerHour: unboundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 0, 0),
-  sportradarSharedMaxCallsPerHour: naturalInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 0, 0),
-  // Fail-closed: must be populated from the actual Sportradar contract/current account usage before live calls.
-  sportradarMaxCallsPer30Days: naturalInt('SPORTRADAR_MAX_CALLS_PER_30_DAYS', 0, 0),
-  sportradarInitial30DayUsage: naturalInt('SPORTRADAR_INITIAL_30_DAY_USAGE', 0, 0),
-  sportradarRefreshSeconds: int('SPORTRADAR_REFRESH_SECONDS', 60, 30, 3600),
-  sportradarRequestTimeoutMs: int('SPORTRADAR_REQUEST_TIMEOUT_MS', 30000, 5000, 120000),
-  sportsbookArtworkEnabled: bool('SPORTSBOOK_ARTWORK_ENABLED', false),
-  sportsbookArtworkBaseUrl: text('SPORTSBOOK_ARTWORK_BASE_URL', 'https://www.thesportsdb.com/api/v1/json'),
-  // TheSportsDB publishes 123 as its current free V1 API key. Artwork is metadata-only and
   // never participates in pricing, bet acceptance or settlement authority.
-  sportsbookArtworkApiKey: text('SPORTSBOOK_ARTWORK_API_KEY', '123'),
-  sportsbookArtworkCacheSeconds: int('SPORTSBOOK_ARTWORK_CACHE_SECONDS', 86400, 3600, 2592000),
-  sportsbookArtworkNegativeCacheSeconds: int('SPORTSBOOK_ARTWORK_NEGATIVE_CACHE_SECONDS', 21600, 300, 86400),
-  sportsbookArtworkMaxLookupsPerMinute: int('SPORTSBOOK_ARTWORK_MAX_LOOKUPS_PER_MINUTE', 20, 1, 30),
-  sportsbookArtworkMaxLookupsPerRefresh: int('SPORTSBOOK_ARTWORK_MAX_LOOKUPS_PER_REFRESH', 16, 1, 30),
-  sportsbookArtworkTimeoutMs: int('SPORTSBOOK_ARTWORK_TIMEOUT_MS', 5000, 1000, 15000),
-  // Member visibility horizon for verified Sportradar prematch events.
-  sportsbookMemberHorizonDays: int('SPORTSBOOK_MEMBER_HORIZON_DAYS', 30, 1, 60),
-  sportsbookProviderFailureThreshold: int('SPORTSBOOK_PROVIDER_FAILURE_THRESHOLD', 3, 1, 20),
-  sportsbookProviderRecoverySuccesses: int('SPORTSBOOK_PROVIDER_RECOVERY_SUCCESSES', 2, 1, 20),
-  sportsbookProviderCooldownSeconds: int('SPORTSBOOK_PROVIDER_COOLDOWN_SECONDS', 30, 5, 3600),
-  sportsbookProviderIncidentLimit: int('SPORTSBOOK_PROVIDER_INCIDENT_LIMIT', 100, 10, 500),
-  sportsbookMarketReopenSuccesses: int('SPORTSBOOK_MARKET_REOPEN_SUCCESSES', 2, 1, 20),
-  sportsbookMarketReopenObservationSeconds: int('SPORTSBOOK_MARKET_REOPEN_OBSERVATION_SECONDS', 30, 1, 3600),
-  sportsbookMarketLifecycleRetentionSeconds: int('SPORTSBOOK_MARKET_LIFECYCLE_RETENTION_SECONDS', 86400, 300, 604800),
-  sportsbookFinishedEventRetentionSeconds: int('SPORTSBOOK_FINISHED_EVENT_RETENTION_SECONDS', 21600, 3600, 86400),
-  sportsbookMinStake: int('SPORTSBOOK_MIN_STAKE', 1000, 100, 100000000),
-  sportsbookMaxStake: int('SPORTSBOOK_MAX_STAKE', 50000000, 1000, 1000000000),
-  sportsbookMaxPayout: int('SPORTSBOOK_MAX_PAYOUT', 500000000, 10000, 2000000000),
-  sportsbookMaxLegs: int('SPORTSBOOK_MAX_LEGS', 12, 2, 30),
-  sportsbookMaxSystemCombinations: int('SPORTSBOOK_MAX_SYSTEM_COMBINATIONS', 120, 1, 1000),
-  sportsbookOddsTolerance: Number(text('SPORTSBOOK_ODDS_TOLERANCE', '0.001')),
-  sportsbookOddsChangePolicyDefault: text('SPORTSBOOK_ODDS_CHANGE_POLICY_DEFAULT', 'REJECT').toUpperCase(),
-  sportsbookLiveAcceptanceDelayMs: int('SPORTSBOOK_LIVE_ACCEPTANCE_DELAY_MS', 3000, 3000, 10000),
-  sportsbookQuoteTtlSeconds: int('SPORTSBOOK_QUOTE_TTL_SECONDS', 15, 5, 60),
-  sportsbookQuoteRequired: bool('SPORTSBOOK_QUOTE_REQUIRED', process.env.NODE_ENV === 'production'),
-  sportsbookPrematchCloseGraceSeconds: int('SPORTSBOOK_PREMATCH_CLOSE_GRACE_SECONDS', 30, 0, 300),
-  sportsbookMaxLivePriceAgeSeconds: int('SPORTSBOOK_MAX_LIVE_PRICE_AGE_SECONDS', 90, 15, 600),
-  sportsbookMaxPrematchPriceAgeSeconds: int('SPORTSBOOK_MAX_PREMATCH_PRICE_AGE_SECONDS', 900, 60, 7200),
-  sportsbookMaxEventLiability: int('SPORTSBOOK_MAX_EVENT_LIABILITY', 2000000000, 100000, 2000000000),
-  sportsbookMaxMarketLiability: int('SPORTSBOOK_MAX_MARKET_LIABILITY', 1000000000, 100000, 2000000000),
-  sportsbookMaxSelectionLiability: int('SPORTSBOOK_MAX_SELECTION_LIABILITY', 500000000, 100000, 2000000000),
-  sportsbookRiskRepricingEnabled: bool('SPORTSBOOK_RISK_REPRICING_ENABLED', true),
-  sportsbookRiskRepricingMaxShadeBps: int('SPORTSBOOK_RISK_REPRICING_MAX_SHADE_BPS', 600, 0, 2000),
-  // Odds Comparison is not a results authority. New sportsbook markets remain
-  // locked until an official settlement feed is integrated and verified.
-  sportsbookAutoSettlementEnabled: bool('SPORTSBOOK_AUTO_SETTLEMENT_ENABLED', false),
-  sportsbookAutoSettlementSeconds: int('SPORTSBOOK_AUTO_SETTLEMENT_SECONDS', 30, 15, 600),
   // Settlement TOTO otomatis: begitu hasil OFFICIAL/CONSENSUS terbit dan betting
   // window tertutup, periodenya dibayar otomatis tanpa operator menekan tombol.
   // Set TOTO_AUTO_SETTLEMENT_ENABLED=false sebagai kill switch.
   totoAutoSettlementEnabled: bool('TOTO_AUTO_SETTLEMENT_ENABLED', true),
   totoAutoSettlementSeconds: int('TOTO_AUTO_SETTLEMENT_SECONDS', 30, 10, 600),
-  sportsbookCashoutEnabled: bool('SPORTSBOOK_CASHOUT_ENABLED', true),
-  sportsbookCashoutOfferTtlSeconds: int('SPORTSBOOK_CASHOUT_OFFER_TTL_SECONDS', 8, 3, 30),
-  sportsbookCashoutFactorBps: int('SPORTSBOOK_CASHOUT_FACTOR_BPS', 9600, 5000, 10000),
-  sportsbookCashoutMinOffer: int('SPORTSBOOK_CASHOUT_MIN_OFFER', 100, 1, 100000000),
-  sportsbookRealtimeEnabled: bool('SPORTSBOOK_REALTIME_ENABLED', true),
-  sportsbookRealtimePollMs: int('SPORTSBOOK_REALTIME_POLL_MS', 2000, 1000, 15000),
-  sportsbookRealtimeHeartbeatSeconds: int('SPORTSBOOK_REALTIME_HEARTBEAT_SECONDS', 15, 5, 60),
-  sportsbookRealtimeMaxClients: int('SPORTSBOOK_REALTIME_MAX_CLIENTS', 2500, 10, 20000),
 
   // QRIS auto deposit (DANA OpenAPI / QRIS Acquirer). When credentials are
   // absent the system automatically falls back to MANUAL mode (static QRIS +

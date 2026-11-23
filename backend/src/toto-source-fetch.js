@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { renderSportsbookPage } from './sportsbook-browser-renderer.js';
+import { renderBrowserPage } from './browser-page-renderer.js';
 
 const MAX_HTML_BYTES = Math.floor(1.5 * 1024 * 1024);
 const DEFAULT_CONCURRENCY = 2;
@@ -231,7 +231,7 @@ export async function collectTotoSources(fetchImpl = fetch) {
   return mapLimit(TOTO_SOURCES, DEFAULT_CONCURRENCY, source => collectOneSource(source, fetchImpl));
 }
 
-export async function renderTotoSource(source, renderImpl = renderSportsbookPage) {
+export async function renderTotoSource(source, renderImpl = renderBrowserPage) {
   if (!source?.browserFallback) return source;
   const requested = validateSourceUrl(source.url);
   const started = Date.now();

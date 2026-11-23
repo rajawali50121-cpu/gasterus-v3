@@ -56,7 +56,3 @@ test('seluruh pool togel memakai VegasNet sebagai satu-satunya sumber otoritatif
   }
 });
 
-test('registri sumber sportsbook tidak ikut berubah oleh pemangkasan sumber togel',()=>{
-  const registry = JSON.parse(read('backend/data/sportsbook-source-registry.json'));
-  assert.ok(Array.isArray(registry) ? registry.length > 0 : Object.keys(registry).length > 0, 'registri sporbook kosong');
-});

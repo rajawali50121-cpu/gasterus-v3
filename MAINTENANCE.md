@@ -85,7 +85,6 @@ Halaman yang pakai: withdraw, bet-history, market-play, promotion, referral, rul
 | terms.html | B (modular) | Di-link | OK |
 | privacy.html | B (modular) | Di-link | OK |
 | responsible-play.html | B (modular) | Di-link | OK |
-| sportsbook.html | C (hanya sportsbook.css) | TIDAK ADA | KRITIS — tampilan rusak |
 
 ---
 
@@ -102,7 +101,6 @@ mobile-blue.css — 19 class duplikat:
 | .deposit-note-box, .site-footer, .footer-social, .inp-wrap, .cs-info, .reg-phone-wrap, .reg-checkbox, .table | 3x | Tinggi |
 | 11 class lain | 2x | Sedang |
 
-sportsbook.css — 8 class duplikat:
 | Class | Jumlah |
 |-------|--------|
 | .sb-nav | 4x |
@@ -147,11 +145,9 @@ git diff --stat HEAD
 ## 🛠️ ISSUE TRACKER
 
 ### BELUM DIKERJAKAN — Darurat (lakukan segera)
-- [x] Fix sportsbook.html: Tambah tokens.css sebelum sportsbook.css
 - [x] Bersihkan duplikat mobile-blue.css: .qris-white-card, .deposit-tab-item, .preset-pill-btn, .btn-qris-submit (Consolidated cleanly)
 
 ### BELUM DIKERJAKAN — Tinggi
-- [ ] Bersihkan semua duplikat sportsbook.css (8 class)
 - [ ] Bersihkan duplikat layout.css (4 class)
 - [ ] Resolve konflik nav-drawer: layout.css sebagai authority, hapus dari mobile-blue.css
 
@@ -180,7 +176,6 @@ frontend/css/
 |-- home.css            <- Hanya untuk index.html (jika terpisah)
 |-- member.css          <- Hanya untuk member.html (jika terpisah)
 |-- pages/
-    |-- sportsbook.css  <- Hanya untuk sportsbook.html
     |-- transaction.css <- Hanya untuk withdraw.html
     |-- market-play.css <- Hanya untuk market-play.html
 
@@ -227,7 +222,6 @@ memory-guard[feed-worker] heap 256MB | tree RSS 1536MB (sumber: cgroup:2048MB) |
   `memory-guard[<label>] heap … | tree … | child …`.
 
 ### `SPORTS_SOURCE_BROWSER_EXECUTABLE`
-Override path binary browser untuk `backend/src/sportsbook-browser-renderer.js`
 (DevTools/CDP). Urutan pencarian:
 1. argumen eksplisit → 2. `SPORTS_SOURCE_BROWSER_EXECUTABLE` → 3. Windows
    (`CHROME_PATH`/path default) → 4. `/usr/bin/chromium`,
@@ -248,7 +242,6 @@ dev/CI.)
 - `TOTO_OFFICIAL_BROWSER_FALLBACK_MAX_SOURCES` — default **2**.
 
 Naikkan hanya kalau result sering `SINGLE_SOURCE`; tiap kenaikan berarti lebih
-banyak spawn Chromium sehingga RSS naik. Sportsbook feed sendiri API-only dan
 tidak memakai Chromium. Membuka banyak halaman TOTO sekaligus akan menumpuk
 memori — browser fallback hanya jalur cadangan.
 
@@ -265,35 +258,16 @@ tertentu, berguna saat menelusuri masalah memori.
 
 ---
 
-## ⚽ SCRAPER SPORTSBOOK DI RAILWAY (Odds Real, Anti-OOM)
-
-Sportsbook ingestion berjalan sebagai **service Railway terpisah**:
-`sportsbook-render-worker` menggunakan `deploy/Dockerfile.sportsbook-render-worker`.
-Worker memiliki credential Sportradar dan mengambil seluruh halaman data sesuai kontrak API.
-
-- **Worker** hanya memanggil Sportradar, memvalidasi data, menyusun snapshot, lalu mengirim body JSON yang ditandatangani HMAC ke backend melalui Railway private networking.
-- **Backend** tidak memiliki adapter odds provider dan tidak melakukan fetch odds eksternal. Backend hanya menerima snapshot Sportradar yang segar, terverifikasi, dan sesuai schema.
-- **Unavailable/read-only** adalah perilaku wajib saat snapshot hilang, stale, tidak valid, atau Redis tidak tersedia. Tidak boleh ada fixture sintetis atau fallback odds lokal.
-- **Sportradar adalah sumber odds, bukan otoritas hasil pertandingan.** FT settlement memerlukan otorisasi operator; HT settlement tetap ditutup sampai ada otoritas hasil yang disetujui. Auto-settlement sportsbook dinonaktifkan secara default.
-- Cache, payload, pagination, dan resource limits tetap memiliki guard yang eksplisit. Nilai nol pada batas event/halaman berarti tidak menerapkan pemotongan buatan; batas provider/quota dan memori tetap berlaku.
-- TheSportsDB hanya digunakan untuk metadata artwork tim. Integrasi ini tidak menyediakan fixtures, odds, scores, atau settlement.
-- Logika TOTO, wallet ledger, trading controls, lifecycle market, dan settlement internal tidak boleh dihapus saat membersihkan adapter provider sportsbook.
-
 ## 📝 LOG PERUBAHAN
 
 | Tanggal | File | Perubahan |
 |---------|------|-----------|
-| 19 Nov 2026 | sportsbook feed / worker / ingestion | Backend worker-only; Sportradar menjadi satu-satunya sumber odds; snapshot HMAC; tidak ada fallback odds lokal |
-| 19 Nov 2026 | settlement authority / evaluator | FT hanya melalui otoritas operator; HT tidak otomatis; auto-settlement sportsbook dinonaktifkan secara default |
 | 19 Nov 2026 | docs / deployment | Memperbarui arsitektur Railway dan gerbang migrasi database; tidak melakukan cutover |
 ---------|------|-----------|------|
 | 09 Sep 2026 | Semua 21 file | +3113/-525 baris belum di-commit | Cline |
 | 09 Sep 2026 | MAINTENANCE.md | Dibuat pertama kali | Claude/Antigravity |
 | 10 Okt 2026 | MAINTENANCE.md | Tambah bagian "ENV RUNTIME, MEMORI & ANTI-OOM" (`TREE_RSS_LIMIT_MB`, `SPORTS_SOURCE_BROWSER_EXECUTABLE`, kontrol spawn Chromium, state Redis TOTO) | Cline |
 | 10 Okt 2026 | memory-guard.js | Batas tree RSS otomatis dari cgroup (75% limit container) — env jadi opsional | Cline |
-| 16 Okt 2026 | .railway/railway.ts + sportsbook-render-worker* + MAINTENANCE.md | Scraper odds The Odds API sebagai service Railway terpisah (heap 224MB, 5 liga); Redis `--maxmemory` 128MB dipulihkan; guard kuota 429 + test topologi deploy | Cline |
-| 18 Okt 2026 | sportsbook-providers.js + sportsbook-render-worker* + .railway/railway.ts | Pagination Sportmonks round-robin per tanggal (maks 120 halaman/refresh, berhenti awal saat 600 kandidat) — snapshot ingest tidak lagi terpotong ~17 match; `maxPages` kini diteruskan dari `SPORTSBOOK_RENDER_MAX_PAGES`; batas OOM 4MB/12MB tidak berubah | Cline |
-| 18 Okt 2026 | sportsbook-providers.js + sportsbook-render-worker-core.js + sportsbook-ingestion.js + sportsbook-feed.js + verify-sportsbook-e2e.mjs | Filter penyembunyian fixture aktif dibuang (`has_odds === false` / `markets kosong` tidak lagi membuang match) — semua pertandingan pre-match & live ikut snapshot (display-only bila tanpa odds); skema ingest menerima `markets: []`; prioritas dedupe memilih salinan berharga; worker memangkas payload deterministik ke anggaran ingest (6MB) alih-alih gagal 413 diam-diam; halaman default `/api/member/sportsbook/events` naik 30→500 agar curl server melihat katalog penuh; E2E guard 300+ match | Cline |
 
 ---
 Update dokumen ini setiap kali ada perubahan signifikan pada CSS/HTML structure.
