@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import { readFile } from 'node:fs/promises';
 const schema=await readFile(new URL('../migrations/001_platform.sql',import.meta.url),'utf8');
-const sportsbookSchema=await readFile(new URL('../migrations/002_sportsbook.sql',import.meta.url),'utf8');
+const sportsbookSchema=await readFile(new URL('../migrations/042_sportsbook_v2_core.sql',import.meta.url),'utf8');
 const memberExperienceSchema=await readFile(new URL('../migrations/003_member_experience.sql',import.meta.url),'utf8');
 const lotterySchema=await readFile(new URL('../migrations/004_lottery_enterprise.sql',import.meta.url),'utf8');
 const enterpriseBackofficeSchema=await readFile(new URL('../migrations/005_enterprise_backoffice.sql',import.meta.url),'utf8');
@@ -9,7 +9,7 @@ const moneyIntegritySchema=await readFile(new URL('../migrations/007_money_integ
 test('schema includes PostgreSQL ledger and approval controls',()=>{for(const token of ['ledger_accounts','ledger_transactions','ledger_entries','approval_requests','approved_by <> requested_by','prevent_audit_mutation'])assert.ok(schema.includes(token),token);});
 test('member and admin services remain isolated',async()=>{const member=await readFile(new URL('../../deploy/member-server.js',import.meta.url),'utf8');const admin=await readFile(new URL('../../admin/server.js',import.meta.url),'utf8');assert.ok(member.includes('hiddenManagementPath'));assert.ok(admin.includes("url.pathname.startsWith('/member/')"));});
 
-test('sportsbook schema separates tickets and legs with idempotency',()=>{for(const token of ['sportsbook_tickets','sportsbook_legs','UNIQUE(member_id, idempotency_key)','UNIQUE(ticket_id, event_id)'])assert.ok(sportsbookSchema.includes(token),token);});
+test('new sportsbook v2 schema separates provider catalogue, prices, tickets and legs with idempotency',()=>{for(const token of ['sportsbook_v2_events','sportsbook_v2_markets','sportsbook_v2_prices','sportsbook_v2_tickets','sportsbook_v2_ticket_legs','UNIQUE(member_id,idempotency_key)','UNIQUE(ticket_id,provider_event_id)'])assert.ok(sportsbookSchema.includes(token),token);});
 
 test('member experience schema includes durable notifications',()=>{for(const token of ['member_notifications','DEPOSIT_APPROVED','SPORTSBOOK_WIN','read_at'])assert.ok(memberExperienceSchema.includes(token),token);});
 
