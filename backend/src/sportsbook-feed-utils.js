@@ -62,31 +62,6 @@ export function suspendStaleLiveMarkets(events = [], now = Date.now()) {
   });
 }
 
-function applyManualFtSettlementFallback(event, {
-  enabled = config.sportsbookManualFtSettlementFallbackEnabled
-} = {}) {
-  if (!enabled || !event || event.live || event.status !== 'SCHEDULED') return event;
-  const sources = new Set(Array.isArray(event._sources) ? event._sources : []);
-  const readySources = new Set(Array.isArray(event._settlementReadySources) ? event._settlementReadySources : []);
-  if (!sources.has('sportradar') || !readySources.has('sportradar')) return event;
-  const hasHealthyPrematchFt = (event.markets || []).some(market =>
-    (market.period || 'FT') === 'FT'
-    && market.source === 'sportradar'
-    && !market.suspended
-    && (market.selections || []).some(selection => !selection.suspended && Number(selection.odds) > 1)
-  );
-  const hasHealthyPrematchHt = (event.markets || []).some(market =>
-    market.period === '1H'
-    && market.source === 'sportradar'
-    && !market.suspended
-    && (market.selections || []).some(selection => !selection.suspended && Number(selection.odds) > 1)
-  );
-  if (!hasHealthyPrematchFt) return event;
-  event._settlementReadySources = [...new Set([...readySources, 'manual-ops'])];
-  event._settlementMode = hasHealthyPrematchHt ? 'MANUAL_FT_HT_FALLBACK' : 'MANUAL_FT_FALLBACK';
-  return event;
-}
-
 function applySettlementSafety(event) {
   const authority = eventSettlementAuthority(event);
   event.markets = (event.markets || []).map(market => {
@@ -152,7 +127,7 @@ export function mergeProviderEvents(providerResults, options = {}) {
     }
   }
   return [...eventsById.values()].map(event =>
-    applySettlementSafety(applyManualFtSettlementFallback(event, options))
+    applySettlementSafety(event)
   );
 }
 
@@ -251,6 +226,5 @@ export function publicEvent(event) {
 
 export const __sportsbookProviders = {
   mergeProviderEvents,
-  applyManualFtSettlementFallback,
   marketBettingAvailable
 };
