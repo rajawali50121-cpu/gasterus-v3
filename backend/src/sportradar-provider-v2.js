@@ -397,6 +397,11 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     if (fullSyncDue) {
       const full = await fullDailySync(coverage, daysAhead);
       state.events = full.events;
+      // Drop per-event Change Log watermarks for fixtures no longer in the
+      // refreshed schedule so the persisted Redis state stays bounded.
+      state.lastChangeByEvent = Object.fromEntries(
+        Object.entries(state.lastChangeByEvent || {}).filter(([eventId]) => full.events.has(eventId))
+      );
       state.lastFullSyncAt = Date.now();
       diagnostics = { ...full.diagnostics, gapResync: changeLogGap };
     } else {
