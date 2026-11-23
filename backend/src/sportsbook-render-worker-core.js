@@ -17,28 +17,26 @@ function wibParts(date = new Date()) {
   };
 }
 
-// The Prematch Change Log is a rolling five-minute window. Poll at four minutes
-// to leave room for network/worker jitter; a 1,000-call trial quota cannot support
-// continuous ingestion (10,800 calls/30 days before event refreshes are counted).
-export const SPORTRADAR_CHANGELOG_POLL_INTERVAL_SECONDS = 240;
-export const SPORTRADAR_MIN_MONTHLY_CALLS_FOR_CHANGELOG = Math.ceil(
-  (30 * 24 * 60 * 60) / SPORTRADAR_CHANGELOG_POLL_INTERVAL_SECONDS
+// Poll the complete prematch schedule snapshot every ten minutes.
+// A full snapshot avoids missing changes outside Sportradar's rolling five-minute Change Log.
+export const SPORTRADAR_SNAPSHOT_POLL_INTERVAL_SECONDS = 600;
+export const SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT = Math.ceil(
+  (30 * 24 * 60 * 60) / SPORTRADAR_SNAPSHOT_POLL_INTERVAL_SECONDS
 );
 
 export function assertSportradarQuotaCapacity(settings) {
   const monthlyLimit = Number(settings?.sportradarMaxCallsPer30Days || 0);
-  if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < SPORTRADAR_MIN_MONTHLY_CALLS_FOR_CHANGELOG) {
+  if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT) {
     throw new Error(
-      `Sportradar quota is insufficient for continuous Prematch Change Log polling: at least ${SPORTRADAR_MIN_MONTHLY_CALLS_FOR_CHANGELOG} calls per 30 days are required for one four-minute poll (before changed-event refreshes and daily reconciliation); configured quota is ${Number.isFinite(monthlyLimit) ? monthlyLimit : 0}. Upgrade the provider quota; do not start the worker with a 1,000-call trial package.`
+      `Sportradar quota is insufficient for ten-minute full-snapshot polling: at least ${SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT} calls per 30 days are required for one request per poll (before discovery and paginated schedule requests); configured quota is ${Number.isFinite(monthlyLimit) ? monthlyLimit : 0}. Upgrade the provider quota; do not start the worker with a 1,000-call trial package.`
     );
   }
   return true;
 }
 
 export function sportsbookRenderIntervalSeconds(settings) {
-  // Never let the legacy daily-refresh switch or a short ingest TTL force 60-second
-  // provider polling. The API's rolling five-minute Change Log window is authoritative.
-  return SPORTRADAR_CHANGELOG_POLL_INTERVAL_SECONDS;
+  // The full schedule snapshot is the sole synchronization path and runs every ten minutes.
+  return SPORTRADAR_SNAPSHOT_POLL_INTERVAL_SECONDS;
 }
 
 export function combineSportsbookProviderResults(providerResults, { maxEvents = 0 } = {}) {
