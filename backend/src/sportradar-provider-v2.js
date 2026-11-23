@@ -140,7 +140,7 @@ async function requestJson(path, params = {}) {
         originId: response.headers?.get?.('x-origin-id') || null,
         result: response.headers?.get?.('x-result') || null
       };
-      const error = new Error(`Sportradar Limit Exceeded (HTTP 429); retry-after=${retryAfter || 'not-provided'}; ${body}`);
+      const error = new Error(`Sportradar HTTP 429; retry-after=${retryAfter || 'not-provided'}; ${body}`);
       error.code = 'SPORTRADAR_LIMIT_EXCEEDED';
       error.retryAfterMs = retryAfterMs;
       error.diagnostics = responseDiagnostics;
@@ -404,6 +404,7 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
       state.events = delta.events;
       state.lastPollAt = delta.lastPollAt;
       state.lastChangeLogTo = delta.lastChangeLogTo;
+      state.lastChangeByEvent = delta.lastChangeByEvent;
       diagnostics = delta.diagnostics;
     }
     const events = [...state.events.values()];
