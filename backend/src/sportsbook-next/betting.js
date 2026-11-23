@@ -129,6 +129,7 @@ export async function placeSportsbookBet(memberSession, input) {
 }
 
 function resultForLeg(leg, result) {
+  if (result.cancelled) return "VOID";
   const type = String(leg.result_payload?.outcomeType || leg.outcome_type || "").toLowerCase();
   const marketName = String(leg.market_name || leg.result_payload?.marketName || "").toLowerCase();
   if (!/(1x2|3.?way|winner|moneyline)/.test(marketName)) return null;
@@ -148,10 +149,11 @@ export async function refreshAndSettleSportsbookEvent(eventId) {
   const summary = summaries.find(item => item?.sport_event?.id === eventId);
   assert(summary, 404, "Hasil pertandingan belum tersedia pada feed Sportradar Soccer.", "SPORTSBOOK_RESULT_NOT_FOUND");
   const status = summary.sport_event_status?.status;
-  assert(status === "closed", 409, "Hasil belum berstatus closed/terkonfirmasi oleh Sportradar.", "SPORTSBOOK_RESULT_NOT_VERIFIED");
-  const homeScore = summary.sport_event_status?.home_score;
-  const awayScore = summary.sport_event_status?.away_score;
-  assert(Number.isInteger(homeScore) && Number.isInteger(awayScore) && homeScore >= 0 && awayScore >= 0, 409, "Skor terverifikasi tidak lengkap.", "SPORTSBOOK_RESULT_INVALID");
+  assert(status === "closed" || status === "cancelled", 409, "Hasil belum berstatus closed atau cancelled dari Sportradar.", "SPORTSBOOK_RESULT_NOT_VERIFIED");
+  const cancelled = status === "cancelled";
+  const homeScore = summary.sport_event_status?.home_score ?? null;
+  const awayScore = summary.sport_event_status?.away_score ?? null;
+  assert(cancelled || (Number.isInteger(homeScore) && Number.isInteger(awayScore) && homeScore >= 0 && awayScore >= 0), 409, "Skor terverifikasi tidak lengkap.", "SPORTSBOOK_RESULT_INVALID");
   const sourceUpdatedAt = summary.generated_at || response.body.generated_at || new Date().toISOString();
 
   return tx(async clientTx => {
@@ -173,7 +175,7 @@ export async function refreshAndSettleSportsbookEvent(eventId) {
         WHERE l.ticket_id=$1 ORDER BY l.leg_no FOR UPDATE OF l`, [row.id])).rows;
       const target = legs.find(leg => leg.provider_event_id === eventId && leg.result_status === "PENDING");
       if (!target) continue;
-      const mapped = resultForLeg({ ...target, result_payload: target.result_payload }, { homeScore, awayScore });
+      const mapped = resultForLeg({ ...target, result_payload: target.result_payload }, { homeScore, awayScore, cancelled });
       if (!mapped) { pending++; continue; }
       await clientTx.query("UPDATE sportsbook_v2_ticket_legs SET result_status=$1,result_payload=result_payload||$2::jsonb WHERE id=$3",
         [mapped, JSON.stringify({ verifiedResult: { status, homeScore, awayScore, sourceUpdatedAt } }), target.id]);
