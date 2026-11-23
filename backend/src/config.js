@@ -184,9 +184,8 @@ export const config = Object.freeze({
   sportsbookMaxSelectionLiability: int('SPORTSBOOK_MAX_SELECTION_LIABILITY', 500000000, 100000, 2000000000),
   sportsbookRiskRepricingEnabled: bool('SPORTSBOOK_RISK_REPRICING_ENABLED', true),
   sportsbookRiskRepricingMaxShadeBps: int('SPORTSBOOK_RISK_REPRICING_MAX_SHADE_BPS', 600, 0, 2000),
-  // Sportradar supplies odds only. FT settlement requires an explicit operator authority;
-  // HT settlement remains unavailable without a separately approved results authority.
-  sportsbookManualFtSettlementFallbackEnabled: isProduction ? true : bool('SPORTSBOOK_MANUAL_FT_SETTLEMENT_FALLBACK_ENABLED', false),
+  // Odds Comparison is not a results authority. New sportsbook markets remain
+  // locked until an official settlement feed is integrated and verified.
   sportsbookAutoSettlementEnabled: bool('SPORTSBOOK_AUTO_SETTLEMENT_ENABLED', false),
   sportsbookAutoSettlementSeconds: int('SPORTSBOOK_AUTO_SETTLEMENT_SECONDS', 30, 15, 600),
   // Settlement TOTO otomatis: begitu hasil OFFICIAL/CONSENSUS terbit dan betting
