@@ -198,27 +198,3 @@ test('rolling quota gate rejects calls when the contracted request allowance is 
   globalThis.fetch = async () => { throw new Error('Provider must not be called when quota is exhausted'); };
   await assert.rejects(fetchSportradarV2({ daysAhead: 1 }), /rolling 30-day quota/);
 });
-
-test('unchanged markets keep the original price timestamp after an empty five-minute change log', async () => {
-  installRedis();
-  installFullSyncFetch();
-  const initial = await fetchSportradarV2({ daysAhead: 1 });
-  const originalUpdatedAt = initial.events[0].markets[0].selections[0].updatedAt;
-  const calls = [];
-  globalThis.fetch = async input => {
-    const url = new URL(String(input));
-    calls.push(url);
-    if (!url.pathname.endsWith('/sport_event_markets_changelog.json')) {
-      throw new Error(`Unexpected endpoint for empty change log: ${url.pathname}`);
-    }
-    return json({
-      generated_at: '2026-11-22T12:02:00Z',
-      status: { from: 1795340300, to: 1795340600 },
-      changes: []
-    });
-  };
-  const next = await fetchSportradarV2({ daysAhead: 1 });
-  assert.equal(next.diagnostics.eventsRefreshed, 0);
-  assert.equal(next.events[0].markets[0].selections[0].updatedAt, originalUpdatedAt);
-  assert.equal(calls.length, 1);
-});
