@@ -28,6 +28,7 @@ async function runCycle(config, client) {
   const events = new Map();
   const errors = [];
   let quotaLimited = false;
+  const startedCalls = client.callsUsed30Days;
   try {
     const coverage = await client.getSports();
     for (const sportId of config.sportIds) {
