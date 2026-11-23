@@ -137,7 +137,7 @@ export const config = Object.freeze({
   sportradarBaseUrl: text('SPORTRADAR_BASE_URL', 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en'),
   sportradarSportIds: text('SPORTRADAR_SPORT_IDS', 'sr:sport:1'),
   sportradarDaysAhead: int('SPORTRADAR_DAYS_AHEAD', 7, 1, 365),
-  sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 2000, 500, 30000),
+  sportradarMinIntervalMs: int('SPORTRADAR_MIN_INTERVAL_MS', 2000, 100, 30000),
   // Zero disables the local ceiling; the provider account's actual quota and HTTP 429 remain authoritative.
   sportradarMaxCallsPerHour: unboundedInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 0, 0),
   sportradarSharedMaxCallsPerHour: naturalInt('SPORTRADAR_MAX_CALLS_PER_HOUR', 0, 0),
