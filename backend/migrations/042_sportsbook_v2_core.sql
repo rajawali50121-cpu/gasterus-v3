@@ -19,24 +19,33 @@ CREATE INDEX IF NOT EXISTS sportsbook_v2_events_sport_idx ON sportsbook_v2_event
 
 CREATE TABLE IF NOT EXISTS sportsbook_v2_markets (
   provider_event_id TEXT NOT NULL REFERENCES sportsbook_v2_events(provider_event_id) ON DELETE RESTRICT,
+  provider_market_key TEXT NOT NULL,
   provider_market_id TEXT NOT NULL,
   market_name TEXT,
   is_live BOOLEAN NOT NULL DEFAULT FALSE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   snapshot_at TIMESTAMPTZ NOT NULL,
   provider_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-  PRIMARY KEY(provider_event_id, provider_market_id)
+  PRIMARY KEY(provider_event_id, provider_market_key)
 );
 CREATE INDEX IF NOT EXISTS sportsbook_v2_markets_active_idx ON sportsbook_v2_markets(is_active, provider_event_id);
 
 CREATE TABLE IF NOT EXISTS sportsbook_v2_prices (
   id BIGSERIAL PRIMARY KEY,
   provider_event_id TEXT NOT NULL,
+  provider_market_key TEXT NOT NULL,
+  provider_market_key TEXT NOT NULL,
   provider_market_id TEXT NOT NULL,
   provider_book_id TEXT NOT NULL,
   provider_book_name TEXT,
   provider_selection_key TEXT NOT NULL,
   provider_outcome_id TEXT,
+  external_outcome_id TEXT,
+  external_market_id TEXT,
+  external_sport_event_id TEXT,
+  field_id TEXT,
+  player_id TEXT,
+  player_name TEXT,
   outcome_type TEXT,
   outcome_name TEXT,
   odds_decimal NUMERIC(18,6) NOT NULL CHECK (odds_decimal > 1),
@@ -45,9 +54,9 @@ CREATE TABLE IF NOT EXISTS sportsbook_v2_prices (
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   source_updated_at TIMESTAMPTZ NOT NULL,
   provider_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-  CONSTRAINT sportsbook_v2_prices_market_fk FOREIGN KEY(provider_event_id,provider_market_id)
-    REFERENCES sportsbook_v2_markets(provider_event_id,provider_market_id) ON DELETE RESTRICT,
-  CONSTRAINT sportsbook_v2_prices_unique UNIQUE(provider_event_id,provider_market_id,provider_book_id,provider_selection_key)
+  CONSTRAINT sportsbook_v2_prices_market_fk FOREIGN KEY(provider_event_id,provider_market_key)
+    REFERENCES sportsbook_v2_markets(provider_event_id,provider_market_key) ON DELETE RESTRICT,
+  CONSTRAINT sportsbook_v2_prices_unique UNIQUE(provider_event_id,provider_market_key,provider_book_id,provider_selection_key)
 );
 CREATE INDEX IF NOT EXISTS sportsbook_v2_prices_active_idx ON sportsbook_v2_prices(is_active, source_updated_at DESC);
 CREATE INDEX IF NOT EXISTS sportsbook_v2_prices_lookup_idx ON sportsbook_v2_prices(provider_event_id,provider_market_id,provider_book_id);
