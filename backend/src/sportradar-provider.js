@@ -211,12 +211,13 @@ function marketIdNumber(value) {
   const match = String(value ?? '').match(/(?:^|:)market:(\d+)$/);
   return match ? Number(match[1]) : null;
 }
+// IDs below are taken from the Odds Comparison Prematch v2 market catalogue.
+// Unknown IDs are classified by the provider's documented market name, never guessed.
 const MARKET_TYPE_BY_ID = new Map([
-  [1, '1X2'], [10, 'DOUBLE_CHANCE'], [11, 'DRAW_NO_BET'],
-  [14, 'EUROPEAN_HANDICAP'], [16, 'HANDICAP'], [18, 'TOTALS'],
-  [26, 'OTHER'], [29, 'BTTS'], [45, 'CORRECT_SCORE'],
-  [60, '1X2'], [64, 'DRAW_NO_BET'],
-  [66, 'HANDICAP'], [68, 'TOTALS'], [69, 'TEAM_TOTAL'], [70, 'TEAM_TOTAL']
+  [1, '1X2'], [11, 'DRAW_NO_BET'], [14, 'EUROPEAN_HANDICAP'], [18, 'TOTALS'],
+  [60, '1X2'], [64, 'DRAW_NO_BET'], [66, 'HANDICAP'], [68, 'TOTALS'],
+  [69, 'TEAM_TOTAL'], [70, 'TEAM_TOTAL'],
+  [83, 'OTHER'], [231, 'HANDICAP'], [232, 'TOTALS'], [293, '1X2'], [294, 'DRAW_NO_BET']
 ]);
 const MARKET_PERIOD_BY_ID = new Map([
   [26, 'FT'],
@@ -292,15 +293,23 @@ export function periodFromMarket(name, metadata = {}) {
   if (marketType(value) !== 'OTHER') return 'FT';
   return 'UNCLASSIFIED';
 }
-function sportradarOutcomeType(marketId, outcome) {
-  const marketNumber = marketIdNumber(marketId);
-  const outcomeId = String(outcome?.id || '').match(/(?:^|:)outcome:(\d+)$/)?.[1] || null;
-  const documented = marketNumber === 14
-    ? ({ '1711': 'home', '1712': 'draw', '1713': 'away' })[outcomeId]
-    : marketNumber === 16
-      ? ({ '1714': 'home', '1715': 'away' })[outcomeId]
-      : null;
-  return documented || null;
+function sportradarOutcomeType(_marketId, outcome) {
+  // Odds Comparison v2 documents outcome.type and field_id as the outcome
+  // semantics. Outcome IDs are identifiers, not a safe home/draw/away mapping.
+  const rawType = clean(outcome?.type, 80).toLowerCase().replace(/[\s-]+/g, '_');
+  const typeMap = {
+    home: 'home', home_handicap: 'home', home_team: 'home', team_a: 'home',
+    draw: 'draw', tie: 'draw', draw_handicap: 'draw',
+    away: 'away', away_handicap: 'away', away_team: 'away', team_b: 'away',
+    over: 'over', under: 'under', yes: 'yes', no: 'no'
+  };
+  if (typeMap[rawType]) return typeMap[rawType];
+
+  // Sportradar's documented field_id values: 1/2 = home/away;
+  // 3/4/5 = home/draw/away.
+  const fieldId = String(outcome?.field_id ?? '').trim();
+  const fieldMap = { '1': 'home', '2': 'away', '3': 'home', '4': 'draw', '5': 'away' };
+  return fieldMap[fieldId] || null;
 }
 
 function handicapSpecifier(market) {
@@ -314,7 +323,7 @@ function handicapSpecifier(market) {
 }
 
 function selectionLabel(outcome, event, type) {
-  const value = String(outcome?.type || '').toLowerCase();
+  const value = String(outcome?.type || '').toLowerCase().replace(/[_-]+/g, ' ');
   if (type === 'EUROPEAN_HANDICAP' && ['home', 'draw', 'away'].includes(value)) return value.toUpperCase();
   const raw = clean(outcome?.name || outcome?.label, 120);
   if (raw) return raw;
@@ -323,8 +332,8 @@ function selectionLabel(outcome, event, type) {
     if (value === 'draw') return 'DRAW';
     if (value === 'away') return 'AWAY';
   }
-  if (value === 'home') return event.home.name;
-  if (value === 'away') return event.away.name;
+  if (value === 'home' || value === 'home handicap') return event.home.name;
+  if (value === 'away' || value === 'away handicap') return event.away.name;
   if (value === 'draw') return 'Draw';
   if (value === 'over') return 'Over';
   if (value === 'under') return 'Under';
@@ -411,7 +420,7 @@ function normalizeOdds(event, raw) {
         const odds = number(outcome.odds_decimal);
         if (odds === null) diagnostics.outcomesWithoutDecimalOddsRetained += 1;
         const documentedOutcomeType = sportradarOutcomeType(marketId, outcome);
-        const strictDocumentedMarket = [14, 16].includes(marketIdNumber(marketId));
+        const strictDocumentedMarket = marketIdNumber(marketId) === 14;
         const normalizedOutcomeType = strictDocumentedMarket
           ? documentedOutcomeType
           : (String(outcome.type || '').toLowerCase() || null);
@@ -425,7 +434,7 @@ function normalizeOdds(event, raw) {
         return {
           key: hash('selection', event.id, marketId, marketName, book?.id || '', sourceSelectionId, line ?? handicapLine ?? ''),
           label, odds, line, handicapLine,
-          suspended: Boolean(bookRemoved || outcomeRemoved || market.is_live === true || (type === 'EUROPEAN_HANDICAP' && line === null)),
+          suspended: Boolean(bookRemoved || outcomeRemoved || market.is_live === true || (strictDocumentedMarket && !documentedOutcomeType) || (type === 'EUROPEAN_HANDICAP' && line === null)),
           removed: outcomeRemoved,
           outcomeType: normalizedOutcomeType,
           sourceOutcomeId: outcome.id || null,
