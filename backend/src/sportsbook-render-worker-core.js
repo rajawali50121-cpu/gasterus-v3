@@ -24,11 +24,23 @@ export const SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT = Math.ceil(
   (30 * 24 * 60 * 60) / SPORTRADAR_SNAPSHOT_POLL_INTERVAL_SECONDS
 );
 
-export function assertSportradarQuotaCapacity(settings) {
+export function assertSportradarQuotaCapacity(settings, requestsPerCycle = 1) {
   const monthlyLimit = Number(settings?.sportradarMaxCallsPer30Days || 0);
-  if (!Number.isSafeInteger(monthlyLimit) || monthlyLimit < SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT) {
+  const initialUsage = Number(settings?.sportradarInitial30DayUsage || 0);
+  const callsPerCycle = Math.max(1, Math.ceil(Number(requestsPerCycle) || 1));
+  const requiredMonthlyCalls = SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT * callsPerCycle;
+  const availableMonthlyCalls = monthlyLimit - initialUsage;
+  if (!Number.isSafeInteger(monthlyLimit) || !Number.isSafeInteger(initialUsage) ||
+      initialUsage < 0 || initialUsage > monthlyLimit ||
+      availableMonthlyCalls < requiredMonthlyCalls) {
     throw new Error(
-      `Sportradar quota is insufficient for ten-minute full-snapshot polling: at least ${SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT} calls per 30 days are required for one request per poll (before discovery and paginated schedule requests); configured quota is ${Number.isFinite(monthlyLimit) ? monthlyLimit : 0}. Upgrade the provider quota; do not start the worker with a 1,000-call trial package.`
+      `Sportradar quota is insufficient for ten-minute full-snapshot polling: ${callsPerCycle} API requests per cycle require ${requiredMonthlyCalls} calls per 30 days; available contracted allowance after current usage is ${Math.max(0, availableMonthlyCalls)} of ${Number.isFinite(monthlyLimit) ? monthlyLimit : 0}. This excludes future growth in schedule pagination. Upgrade the provider quota or reduce the covered sports/date horizon.`
+    );
+  }
+  const hourlyLimit = Number(settings?.sportradarSharedMaxCallsPerHour || 0);
+  if (hourlyLimit > 0 && hourlyLimit < callsPerCycle * 6) {
+    throw new Error(
+      `Sportradar hourly quota is insufficient for ten-minute snapshots: ${callsPerCycle} requests per cycle require at least ${callsPerCycle * 6} calls per hour; configured limit is ${hourlyLimit}.`
     );
   }
   return true;
