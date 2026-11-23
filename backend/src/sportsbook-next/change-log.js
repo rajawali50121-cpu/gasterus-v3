@@ -7,7 +7,10 @@ export function shouldReconcileChangeLog(lastSuccessfulPollAt, now = Date.now())
 
 export function getChangedSportEventIds(payload, trackedEventIds) {
   const tracked = trackedEventIds instanceof Set ? trackedEventIds : new Set(trackedEventIds || []);
-  const changes = Array.isArray(payload?.changes) ? payload.changes : [];
+  if (!Array.isArray(payload?.changes)) {
+    throw new Error("SPORTRADAR_CHANGELOG_SHAPE_INVALID");
+  }
+  const changes = payload.changes;
   return [...new Set(changes.flatMap(change => {
     if (change?.type && change.type !== "sport_event") return [];
     const id = change?.id;
