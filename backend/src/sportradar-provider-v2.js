@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
+import { assertSportradarQuotaCapacity } from './sportsbook-render-worker-core.js';
 import { __sportradarNormalizer } from './sportradar-normalizer.js';
 import { buildSportradarHeaders, buildSportradarProductBaseUrl, getSportradarAccessFromPrematchBaseUrl } from './sportradar-products.js';
 import { connectRedis, redis } from './redis.js';
@@ -11,7 +12,6 @@ const PAGE_SIZE = 50;
 const STATE_KEY = 'sportsbook:sportradar:v2:state';
 const LEASE_KEY = 'sportsbook:sportradar:v2:lease';
 const BASELINE_KEY = 'sportsbook:sportradar:v2:quota:baseline';
-const BASELINE_INIT_KEY = 'sportsbook:sportradar:v2:quota:baseline-initialized';
 const ROLLING_KEY = 'sportsbook:sportradar:v2:quota:rolling';
 const HOURLY_KEY = 'sportsbook:sportradar:v2:quota:hourly';
 const QPS_KEY = 'sportsbook:sportradar:v2:quota:qps';
@@ -76,7 +76,7 @@ async function reserveRequest() {
   }
   const minInterval = Math.max(100, Number(config.sportradarMinIntervalMs || 1100));
   const script = `
-    if redis.call('SET', KEYS[5], '1', 'NX') then
+    if redis.call('EXISTS', KEYS[1]) == 0 then
       redis.call('SET', KEYS[1], ARGV[5], 'EX', 2592000)
     end
     local baseline = tonumber(redis.call('GET', KEYS[1]) or '0')
@@ -97,7 +97,7 @@ async function reserveRequest() {
     const now = Date.now();
     const token = `${now}:${randomUUID()}`;
     const result = Number(await redisClient.eval(script, {
-      keys: [BASELINE_KEY, ROLLING_KEY, HOURLY_KEY, QPS_KEY, BASELINE_INIT_KEY],
+      keys: [BASELINE_KEY, ROLLING_KEY, HOURLY_KEY, QPS_KEY],
       arguments: [String(monthlyLimit), String(hourlyLimit), token, String(minInterval), String(initialUsage), String(now)]
     }));
     if (result === 1) return;
@@ -313,28 +313,20 @@ async function fullDailySync(coverage, daysAhead) {
   if (!events.size) throw new Error('Sportradar daily markets returned zero events; existing accepted snapshot remains untouched.');
   return { events, diagnostics };
 }
-async function refreshOneEvent(eventId, previous, sports) {
-  const response = await requestJson(`sport_events/${eventId}/sport_event_markets.json`);
-  const rawEvent = response.data?.sport_event;
-  if (!rawEvent?.id) throw new Error(`Sportradar event markets response missing sport_event for ${eventId}.`);
-  if (!parseDate(response.data.generated_at)) throw new Error(`Sportradar event markets response missing a valid generated_at timestamp for ${eventId}.`);
-  const sport = sports.find(item => String(item.id) === String(previous?.sportId)) || { id: previous?.sportId || 'unknown', name: previous?.sport || 'Unknown' };
-  const event = buildEvent(rawEvent, response.data, sport, response.data.generated_at);
-  if (!event) throw new Error(`Sportradar event ${eventId} could not be normalized.`);
-  return event;
-}
 export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead } = {}) {
   if (!config.sportradarEnabled) return { provider: PROVIDER, enabled: false, events: [], errors: ['SPORTRADAR_ENABLED=false'] };
   if (!config.sportradarApiKey) throw new Error('SPORTRADAR_API_KEY is required by the Sportradar worker.');
   await ensureRedis();
   const lease = await acquireLease();
   try {
-    const coverage = await discoverCoverage();
     const rawState = await redisClient.get(STATE_KEY);
-    let stored = rawState ? JSON.parse(rawState) : null;
+    const stored = rawState ? JSON.parse(rawState) : null;
     const state = stored && Array.isArray(stored.events)
       ? { ...stored, events: new Map(stored.events) }
       : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0 };
+    // Preflight against the previous measured cycle size before any provider request.
+    assertSportradarQuotaCapacity(config, Math.max(1, Number(stored?.lastApiRequests || 1)));
+    const coverage = await discoverCoverage();
     const requestCountBefore = providerRequestCount;
     // Authoritative snapshot sync: never rely on the rolling five-minute Change Log
     // when the configured provider cadence is ten minutes.
@@ -355,6 +347,7 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
       events: [...state.events.entries()],
       lastPollAt: state.lastPollAt || Date.now(),
       lastFullSyncAt: state.lastFullSyncAt,
+      lastApiRequests: diagnostics.apiRequests,
       generatedAt
     }), { EX: STATE_TTL_SECONDS });
     logger.info('Sportradar v2 sync completed', {
