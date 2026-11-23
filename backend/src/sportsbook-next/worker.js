@@ -77,7 +77,7 @@ async function runCycle(config, client) {
         const normalized = normalizeEventMarkets(result.body);
         pricedEvents.push({ ...event, ...normalized.event, markets: normalized.markets });
       } catch (error) {
-        if (error?.code === "SPORTRADAR_RATE_LIMITED") throw error;
+        if (error?.code === "SPORTRADAR_RATE_LIMITED" || error?.httpStatus === 401 || error?.httpStatus === 403 || error?.httpStatus >= 500) throw error;
         if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
           quotaLimited = true;
           quotaReason = error.code;
