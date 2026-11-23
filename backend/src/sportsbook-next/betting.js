@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { query, tx } from "../db.js";
 import { AppError, assert } from "../errors.js";
 import { postTransfer, postSystemTransfer, SYSTEM_ACCOUNTS } from "../ledger.js";
@@ -79,9 +79,16 @@ export async function placeSportsbookBet(memberSession, input) {
   assert(/^[A-Za-z0-9:_-]{16,100}$/.test(idempotencyKey), 400, "Idempotency-Key wajib 16-100 karakter.", "IDEMPOTENCY_KEY_INVALID");
   const stake = Number(input.stake);
   assert(Number.isSafeInteger(stake) && stake > 0 && stake <= MAX_STAKE, 400, "Nominal taruhan tidak valid.", "SPORTSBOOK_STAKE_INVALID");
+  const requestedLegs = validateLegs(input.legs);
+  const requestHash = createHash("sha256").update(JSON.stringify({ stake, legs: requestedLegs.map(({ eventId, marketId, bookId, outcomeId, expectedOdds }) => ({ eventId, marketId, bookId, outcomeId, expectedOdds })) })).digest("hex");
+  const previous = (await query("SELECT * FROM sportsbook_v2_tickets WHERE member_id=$1 AND idempotency_key=$2", [memberSession.userId, idempotencyKey])).rows[0];
+  if (previous) {
+    assert(previous.metadata?.requestHash === requestHash, 409, "Idempotency-Key sudah dipakai untuk isi taruhan yang berbeda.", "IDEMPOTENCY_KEY_REUSED");
+    return { duplicate: true, ticket: previous };
+  }
 
   // The provider call is deliberately synchronous and occurs for every leg on submission.
-  const legs = await fetchFreshLegs(validateLegs(input.legs));
+  const legs = await fetchFreshLegs(requestedLegs);
   const totalOdds = legs.reduce((total, leg) => total * leg.acceptedOdds, 1);
   const potentialPayout = Math.floor(stake * totalOdds);
   assert(Number.isSafeInteger(potentialPayout) && potentialPayout >= stake, 400, "Potensi pembayaran melebihi batas sistem.", "SPORTSBOOK_PAYOUT_LIMIT");
@@ -90,7 +97,7 @@ export async function placeSportsbookBet(memberSession, input) {
     // Serialize retries for this member/key before checking the unique ticket key.
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", [memberSession.userId, idempotencyKey]);
     const prior = await client.query("SELECT * FROM sportsbook_v2_tickets WHERE member_id=$1 AND idempotency_key=$2 FOR UPDATE", [memberSession.userId, idempotencyKey]);
-    if (prior.rows[0]) return { duplicate: true, ticket: prior.rows[0] };
+    if (prior.rows[0]) { assert(prior.rows[0].metadata?.requestHash === requestHash, 409, "Idempotency-Key sudah dipakai untuk isi taruhan yang berbeda.", "IDEMPOTENCY_KEY_REUSED"); return { duplicate: true, ticket: prior.rows[0] }; }
 
     const ticketId = randomUUID();
     const inv = invoice();
@@ -111,7 +118,7 @@ export async function placeSportsbookBet(memberSession, input) {
       (id,invoice,member_id,stake,total_odds,potential_payout,status,idempotency_key,ledger_transaction_id,balance_before,balance_after,metadata)
       VALUES($1,$2,$3,$4,$5,$6,'OPEN',$7,$8,$9,$10,$11::jsonb)`,
     [ticketId, inv, memberSession.userId, stake, totalOdds, potentialPayout, idempotencyKey, ledger.transactionId, ledger.before, ledger.after,
-      JSON.stringify({ provider: "sportradar-odds-comparison-prematch-v2", acceptedAt: new Date().toISOString() })]);
+      JSON.stringify({ provider: "sportradar-odds-comparison-prematch-v2", acceptedAt: new Date().toISOString(), requestHash })]);
 
     for (const leg of legs) {
       await client.query(`INSERT INTO sportsbook_v2_ticket_legs
