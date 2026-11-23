@@ -322,6 +322,7 @@ async function pollChanges(coverage, state) {
   }
   const lastPollAt = Number(state.lastPollAt || 0);
   const lastChangeLogTo = Number(state.lastChangeLogTo || 0);
+  const lastChangeByEvent = { ...(state.lastChangeByEvent || {}) };
   const gap = lastPollAt > 0 && Date.now() - lastPollAt > 5 * 60 * 1000;
   // Sportradar's Change Log is a rolling five-minute window. The same event
   // therefore appears in several consecutive polls. Use the provider's Unix
@@ -334,7 +335,14 @@ async function pollChanges(coverage, state) {
     if (!Number.isFinite(changedAt)) {
       throw new Error('Sportradar Change Log item is missing sport_event_markets_odds_change; refusing to advance the change watermark.');
     }
-    if (changedAt > lastChangeLogTo) freshChangedIds.add(String(item.id));
+    const eventId = String(item.id);
+    const previousEventChange = Number(lastChangeByEvent[eventId] || 0);
+    // Include the watermark second once per event: provider timestamps have
+    // one-second precision, so strict global `>` can drop a boundary update.
+    if (changedAt >= lastChangeLogTo && changedAt > previousEventChange) {
+      freshChangedIds.add(eventId);
+      lastChangeByEvent[eventId] = changedAt;
+    }
   }
   const trackedIds = gap ? [...state.events.keys()] : [...freshChangedIds];
   const updated = new Map(state.events);
@@ -355,6 +363,7 @@ async function pollChanges(coverage, state) {
     diagnostics: { fullSync: false, changeLogChanges: changes.length, eventsRefreshed: trackedIds.length, gapReconciled: gap, changeLogWindow: { from: windowFrom, to: windowTo } },
     lastPollAt: Date.now(),
     lastChangeLogTo: windowTo,
+    lastChangeByEvent,
     verifiedAt
   };
 }
@@ -369,8 +378,8 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
     const rawState = await redisClient.get(STATE_KEY);
     let stored = rawState ? JSON.parse(rawState) : null;
     const state = stored && Array.isArray(stored.events)
-      ? { ...stored, events: new Map(stored.events) }
-      : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0, lastChangeLogTo: 0 };
+      ? { ...stored, events: new Map(stored.events), lastChangeByEvent: stored.lastChangeByEvent || {} }
+      : { events: new Map(), lastPollAt: 0, lastFullSyncAt: 0, lastChangeLogTo: 0, lastChangeByEvent: {} };
     const fullSyncDue = !state.events.size || !state.lastFullSyncAt || Date.now() - state.lastFullSyncAt >= 24 * 60 * 60 * 1000;
     let diagnostics;
     if (fullSyncDue) {
@@ -393,6 +402,7 @@ export async function fetchSportradarV2({ daysAhead = config.sportradarDaysAhead
       lastPollAt: state.lastPollAt || Date.now(),
       lastFullSyncAt: state.lastFullSyncAt,
       lastChangeLogTo: state.lastChangeLogTo || 0,
+      lastChangeByEvent: state.lastChangeByEvent || {},
       generatedAt
     }), { EX: STATE_TTL_SECONDS });
     logger.info('Sportradar v2 sync completed', {
