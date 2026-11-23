@@ -71,7 +71,7 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
 }
 
 export function normalizeDailySportEventMarkets(payload, sportId, fetchedAt = new Date().toISOString()) {
-  const rows = arr(payload?.sport_events ?? payload?.events ?? payload?.schedules);
+  const rows = arr(payload?.sport_schedule_sport_event_markets ?? payload?.sport_events ?? payload?.events ?? payload?.schedules);
   return rows.flatMap(item => {
     const event = item?.sport_event ?? item;
     const marketsPayload = item?.sport_event_markets ?? item;
