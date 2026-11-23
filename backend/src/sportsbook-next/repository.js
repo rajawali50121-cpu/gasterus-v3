@@ -50,7 +50,7 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
                 provider_event_id,provider_market_key,provider_market_id,provider_book_id,provider_book_name,
                 provider_selection_key,provider_outcome_id,external_outcome_id,external_market_id,external_sport_event_id,field_id,player_id,player_name,outcome_type,outcome_name,
                 odds_decimal,opening_odds_decimal,line_value,is_active,source_updated_at,provider_payload
-               ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,TRUE,$18,$19::jsonb)
+               ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,TRUE,$19,$20::jsonb)
               ON CONFLICT(provider_event_id,provider_market_key,provider_book_id,provider_selection_key)
               DO UPDATE SET provider_book_name=excluded.provider_book_name,
                 provider_outcome_id=excluded.provider_outcome_id,external_outcome_id=excluded.external_outcome_id,external_market_id=excluded.external_market_id,external_sport_event_id=excluded.external_sport_event_id,field_id=excluded.field_id,player_id=excluded.player_id,player_name=excluded.player_name,outcome_type=excluded.outcome_type,
