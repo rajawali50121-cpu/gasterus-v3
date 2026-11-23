@@ -304,6 +304,25 @@ test('Change Log gap performs bounded daily-market resync instead of one request
   assert.ok(calls.every(url => url.pathname.includes('/schedules/')));
 });
 
+test('full sync prunes Change Log watermarks for events no longer in the schedule', async () => {
+  const client = installRedis();
+  installFullSyncFetch();
+  await fetchSportradarV2({ daysAhead: 1 });
+  const stateKey = 'sportsbook:sportradar:v2:state';
+  const state = JSON.parse(await client.get(stateKey));
+  state.lastChangeByEvent = {
+    'sr:sport_event:fixture-1': 1795340000,
+    'sr:sport_event:expired-fixture': 1795340100
+  };
+  state.lastPollAt = Date.now() - (6 * 60 * 1000);
+  await client.set(stateKey, JSON.stringify(state));
+
+  installFullSyncFetch();
+  await fetchSportradarV2({ daysAhead: 1 });
+  const persisted = JSON.parse(await client.get(stateKey));
+  assert.deepEqual(Object.keys(persisted.lastChangeByEvent), ['sr:sport_event:fixture-1']);
+});
+
 test('rolling quota gate rejects calls when the contracted request allowance is exhausted', async () => {
   // The configured limit is 500; seed Redis with the exact same count to exercise fail-closed quota rejection.
   installRedis({ baseline: '500' });
