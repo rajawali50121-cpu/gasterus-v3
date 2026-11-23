@@ -11,7 +11,8 @@ export function normalizeDailySchedule(payload) {
       status: event.status ?? "unknown",
       home: event.competitors?.find(c => c.qualifier === "home")?.name ?? null,
       away: event.competitors?.find(c => c.qualifier === "away")?.name ?? null,
-      competition: item?.sport_event_context?.competition?.name ?? null
+      competition: item?.sport_event_context?.competition?.name ?? null,
+      competitionId: item?.sport_event_context?.competition?.id ?? null
     }];
   });
 }
