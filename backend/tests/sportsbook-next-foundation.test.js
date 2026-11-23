@@ -4,6 +4,7 @@ import { loadSportsbookConfig } from "../src/sportsbook-next/config.js";
 import { SportradarClient } from "../src/sportsbook-next/sportradar-client.js";
 import { getSportradarQuotaUsage, reserveSportradarCall } from "../src/sportsbook-next/quota.js";
 import { normalizeDailySchedule, normalizeDailySportEventMarkets, normalizeEventMarkets, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
+import { getChangedSportEventIds, shouldReconcileChangeLog, SPORTRADAR_CHANGE_LOG_WINDOW_MS } from "../src/sportsbook-next/change-log.js";
 
 const env = {
   SPORTRADAR_API_KEY: "test-key",
@@ -20,6 +21,46 @@ test("config defaults to 150-minute refresh, a two-day window and official Odds 
   assert.equal(config.daysAhead, 1);
   assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
+});
+
+test("change-log configuration is opt-in and refuses a request budget too small for the documented five-minute window", () => {
+  const config = loadSportsbookConfig(env);
+  assert.equal(config.changeLogEnabled, false);
+  assert.equal(config.changeLogPollMs, 240_000);
+  assert.equal(config.minimumChangeLogCalls30Days, 10_800);
+  assert.throws(
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" }),
+    /requires a 30-day request budget/
+  );
+  const enabled = loadSportsbookConfig({
+    ...env,
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "11000",
+    SPORTRADAR_CHANGELOG_ENABLED: "true"
+  });
+  assert.equal(enabled.changeLogEnabled, true);
+});
+
+test("change log extracts only tracked Sportradar sport-event IDs", () => {
+  const tracked = new Set(["sr:sport_event:1", "sr:sport_event:2"]);
+  assert.deepEqual(getChangedSportEventIds({ changes: [
+    { type: "sport_event", id: "sr:sport_event:1", sport_event_markets_odds_change: 123 },
+    { type: "sport_event", id: "sr:sport_event:1", sport_event_markets_odds_change: 124 },
+    { type: "sport_event", id: "sr:sport_event:unknown" },
+    { type: "competition", id: "sr:competition:1" },
+    { id: "sr:sport_event:2" }
+  ] }, tracked), ["sr:sport_event:1", "sr:sport_event:2"]);
+});
+
+test("change log rejects a malformed payload instead of treating it as no changes", () => {
+  assert.throws(() => getChangedSportEventIds({ unexpected: [] }, new Set()), /SPORTRADAR_CHANGELOG_SHAPE_INVALID/);
+});
+
+test("change log reconciles after startup or a gap longer than five minutes", () => {
+  const now = 1_800_000_000_000;
+  assert.equal(SPORTRADAR_CHANGE_LOG_WINDOW_MS, 300_000);
+  assert.equal(shouldReconcileChangeLog(null, now), true);
+  assert.equal(shouldReconcileChangeLog(String(now - 300_001), now), true);
+  assert.equal(shouldReconcileChangeLog(String(now - 299_999), now), false);
 });
 
 test("config rejects missing API key, unsupported tier and unknown quota", () => {
@@ -90,6 +131,28 @@ test("client calls documented endpoints, authenticates by x-api-key and stops on
   await assert.rejects(client.getDailySchedules("sr:sport:1", "2026-11-23"), error => error.code === "SPORTRADAR_RATE_LIMITED" && error.retryAfter === "900");
   assert.match(requested, /sports\/sr:sport:1\/schedules\/2026-11-23\/schedules\.json\?start=0&limit=50/);
   assert.equal(calls, 1);
+});
+
+test("client calls the documented Prematch change-log and per-event market endpoints", async () => {
+  const config = loadSportsbookConfig(env);
+  const requested = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      requested.push(String(url));
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => requested.length === 1
+          ? { changes: [{ type: "sport_event", id: "sr:sport_event:123", sport_event_markets_odds_change: 123 }] }
+          : { sport_event: { id: "sr:sport_event:123" }, markets: [] }
+      };
+    }
+  });
+  const changeLog = await client.getSportEventMarketsChangeLog();
+  assert.equal(changeLog.body.changes[0].id, "sr:sport_event:123");
+  const markets = await client.getSportEventMarkets("sr:sport_event:123");
+  assert.equal(markets.body.sport_event.id, "sr:sport_event:123");
+  assert.match(requested[0], /sport_event_markets_changelog\.json$/);
+  assert.match(requested[1], /sport_events\/sr:sport_event:123\/sport_event_markets\.json$/);
 });
 
 test("daily schedules use bounded offset pagination and stop at provider total", async () => {
