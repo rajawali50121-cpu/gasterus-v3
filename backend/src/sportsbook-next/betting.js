@@ -129,7 +129,7 @@ export async function placeSportsbookBet(memberSession, input) {
 }
 
 function resultForLeg(leg, result) {
-  const type = String(leg.outcome_type || "").toLowerCase();
+  const type = String(leg.result_payload?.outcomeType || leg.outcome_type || "").toLowerCase();
   const marketName = String(leg.market_name || leg.result_payload?.marketName || "").toLowerCase();
   if (!/(1x2|3.?way|winner|moneyline)/.test(marketName)) return null;
   const winner = result.homeScore > result.awayScore ? "home" : result.homeScore < result.awayScore ? "away" : "draw";
