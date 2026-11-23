@@ -123,8 +123,9 @@ while (!shutdown.signal.aborted) {
       buildDurationMs: snapshotBuiltAt - cycleStartedAt,
       deliveryDurationMs: acceptedAt - snapshotBuiltAt,
       cycleDurationMs: acceptedAt - cycleStartedAt,
-      nextRefreshInMs: intervalMs
+      nextRefreshInMs: Math.max(0, intervalMs - (acceptedAt - cycleStartedAt))
     }));
+    nextDelayMs = Math.max(0, intervalMs - (acceptedAt - cycleStartedAt));
     consecutiveCycleFailures = 0;
   } catch (error) {
     consecutiveCycleFailures += 1;
