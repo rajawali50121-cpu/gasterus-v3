@@ -262,8 +262,13 @@ async function main() {
           httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
           retryAfter: error?.retryAfter || null
         });
+        const retrySeconds = Number(error?.retryAfter);
+        const retryDelayMs = Number.isFinite(retrySeconds) && retrySeconds > 0
+          ? Math.max(config.changeLogPollMs, retrySeconds * 1000 + 1_000)
+          : config.changeLogPollMs;
+        nextChangeLogAt = Date.now() + retryDelayMs;
       }
-      nextChangeLogAt = Date.now() + config.changeLogPollMs;
+      if (nextChangeLogAt <= Date.now()) nextChangeLogAt = Date.now() + config.changeLogPollMs;
     }
 
     const nextRunAt = config.changeLogEnabled
