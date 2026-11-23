@@ -1545,7 +1545,7 @@ const MARKET_PERIOD_LABELS = {
 };
 
 function eventMarketPeriods() {
-  // HT is temporarily hidden until Sportradar OC Core first-half prices are enabled.
+  // HT remains hidden until first-half prices are verified and enabled in the active feed.
   return ['FT'];
 }
 const MARKET_PERIOD_TAB_LABELS = {
