@@ -8,8 +8,8 @@ Object.assign(process.env, {
   SPORTRADAR_BASE_URL: 'https://api.sportradar.com/oddscomparison-prematch/trial/v2/en',
   SPORTRADAR_SPORT_IDS: 'sr:sport:1',
   SPORTRADAR_MIN_INTERVAL_MS: '100',
-  SPORTRADAR_MAX_CALLS_PER_HOUR: '20',
-  SPORTRADAR_MAX_CALLS_PER_30_DAYS: '500',
+  SPORTRADAR_MAX_CALLS_PER_HOUR: '60',
+  SPORTRADAR_MAX_CALLS_PER_30_DAYS: '50000',
   SPORTRADAR_INITIAL_30_DAY_USAGE: '0',
   SPORTRADAR_REQUEST_TIMEOUT_MS: '5000',
   REDIS_URL: 'redis://127.0.0.1:6379'
@@ -189,8 +189,8 @@ test('every ten-minute cycle rebuilds an authoritative schedule snapshot without
 });
 
 test('rolling quota gate rejects calls when the contracted request allowance is exhausted', async () => {
-  // The configured limit is 500; seed Redis with the exact same count to exercise fail-closed quota rejection.
-  installRedis({ baseline: '500' });
+  // The configured limit is 50,000; seed Redis with the exact same count to exercise fail-closed quota rejection.
+  installRedis({ baseline: '50000' });
   globalThis.fetch = async () => { throw new Error('Provider must not be called when quota is exhausted'); };
   await assert.rejects(fetchSportradarV2({ daysAhead: 1 }), /rolling 30-day quota/);
 });
