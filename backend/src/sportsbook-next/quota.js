@@ -65,4 +65,31 @@ export async function reserveSportradarCall(redis, config, now = Date.now()) {
   throw error;
 }
 
-export const __quota = { KEY, BASELINE_KEY, RESERVE_SCRIPT, WINDOW_MS, HOUR_MS };
+const USAGE_SCRIPT = `
+local now = tonumber(ARGV[1])
+local cutoff = now - tonumber(ARGV[2])
+local baselineCount = tonumber(redis.call('HGET', KEYS[2], 'count') or ARGV[3])
+local baselineAt = tonumber(redis.call('HGET', KEYS[2], 'captured_at') or now)
+if baselineAt < cutoff then baselineCount = 0 end
+local hourly = redis.call('ZCOUNT', KEYS[1], now - tonumber(ARGV[4]), '+inf')
+local rolling = redis.call('ZCOUNT', KEYS[1], cutoff, '+inf')
+return {hourly, baselineCount + rolling}
+`;
+
+export async function getSportradarQuotaUsage(redis, config, now = Date.now()) {
+  const result = await redis.eval(USAGE_SCRIPT, {
+    keys: [KEY, BASELINE_KEY],
+    arguments: [String(now), String(WINDOW_MS), String(config.initialCallsUsed30Days), String(HOUR_MS)]
+  });
+  const [hourlyUsed, monthlyUsed] = Array.isArray(result) ? result.map(Number) : [0, config.initialCallsUsed30Days];
+  return {
+    hourlyUsed,
+    hourlyLimit: config.maxCallsPerHour,
+    hourlyRemaining: Math.max(0, config.maxCallsPerHour - hourlyUsed),
+    monthlyUsed,
+    monthlyLimit: config.maxCallsPer30Days,
+    monthlyRemaining: Math.max(0, config.maxCallsPer30Days - monthlyUsed)
+  };
+}
+
+export const __quota = { KEY, BASELINE_KEY, RESERVE_SCRIPT, USAGE_SCRIPT, WINDOW_MS, HOUR_MS };
