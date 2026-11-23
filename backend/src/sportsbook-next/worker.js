@@ -22,16 +22,18 @@ async function runCycle(config, client) {
   const lock = await redis.set(LOCK_KEY, token, { NX: true, PX: 30 * 60 * 1000 });
   if (!lock) return { skipped: "another worker owns the poll lock" };
 
-  const startedCalls = client.callsUsed30Days;
+  client.cycleCalls = 0;
   const events = new Map();
   const errors = [];
   try {
     const coverage = await client.getSports();
     for (const sportId of config.sportIds) {
       for (let day = 0; day <= config.daysAhead; day += 1) {
-        if (client.callsUsed30Days - startedCalls >= config.maxCallsPerCycle) break;
+        if (client.cycleCalls >= config.maxCallsPerCycle) break;
         const date = utcDate(day);
-        const rows = await client.getAllDailySchedules(sportId, date, { pageSize: 50, maxPages: 10 });
+        const remaining = config.maxCallsPerCycle - client.cycleCalls;
+        if (remaining <= 0) break;
+        const rows = await client.getAllDailySchedules(sportId, date, { pageSize: 50, maxPages: Math.min(10, remaining) });
         for (const event of normalizeDailySchedule({ schedules: rows })) events.set(event.id, event);
       }
       if (client.callsUsed30Days - startedCalls >= config.maxCallsPerCycle) break;
@@ -55,7 +57,7 @@ async function runCycle(config, client) {
       provider: "sportradar-odds-comparison-prematch-v2",
       fetchedAt: new Date().toISOString(),
       complete: errors.length === 0 && client.callsUsed30Days - startedCalls < config.maxCallsPerCycle,
-      callsThisCycle: client.callsUsed30Days - startedCalls,
+      callsThisCycle: client.cycleCalls,
       events: pricedEvents,
       errors
     };
@@ -73,7 +75,15 @@ async function main() {
   const config = loadSportsbookConfig();
   await connectRedis();
   const client = new SportradarClient(config, {
-    beforeRequest: () => reserveSportradarCall(redis, config)
+    beforeRequest: async () => {
+      if (client.cycleCalls >= config.maxCallsPerCycle) {
+        const error = new Error('SPORTRADAR_CYCLE_BUDGET_EXHAUSTED');
+        error.code = 'SPORTRADAR_CYCLE_BUDGET_EXHAUSTED';
+        throw error;
+      }
+      await reserveSportradarCall(redis, config);
+      client.cycleCalls += 1;
+    }
   });
   logger.info("Sportradar sportsbook replacement worker started", {
     pollMinutes: config.pollIntervalMs / 60_000,
@@ -84,6 +94,7 @@ async function main() {
   });
 
   while (!stopping) {
+    client.cycleCalls = 0;
     try {
       const result = await runCycle(config, client);
       logger.info("Sportradar sportsbook poll completed", result);
