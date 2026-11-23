@@ -107,7 +107,7 @@ async function main() {
         retryAfter: error?.retryAfter || null
       });
       if (error?.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED") {
-        await sleep(config.pollIntervalMs);
+        await sleep(config.pollIntervalMs, undefined, { signal: shutdownController.signal }).catch(() => {});
         continue;
       }
     }
@@ -115,16 +115,15 @@ async function main() {
   }
 }
 
-process.once("SIGTERM", () => { stopping = true; });
-process.once("SIGINT", () => { stopping = true; });
+const shutdownController = new AbortController();
+process.once("SIGTERM", () => { stopping = true; shutdownController.abort(); });
+process.once("SIGINT", () => { stopping = true; shutdownController.abort(); });
 main().catch(async error => {
   logger.error("Sportradar sportsbook worker failed to start", { code: error?.code || "WORKER_START_FAILED", error: error?.message });
   await closeRedis().catch(() => {});
   await closeDatabase().catch(() => {});
   process.exitCode = 1;
 }).finally(async () => {
-  if (stopping) {
-    await closeRedis().catch(() => {});
-    await closeDatabase().catch(() => {});
-  }
+  await closeRedis().catch(() => {});
+  await closeDatabase().catch(() => {});
 });
