@@ -10,11 +10,12 @@ function safeProviderError(status) {
 }
 
 export class SportradarClient {
-  constructor(config, { fetchImpl = fetch, now = () => Date.now(), beforeRequest = null } = {}) {
+  constructor(config, { fetchImpl = fetch, now = () => Date.now(), beforeRequest = null, onResponse = null } = {}) {
     this.config = config;
     this.fetch = fetchImpl;
     this.now = now;
     this.beforeRequest = beforeRequest;
+    this.onResponse = onResponse;
     this.calls = [];
   }
 
@@ -45,6 +46,28 @@ export class SportradarClient {
         signal: controller.signal
       });
       const body = await response.json().catch(() => null);
+      const topLevelKeys = body && typeof body === "object" && !Array.isArray(body)
+        ? Object.keys(body).sort()
+        : [];
+      const arrayCounts = Object.fromEntries(topLevelKeys
+        .filter(key => Array.isArray(body[key]))
+        .map(key => [key, body[key].length]));
+      try {
+        this.onResponse?.({
+          httpStatus: response.status,
+          contentType: response.headers.get("content-type"),
+          contentLength: response.headers.get("content-length"),
+          topLevelKeys,
+          arrayCounts,
+          pagination: {
+            maxResults: response.headers.get("x-max-results"),
+            offset: response.headers.get("x-offset"),
+            result: response.headers.get("x-result")
+          }
+        });
+      } catch {
+        // Diagnostic logging must never change provider request behavior.
+      }
       if (response.status === 429) {
         throw providerError("SPORTRADAR_RATE_LIMITED", "Sportradar rate limit reached (HTTP 429)", {
           httpStatus: 429,
@@ -106,7 +129,7 @@ export class SportradarClient {
     let start = 0;
     for (let page = 0; page < maxPages; page += 1) {
       const result = await this.getDailySportEventMarkets(sportId, date, { start, limit: pageSize });
-      const rows = result.body?.sport_events ?? result.body?.events ?? result.body?.schedules ?? [];
+      const rows = result.body?.sport_schedule_sport_event_markets ?? result.body?.sport_events ?? result.body?.events ?? result.body?.schedules ?? [];
       if (!Array.isArray(rows)) throw providerError("SPORTRADAR_BULK_MARKETS_SHAPE_INVALID", "Sportradar bulk markets payload has no event array");
       items.push(...rows);
       const reportedHeader = result.headers.get("x-max-results");
