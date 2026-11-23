@@ -212,6 +212,15 @@ test('worker cadence follows Sportradar freshness or the daily WIB schedule', ()
   }), 30);
 });
 
+test('worker backs off after Sportradar 429 and does not permanently pause until redeploy', async () => {
+  const workerSource = await import('node:fs/promises').then(fs =>
+    fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
+  );
+  assert.match(workerSource, /exponential429Backoff/);
+  assert.match(workerSource, /retryAfterMs/);
+  assert.doesNotMatch(workerSource, /provider-limit-circuit-open|polling-paused-until-redeploy/);
+});
+
 test('worker continuously polls the Sportradar change log instead of using the daily cron gate', async () => {
   const workerSource = await import('node:fs/promises').then(fs =>
     fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
