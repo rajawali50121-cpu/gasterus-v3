@@ -21,7 +21,7 @@ function wibParts(date = new Date()) {
 // Budget the trial quota over a ten-day operating window, reserving 50 calls for unexpected/manual usage.
 export const SPORTRADAR_OPERATION_WINDOW_DAYS = 10;
 export const SPORTRADAR_QUOTA_RESERVE_CALLS = 50;
-export const SPORTRADAR_DEFAULT_REQUESTS_PER_CYCLE = 10;
+export const SPORTRADAR_DEFAULT_REQUESTS_PER_CYCLE = 11;
 
 export function assertSportradarQuotaCapacity(settings, requestsPerCycle = SPORTRADAR_DEFAULT_REQUESTS_PER_CYCLE) {
   const monthlyLimit = Number(settings?.sportradarMaxCallsPer30Days || 0);
