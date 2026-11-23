@@ -37,7 +37,7 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
           type: outcome.type ?? null,
           name: outcome.name ?? null,
           oddsDecimal: price,
-          openingOddsDecimal: Number.isFinite(Number(outcome.open_odds_decimal)) ? Number(outcome.open_odds_decimal) : null,
+          openingOddsDecimal: outcome.open_odds_decimal != null && Number.isFinite(Number(outcome.open_odds_decimal)) ? Number(outcome.open_odds_decimal) : null,
           line: outcome.handicap ?? outcome.total ?? outcome.spread ?? outcome.line ?? null,
           fieldId: outcome.field_id ?? null,
           externalOutcomeId: outcome.external_outcome_id ?? null,
