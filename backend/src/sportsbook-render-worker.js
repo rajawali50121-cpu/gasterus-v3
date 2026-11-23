@@ -37,7 +37,7 @@ const [
 console.log('WORKER_IMPORTS_DONE');
 
 // Fail before making any provider request when the contracted quota cannot
-// sustain the documented rolling Change Log window.
+// sustain the ten-minute full-snapshot baseline.
 assertSportradarQuotaCapacity(config);
 
 const cronOnce = String(process.env.SPORTSBOOK_CRON_ONCE || '').trim().toLowerCase() === 'true';
@@ -95,7 +95,7 @@ while (!shutdown.signal.aborted) {
   let nextDelayMs = intervalMs;
   lastCycleRateLimited = false;
   try {
-    // Sportradar prematch Change Log is a rolling five-minute window; poll every four minutes.
+    // Full prematch schedule snapshot; Change Log is deliberately not used at this cadence.
     console.log('CYCLE_START');
     const snapshot = await buildSportsbookRenderSnapshot({
       fetchSportradar: () => fetchSportradarV2({}),
