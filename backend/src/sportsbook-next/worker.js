@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
-import { connectRedis, redis, closeRedis } from "../redis.js";
-import { closeDatabase } from "../db.js";
+import { connectRedis, redis, closeRedis } from "./redis.js";
+import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
