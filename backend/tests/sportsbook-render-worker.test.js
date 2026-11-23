@@ -17,7 +17,7 @@ const {
   combineSportsbookProviderResults,
   sportsbookRenderIntervalSeconds,
   assertSportradarQuotaCapacity,
-  SPORTRADAR_MIN_MONTHLY_CALLS_FOR_CHANGELOG
+  SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT
 } = await import('../src/sportsbook-render-worker-core.js');
 const { validateSportsbookSnapshot } = await import('../src/sportsbook-ingestion.js');
 const { __sportradarNormalizer } = await import('../src/sportradar-normalizer.js');
@@ -195,23 +195,23 @@ test('worker publishes a valid empty Sportradar schedule without fabricating fix
   assert.deepEqual(snapshot.providerResults[0].events, []);
 });
 
-test('worker never polls the five-minute Sportradar Change Log faster than the safe four-minute cadence', () => {
+test('worker uses a single ten-minute full-snapshot cadence regardless of legacy settings', () => {
   assert.equal(sportsbookRenderIntervalSeconds({
     sportsbookDailyRefreshEnabled: true,
     sportradarRefreshSeconds: 60,
     sportsbookIngestMaxAgeSeconds: 60
-  }), 240);
+  }), 600);
   assert.equal(sportsbookRenderIntervalSeconds({
     sportsbookDailyRefreshEnabled: false,
     sportradarRefreshSeconds: 3600,
     sportsbookIngestMaxAgeSeconds: 30
-  }), 240);
+  }), 600);
 });
 
-test('worker rejects a 1,000-call trial quota before any continuous Change Log polling', () => {
-  assert.equal(SPORTRADAR_MIN_MONTHLY_CALLS_FOR_CHANGELOG, 10800);
-  assert.throws(() => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 1000 }), /at least 10800 calls per 30 days/);
-  assert.equal(assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 10800 }), true);
+test('worker rejects a 1,000-call trial quota before ten-minute full-snapshot polling', () => {
+  assert.equal(SPORTRADAR_MIN_MONTHLY_CALLS_FOR_SNAPSHOT, 4320);
+  assert.throws(() => assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 1000 }), /at least 4320 calls per 30 days/);
+  assert.equal(assertSportradarQuotaCapacity({ sportradarMaxCallsPer30Days: 4320 }), true);
 });
 
 test('worker backs off after Sportradar 429 and does not permanently pause until redeploy', async () => {
@@ -225,7 +225,7 @@ test('worker backs off after Sportradar 429 and does not permanently pause until
   assert.doesNotMatch(workerSource, /provider-limit-circuit-open|polling-paused-until-redeploy/);
 });
 
-test('worker continuously polls the Sportradar change log instead of using the daily cron gate', async () => {
+test('worker continuously polls full Sportradar snapshots instead of using the daily cron gate', async () => {
   const workerSource = await import('node:fs/promises').then(fs =>
     fs.readFile(new URL('../src/sportsbook-render-worker.js', import.meta.url), 'utf8')
   );
