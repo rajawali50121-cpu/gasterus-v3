@@ -129,8 +129,16 @@ export class SportradarClient {
     let start = 0;
     for (let page = 0; page < maxPages; page += 1) {
       const result = await this.getDailySportEventMarkets(sportId, date, { start, limit: pageSize });
-      const rows = result.body?.sport_schedule_sport_event_markets ?? result.body?.sport_events ?? result.body?.events ?? result.body?.schedules ?? [];
-      if (!Array.isArray(rows)) throw providerError("SPORTRADAR_BULK_MARKETS_SHAPE_INVALID", "Sportradar bulk markets payload has no event array");
+      const rows = result.body?.sport_schedule_sport_event_markets
+        ?? result.body?.sport_events
+        ?? result.body?.events
+        ?? result.body?.schedules;
+      if (!Array.isArray(rows)) {
+        throw providerError(
+          "SPORTRADAR_BULK_MARKETS_SHAPE_INVALID",
+          "Sportradar Prematch Daily Sport Event Markets response is missing a documented event array"
+        );
+      }
       items.push(...rows);
       const reportedHeader = result.headers.get("x-max-results");
       const receivedHeader = result.headers.get("x-result");
