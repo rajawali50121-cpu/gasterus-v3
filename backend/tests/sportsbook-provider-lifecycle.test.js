@@ -88,7 +88,7 @@ function fixture(source = 'sportradar') {
   };
 }
 
-test('feed merge accepts only Sportradar and preserves operator-only settlement authority', () => {
+test('feed merge accepts only Sportradar but keeps all markets locked without official results authority', () => {
   const [merged] = mergeProviderEvents([{
     provider: 'sportradar',
     enabled: true,
@@ -97,10 +97,11 @@ test('feed merge accepts only Sportradar and preserves operator-only settlement 
   assert.equal(merged._sources[0], 'sportradar');
   assert.equal(merged.markets[0].source, 'sportradar');
   const authority = eventSettlementAuthority(merged);
-  assert.equal(authority.ft, true);
+  assert.equal(authority.ft, false);
   assert.equal(authority.ht, false);
   assert.equal(authority.automaticFt, false);
-  assert.equal(authority.manualFt, true);
+  assert.equal(authority.manualFt, false);
+  assert.equal(merged.markets[0].suspended, true);
 });
 
 test('feed merge rejects retired odds provider results', () => {
