@@ -19,8 +19,7 @@ const { fetchSportradarV2, __sportradarV2 } = await import('../src/sportradar-pr
 
 function fakeRedis({ baseline = '0' } = {}) {
   const values = new Map([
-    ['sportsbook:sportradar:v2:quota:baseline', String(baseline)],
-    ['sportsbook:sportradar:v2:quota:baseline-initialized', '1']
+    ['sportsbook:sportradar:v2:quota:baseline', String(baseline)]
   ]);
   const sorted = new Map();
   return {
@@ -36,12 +35,9 @@ function fakeRedis({ baseline = '0' } = {}) {
         if (values.get(keys[0]) === args[0]) { values.delete(keys[0]); return 1; }
         return 0;
       }
-      const [baselineKey, rollingKey, hourlyKey, qpsKey, baselineInitKey] = keys;
+      const [baselineKey, rollingKey, hourlyKey, qpsKey] = keys;
       const [monthlyLimit, hourlyLimit, token, interval, initialUsage, nowValue] = args;
-      if (!values.has(baselineInitKey)) {
-        values.set(baselineInitKey, '1');
-        values.set(baselineKey, String(initialUsage));
-      }
+      if (!values.has(baselineKey)) values.set(baselineKey, String(initialUsage));
       const now = Number(nowValue);
       const prune = (key, cutoff) => {
         const rows = (sorted.get(key) || []).filter(row => row.score > cutoff);
