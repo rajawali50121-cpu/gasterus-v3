@@ -12,6 +12,7 @@ import { persistSportsbookSnapshot } from "./repository.js";
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
 const LOCK_KEY = "sportsbook:next:poll-lock:v1";
 const HEARTBEAT_KEY = "sportsbook:next:worker-heartbeat:v1";
+const FEED_STATUS_KEY = "sportsbook:next:feed-status:v1";
 const DAY_MS = 24 * 60 * 60 * 1000;
 let stopping = false;
 
@@ -29,6 +30,7 @@ async function runCycle(config, client) {
   const errors = [];
   let quotaLimited = false;
   let quotaReason = null;
+  let quotaDetails = null;
   let budgetLimited = false;
   let coverage = null;
   try {
@@ -38,6 +40,7 @@ async function runCycle(config, client) {
       if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
         quotaLimited = true;
         quotaReason = error.code;
+        quotaDetails = { scope: error.quotaScope || null, used: error.quotaUsed ?? null, limit: error.quotaLimit ?? null, retryAfter: error.retryAfter || null };
       } else {
         throw error;
       }
@@ -55,11 +58,13 @@ async function runCycle(config, client) {
           if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
             quotaLimited = true;
             quotaReason = error.code;
+            quotaDetails = { scope: error.quotaScope || null, used: error.quotaUsed ?? null, limit: error.quotaLimit ?? null, retryAfter: error.retryAfter || null };
             break;
           }
           throw error;
         }
       }
+      if (quotaLimited) break;
       if (client.cycleCalls >= config.maxCallsPerCycle) { budgetLimited = true; break; }
     }
 
@@ -76,6 +81,7 @@ async function runCycle(config, client) {
         if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
           quotaLimited = true;
           quotaReason = error.code;
+          quotaDetails = { scope: error.quotaScope || null, used: error.quotaUsed ?? null, limit: error.quotaLimit ?? null, retryAfter: error.retryAfter || null };
           break;
         }
         errors.push({ eventId: event.id, code: error?.code || "EVENT_MARKETS_FAILED" });
@@ -90,6 +96,7 @@ async function runCycle(config, client) {
       callsThisCycle: client.cycleCalls,
       quotaLimited,
       quotaReason,
+      quotaDetails,
       budgetLimited,
       events: pricedEvents,
       errors
@@ -101,13 +108,17 @@ async function runCycle(config, client) {
     if (snapshot.complete) {
       await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     }
+    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.fetchedAt, complete: snapshot.complete, quotaLimited, quotaReason, quotaDetails, budgetLimited, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     await redis.set(HEARTBEAT_KEY, snapshot.fetchedAt, { EX: 600 });
     return {
       events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle,
-      persisted, errors: errors.length, quotaLimited, quotaReason, budgetLimited,
+      persisted, errors: errors.length, quotaLimited, quotaReason, quotaDetails, budgetLimited,
       complete: snapshot.complete,
       coverageFeeds: Array.isArray(coverage?.body?.sports) ? coverage.body.sports.length : null
     };
+  } catch (error) {
+    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: new Date().toISOString(), complete: false, providerError: error?.code || "SPORTRADAR_POLL_FAILED", httpStatus: error?.httpStatus || null, retryAfter: error?.retryAfter || null }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) }).catch(() => {});
+    throw error;
   } finally {
     await redis.eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", {
       keys: [LOCK_KEY], arguments: [token]
@@ -148,6 +159,7 @@ async function main() {
         quotaScope: error?.quotaScope || null,
         quotaUsed: Number.isFinite(error?.quotaUsed) ? error.quotaUsed : null,
         quotaLimit: Number.isFinite(error?.quotaLimit) ? error.quotaLimit : null,
+        httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
         retryAfter: error?.retryAfter || null
       });
       if (error?.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED") {
