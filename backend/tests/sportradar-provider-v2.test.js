@@ -227,6 +227,45 @@ test('overlapping five-minute Change Log windows do not refetch events already p
   assert.equal(eventRefreshCalls, 1);
 });
 
+
+test('Change Log includes an event update exactly at the previous global watermark once', async () => {
+  installRedis();
+  installFullSyncFetch();
+  await fetchSportradarV2({ daysAhead: 1 });
+  const eventId = 'sr:sport_event:fixture-1';
+  const calls = [];
+  globalThis.fetch = async input => {
+    const url = new URL(String(input));
+    calls.push(url);
+    if (url.pathname.endsWith('/sport_event_markets_changelog.json')) {
+      return json({
+        generated_at: '2026-11-22T12:03:00Z',
+        status: { from: 1795340600, to: 1795340900 },
+        changes: [{ type: 'sport_event', id: eventId, sport_event_markets_odds_change: 1795340600 }]
+      });
+    }
+    if (url.pathname.endsWith('/sport_event_markets.json') && url.pathname.includes('/sport_events/')) {
+      return json({ ...fixtureEvent(eventId, '1.88'), generated_at: '2026-11-22T12:03:00Z' });
+    }
+    throw new Error(`Unexpected endpoint: ${url.pathname}`);
+  };
+  const state = {
+    events: new Map([[eventId, fixtureEvent(eventId)]]),
+    lastPollAt: Date.now(),
+    lastFullSyncAt: Date.now(),
+    lastChangeLogTo: 1795340600,
+    lastChangeByEvent: { [eventId]: 1795340599 }
+  };
+  const delta = await __sportradarV2.pollChanges(
+    { sports: [{ id: 'sr:sport:1', name: 'Soccer' }] },
+    state
+  );
+  assert.equal(delta.diagnostics.eventsRefreshed, 1);
+  assert.equal(delta.events.get(eventId).markets[0].selections[0].odds, 1.88);
+  assert.equal(delta.lastChangeByEvent[eventId], 1795340600);
+  assert.equal(calls.length, 2);
+});
+
 test('rolling quota gate rejects calls when the contracted request allowance is exhausted', async () => {
   // The configured limit is 500; seed Redis with the exact same count to exercise fail-closed quota rejection.
   installRedis({ baseline: '500' });
