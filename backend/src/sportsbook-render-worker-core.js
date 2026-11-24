@@ -30,15 +30,17 @@ export function nextSportsbookDailyRefreshMs(settings, now = Date.now()) {
 
 export function sportsbookRenderIntervalSeconds(settings) {
   if (settings?.sportsbookDailyRefreshEnabled === true) return 60;
-  const freshnessInterval = Math.floor(Number(settings?.sportsbookIngestMaxAgeSeconds) / 2);
+  // Poll cadence is independent from ingest HMAC age: the worker signs and
+  // delivers each snapshot immediately after fetching it, so a 150-minute
+  // provider interval must not be clipped to the 90/300-second replay window.
+  const pollMinutes = Number(settings?.sportsbookPollMinutes);
+  if (Number.isFinite(pollMinutes) && pollMinutes >= 5) {
+    return Math.max(300, Math.min(86400, Math.floor(pollMinutes * 60)));
+  }
   const providerInterval = Number(settings?.sportradarRefreshSeconds);
-  const validProviderInterval = Number.isFinite(providerInterval) && providerInterval > 0
-    ? providerInterval
-    : 90;
-  const validFreshnessInterval = Number.isFinite(freshnessInterval) && freshnessInterval > 0
-    ? freshnessInterval
-    : 90;
-  return Math.max(15, Math.min(validProviderInterval, validFreshnessInterval));
+  return Number.isFinite(providerInterval) && providerInterval > 0
+    ? Math.max(30, Math.min(14400, Math.floor(providerInterval)))
+    : 9000;
 }
 
 export function combineSportsbookProviderResults(providerResults, { maxEvents = 0 } = {}) {
