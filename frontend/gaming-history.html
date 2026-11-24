@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Riwayat Permainan — GASTERUS V3</title>
-  <meta name="description" content="Gabungan seluruh wager Togel dan Sportsbook member Gasterus v3 dengan status kemenangan.">
+  <meta name="description" content="Riwayat permainan Togel member Gasterus v3.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -36,13 +36,12 @@
 
     <div class="page-header">
       <h1 class="page-title">Riwayat Permainan</h1>
-      <p class="page-subtitle">Gabungan seluruh wager Togel dan Sportsbook Anda</p>
+      <p class="page-subtitle">Riwayat seluruh taruhan Togel Anda</p>
     </div>
 
     <div class="filter-tabs">
       <button class="filter-tab active" data-type="">Semua</button>
       <button class="filter-tab" data-type="TOGEL">Togel</button>
-      <button class="filter-tab" data-type="SPORTSBOOK">Sportsbook</button>
     </div>
 
     <div class="history-card" id="gaming-card">
@@ -90,13 +89,11 @@
     <div class="nav-drawer-body nav-drawer-links">
       <a class="nav-drawer-link" href="/index.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Beranda</a>
       <a class="nav-drawer-link" href="/member.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Togel &amp; Slot</a>
-      <a class="nav-drawer-link" href="/sportsbook.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Sportsbook</a>
       <a class="nav-drawer-link" href="/number-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Hasil</a>
       <a class="nav-drawer-link" href="/bet-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Riwayat WD</a>
       <a class="nav-drawer-link" href="/notifications.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Notifikasi</a>
       <a class="nav-drawer-link" href="/wallet-ledger.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Mutasi Saldo</a>
       <a class="nav-drawer-link" href="/gaming-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Riwayat Permainan</a>
-      <a class="nav-drawer-link" href="/cashout.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Cash Out</a>
       <a class="nav-drawer-link" href="/support.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Pusat Bantuan</a>
       <a class="nav-drawer-link" href="/deposit.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Setor</a>
       <a class="nav-drawer-link" href="/withdraw.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Tarik</a>
@@ -149,26 +146,23 @@
 
     const esc = escapeHtml;
     const tbody = document.getElementById('gaming-tbody');
-    let filterType = '';
 
-    // Kelompokkan status bet. bet_orders dan sportsbook_tickets memakai nama
-    // status berbeda untuk hal yang sama, jadi dipetakan ke kelompok dulu.
+    // Kelompokkan status taruhan Togel.
     function statusGroup(status) {
       const s = String(status || '').toUpperCase();
-      if (s === 'WON' || s === 'SETTLED' || s === 'SETTLED_WON' || s === 'PARTIAL_WIN') return 'WON';
-      if (s === 'LOST' || s === 'SETTLED_LOST' || s === 'PARTIAL_LOSS') return 'LOST';
-      if (s === 'VOID' || s === 'PARTIAL_VOID' || s === 'CANCELLED') return 'VOID';
+      if (s === 'WON' || s === 'SETTLED' || s === 'SETTLED_WON') return 'WON';
+      if (s === 'LOST' || s === 'SETTLED_LOST') return 'LOST';
+      if (s === 'VOID' || s === 'CANCELLED') return 'VOID';
       if (s === 'CASHED_OUT') return 'CASHED_OUT';
       return 'OPEN';
     }
 
     function statusBadge(status) {
       const s = String(status || '').toUpperCase();
-      if (s === 'WON' || s === 'SETTLED' || s === 'SETTLED_WON' || s === 'PARTIAL_WIN') return '<span class="badge badge-success">MENANG</span>';
-      if (s === 'LOST' || s === 'SETTLED_LOST' || s === 'PARTIAL_LOSS') return '<span class="badge badge-danger">KALAH</span>';
+      if (s === 'WON' || s === 'SETTLED' || s === 'SETTLED_WON') return '<span class="badge badge-success">MENANG</span>';
+      if (s === 'LOST' || s === 'SETTLED_LOST') return '<span class="badge badge-danger">KALAH</span>';
       if (s === 'CANCELLED') return '<span class="badge badge-info">DIBATALKAN</span>';
-      if (s === 'VOID' || s === 'PARTIAL_VOID') return '<span class="badge badge-info">VOID</span>';
-      if (s === 'CASHED_OUT') return '<span class="badge badge-info">CASH OUT</span>';
+      if (s === 'VOID') return '<span class="badge badge-info">VOID</span>';
       if (s === 'DRAFT' || s === 'ACCEPTED' || s === 'OPEN' || s === 'SETTLEMENT_PENDING' || s === 'PENDING') return '<span class="badge badge-warning">MENUNGGU HASIL</span>';
       return '<span class="badge badge-warning">' + esc(s || 'MENUNGGU HASIL') + '</span>';
     }
@@ -182,10 +176,6 @@
       return formatRupiah(value);
     }
 
-    function jenisLabel(type) {
-      return String(type || '').toUpperCase() === 'SPORTSBOOK' ? 'Sportsbook' : 'Togel';
-    }
-
     async function loadHistory() {
       tbody.innerHTML = '<tr><td colspan="6" class="loading-cell"><div class="loading-spinner"></div>Memuat riwayat...</td></tr>';
       try {
@@ -195,7 +185,7 @@
           tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Belum ada riwayat permainan</td></tr>';
           return;
         }
-        const items = filterType ? all.filter(function (r) { return String(r.gameType || '').toUpperCase() === filterType; }) : all;
+        const items = all.filter(function (r) { return String(r.gameType || '').toUpperCase() === 'TOGEL'; });
 
         if (items.length === 0) {
           tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">Belum ada riwayat permainan</td></tr>';
@@ -207,7 +197,7 @@
           return `
             <tr>
               <td>${formatDateTime(r.placedAt || r.createdAt)}</td>
-              <td><span class="badge badge-info">${esc(jenisLabel(r.gameType))}</span></td>
+              <td><span class="badge badge-info">${'Togel'}</span></td>
               <td>${esc(r.gameName || '-')}</td>
               <td class="amount-cell">${formatRupiah(Number(r.totalStake || 0))}</td>
               <td class="amount-cell">${payoutCell(r)}</td>

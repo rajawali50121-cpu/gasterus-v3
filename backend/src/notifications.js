@@ -98,23 +98,6 @@ export async function memberGamingHistory(memberId, { limit = 100 } = {}) {
         o.created_at
       FROM bet_orders o
       WHERE o.member_id=$1
-      UNION ALL
-      SELECT
-        t.id,
-        'SPORTSBOOK'::text AS game_type,
-        t.invoice,
-        COALESCE((SELECT string_agg(DISTINCT l.sport, ', ') FROM sportsbook_legs l WHERE l.ticket_id=t.id),'Sportsbook') AS game_name,
-        t.bet_type,
-        t.status,
-        t.total_stake,
-        t.payout,
-        NULL::text AS result,
-        COALESCE((t.metadata->>'settlementBalanceAfter')::bigint,t.balance_after) AS balance_after,
-        t.created_at AS placed_at,
-        t.settled_at,
-        t.created_at
-      FROM sportsbook_tickets t
-      WHERE t.member_id=$1
     ) history
     ORDER BY created_at DESC
     LIMIT $2

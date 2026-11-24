@@ -36,7 +36,6 @@ RUN node --check deploy/launcher.js \
  && node --check backend/migrations/migrate.js \
  && node --check backend/migrations/schema-ready.js \
  && node --check backend/src/app.js \
- && node --check backend/src/sportsbook-next/index.js \
  && node --check backend/src/auth.js \
  && node --check backend/src/betting.js \
  && node --check backend/src/toto-collector-core.js \

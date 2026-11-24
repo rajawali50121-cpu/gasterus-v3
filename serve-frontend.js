@@ -57,7 +57,6 @@ server.listen(PORT, () => {
 ║     • /register.html      - Daftar                        ║
 ║     • /member.html        - Dashboard Member             ║
 ║     • /market-play.html   - Pasang Taruhan Togel         ║
-║     • /sportsbook.html    - Sportsbook                   ║
 ║     • /css/...            - Stylesheets                  ║
 ║     • /js/...             - JavaScript                   ║
 ║                                                           ║

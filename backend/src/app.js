@@ -48,28 +48,6 @@ add('GET',new RegExp('^/api/health/toto-markets/detail$'),totoMarketsDetail);
 add('GET',new RegExp('^/api/health/simple$'),simpleHealth);
 add('GET',/^\/healthz$/,async({res})=>{let healthy=false;try{const raw=await redis.get(config.workerHeartbeatKey);healthy=isWorkerHeartbeatFresh(raw,{staleAfterSeconds:Math.max(config.workerHeartbeatMaxAgeSeconds*2,120)});}catch{healthy=false;}ok(res,{status:healthy?'ok':'degraded'},healthy?200:503);});
 
-add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
-  // Sportradar self-issued trial data is internal evaluation only, never member-facing.
-  await ownerSession(req,'bets:read');
-  await rateLimit(req,'sportsbook-v2-feed',120,60);
-  const feedStatusRaw=await redis.get('sportsbook:next:feed-status:v1');
-  let feedStatus=null;
-  if(feedStatusRaw){
-    try{feedStatus=JSON.parse(feedStatusRaw);}catch{throw new AppError(503,'Status feed Sportradar tidak valid.','SPORTSBOOK_STATUS_INVALID');}
-  }
-  const raw=await redis.get('sportsbook:next:snapshot:v1');
-  if(!raw) throw new AppError(503,'Feed Sportradar belum tersedia.','SPORTSBOOK_FEED_UNAVAILABLE');
-  let snapshot;
-  try { snapshot=JSON.parse(raw); } catch { throw new AppError(503,'Snapshot Sportradar tidak valid.','SPORTSBOOK_SNAPSHOT_INVALID'); }
-  const ageMs=Math.max(0,Date.now()-Date.parse(snapshot.fetchedAt||''));
-  if(!Number.isFinite(ageMs)||ageMs>5*60*60*1000) throw new AppError(503,'Feed Sportradar sudah kedaluwarsa.','SPORTSBOOK_FEED_STALE');
-  if(snapshot.complete!==true||snapshot.quotaLimited===true||snapshot.budgetLimited===true||(Array.isArray(snapshot.errors)&&snapshot.errors.length>0)){
-    throw new AppError(503,'Snapshot terakhir tidak lengkap dan tidak aman ditampilkan.','SPORTSBOOK_FEED_INCOMPLETE');
-  }
-  const feedDegraded=feedStatus?.complete===false;
-  const providerError=feedDegraded?(feedStatus.providerError|| (feedStatus.quotaLimited?'SPORTRADAR_QUOTA_LIMITED':'SPORTRADAR_POLL_FAILED')):null;
-  ok(res,{...snapshot,ageMs,feedDegraded,feedWarning:feedDegraded?'Pembaruan odds Sportradar gagal; menampilkan snapshot terakhir yang berhasil.':null,providerError,betAcceptanceEnabled:false});
-});
 add('GET',/^\/health$/,async({res})=>ok(res,{status:'ok',service:'core',uptimeSeconds:Math.floor((Date.now()-startedAt)/1000)}));
 add('GET',/^\/ready$/,async({res})=>{
   const [database,cache]=await Promise.all([checkDatabase(),checkRedis()]);

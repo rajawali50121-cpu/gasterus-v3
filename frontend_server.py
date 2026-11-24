@@ -38,7 +38,6 @@ with socketserver.TCPServer(("", PORT), Handler) as httpd:
 ║     - Halaman Register (register.html)                   ║
 ║     - Member Area (member.html)                          ║
 ║     - Market Play (market-play.html)                     ║
-║     - Sportsbook (sportsbook.html)                       ║
 ║     - Style & Assets                                     ║
 ║                                                           ║
 ║     ⚠️  Backend belum berjalan:                           ║

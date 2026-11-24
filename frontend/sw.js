@@ -3,7 +3,7 @@
    Untuk PWA: Offline caching dasar
    ========================================================================== */
 
-const CACHE_NAME = 'gasterus-v3-cache-v15-sportsbook-v2';
+const CACHE_NAME = 'gasterus-v3-cache-v16';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -16,7 +16,6 @@ const STATIC_ASSETS = [
   '/number-history.html',
   '/promotion.html',
   '/casino.html',
-  '/sportsbook.html',
   '/privacy.html',
   '/referral.html',
   '/rules.html',
@@ -50,8 +49,8 @@ self.addEventListener('fetch', (e) => {
 
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
 
-  // Never cache real-time sportsbook, application code, or the service worker itself
-  if (url.pathname.includes('sportsbook') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/member/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/css/') || url.pathname === '/sw.js') {
+  // Never cache application code or the service worker itself
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/member/') || url.pathname.startsWith('/js/') || url.pathname.startsWith('/css/') || url.pathname === '/sw.js') {
     e.respondWith(fetch(request).catch(() => new Response('Offline', { status: 503 })));
     return;
   }
