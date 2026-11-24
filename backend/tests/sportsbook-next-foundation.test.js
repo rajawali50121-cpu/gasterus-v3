@@ -14,11 +14,12 @@ const env = {
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10"
 };
 
-test("config defaults to 150-minute refresh, a two-day window and official Odds Comparison/Soccer v4 base URLs", () => {
+test("config defaults to 150-minute refresh, current UTC date only and official Odds Comparison/Soccer v4 base URLs", () => {
   const config = loadSportsbookConfig(env);
   assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
   assert.equal(config.maxCallsPerHour, 0);
-  assert.equal(config.daysAhead, 1);
+  assert.equal(config.daysAhead, 0);
+  assert.equal(config.maxCallsPerCycle, 5);
   assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
 });
@@ -61,6 +62,17 @@ test("change log reconciles after startup or a gap longer than five minutes", ()
   assert.equal(shouldReconcileChangeLog(null, now), true);
   assert.equal(shouldReconcileChangeLog(String(now - 300_001), now), true);
   assert.equal(shouldReconcileChangeLog(String(now - 299_999), now), false);
+});
+
+test("trial configuration cannot exceed the 800-call internal budget or fan out across sports", () => {
+  assert.throws(
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_MAX_CALLS_PER_30_DAYS: "801" }),
+    /must not exceed 800/
+  );
+  assert.throws(
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_SPORT_IDS: "sr:sport:1,sr:sport:2" }),
+    /exactly one sport/
+  );
 });
 
 test("config rejects missing API key, unsupported tier and unknown quota", () => {
