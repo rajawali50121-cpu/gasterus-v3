@@ -5,8 +5,16 @@ function providerError(code, message, details = {}) {
   return error;
 }
 
-function safeProviderError(status) {
-  return providerError(`SPORTRADAR_HTTP_${status}`, `Sportradar request failed (HTTP ${status})`, { httpStatus: status });
+function safeProviderError(status, details = {}) {
+  return providerError(`SPORTRADAR_HTTP_${status}`, `Sportradar request failed (HTTP ${status})`, { httpStatus: status, ...details });
+}
+
+function safeProviderMessage(body, apiKey) {
+  if (!body || typeof body !== "object" || typeof body.message !== "string") return null;
+  let message = body.message.replace(/[\\r\\n\\t]+/g, " ").trim();
+  const key = String(apiKey || "").trim();
+  if (key) message = message.split(key).join("[REDACTED]");
+  return message.slice(0, 240) || null;
 }
 
 function encodeUrnPathSegment(value) {
@@ -59,11 +67,18 @@ export class SportradarClient {
       const arrayCounts = Object.fromEntries(topLevelKeys
         .filter(key => Array.isArray(body[key]))
         .map(key => [key, body[key].length]));
+      const providerMessage = response.ok ? null : safeProviderMessage(body, this.config.apiKey);
+      const originId = response.headers.get("x-origin-id");
+      const retryAfterHeader = response.headers.get("retry-after");
       try {
         this.onResponse?.({
           httpStatus: response.status,
           contentType: response.headers.get("content-type"),
           contentLength: response.headers.get("content-length"),
+          providerMessage,
+          originId,
+          retryAfter: retryAfterHeader,
+          cacheControl: response.headers.get("cache-control"),
           topLevelKeys,
           arrayCounts,
           pagination: {
@@ -76,14 +91,13 @@ export class SportradarClient {
         // Diagnostic logging must never change provider request behavior.
       }
       if (response.status === 429) {
-        const retryAfter = response.headers.get("retry-after");
+        const retryAfter = retryAfterHeader;
         try { await this.onRateLimit?.({ retryAfter, httpStatus: 429 }); } catch { /* retain original provider error */ }
         throw providerError("SPORTRADAR_RATE_LIMITED", "Sportradar rate limit reached (HTTP 429)", {
-          httpStatus: 429,
-          retryAfter
+          httpStatus: 429, retryAfter, providerMessage, originId
         });
       }
-      if (!response.ok) throw safeProviderError(response.status);
+      if (!response.ok) throw safeProviderError(response.status, { providerMessage, originId });
       if (!body || typeof body !== "object") {
         throw providerError("SPORTRADAR_INVALID_JSON", "Sportradar returned invalid JSON");
       }
