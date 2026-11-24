@@ -94,3 +94,37 @@ export async function getSportradarQuotaUsage(redis, config, now = Date.now()) {
 }
 
 export const __quota = { KEY, BASELINE_KEY, RESERVE_SCRIPT, USAGE_SCRIPT, WINDOW_MS, HOUR_MS };
+
+const QPS_NEXT_KEY = "sportsbook:next:sportradar:qps-next:v1";
+const QPS_COOLDOWN_KEY = "sportsbook:next:sportradar:qps-cooldown:v1";
+const QPS_INTERVAL_MS = 1100;
+const QPS_RESERVE_SCRIPT = `
+local time = redis.call('TIME')
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+local cooldown = redis.call('PTTL', KEYS[2])
+local nextAt = tonumber(redis.call('GET', KEYS[1]) or '0')
+local wait = math.max(0, nextAt - now, cooldown)
+if wait <= 0 then
+  redis.call('SET', KEYS[1], now + tonumber(ARGV[1]), 'PX', tonumber(ARGV[1]) * 3)
+  return 0
+end
+return wait
+`;
+
+export async function waitForSportradarRequestSlot(redis, { intervalMs = QPS_INTERVAL_MS, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const waitMs = Number(await redis.eval(QPS_RESERVE_SCRIPT, { keys: [QPS_NEXT_KEY, QPS_COOLDOWN_KEY], arguments: [String(intervalMs)] }));
+    if (!Number.isFinite(waitMs) || waitMs <= 0) return;
+    await sleep(Math.min(waitMs + 5, 30000));
+  }
+  const error = new Error("SPORTRADAR_QPS_WAIT_TIMEOUT"); error.code = error.message; throw error;
+}
+
+export async function applySportradarRateLimitCooldown(redis, retryAfter, { fallbackMs = 30000 } = {}) {
+  const seconds = Number(retryAfter);
+  const delayMs = Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds * 1000, 900000) : fallbackMs;
+  await redis.set(QPS_COOLDOWN_KEY, "1", { PX: delayMs });
+  return delayMs;
+}
+
+export const __qps = { QPS_NEXT_KEY, QPS_COOLDOWN_KEY, QPS_INTERVAL_MS, QPS_RESERVE_SCRIPT };
