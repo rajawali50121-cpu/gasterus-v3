@@ -144,7 +144,7 @@ export const config = Object.freeze({
   betnexApiKey,
   betnexCallbackKey,
   betnexProtocolVerified,
-  betnexRealMoneyEnabled: bool('BETNEX_REAL_MONEY_ENABLED', false) && betnexProtocolVerified
+  betnexRealMoneyEnabled: bool('BETNEX_REAL_MONEY_ENABLED', false) && betnexProtocolVerified,
   // Restored legacy sportsbook/feed configuration.
   sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
   sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 3600),
