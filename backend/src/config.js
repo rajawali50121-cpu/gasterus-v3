@@ -41,6 +41,9 @@ export const config = Object.freeze({
   apiKeyPepper: testSecret('API_KEY_PEPPER', 32, 'test-api-key-pepper-passphrase-1234'),
   mfaEncryptionKeyBase64: testSecret('MFA_ENCRYPTION_KEY_BASE64', 40, Buffer.alloc(32, 7).toString('base64')),
   // Restored legacy sportsbook configuration.
+  sportsFeedRefreshSeconds: int('SPORTS_FEED_REFRESH_SECONDS', 90, 15, 3600),
+  sportsFeedStaleSeconds: int('SPORTS_FEED_STALE_SECONDS', 900, 60, 7200),
+  sportsFeedMaxEvents: unboundedInt('SPORTS_FEED_MAX_EVENTS', 0, 0),
   sportsbookIngestHmacSecret: optionalSecret('SPORTSBOOK_INGEST_HMAC_SECRET'),
   sportsbookIngestMaxAgeSeconds: int('SPORTSBOOK_INGEST_MAX_AGE_SECONDS', 180, 30, 3600),
   sportsbookStoredSnapshotMaxAgeSeconds: int('SPORTSBOOK_STORED_SNAPSHOT_MAX_AGE_SECONDS', 14400, 180, 604800),
