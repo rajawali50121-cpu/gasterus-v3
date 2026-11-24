@@ -91,3 +91,13 @@ test('member event detail and quote endpoints fail closed for non-prematch event
   assert.match(feed, /if \(!event \|\| !eventBettingOpen\(event\)\) throw new AppError\(409/);
 });
 
+
+
+test('sportsbook header market totals report the complete feed, not only the current page', () => {
+  assert.match(feed, /const totalPricedMarkets = Number\.isFinite\(Number\(feed\.pricedMarkets\)\)/);
+  assert.match(feed, /const totalBettableMarkets = Number\.isFinite\(Number\(feed\.bettableMarkets\)\)/);
+  assert.match(feed, /pricedMarkets: totalPricedMarkets/);
+  assert.match(feed, /bettableMarkets: totalBettableMarkets/);
+  assert.doesNotMatch(feed, /pricedMarkets: visiblePricedMarkets/);
+  assert.doesNotMatch(feed, /bettableMarkets: visibleBettableMarkets/);
+});
