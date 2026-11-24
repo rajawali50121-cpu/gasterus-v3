@@ -1,7 +1,0 @@
-﻿10515
-171: Sudah punya akun? <a href="login.html" style="color:#38bdf8; font-weight:700; text-decoration:none;">Masuk di sini</a>
-195: <a class="nav-drawer-item" href="/rules.html">Cara Bermain</a>
-207: <a href="rules.html">Cara Bermain</a>
-23b1fe3 feat: add 3D hero banner slider and fix mobile overflow layout
-fa73a4d fix(logo): ganti logo baru HD 1024x258 - jernih, tidak pecah, bump cache v2
-581659c fix(branding): 100% pure chrome letters (remove de-fringing noise), hide redundant float-menu-btn, and calibrate navbar height
