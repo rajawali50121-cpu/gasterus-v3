@@ -1047,7 +1047,15 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
   const events = applySportsbookTradingControls(projected, controls);
   const visiblePricedMarkets = pricedMarketCount(events);
   const visibleBettableMarkets = bettableMarketCount(events);
-  const memberHealthy = !unavailable && !stale && !feed.readOnlySource && Number(feed.bettableMarkets || 0) > 0;
+  // Header counters describe the entire filtered feed, not only the current
+  // 30-event page. This keeps the global market total (e.g. 5,000+) accurate.
+  const totalPricedMarkets = Number.isFinite(Number(feed.pricedMarkets))
+    ? Number(feed.pricedMarkets)
+    : visiblePricedMarkets;
+  const totalBettableMarkets = Number.isFinite(Number(feed.bettableMarkets))
+    ? Number(feed.bettableMarkets)
+    : visibleBettableMarkets;
+  const memberHealthy = !unavailable && !stale && !feed.readOnlySource && totalBettableMarkets > 0;
   return {
     events,
     ...(feed.diagnostics ? { diagnostics: feed.diagnostics } : {}),
@@ -1067,12 +1075,12 @@ async function buildSportsbookSnapshotResponse(filters = {}, memberView = true, 
             : feed.readOnlySource
               ? 'READ_ONLY_STALE_SOURCE'
               : 'LIVE_SOURCE_AGGREGATOR',
-      status: unavailable ? 'OFFLINE' : feed.readOnlySource ? (visiblePricedMarkets > 0 ? 'PRICED_READ_ONLY' : 'STALE') : memberHealthy ? 'ONLINE' : 'DEGRADED',
+      status: unavailable ? 'OFFLINE' : feed.readOnlySource ? (totalPricedMarkets > 0 ? 'PRICED_READ_ONLY' : 'STALE') : memberHealthy ? 'ONLINE' : 'DEGRADED',
       fetchedAt: unavailable || !feed.fetchedAt ? null : new Date(feed.fetchedAt).toISOString(),
       capturedAt: feed.snapshotCapturedAt || null,
       refreshSeconds: config.sportsFeedRefreshSeconds,
-      pricedMarkets: visiblePricedMarkets,
-      bettableMarkets: visibleBettableMarkets,
+      pricedMarkets: totalPricedMarkets,
+      bettableMarkets: totalBettableMarkets,
       feedRevision: unavailable ? null : feed.revision || null,
     },
     capabilities: {
