@@ -12,7 +12,7 @@ test("Redis connection, rolling quota guard and quota status", { skip: !enabled 
   try {
     await clear();
     const now = Date.now();
-    const members = Array.from({ length: 810 }, (_, i) => ({ score: now - i, value: \`fixture:\${i}\` }));
+    const members = Array.from({ length: 810 }, (_, i) => ({ score: now - i, value: "fixture:" + i }));
     await redis.zAdd(keys.quota, members);
     const status = await quotaStatus();
     assert.equal(status.used, 810);
