@@ -17,32 +17,32 @@ const sportId = configuredSport.trim();
 const date = (process.env.SPORTRADAR_FIXTURE_DATE || new Date().toISOString().slice(0, 10)).trim();
 
 function validUtcDate(value) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(value + "T00:00:00.000Z");
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function reportStatus(status) {
-  console.log(`HTTP status: ${status}`);
+  console.log("HTTP status: " + status);
 }
 
 if (!apiKey) {
   reportStatus("NOT_SENT");
-  console.error("SPORTRADAR_API_KEY is missing from environment/.env");
   process.exit(1);
 }
 
 if (!["trial", "production"].includes(accessLevel)
-  || !/^sr:sport:\\d+$/.test(sportId)
+  || !/^sr:sport:\d+$/.test(sportId)
   || !/^[a-z]{2}$/.test(language)
   || !validUtcDate(date)) {
   reportStatus("NOT_SENT");
-  console.error("Invalid Sportradar access level, sport ID, language, or UTC date");
   process.exit(1);
 }
 
 const endpoint = new URL(
-  `https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${language}/sports/${sportId}/schedules/${date}/sport_event_markets.json`
+  "https://api.sportradar.com/oddscomparison-prematch/" + accessLevel
+  + "/v2/" + language + "/sports/" + sportId + "/schedules/" + date
+  + "/sport_event_markets.json"
 );
 endpoint.searchParams.set("start", "0");
 
@@ -70,7 +70,6 @@ try {
   rawBody = await response.text();
   payload = JSON.parse(rawBody);
 } catch {
-  console.error("HTTP 200 response was not valid JSON; fixture not saved");
   process.exit(1);
 }
 
@@ -79,11 +78,10 @@ try {
   await mkdir(dirname(fixturePath), { recursive: true });
   await writeFile(fixturePath, rawBody, "utf8");
 } catch {
-  console.error("Could not save fixture file");
   process.exit(1);
 }
 
 for (const headerName of ["X-Max-Results", "X-Offset", "X-Result"]) {
-  console.log(`${headerName}: ${response.headers.get(headerName) ?? "(absent)"}`);
+  console.log(headerName + ": " + (response.headers.get(headerName) ?? "(absent)"));
 }
-console.log(`generated_at: ${typeof payload?.generated_at === "string" ? payload.generated_at : "(absent)"}`);
+console.log("generated_at: " + (typeof payload?.generated_at === "string" ? payload.generated_at : "(absent)"));
