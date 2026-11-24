@@ -7,13 +7,12 @@ import { assertProviderAllowed, openCircuitBreaker, quotaStatus } from "../src/g
 const enabled = Boolean(config.redisUrl);
 const clear = async () => { if (redis.isReady) await redis.flushDb(); };
 
-test("Redis connection, 30-day quota guard and status", { skip: !enabled }, async () => {
+test("Redis connection, rolling quota guard and quota status", { skip: !enabled }, async () => {
   await connectRedis();
   try {
     await clear();
     const now = Date.now();
-    // Simulate 810 requests inside the rolling 30-day window (90% of the 900 cap).
-    const members = Array.from({ length: 810 }, (_, i) => ({ score: now - i, value: `fixture:${i}` }));
+    const members = Array.from({ length: 810 }, (_, i) => ({ score: now - i, value: \`fixture:\${i}\` }));
     await redis.zAdd(keys.quota, members);
     const status = await quotaStatus();
     assert.equal(status.used, 810);
@@ -25,20 +24,22 @@ test("Redis connection, 30-day quota guard and status", { skip: !enabled }, asyn
   }
 });
 
-test("403 and 429 circuit breaker blocks provider requests", { skip: !enabled }, async () => {
+test("HTTP 403 and 429 both open the configured circuit breaker", { skip: !enabled }, async () => {
   await connectRedis();
   try {
-    await clear();
-    await openCircuitBreaker(429);
-    assert.ok(await redis.ttl(keys.breaker) > 0);
-    await assert.rejects(assertProviderAllowed(), /Circuit breaker open/);
+    for (const status of [403, 429]) {
+      await clear();
+      await openCircuitBreaker(status);
+      assert.ok(await redis.ttl(keys.breaker) > 0);
+      await assert.rejects(assertProviderAllowed(), /Circuit breaker open/);
+    }
   } finally {
     await clear();
     await redis.quit();
   }
 });
 
-test("expired quota entries are pruned from the rolling window", { skip: !enabled }, async () => {
+test("expired quota entries are pruned from the rolling 30-day window", { skip: !enabled }, async () => {
   await connectRedis();
   try {
     await clear();
@@ -48,6 +49,20 @@ test("expired quota entries are pruned from the rolling window", { skip: !enable
     ]);
     const status = await quotaStatus();
     assert.equal(status.used, 1);
+  } finally {
+    await clear();
+    await redis.quit();
+  }
+});
+
+test("Redis request reservations are spaced by at least the configured interval", { skip: !enabled }, async () => {
+  await connectRedis();
+  try {
+    await clear();
+    await assertProviderAllowed();
+    const started = Date.now();
+    await assertProviderAllowed();
+    assert.ok(Date.now() - started >= config.minGapMs - 50);
   } finally {
     await clear();
     await redis.quit();
