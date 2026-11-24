@@ -1,0 +1,32 @@
+name: Sportradar Feed v1 CI
+
+on:
+  push:
+    branches: [sportradar-feed-v1/build]
+    paths:
+      - "sportradar-feed-v1/**"
+      - ".github/workflows/sportradar-feed-v1.yml"
+  pull_request:
+    paths:
+      - "sportradar-feed-v1/**"
+      - ".github/workflows/sportradar-feed-v1.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sportradar-feed-v1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sportradar-feed-v1/package-lock.json
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: node --check src/api.js && node --check src/worker.js && node --check src/provider.js && node --check src/guard.js
