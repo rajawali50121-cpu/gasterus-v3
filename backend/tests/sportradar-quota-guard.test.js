@@ -43,6 +43,7 @@ test('monthly quota exhaustion fails closed before any provider network request'
     redis,
     connectRedis: async () => {},
     config: { sportradarMinIntervalMs: 1100, sportradarMaxCallsPerHour: 20 },
+    env: { SPORTRADAR_QUOTA_BASELINE_CONFIRMED: 'true' },
     fetchImpl: async () => { networkCalls += 1; return new Response('{}'); }
   });
   await assert.rejects(globalThis.fetch('https://api.sportradar.com/oddscomparison-prematch/trial/v2/sports.json'), {
