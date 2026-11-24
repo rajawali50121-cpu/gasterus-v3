@@ -1,4 +1,4 @@
-import { config, assertRuntimeConfig } from "./config.js";
+import { config, assertWorkerConfig } from "./config.js";
 import { connectRedis, redis, keys } from "./redis.js";
 import { fetchMarketsPage } from "./provider.js";
 import { sanitizePayload } from "./sanitize.js";
@@ -18,9 +18,9 @@ function nextDates() {
 }
 
 async function pollOne(sportId, date) {
-  const lockKey = keys.lock;
+  const lockKey = keys.lock + ":" + sportId + ":" + date;
   const lockToken = crypto.randomUUID();
-  const locked = await redis.set(lockKey, lockToken, { NX: true, EX: 240 });
+  const locked = await redis.set(lockKey, lockToken, { NX: true, EX: 3600 });
   if (!locked) return { skipped: "poll lock held" };
 
   try {
@@ -31,6 +31,7 @@ async function pollOne(sportId, date) {
       const page = await fetchMarketsPage(sportId, date, start, pageLimit);
       pages.push(sanitizePayload(page.payload));
 
+      // Continue only when all pagination headers provide a usable numeric next offset.
       const maxResults = Number(page.headers.maxResults);
       const offset = Number(page.headers.offset);
       const resultCount = Number(page.headers.result);
@@ -51,7 +52,6 @@ async function pollOne(sportId, date) {
     console.log(`Cached ${sportId} ${date}: ${pages.length} page(s)`);
     return { cached: true, pages: pages.length };
   } finally {
-    // Compare-and-delete prevents one worker from releasing another worker's lock.
     await redis.eval("if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", {
       keys: [lockKey], arguments: [lockToken]
     });
@@ -59,22 +59,20 @@ async function pollOne(sportId, date) {
 }
 
 async function runCycle() {
-  const results = [];
   for (const sportId of config.sportIds) {
     for (const date of nextDates()) {
-      try { results.push(await pollOne(sportId, date)); }
+      try { await pollOne(sportId, date); }
       catch (error) {
         console.error(`Poll failed for ${sportId} ${date}: ${error.message}`);
-        if (/Circuit breaker|quota limit|HTTP 403|HTTP 429/.test(error.message)) return results;
+        if (/Circuit breaker|quota limit|HTTP 403|HTTP 429/.test(error.message)) return;
       }
     }
   }
   const quota = await quotaStatus();
   console.log(`Cycle complete. Rolling quota: ${quota.used}/${quota.limit}`);
-  return results;
 }
 
-assertRuntimeConfig();
+assertWorkerConfig();
 await connectRedis();
 console.log(`Sportradar feed worker started; interval=${config.pollHours}h; sports=${config.sportIds.length}; dates=${config.daysAhead}`);
 while (true) {
