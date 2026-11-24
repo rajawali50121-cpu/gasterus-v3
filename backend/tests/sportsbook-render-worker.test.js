@@ -190,7 +190,13 @@ test('worker cadence follows Sportradar freshness or the daily WIB schedule', ()
     sportsbookDailyRefreshEnabled: false,
     sportradarRefreshSeconds: 300,
     sportsbookIngestMaxAgeSeconds: 60
-  }), 30);
+  }), 300, 'ingest signature age must not shorten the provider polling cadence');
+  assert.equal(sportsbookRenderIntervalSeconds({
+    sportsbookDailyRefreshEnabled: false,
+    sportsbookPollMinutes: 150,
+    sportradarRefreshSeconds: 300,
+    sportsbookIngestMaxAgeSeconds: 60
+  }), 9000, '150-minute poll is independent from the short-lived ingest signature');
 });
 
 test('One-shot Cron bypasses the daily refresh gate and fetches immediately', async () => {
@@ -200,4 +206,44 @@ test('One-shot Cron bypasses the daily refresh gate and fetches immediately', as
   assert.match(workerSource, /if \(config\.sportsbookDailyRefreshEnabled !== false && !cronOnce\)/);
   assert.match(workerSource, /if \(cronOnce\) \{[\s\S]*?process\.exitCode[\s\S]*?break;/);
   assert.match(workerSource, /nextSportsbookDailyRefreshMs/);
+});
+
+
+test('worker preserves 200+ fixtures and 5,000+ priced markets without truncation', async () => {
+  const events = Array.from({ length: 205 }, (_, eventIndex) => {
+    const item = event(`sr-event-volume-${eventIndex}`);
+    item.markets = Array.from({ length: 25 }, (_, marketIndex) => ({
+      id: `sr-market-${eventIndex}-${marketIndex}`,
+      key: `market-${marketIndex}`,
+      type: marketIndex % 3 === 0 ? '1X2' : marketIndex % 3 === 1 ? 'HANDICAP' : 'TOTALS',
+      label: `Market ${marketIndex}`,
+      period: 'FT',
+      source: 'sportradar',
+      suspended: false,
+      selections: [{
+        key: `selection-${eventIndex}-${marketIndex}`,
+        label: 'Selection',
+        odds: 1.91,
+        suspended: false,
+        source: 'sportradar'
+      }]
+    }));
+    return item;
+  });
+  const snapshot = await buildSportsbookRenderSnapshot({
+    fetchSportradar: async () => ({
+      provider: 'sportradar', enabled: true, transportOk: true, events
+    }),
+    maxEvents: 0,
+    maxPages: 0,
+    now: NOW
+  });
+  const retainedEvents = snapshot.providerResults[0].events;
+  const retainedMarkets = retainedEvents.reduce((total, item) => total + item.markets.length, 0);
+  const pricedMarkets = retainedEvents.reduce((total, item) => total +
+    item.markets.filter(market => market.selections.some(selection => Number(selection.odds) > 1)).length, 0);
+  assert.equal(snapshot.eventCount, 205);
+  assert.equal(retainedMarkets, 5125);
+  assert.equal(pricedMarkets, 5125);
+  assert.equal(validateSportsbookSnapshot(snapshot, { now: NOW }).eventCount, 205);
 });
