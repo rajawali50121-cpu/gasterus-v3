@@ -33,12 +33,14 @@ test("change-log configuration is opt-in and refuses a request budget too small 
     () => loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" }),
     /requires a 30-day request budget/
   );
-  const enabled = loadSportsbookConfig({
-    ...env,
-    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "11000",
-    SPORTRADAR_CHANGELOG_ENABLED: "true"
-  });
-  assert.equal(enabled.changeLogEnabled, true);
+  assert.throws(
+    () => loadSportsbookConfig({
+      ...env,
+      SPORTRADAR_MAX_CALLS_PER_30_DAYS: "11000",
+      SPORTRADAR_CHANGELOG_ENABLED: "true"
+    }),
+    /must not exceed 800/
+  );
 });
 
 test("change log extracts only tracked Sportradar sport-event IDs", () => {
