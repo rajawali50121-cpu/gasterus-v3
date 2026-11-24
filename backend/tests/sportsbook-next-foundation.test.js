@@ -77,10 +77,13 @@ test("trial configuration cannot exceed the 800-call internal budget or fan out 
   );
 });
 
-test("config rejects missing API key, unsupported tier and unknown quota", () => {
+test("config rejects missing API key and unsupported tier, and defaults trial budget conservatively", () => {
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_API_KEY: "" }), /SPORTRADAR_API_KEY/);
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "free" }), /trial or production/);
-  assert.throws(() => loadSportsbookConfig({ SPORTRADAR_API_KEY: "test" }), /SPORTRADAR_MAX_CALLS_PER_30_DAYS/);
+  const defaults = loadSportsbookConfig({ SPORTRADAR_API_KEY: "test" });
+  assert.equal(defaults.maxCallsPer30Days, 800);
+  assert.equal(defaults.daysAhead, 0);
+  assert.equal(defaults.maxCallsPerCycle, 5);
 });
 
 test("daily schedule normalization uses sport_event and provider SR identifiers", () => {
