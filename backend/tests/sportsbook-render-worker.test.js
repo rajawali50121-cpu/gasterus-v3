@@ -224,6 +224,7 @@ test('worker preserves 200+ fixtures and 5,000+ priced markets without truncatio
         key: `selection-${eventIndex}-${marketIndex}`,
         label: 'Selection',
         odds: 1.91,
+        updatedAt: new Date(NOW).toISOString(),
         suspended: false,
         source: 'sportradar'
       }]
