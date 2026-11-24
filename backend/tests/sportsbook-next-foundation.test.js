@@ -408,3 +408,30 @@ test("discovery initializes a missing Change Log baseline but never advances an 
   assert.equal(writes[0].options.NX, true);
   assert.equal(writes[0].options.EX, 30 * 24 * 60 * 60);
 });
+
+
+test("global Sportradar QPS limiter uses Redis server time and shared cooldown", async () => {
+  const { waitForSportradarRequestSlot, applySportradarRateLimitCooldown, __qps } = await import("../src/sportsbook-next/quota.js");
+  assert.match(__qps.QPS_RESERVE_SCRIPT, /redis.call\('TIME'\)/);
+  assert.equal(__qps.QPS_INTERVAL_MS, 1100);
+  const calls=[];
+  const redis={
+    eval: async (_script,args) => { calls.push(args); return 0; },
+    set: async (...args) => { calls.push(args); return "OK"; }
+  };
+  await waitForSportradarRequestSlot(redis);
+  assert.deepEqual(calls[0].keys,[__qps.QPS_NEXT_KEY,__qps.QPS_COOLDOWN_KEY]);
+  assert.equal(await applySportradarRateLimitCooldown(redis,"7"),7000);
+  assert.equal(calls[1][2].PX,7000);
+});
+
+test("Sportradar 429 propagates Retry-After into shared cooldown callback", async () => {
+  const config=loadSportsbookConfig(env);
+  let cooldown=null;
+  const client=new SportradarClient(config,{
+    onRateLimit: async details => { cooldown=details; },
+    fetchImpl: async () => ({status:429,ok:false,headers:{get:name=>name==="retry-after"?"12":null},json:async()=>({})})
+  });
+  await assert.rejects(client.getSports(),error=>error.code==="SPORTRADAR_RATE_LIMITED");
+  assert.deepEqual(cooldown,{retryAfter:"12",httpStatus:429});
+});

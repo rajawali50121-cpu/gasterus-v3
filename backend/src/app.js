@@ -52,14 +52,9 @@ add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
   await optionalMemberSession(req);
   await rateLimit(req,'sportsbook-v2-feed',120,60);
   const feedStatusRaw=await redis.get('sportsbook:next:feed-status:v1');
+  let feedStatus=null;
   if(feedStatusRaw){
-    let feedStatus;
     try{feedStatus=JSON.parse(feedStatusRaw);}catch{throw new AppError(503,'Status feed Sportradar tidak valid.','SPORTSBOOK_STATUS_INVALID');}
-    if(feedStatus.complete!==true){
-      const code=feedStatus.quotaLimited?'SPORTSBOOK_QUOTA_LIMITED':feedStatus.budgetLimited?'SPORTSBOOK_CYCLE_BUDGET_EXHAUSTED':feedStatus.providerError==='SPORTRADAR_RATE_LIMITED'?'SPORTSBOOK_PROVIDER_RATE_LIMITED':'SPORTSBOOK_FEED_INCOMPLETE';
-      const message=feedStatus.quotaLimited?'Kuota Sportradar membatasi siklus feed.':feedStatus.budgetLimited?'Anggaran request siklus Sportradar tercapai.':feedStatus.providerError==='SPORTRADAR_RATE_LIMITED'?'Sportradar sedang membatasi request (HTTP 429).':'Feed Sportradar belum lengkap.';
-      throw new AppError(503,message,code);
-    }
   }
   const raw=await redis.get('sportsbook:next:snapshot:v1');
   if(!raw) throw new AppError(503,'Feed Sportradar belum tersedia.','SPORTSBOOK_FEED_UNAVAILABLE');
@@ -68,11 +63,11 @@ add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
   const ageMs=Math.max(0,Date.now()-Date.parse(snapshot.fetchedAt||''));
   if(!Number.isFinite(ageMs)||ageMs>5*60*60*1000) throw new AppError(503,'Feed Sportradar sudah kedaluwarsa.','SPORTSBOOK_FEED_STALE');
   if(snapshot.complete!==true||snapshot.quotaLimited===true||snapshot.budgetLimited===true||(Array.isArray(snapshot.errors)&&snapshot.errors.length>0)){
-    const code=snapshot.quotaLimited?'SPORTSBOOK_QUOTA_LIMITED':snapshot.budgetLimited?'SPORTSBOOK_CYCLE_BUDGET_EXHAUSTED':'SPORTSBOOK_FEED_INCOMPLETE';
-    const message=snapshot.quotaLimited?'Kuota Sportradar membatasi siklus feed.':snapshot.budgetLimited?'Anggaran request siklus Sportradar tercapai.':'Feed Sportradar belum lengkap.';
-    throw new AppError(503,message,code);
+    throw new AppError(503,'Snapshot terakhir tidak lengkap dan tidak aman ditampilkan.','SPORTSBOOK_FEED_INCOMPLETE');
   }
-  ok(res,{...snapshot,ageMs,betAcceptanceEnabled:false});
+  const feedDegraded=feedStatus?.complete===false;
+  const providerError=feedDegraded?(feedStatus.providerError|| (feedStatus.quotaLimited?'SPORTRADAR_QUOTA_LIMITED':'SPORTRADAR_POLL_FAILED')):null;
+  ok(res,{...snapshot,ageMs,feedDegraded,feedWarning:feedDegraded?'Pembaruan odds Sportradar gagal; menampilkan snapshot terakhir yang berhasil.':null,providerError,betAcceptanceEnabled:false});
 });
 add('GET',/^\/health$/,async({res})=>ok(res,{status:'ok',service:'core',uptimeSeconds:Math.floor((Date.now()-startedAt)/1000)}));
 add('GET',/^\/ready$/,async({res})=>{

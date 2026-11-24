@@ -16,12 +16,13 @@ function encodeUrnPathSegment(value) {
 }
 
 export class SportradarClient {
-  constructor(config, { fetchImpl = fetch, now = () => Date.now(), beforeRequest = null, onResponse = null } = {}) {
+  constructor(config, { fetchImpl = fetch, now = () => Date.now(), beforeRequest = null, onResponse = null, onRateLimit = null } = {}) {
     this.config = config;
     this.fetch = fetchImpl;
     this.now = now;
     this.beforeRequest = beforeRequest;
     this.onResponse = onResponse;
+    this.onRateLimit = onRateLimit;
     this.calls = [];
   }
 
@@ -75,9 +76,11 @@ export class SportradarClient {
         // Diagnostic logging must never change provider request behavior.
       }
       if (response.status === 429) {
+        const retryAfter = response.headers.get("retry-after");
+        try { await this.onRateLimit?.({ retryAfter, httpStatus: 429 }); } catch { /* retain original provider error */ }
         throw providerError("SPORTRADAR_RATE_LIMITED", "Sportradar rate limit reached (HTTP 429)", {
           httpStatus: 429,
-          retryAfter: response.headers.get("retry-after")
+          retryAfter
         });
       }
       if (!response.ok) throw safeProviderError(response.status);

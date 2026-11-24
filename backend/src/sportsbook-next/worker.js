@@ -7,7 +7,7 @@ import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
 import { normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normalize.js";
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
-import { getSportradarQuotaUsage, reserveSportradarCall } from "./quota.js";
+import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
@@ -204,12 +204,14 @@ async function main() {
   await connectRedis();
   const client = new SportradarClient(config, {
     onResponse: details => logger.info("Sportradar provider response", details),
+    onRateLimit: ({ retryAfter }) => applySportradarRateLimitCooldown(redis, retryAfter),
     beforeRequest: async () => {
       if (client.cycleCalls >= config.maxCallsPerCycle) {
         const error = new Error("SPORTRADAR_CYCLE_BUDGET_EXHAUSTED");
         error.code = "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED";
         throw error;
       }
+      await waitForSportradarRequestSlot(redis);
       await reserveSportradarCall(redis, config);
       client.cycleCalls += 1;
     }
