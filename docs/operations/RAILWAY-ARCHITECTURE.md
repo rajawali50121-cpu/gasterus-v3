@@ -19,14 +19,14 @@ The old sportsbook feed, provider adapter, render pipeline, bet lifecycle and se
 The integration follows the official Odds Comparison Prematch v2 contract:
 - Authentication uses the `x-api-key` request header. The key stays server-side.
 - Base URL: `https://api.sportradar.com/oddscomparison-prematch/{trial|production}/v2/en`.
-- Discover available coverage from `sports.json`; do not assume sports, competitions, bookmakers or markets.
+- Discover entitled coverage in order from `sports.json`, `books.json`, and `sports/{sport_id}/competitions.json`; do not assume sports, competitions, bookmakers or markets. Coverage is cached for 24 hours.
 - Daily schedules use `sports/{sport_id}/schedules/{date}/schedules.json`, with offset pagination (`start`, `limit` up to 50) and `X-Max-Results` handling.
 - Event prices are retrieved from `sport_events/{sport_event_id}/sport_event_markets.json`; bookmaker and outcome IDs, removed flags, decimal odds and opening odds are preserved.
 - Market instances are keyed by both provider market ID and market name because one market ID can represent multiple period/inning instances.
-- The official odds change log covers a five-minute window and should be polled at least every five minutes. The current 150-minute discovery mode is therefore display-only; it does not authorize wager acceptance. Bet acceptance remains disabled until an approved fresh-price update path (change-log polling within quota or UOF AMQP credentials) is enabled.
+- Free Trial mapping: Odds Comparison Prematch v2 only; no assumed Live Odds, Player Props, Futures, UOF/AMQP, or OC Core entitlement. The provider trial allowance previously verified for this account is 1,000 calls per rolling 30 days and 1 request/second. GASTERUS caps internal usage at 800 calls/30 days, tracks one entitled sport, the current UTC date, and at most two 50-event pages per cycle. Discovery feeds are cached for 24 hours. Polling is every 150 minutes. The official odds change log covers only a five-minute window and must be polled every 1–5 minutes; that cadence would exceed the trial budget, so this integration is read-only and cannot accept wagers. Bet acceptance remains disabled until an approved fresh-price update path (change-log polling within quota or UOF AMQP credentials) is enabled.
 - Soccer fixtures/results context uses Soccer API v4 feeds and must not be treated as odds.
-- A Redis-backed rolling 30-day budget and hourly cap reserve every outbound request before it is sent; the initial provider-usage baseline expires from the budget after 30 days.
-- HTTP 429 stops the current cycle. Hourly/monthly quota exhaustion persists any safe partial snapshot and pauses until the next scheduled cycle; no immediate retry loop or provider fallback is permitted.
+- A Redis-backed rolling 30-day budget and global 1.1-second request pacer reserve every outbound request before it is sent; no hidden retry loop is allowed. The initial provider-usage baseline expires from the budget after 30 days.
+- HTTP 429 stops the current cycle and honors Retry-After. Failed cycles wait at least the configured 150-minute cadence; there is no five-minute retry loop and no provider fallback.
 - Poll interval default is 150 minutes. Odds older than the configured freshness threshold must never be accepted for a wager.
 
 Quota limits and access level must be set from the actual Sportradar account/package. A valid API key alone does not prove entitlement to every Sportradar product. UOF/AMQP is a separate product path and must not be assumed enabled by a REST key.
