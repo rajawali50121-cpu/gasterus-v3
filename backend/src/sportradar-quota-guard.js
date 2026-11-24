@@ -27,7 +27,7 @@ export function installSportradarQuotaGuard({
   if (typeof fetchImpl !== 'function') throw new Error('Native fetch is required for Sportradar quota guard.');
   if (!redis || typeof connectRedis !== 'function') throw new Error('Redis is required for Sportradar quota guard.');
   const maxCallsPer30Days = positiveInt(env.SPORTRADAR_MAX_CALLS_PER_30_DAYS, 800) || 800;
-  const initialCallsUsed30Days = positiveInt(env.SPORTRADAR_INITIAL_30_DAY_USAGE, 0);
+  const initialCallsUsed30Days = positiveInt(env.SPORTRADAR_INITIAL_30_DAY_USAGE, 0);\n  const quotaBaselineConfirmed = String(env.SPORTRADAR_QUOTA_BASELINE_CONFIRMED || '').toLowerCase() === 'true';
   const maxCallsPerCycle = positiveInt(env.SPORTRADAR_MAX_CALLS_PER_CYCLE, 5) || 5;
   const quotaConfig = {
     maxCallsPer30Days,
@@ -44,7 +44,7 @@ export function installSportradarQuotaGuard({
     }
 
     if (/\/sports\.json$/i.test(url.pathname)) callsThisCycle = 0;
-    if (callsThisCycle >= maxCallsPerCycle) {
+    if (!quotaBaselineConfirmed) {\n      const error = new Error('SPORTRADAR_QUOTA_BASELINE_UNCONFIRMED: set the provider-reported rolling 30-day usage baseline before enabling requests.');\n      error.code = 'SPORTRADAR_QUOTA_BASELINE_UNCONFIRMED';\n      throw error;\n    }\n    if (callsThisCycle >= maxCallsPerCycle) {
       const error = new Error('SPORTRADAR_CYCLE_CALL_LIMIT_REACHED: current snapshot rejected before another provider request.');
       error.code = 'SPORTRADAR_CYCLE_CALL_LIMIT_REACHED';
       throw error;
@@ -71,7 +71,7 @@ export function installSportradarQuotaGuard({
 
   return {
     getCallsThisCycle: () => callsThisCycle,
-    config: { ...quotaConfig, maxCallsPerCycle },
+    config: { ...quotaConfig, maxCallsPerCycle, quotaBaselineConfirmed },
     restore: () => { if (globalThis.fetch === guardedFetch) globalThis.fetch = fetchImpl; }
   };
 }
