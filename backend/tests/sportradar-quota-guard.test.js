@@ -23,7 +23,7 @@ test('Sportradar requests reserve rolling quota and shared QPS slot before netwo
     redis,
     connectRedis: async () => {},
     config: { sportradarMinIntervalMs: 1100, sportradarMaxCallsPerHour: 20 },
-    env: { SPORTRADAR_MAX_CALLS_PER_30_DAYS: '800', SPORTRADAR_INITIAL_30_DAY_USAGE: '17', SPORTRADAR_MAX_CALLS_PER_CYCLE: '5' },
+    env: { SPORTRADAR_MAX_CALLS_PER_30_DAYS: '800', SPORTRADAR_INITIAL_30_DAY_USAGE: '17', SPORTRADAR_MAX_CALLS_PER_CYCLE: '5', SPORTRADAR_QUOTA_BASELINE_CONFIRMED: 'true' },
     fetchImpl: async () => { networkCalls += 1; return new Response('{}', { status: 200 }); }
   });
   const response = await globalThis.fetch('https://api.sportradar.com/oddscomparison-prematch/trial/v2/en/sports.json');
@@ -59,7 +59,7 @@ test('per-cycle limit prevents the sixth request even when monthly quota remains
     redis,
     connectRedis: async () => {},
     config: { sportradarMinIntervalMs: 1100, sportradarMaxCallsPerHour: 20 },
-    env: { SPORTRADAR_MAX_CALLS_PER_CYCLE: '5' },
+    env: { SPORTRADAR_MAX_CALLS_PER_CYCLE: '5', SPORTRADAR_QUOTA_BASELINE_CONFIRMED: 'true' },
     fetchImpl: async () => { networkCalls += 1; return new Response('{}'); }
   });
   for (let i = 0; i < 5; i += 1) await globalThis.fetch(`https://api.sportradar.com/oddscomparison-prematch/trial/v2/schedules/${i}.json`);
@@ -67,5 +67,23 @@ test('per-cycle limit prevents the sixth request even when monthly quota remains
     code: 'SPORTRADAR_CYCLE_CALL_LIMIT_REACHED'
   });
   assert.equal(networkCalls, 5);
+  guard.restore();
+});
+
+test('unverified provider usage baseline blocks requests before Redis or network', async () => {
+  let redisConnections = 0;
+  let networkCalls = 0;
+  const guard = installSportradarQuotaGuard({
+    redis: fakeRedis(),
+    connectRedis: async () => { redisConnections += 1; },
+    config: { sportradarMinIntervalMs: 1100, sportradarMaxCallsPerHour: 20 },
+    env: { SPORTRADAR_INITIAL_30_DAY_USAGE: '0' },
+    fetchImpl: async () => { networkCalls += 1; return new Response('{}'); }
+  });
+  await assert.rejects(globalThis.fetch('https://api.sportradar.com/oddscomparison-prematch/trial/v2/en/sports.json'), {
+    code: 'SPORTRADAR_QUOTA_BASELINE_UNCONFIRMED'
+  });
+  assert.equal(redisConnections, 0);
+  assert.equal(networkCalls, 0);
   guard.restore();
 });
