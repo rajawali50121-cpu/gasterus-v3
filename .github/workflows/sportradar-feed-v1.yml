@@ -17,6 +17,18 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDIS_URL: redis://127.0.0.1:6379
     defaults:
       run:
         working-directory: sportradar-feed-v1
@@ -27,4 +39,4 @@ jobs:
           node-version: "22"
       - run: npm install --no-audit --no-fund
       - run: npm test
-      - run: node --check src/api.js && node --check src/worker.js && node --check src/provider.js && node --check src/guard.js
+      - run: node --check src/api.js && node --check src/worker.js && node --check src/provider.js && node --check src/guard.js && node --check scripts/fetch_fixture.mjs
