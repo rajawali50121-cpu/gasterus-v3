@@ -35,10 +35,11 @@ async function refreshCoverage(config, client) {
 
   // Official Odds Comparison discovery order: Sports, Books, then
   // Sport Competitions. Never infer a sport, book or competition from IDs.
-  const [sportsResult, booksResult] = await Promise.all([
-    client.getSports(),
-    client.getBooks()
-  ]);
+  // Sequential on purpose: with Promise.all, getBooks was queued behind the
+  // 429 QPS cooldown and fired ~30s later as a second request in the same cycle.
+  // If getSports throws (e.g. 429), the cycle stops here and getBooks is never sent.
+  const sportsResult = await client.getSports();
+  const booksResult = await client.getBooks();
   const sports = sportsResult.body?.sports;
   const books = booksResult.body?.books;
   if (!Array.isArray(sports) || !Array.isArray(books)) {
@@ -261,7 +262,13 @@ async function main() {
   await connectRedis();
   const client = new SportradarClient(config, {
     onResponse: details => logger.info("Sportradar provider response", details),
-    onRateLimit: ({ retryAfter }) => applySportradarRateLimitCooldown(redis, retryAfter),
+    onRateLimit: async ({ retryAfter, httpStatus }) => {
+      logger.warn("Sportradar HTTP 429 rate limit: stopping current cycle, no retry request", {
+        httpStatus,
+        retryAfter: retryAfter ?? null
+      });
+      return applySportradarRateLimitCooldown(redis, retryAfter);
+    },
     beforeRequest: async () => {
       if (client.cycleCalls >= config.maxCallsPerCycle) {
         const error = new Error("SPORTRADAR_CYCLE_BUDGET_EXHAUSTED");
