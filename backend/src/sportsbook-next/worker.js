@@ -79,6 +79,7 @@ async function runCycle(config, client) {
   if (!lock) return { skipped: "another worker owns the poll lock" };
 
   client.cycleCalls = 0;
+  client.cycleGuard = { rateLimited: false };
   const events = new Map();
   const errors = [];
   let quotaLimited = false;
@@ -166,6 +167,7 @@ async function runChangeLogCycle(config, client) {
   if (!lock) return { skipped: "another worker owns the poll lock" };
 
   client.cycleCalls = 0;
+  client.cycleGuard = { rateLimited: false };
   try {
     const rawSnapshot = await redis.get(SNAPSHOT_KEY);
     if (!rawSnapshot) return { skipped: "no complete snapshot to refresh" };
@@ -261,15 +263,31 @@ async function main() {
   await connectRedis();
   const client = new SportradarClient(config, {
     onResponse: details => logger.info("Sportradar provider response", details),
-    onRateLimit: ({ retryAfter }) => applySportradarRateLimitCooldown(redis, retryAfter),
+    onRateLimit: ({ retryAfter, httpStatus }) => {
+      if (client.cycleGuard) client.cycleGuard.rateLimited = true;
+      logger.warn("Sportradar HTTP 429 received; stopping current cycle with no further requests", {
+        httpStatus, retryAfter: retryAfter || null
+      });
+      return applySportradarRateLimitCooldown(redis, retryAfter);
+    },
     beforeRequest: async () => {
+      const guard = client.cycleGuard;
+      const stopped = () => guard?.rateLimited === true;
+      const stopError = () => {
+        const error = new Error("SPORTRADAR_RATE_LIMIT_CYCLE_STOPPED");
+        error.code = error.message;
+        return error;
+      };
+      if (stopped()) throw stopError();
       if (client.cycleCalls >= config.maxCallsPerCycle) {
         const error = new Error("SPORTRADAR_CYCLE_BUDGET_EXHAUSTED");
         error.code = "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED";
         throw error;
       }
       await waitForSportradarRequestSlot(redis);
+      if (stopped()) throw stopError();
       await reserveSportradarCall(redis, config);
+      if (stopped()) throw stopError();
       client.cycleCalls += 1;
     }
   });
