@@ -36,6 +36,12 @@ import { createSportsbookCashoutOffer, listMemberSportsbookCashoutOffers, accept
 import { openSportsbookRealtimeStream, sportsbookRealtimeStatus } from './sportsbook-realtime.js';
 import { acceptSportsbookSnapshot, storeMergedSportsbookSnapshot } from './sportsbook-ingestion.js';
 
+
+const startedAt=Date.now();const metrics={requests:0,errors:0,rateLimited:0,latencyTotal:0};
+const route=(method,pattern,handler,options={})=>({method,pattern,handler,...options});
+const routes=[];
+const add=(method,pattern,handler,options)=>routes.push(route(method,pattern,handler,options));
+
 add('POST',/^\/api\/internal\/sportsbook\/ingest$/,async({req,res})=>{
   const result=await acceptSportsbookSnapshot(req,{
     storeSnapshot:snapshot=>storeMergedSportsbookSnapshot(redis,snapshot)
@@ -66,11 +72,6 @@ add('POST',/^\/api\/owner\/sportsbook\/bets\/(?<id>[0-9a-f-]+)\/cancel$/,async({
 add('GET',/^\/api\/v1\/sportsbook\/feed$/,async({req,res,url})=>{await authenticateApiKey(req,'sportsbook:feed');ok(res,await sportsbookSnapshot({sport:url.searchParams.get('sport'),live:url.searchParams.get('live'),q:url.searchParams.get('q'),tab:url.searchParams.get('tab'),league:url.searchParams.get('league'),leagues:url.searchParams.has('leagues')?url.searchParams.get('leagues'):null,country:url.searchParams.get('country'),offset:url.searchParams.get('offset'),limit:url.searchParams.get('limit')}));});
 add('GET',/^\/api\/v1\/sportsbook\/events\/(?<id>[^/]+)$/,async({req,res,params})=>{await authenticateApiKey(req,'sportsbook:feed');ok(res,await sportsbookEventSnapshot(params.id));});
 add('GET',/^\/api\/v1\/sportsbook\/stream$/,async({req,res,url})=>{await authenticateApiKey(req,'sportsbook:feed');openSportsbookRealtimeStream(req,res,{sport:url.searchParams.get('sport'),live:url.searchParams.get('live'),q:url.searchParams.get('q'),tab:url.searchParams.get('tab'),league:url.searchParams.get('league'),leagues:url.searchParams.has('leagues')?url.searchParams.get('leagues'):null,country:url.searchParams.get('country'),offset:url.searchParams.get('offset'),limit:url.searchParams.get('limit')});});
-
-const startedAt=Date.now();const metrics={requests:0,errors:0,rateLimited:0,latencyTotal:0};
-const route=(method,pattern,handler,options={})=>({method,pattern,handler,...options});
-const routes=[];
-const add=(method,pattern,handler,options)=>routes.push(route(method,pattern,handler,options));
 const asInt=(v,fallback,min=0,max=1000)=>{const n=Number(v);return Number.isInteger(n)&&n>=min&&n<=max?n:fallback};
 function internal(request,channel){const expected=channel==='member'?config.memberProxySecret:channel==='admin'?config.adminProxySecret:config.opsInternalSecret;assert(request.headers['x-internal-proxy-secret']===expected,404,'Not found','NOT_FOUND');}
 async function rateLimit(request,key,limit,windowSec){const ip=clientIp(request);const redisKey=`rate:${key}:${ip}`;const count=await redis.incr(redisKey);if(count===1)await redis.expire(redisKey,windowSec);if(count>limit){metrics.rateLimited++;throw new AppError(429,'Terlalu banyak permintaan. Coba kembali beberapa saat lagi.','RATE_LIMITED');}}
