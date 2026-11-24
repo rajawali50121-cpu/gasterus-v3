@@ -39,11 +39,11 @@ export function installSportradarQuotaGuard({
 
   const guardedFetch = async (input, init) => {
     const url = requestUrl(input);
-    if (!url || !/(^|\\.)sportradar\\.com$/i.test(url.hostname)) {
+    if (!url || !/(^|\.)sportradar\.com$/i.test(url.hostname)) {
       return fetchImpl(input, init);
     }
 
-    if (/\\/sports\\.json$/i.test(url.pathname)) callsThisCycle = 0;
+    if (/\/sports\.json$/i.test(url.pathname)) callsThisCycle = 0;
     if (callsThisCycle >= maxCallsPerCycle) {
       const error = new Error('SPORTRADAR_CYCLE_CALL_LIMIT_REACHED: current snapshot rejected before another provider request.');
       error.code = 'SPORTRADAR_CYCLE_CALL_LIMIT_REACHED';
