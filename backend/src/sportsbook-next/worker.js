@@ -9,6 +9,7 @@ import { normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normal
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
+import { fetchDiscoveryFeeds } from "./discovery.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
 const LOCK_KEY = "sportsbook:next:poll-lock:v1";
@@ -35,10 +36,9 @@ async function refreshCoverage(config, client) {
 
   // Official Odds Comparison discovery order: Sports, Books, then
   // Sport Competitions. Never infer a sport, book or competition from IDs.
-  const [sportsResult, booksResult] = await Promise.all([
-    client.getSports(),
-    client.getBooks()
-  ]);
+  // Keep discovery requests sequential. If the first request is rate-limited,
+  // never leave a second request queued behind the shared cooldown.
+  const { sportsResult, booksResult } = await fetchDiscoveryFeeds(client);
   const sports = sportsResult.body?.sports;
   const books = booksResult.body?.books;
   if (!Array.isArray(sports) || !Array.isArray(books)) {
