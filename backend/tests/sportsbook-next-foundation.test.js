@@ -116,20 +116,36 @@ test("Soccer result normalizer requires a Sportradar event ID", () => {
   });
 });
 
-test("client calls documented endpoints, authenticates by x-api-key and stops on 429", async () => {
+test("client calls documented endpoints, authenticates by x-api-key and captures safe 429 diagnostics", async () => {
   const config = loadSportsbookConfig(env);
   let calls = 0;
   let requested = "";
+  let diagnostic = null;
   const client = new SportradarClient(config, {
     now: () => 1_800_000_000_000,
+    onResponse: value => { diagnostic = value; },
     fetchImpl: async (url, options) => {
       calls += 1; requested = String(url);
       assert.equal(options.headers["x-api-key"], "test-key");
-      return { status: 429, ok: false, headers: { get: () => "900" }, json: async () => ({}) };
+      return {
+        status: 429, ok: false,
+        headers: { get: name => ({
+          "retry-after": "900", "x-origin-id": "MARKET_ORIGIN_MAGIC_CRAWLERS",
+          "content-type": "application/json", "content-length": "50"
+        }[name] ?? null) },
+        json: async () => ({ message: "Rate limit reached for key test-key" })
+      };
     }
   });
-  await assert.rejects(client.getDailySchedules("sr:sport:1", "2026-11-23"), error => error.code === "SPORTRADAR_RATE_LIMITED" && error.retryAfter === "900");
-  assert.match(requested, /sports\/sr:sport:1\/schedules\/2026-11-23\/schedules\.json\?start=0&limit=50/);
+  await assert.rejects(client.getDailySchedules("sr:sport:1", "2026-11-23"), error =>
+    error.code === "SPORTRADAR_RATE_LIMITED" && error.retryAfter === "900"
+      && error.providerMessage === "Rate limit reached for key [REDACTED]"
+      && error.originId === "MARKET_ORIGIN_MAGIC_CRAWLERS"
+  );
+  assert.equal(diagnostic.providerMessage, "Rate limit reached for key [REDACTED]");
+  assert.equal(diagnostic.originId, "MARKET_ORIGIN_MAGIC_CRAWLERS");
+  assert.equal(diagnostic.retryAfter, "900");
+  assert.ok(requested.includes("/sports/sr:sport:1/schedules/2026-11-23/schedules.json?start=0&limit=50"));
   assert.equal(calls, 1);
 });
 

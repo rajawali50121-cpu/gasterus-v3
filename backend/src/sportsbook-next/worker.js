@@ -248,7 +248,9 @@ async function main() {
           quotaUsed: Number.isFinite(error?.quotaUsed) ? error.quotaUsed : null,
           quotaLimit: Number.isFinite(error?.quotaLimit) ? error.quotaLimit : null,
           httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
-          retryAfter: error?.retryAfter || null
+          retryAfter: error?.retryAfter || null,
+          providerMessage: error?.providerMessage || null,
+          originId: error?.originId || null
         });
         nextDiscoveryAt = Date.now() + Math.min(config.pollIntervalMs, 5 * 60 * 1000);
       }
@@ -272,7 +274,9 @@ async function main() {
           quotaUsed: Number.isFinite(error?.quotaUsed) ? error.quotaUsed : null,
           quotaLimit: Number.isFinite(error?.quotaLimit) ? error.quotaLimit : null,
           httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
-          retryAfter: error?.retryAfter || null
+          retryAfter: error?.retryAfter || null,
+          providerMessage: error?.providerMessage || null,
+          originId: error?.originId || null
         });
         const retrySeconds = Number(error?.retryAfter);
         const retryDelayMs = Number.isFinite(retrySeconds) && retrySeconds > 0
