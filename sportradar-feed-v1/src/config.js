@@ -28,7 +28,7 @@ export const config = Object.freeze({
   quotaLimit: integer("SPORTRADAR_30D_QUOTA_LIMIT", 900, 1, 900),
   minGapMs: integer("SPORTRADAR_MIN_REQUEST_GAP_MS", 1150, 1150, 60000),
   breakerMinutes: integer("SPORTRADAR_BREAKER_MINUTES", 30, 1, 240),
-  port: integer("SPORTRADAR_PORT", 8080, 1, 65535),
+  port: integer("PORT", integer("SPORTRADAR_PORT", 8080, 1, 65535), 1, 65535),
   redisUrl: process.env.REDIS_URL || ""
 });
 
