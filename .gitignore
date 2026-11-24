@@ -11,3 +11,6 @@ coverage/
 .idea/
 .vscode/
 .github/
+
+# Local tools and binaries; keep local copies out of Git
+.tools/
