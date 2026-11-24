@@ -11,7 +11,7 @@ function safeProviderError(status, details = {}) {
 
 function safeProviderMessage(body, apiKey) {
   if (!body || typeof body !== "object" || typeof body.message !== "string") return null;
-  let message = body.message.replace(/[\\r\\n\\t]+/g, " ").trim();
+  let message = body.message.replace(/[\r\n\t]+/g, " ").trim();
   const key = String(apiKey || "").trim();
   if (key) message = message.split(key).join("[REDACTED]");
   return message.slice(0, 240) || null;
