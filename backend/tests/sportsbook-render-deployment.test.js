@@ -45,8 +45,8 @@ test('backend is a consumer only and the worker is the only Sportradar fetch pat
   assert.match(feedSource, /SPORTS_SNAPSHOT_REQUIRED/);
   assert.match(ingestion, /const ALLOWED_PROVIDERS = new Set\(\['sportradar'\]\)/);
   assert.match(workerCore, /Sportradar must be the only sportsbook provider/);
-  assert.match(workerCore, /settings\\?\\.sportsbookPollMinutes/);
-  assert.doesNotMatch(workerCore, /Math\\.min\\(validProviderInterval, validFreshnessInterval\\)/);
+  assert.match(workerCore, /settings\?\.sportsbookPollMinutes/);
+  assert.doesNotMatch(workerCore, /Math\.min\(validProviderInterval, validFreshnessInterval\)/);
 });
 
 test('ingest endpoint is signed and private-network HTTP is restricted to Railway internal DNS', () => {
