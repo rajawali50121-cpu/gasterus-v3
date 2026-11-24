@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Riwayat Taruhan — GASTERUS V3</title>
-  <meta name="description" content="Riwayat invoice taruhan Togel dan Sportsbook member Gasterus v3 lengkap dengan status kemenangan.">
+  <meta name="description" content="Riwayat invoice taruhan Togel member Gasterus v3.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
@@ -91,14 +91,7 @@
     <!-- Page Title -->
     <div class="page-header">
       <h1 class="page-title">Riwayat Taruhan</h1>
-      <p class="page-subtitle">Daftar seluruh invoice taruhan Togel dan Sportsbook Anda</p>
-    </div>
-
-    <!-- Filter Tabs -->
-    <div class="filter-tabs">
-      <button class="filter-tab active" data-filter="all">Semua</button>
-      <button class="filter-tab" data-filter="togel">Togel</button>
-      <button class="filter-tab" data-filter="sportsbook">Sportsbook</button>
+      <p class="page-subtitle">Daftar seluruh invoice taruhan Togel Anda</p>
     </div>
 
     <!-- Status Filter -->
@@ -148,46 +141,6 @@
       </div>
     </div>
 
-    <!-- Sportsbook History Card -->
-    <div class="history-card" id="sportsbook-history" style="display:none;">
-      <div class="history-card-header">
-        <span class="history-icon history-icon-sport">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="5" cy="12" r="3"/>
-            <circle cx="19" cy="12" r="3"/>
-            <path d="M8 12h8"/>
-            <path d="M3 9c1.5-2 4-3.5 9-3.5s7.5 1.5 9 3.5"/>
-            <path d="M3 15c1.5 2 4 3.5 9 3.5s7.5-1.5 9-3.5"/>
-          </svg>
-        </span>
-        <h3>Riwayat Sportsbook</h3>
-      </div>
-      <div class="table-responsive">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Invoice</th>
-              <th>Waktu</th>
-              <th>Pertandingan</th>
-              <th>Odds</th>
-              <th>Taruhan</th>
-              <th>Potensi</th>
-              <th>Diterima</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="sportsbook-tbody">
-            <tr>
-              <td colspan="8" class="loading-cell">
-                <div class="loading-spinner"></div>
-                Memuat data sportsbook...
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
     <!-- Empty State -->
     <div class="empty-state" id="empty-state" style="display:none;">
       <div class="empty-icon">
@@ -213,13 +166,11 @@
     <div class="nav-drawer-body nav-drawer-links">
       <a class="nav-drawer-link" href="/index.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Beranda</a>
       <a class="nav-drawer-link" href="/member.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Togel & Slot</a>
-      <a class="nav-drawer-link" href="/sportsbook.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Sportsbook</a>
       <a class="nav-drawer-link" href="/number-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Hasil</a>
       <a class="nav-drawer-link" href="/bet-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Riwayat Taruhan</a>
       <a class="nav-drawer-link" href="/notifications.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Notifikasi</a>
       <a class="nav-drawer-link" href="/wallet-ledger.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Mutasi Saldo</a>
       <a class="nav-drawer-link" href="/gaming-history.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Riwayat Permainan</a>
-      <a class="nav-drawer-link" href="/cashout.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Cash Out</a>
       <a class="nav-drawer-link" href="/support.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Pusat Bantuan</a>
       <a class="nav-drawer-link" href="/deposit.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Setor</a>
       <a class="nav-drawer-link" href="/withdraw.html"><span class="nav-drawer-ico" aria-hidden="true"></span>Tarik</a>
@@ -274,14 +225,12 @@
 
     const esc = escapeHtml;
 
-    // Kelompokkan status bet ke kategori yang dipakai tombol filter.
-    // bet_orders dan sportsbook_tickets memakai nama status berbeda untuk hal yang
-    // sama, jadi filter mencocokkan kelompok, bukan string persis.
+    // Kelompokkan status taruhan Togel.
     function statusGroup(status) {
       const s = String(status || '').toUpperCase();
-      if (s === 'WON' || s === 'SETTLED' || s === 'SETTLED_WON' || s === 'PARTIAL_WIN') return 'WON';
-      if (s === 'LOST' || s === 'SETTLED_LOST' || s === 'PARTIAL_LOSS') return 'LOST';
-      if (s === 'VOID' || s === 'PARTIAL_VOID' || s === 'CANCELLED') return 'VOID';
+      if (s === 'WON' || s === 'SETTLED' || s === 'SETTLED_WON') return 'WON';
+      if (s === 'LOST' || s === 'SETTLED_LOST') return 'LOST';
+      if (s === 'VOID' || s === 'CANCELLED') return 'VOID';
       if (s === 'CASHED_OUT') return 'CASHED_OUT';
       return 'OPEN';
     }
@@ -295,78 +244,38 @@
       return formatRupiah(value);
     }
 
-    // Peta status ke label Indonesia sesuai skema kedua tabel:
-    //   bet_orders        : DRAFT, ACCEPTED, SETTLEMENT_PENDING, SETTLED_WON,
-    //                       SETTLED_LOST, CANCELLED, VOID
-    //   sportsbook_tickets: OPEN, WON, LOST, VOID, PARTIAL_VOID, PARTIAL_WIN,
-    //                       PARTIAL_LOSS, CANCELLED, CASHED_OUT
+    // Peta status Togel ke label Indonesia.
     function statusBadge(status) {
       const s = String(status || '').toUpperCase();
-      if (s === 'WON' || s === 'SETTLED' || s === 'SETTLED_WON' || s === 'PARTIAL_WIN') return '<span class="badge badge-success">MENANG</span>';
-      if (s === 'LOST' || s === 'SETTLED_LOST' || s === 'PARTIAL_LOSS') return '<span class="badge badge-danger">KALAH</span>';
+      if (s === 'WON' || s === 'SETTLED' || s === 'SETTLED_WON') return '<span class="badge badge-success">MENANG</span>';
+      if (s === 'LOST' || s === 'SETTLED_LOST') return '<span class="badge badge-danger">KALAH</span>';
       if (s === 'CANCELLED') return '<span class="badge badge-info">DIBATALKAN</span>';
-      if (s === 'VOID' || s === 'PARTIAL_VOID') return '<span class="badge badge-info">VOID</span>';
-      if (s === 'CASHED_OUT') return '<span class="badge badge-info">CASH OUT</span>';
+      if (s === 'VOID') return '<span class="badge badge-info">VOID</span>';
       if (s === 'DRAFT' || s === 'ACCEPTED' || s === 'OPEN' || s === 'SETTLEMENT_PENDING' || s === 'PENDING') return '<span class="badge badge-warning">MENUNGGU HASIL</span>';
       // Status di luar daftar: tampil apa adanya agar tidak hilang tanpa jejak
       return `<span class="badge badge-warning">${esc(s || 'MENUNGGU HASIL')}</span>`;
     }
 
-    // Filter handlers
-    let currentFilter = 'all';
+    // Riwayat hanya menampilkan transaksi Togel.
     let currentStatus = '';
     let currentToken = '';
     let loadedTogel = [];
     const TOGEL_PAGE = 50;
 
-    document.querySelectorAll('.filter-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        currentFilter = tab.dataset.filter;
-        loadHistory();
-      });
-    });
-
     document.querySelectorAll('.status-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.status-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.status-btn').forEach(t => t.classList.remove('active'));
         btn.classList.add('active');
         currentStatus = btn.dataset.status;
-        loadHistory();
+        loadTogelBets(currentToken || undefined);
       });
     });
 
     async function loadHistory() {
       const token = localStorage.getItem('gasterus_token') || sessionStorage.getItem('gasterus_token');
       if (!token) { location.href = '/index.html'; return; }
-
-      const togelHistory = document.getElementById('togel-history');
-      const sportsbookHistory = document.getElementById('sportsbook-history');
-      const emptyState = document.getElementById('empty-state');
-
-      // Show/hide based on filter
-      if (currentFilter === 'all') {
-        togelHistory.style.display = '';
-        sportsbookHistory.style.display = '';
-      } else if (currentFilter === 'togel') {
-        togelHistory.style.display = '';
-        sportsbookHistory.style.display = 'none';
-      } else if (currentFilter === 'sportsbook') {
-        togelHistory.style.display = 'none';
-        sportsbookHistory.style.display = '';
-      }
-
-      // Load Togel bets
-      if (currentFilter === 'all' || currentFilter === 'togel') {
-        currentToken = token;
-        await loadTogelBets(token);
-      }
-
-      // Load Sportsbook bets
-      if (currentFilter === 'all' || currentFilter === 'sportsbook') {
-        await loadSportsbookBets(token);
-      }
+      currentToken = token;
+      await loadTogelBets(token);
     }
 
     async function loadTogelBets(token, append = false) {
@@ -428,37 +337,6 @@
         card.appendChild(btn);
       }
       btn.style.display = lastPageSize >= TOGEL_PAGE ? 'inline-block' : 'none';
-    }
-
-    async function loadSportsbookBets(token) {
-      const tbody = document.getElementById('sportsbook-tbody');
-      tbody.innerHTML = '<tr><td colspan="8" class="loading-cell"><div class="loading-spinner"></div>Memuat data...</td></tr>';
-
-      try {
-        const res = await api.get('/member/sportsbook/bets?limit=50');
-        const bets = Array.isArray(res) ? res : (res.items || res.data || []);
-        const filtered = currentStatus ? bets.filter(b => statusGroup(b.status) === currentStatus) : bets;
-
-        if (filtered.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">Belum ada riwayat sportsbook</td></tr>';
-          return;
-        }
-
-        tbody.innerHTML = filtered.map(bet => `
-          <tr>
-            <td class="invoice-cell">#${esc(bet.id?.slice(0, 8) || 'N/A')}</td>
-            <td>${formatDateTime(bet.createdAt)}</td>
-            <td>${esc(bet.eventName || bet.event || '-')}</td>
-            <td class="odds-cell">${esc(bet.odds || '-')}</td>
-            <td class="amount-cell">${formatRupiah(Number(bet.totalStake ?? bet.unitStake ?? bet.amount ?? 0))}</td>
-            <td class="amount-cell">${formatRupiah(bet.potentialPayout || bet.potentialReturn || bet.return || 0)}</td>
-            <td class="amount-cell">${payoutCell(bet)}</td>
-            <td>${statusBadge(bet.status)}</td>
-          </tr>
-        `).join('');
-      } catch (err) {
-        tbody.innerHTML = `<tr><td colspan="8" class="error-cell">Gagal memuat data: ${esc(err.message)}</td></tr>`;
-      }
     }
 
     // Initial load

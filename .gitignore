@@ -14,3 +14,6 @@ coverage/
 
 # Local tools and binaries; keep local copies out of Git
 .tools/
+
+# Local deployment tool cache and account metadata
+.wrangler/
