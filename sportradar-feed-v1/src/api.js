@@ -1,9 +1,9 @@
 import http from "node:http";
-import { config, assertRuntimeConfig } from "./config.js";
+import { config, assertRedisConfig } from "./config.js";
 import { connectRedis, redis, readSnapshots, keys } from "./redis.js";
 import { quotaStatus } from "./guard.js";
 
-assertRuntimeConfig();
+assertRedisConfig();
 await connectRedis();
 
 const send = (res, status, body) => {
