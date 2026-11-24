@@ -14,3 +14,6 @@ coverage/
 
 # Local tools and binaries; keep local copies out of Git
 .tools/
+
+# Captured Sportradar responses are licensed data; keep local and out of Git.
+sportradar-feed-v1/fixtures/daily_markets.sample.json
