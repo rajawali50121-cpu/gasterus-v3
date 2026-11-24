@@ -27,8 +27,12 @@ export const config = Object.freeze({
   redisUrl: process.env.REDIS_URL || ""
 });
 
-export function assertRuntimeConfig() {
-  if (!config.apiKey) throw new Error("SPORTRADAR_API_KEY is not configured");
+export function assertRedisConfig() {
   if (!config.redisUrl) throw new Error("REDIS_URL is not configured");
+}
+
+export function assertWorkerConfig() {
+  assertRedisConfig();
+  if (!config.apiKey) throw new Error("SPORTRADAR_API_KEY is not configured");
   if (!/^[a-z]{2}$/.test(config.language)) throw new Error("SPORTRADAR_LANGUAGE must be a 2-letter code");
 }
