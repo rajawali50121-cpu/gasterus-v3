@@ -23,7 +23,7 @@ The legacy runtime uses:
 - `backend/src/app.js` routes for member feed, event details, streaming, quotes, bets, cashout, owner operations and private worker ingestion.
 - `frontend/sportsbook.html`, `frontend/js/sportsbook.js` and `frontend/css/pages/sportsbook-v3.css` for the legacy member experience.
 
-Sportradar credentials remain server-side on the dedicated worker. The legacy worker's production startup guard requires a production Sportradar entitlement; a self-issued Trial key is not treated as commercial/live betting access. No production wager acceptance is authorized until provider entitlement, odds freshness, settlement authority and end-to-end wallet/ledger checks are verified.
+The provider integration targets Sportradar Odds Comparison Prematch v2; credentials remain server-side on the dedicated worker. The legacy worker's production startup guard requires a production Sportradar entitlement; a self-issued Trial key is not treated as commercial/live betting access. No production wager acceptance is authorized until provider entitlement, odds freshness, settlement authority and end-to-end wallet/ledger checks are verified.
 
 The dedicated worker Dockerfile and environment template are restored. Legacy sportsbook migrations 002 and 010–014 are present again so fresh installations can create the required schema. Before running migrations against an existing database, verify the corresponding filenames in `schema_migrations`; the migrations must not be replayed blindly.
 
