@@ -10,4 +10,4 @@ RUN cd backend \
 
 COPY backend/src ./backend/src
 
-CMD ["node", "backend/src/sportsbook-render-worker.js"]
+CMD ["node", "--import=./backend/src/sportsbook-quota-preload.js", "backend/src/sportsbook-render-worker.js"]
