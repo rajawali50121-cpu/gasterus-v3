@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-loadEnv({ path: [resolve(packageDir, ".env"), resolve(packageDir, "../../.env")], quiet: true });
+loadEnv({ path: [resolve(packageDir, ".env"), resolve(packageDir, "../.env")], quiet: true });
 
 const integer = (name, fallback, min, max) => {
   const value = Number.parseInt(process.env[name] ?? String(fallback), 10);
