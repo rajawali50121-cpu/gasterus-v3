@@ -212,6 +212,8 @@ test('One-shot Cron bypasses the daily refresh gate and fetches immediately', as
 test('worker preserves 200+ fixtures and 5,000+ priced markets without truncation', async () => {
   const events = Array.from({ length: 205 }, (_, eventIndex) => {
     const item = event(`sr-event-volume-${eventIndex}`);
+    item.home.name = `Home Team ${eventIndex}`;
+    item.away.name = `Away Team ${eventIndex}`;
     item.markets = Array.from({ length: 25 }, (_, marketIndex) => ({
       id: `sr-market-${eventIndex}-${marketIndex}`,
       key: `market-${marketIndex}`,
