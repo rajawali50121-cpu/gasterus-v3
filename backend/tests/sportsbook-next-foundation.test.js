@@ -145,7 +145,7 @@ test("client calls documented endpoints, authenticates by x-api-key and captures
   assert.equal(diagnostic.providerMessage, "Rate limit reached for key [REDACTED]");
   assert.equal(diagnostic.originId, "MARKET_ORIGIN_MAGIC_CRAWLERS");
   assert.equal(diagnostic.retryAfter, "900");
-  assert.match(requested, /sports\\/sr:sport:1\\/schedules\\/2026-11-23\\/schedules\\.json\\?start=0&limit=50/);
+  assert.ok(requested.includes("/sports/sr:sport:1/schedules/2026-11-23/schedules.json?start=0&limit=50"));
   assert.equal(calls, 1);
 });
 
