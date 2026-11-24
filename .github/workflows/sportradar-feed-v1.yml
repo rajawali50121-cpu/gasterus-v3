@@ -1,4 +1,5 @@
 name: Sportradar Feed v1 CI
+# CI runs unit and Redis-backed integration tests on an ephemeral Redis service.
 
 on:
   push:
