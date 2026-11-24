@@ -9,7 +9,9 @@ const backendEnv = read('../.env.example');
 const workerEnv = read('../.env.worker.example');
 const app = read('../src/app.js');
 const worker = read('../src/sportsbook-render-worker.js');
-const workerCore = read('../src/sportsbook-render-worker-core.js');\nconst quotaGuard = read('../src/sportradar-quota-guard.js');\nconst quotaPreload = read('../src/sportsbook-quota-preload.js');
+const workerCore = read('../src/sportsbook-render-worker-core.js');
+const quotaGuard = read('../src/sportradar-quota-guard.js');
+const quotaPreload = read('../src/sportsbook-quota-preload.js');
 const feed = read('../src/sportsbook-feed.js');
 const feedSource = read('../src/sportsbook-feed-source.js');
 const ingestion = read('../src/sportsbook-ingestion.js');
@@ -22,7 +24,8 @@ test('worker has a separate minimal Node image and entrypoint', () => {
   assert.match(renderDockerfile, /COPY backend\/package\*\.json \.\/backend\//);
   assert.match(renderDockerfile, /npm ci --omit=dev/);
   assert.match(renderDockerfile, /COPY backend\/src \.\/backend\/src/);
-  assert.match(renderDockerfile, /CMD \["node", "backend\/src\/sportsbook-render-worker\.js"\]/);
+  assert.match(renderDockerfile, /--import=\.\/backend\/src\/sportsbook-quota-preload\.js/);
+  assert.match(renderDockerfile, /backend\/src\/sportsbook-render-worker\.js/);
 });
 
 test('Sportradar credential and base URL exist only in the worker environment example', () => {
@@ -33,7 +36,11 @@ test('Sportradar credential and base URL exist only in the worker environment ex
   assert.match(workerEnv, /^SPORTSBOOK_CRON_ONCE=true$/m);
   assert.match(workerEnv, /^SPORTSBOOK_POLL_MINUTES=150$/m);
   assert.match(workerEnv, /^SPORTSBOOK_DAILY_REFRESH_ENABLED=false$/m);
-  assert.match(worker, /MFA_ENCRYPTION_KEY_BASE64/);\n  assert.match(quotaPreload, /installSportradarQuotaGuard/);\n  assert.match(quotaGuard, /reserveSportradarCall/);\n  assert.match(quotaGuard, /waitForSportradarRequestSlot/);\n  assert.match(quotaGuard, /applySportradarRateLimitCooldown/);
+  assert.match(worker, /MFA_ENCRYPTION_KEY_BASE64/);
+  assert.match(quotaPreload, /installSportradarQuotaGuard/);
+  assert.match(quotaGuard, /reserveSportradarCall/);
+  assert.match(quotaGuard, /waitForSportradarRequestSlot/);
+  assert.match(quotaGuard, /applySportradarRateLimitCooldown/);
 });
 
 test('backend is a consumer only and the worker is the only Sportradar fetch path', () => {
