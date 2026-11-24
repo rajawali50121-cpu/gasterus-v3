@@ -15,11 +15,62 @@ const LOCK_KEY = "sportsbook:next:poll-lock:v1";
 const HEARTBEAT_KEY = "sportsbook:next:worker-heartbeat:v1";
 const FEED_STATUS_KEY = "sportsbook:next:feed-status:v1";
 const CHANGE_LOG_LAST_SUCCESS_KEY = "sportsbook:next:changelog:last-success-ms:v1";
+const COVERAGE_KEY = "sportsbook:next:coverage:v1";
+const COVERAGE_TTL_SECONDS = 24 * 60 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 let stopping = false;
 
 function utcDate(offset) {
   return new Date(Date.now() + offset * DAY_MS).toISOString().slice(0, 10);
+}
+
+async function refreshCoverage(config, client) {
+  const cached = await redis.get(COVERAGE_KEY);
+  if (cached) {
+    try {
+      const value = JSON.parse(cached);
+      if (value?.checkedAt && Date.now() - Date.parse(value.checkedAt) < COVERAGE_TTL_SECONDS * 1000) return value;
+    } catch { /* refresh malformed cache below */ }
+  }
+
+  // Official Odds Comparison discovery order: Sports, Books, then
+  // Sport Competitions. Never infer a sport, book or competition from IDs.
+  const [sportsResult, booksResult] = await Promise.all([
+    client.getSports(),
+    client.getBooks()
+  ]);
+  const sports = sportsResult.body?.sports;
+  const books = booksResult.body?.books;
+  if (!Array.isArray(sports) || !Array.isArray(books)) {
+    const error = new Error("SPORTRADAR_DISCOVERY_SHAPE_INVALID");
+    error.code = error.message;
+    throw error;
+  }
+
+  const selectedSport = sports.find(item => item?.id === config.sportIds[0]);
+  if (!selectedSport) {
+    const error = new Error("SPORTRADAR_CONFIGURED_SPORT_NOT_ENTITLED");
+    error.code = error.message;
+    throw error;
+  }
+  const competitionResult = await client.getCompetitions(selectedSport.id);
+  const competitions = competitionResult.body?.competitions;
+  if (!Array.isArray(competitions)) {
+    const error = new Error("SPORTRADAR_COMPETITIONS_SHAPE_INVALID");
+    error.code = error.message;
+    throw error;
+  }
+
+  const coverage = {
+    checkedAt: new Date().toISOString(),
+    sport: { id: selectedSport.id, name: selectedSport.name, type: selectedSport.type || null },
+    books: books.map(book => ({ id: book.id, name: book.name })),
+    competitions: competitions
+      .filter(item => item?.markets === true)
+      .map(item => ({ id: item.id, name: item.name, markets: item.markets === true }))
+  };
+  await redis.set(COVERAGE_KEY, JSON.stringify(coverage), { EX: COVERAGE_TTL_SECONDS });
+  return coverage;
 }
 
 async function runCycle(config, client) {
@@ -36,15 +87,15 @@ async function runCycle(config, client) {
   let budgetLimited = false;
   let coverage = null;
   try {
-    // The configured sport IDs are already known. Pull each sport/date board
-    // in one bulk request instead of one schedule request plus one request per event.
-    // Two-day discovery window; quota reservations remain authoritative across workers.
+    // Discover entitled sports/books/competitions once per day before pulling
+    // the selected sport's current-day bulk market board.
+    coverage = await refreshCoverage(config, client);
     for (const sportId of config.sportIds) {
       for (let day = 0; day <= config.daysAhead; day += 1) {
         if (client.cycleCalls >= config.maxCallsPerCycle) { budgetLimited = true; break; }
         const date = utcDate(day);
         try {
-          const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 10 });
+          const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 2 });
           const rows = normalizeDailySportEventMarkets(result.body, sportId);
           for (const event of rows) events.set(event.id, event);
         } catch (error) {
@@ -73,6 +124,7 @@ async function runCycle(config, client) {
       quotaReason,
       quotaDetails,
       budgetLimited,
+      coverage,
       events: pricedEvents,
       errors
     };
@@ -91,7 +143,12 @@ async function runCycle(config, client) {
       events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle,
       persisted, errors: errors.length, quotaLimited, quotaReason, quotaDetails, budgetLimited, emptyFeed: snapshot.emptyFeed,
       complete: snapshot.complete,
-      coverageFeeds: null
+      coverageFeeds: coverage ? {
+        sport: coverage.sport,
+        bookmakers: coverage.books.length,
+        competitionsWithMarkets: coverage.competitions.length,
+        checkedAt: coverage.checkedAt
+      } : null
     };
   } catch (error) {
     await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: new Date().toISOString(), complete: false, providerError: error?.code || "SPORTRADAR_POLL_FAILED", httpStatus: error?.httpStatus || null, retryAfter: error?.retryAfter || null }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) }).catch(() => {});
@@ -252,7 +309,13 @@ async function main() {
           providerMessage: error?.providerMessage || null,
           originId: error?.originId || null
         });
-        nextDiscoveryAt = Date.now() + Math.min(config.pollIntervalMs, 5 * 60 * 1000);
+        const retryAfterSeconds = Number(error?.retryAfter);
+        const providerDelayMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+          ? retryAfterSeconds * 1000 + 1000
+          : 0;
+        // A failed trial call must not trigger a five-minute retry loop.
+        // Keep retries at least as slow as the configured 150-minute cadence.
+        nextDiscoveryAt = Date.now() + Math.max(config.pollIntervalMs, providerDelayMs);
       }
     }
 
