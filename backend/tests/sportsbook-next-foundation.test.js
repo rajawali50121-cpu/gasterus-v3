@@ -14,11 +14,12 @@ const env = {
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10"
 };
 
-test("config defaults to 150-minute refresh, a two-day window and official Odds Comparison/Soccer v4 base URLs", () => {
+test("config defaults to 150-minute refresh, current UTC date only and official Odds Comparison/Soccer v4 base URLs", () => {
   const config = loadSportsbookConfig(env);
   assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
   assert.equal(config.maxCallsPerHour, 0);
-  assert.equal(config.daysAhead, 1);
+  assert.equal(config.daysAhead, 0);
+  assert.equal(config.maxCallsPerCycle, 5);
   assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
 });
@@ -32,12 +33,14 @@ test("change-log configuration is opt-in and refuses a request budget too small 
     () => loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" }),
     /requires a 30-day request budget/
   );
-  const enabled = loadSportsbookConfig({
-    ...env,
-    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "11000",
-    SPORTRADAR_CHANGELOG_ENABLED: "true"
-  });
-  assert.equal(enabled.changeLogEnabled, true);
+  assert.throws(
+    () => loadSportsbookConfig({
+      ...env,
+      SPORTRADAR_MAX_CALLS_PER_30_DAYS: "11000",
+      SPORTRADAR_CHANGELOG_ENABLED: "true"
+    }),
+    /must not exceed 800/
+  );
 });
 
 test("change log extracts only tracked Sportradar sport-event IDs", () => {
@@ -63,10 +66,24 @@ test("change log reconciles after startup or a gap longer than five minutes", ()
   assert.equal(shouldReconcileChangeLog(String(now - 299_999), now), false);
 });
 
-test("config rejects missing API key, unsupported tier and unknown quota", () => {
+test("trial configuration cannot exceed the 800-call internal budget or fan out across sports", () => {
+  assert.throws(
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_MAX_CALLS_PER_30_DAYS: "801" }),
+    /must not exceed 800/
+  );
+  assert.throws(
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_SPORT_IDS: "sr:sport:1,sr:sport:2" }),
+    /exactly one sport/
+  );
+});
+
+test("config rejects missing API key and unsupported tier, and defaults trial budget conservatively", () => {
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_API_KEY: "" }), /SPORTRADAR_API_KEY/);
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "free" }), /trial or production/);
-  assert.throws(() => loadSportsbookConfig({ SPORTRADAR_API_KEY: "test" }), /SPORTRADAR_MAX_CALLS_PER_30_DAYS/);
+  const defaults = loadSportsbookConfig({ SPORTRADAR_API_KEY: "test" });
+  assert.equal(defaults.maxCallsPer30Days, 800);
+  assert.equal(defaults.daysAhead, 0);
+  assert.equal(defaults.maxCallsPerCycle, 5);
 });
 
 test("daily schedule normalization uses sport_event and provider SR identifiers", () => {
@@ -169,6 +186,28 @@ test("client calls the documented Prematch change-log and per-event market endpo
   assert.equal(markets.body.sport_event.id, "sr:sport_event:123");
   assert.match(requested[0], /sport_event_markets_changelog\.json$/);
   assert.match(requested[1], /sport_events\/sr:sport_event:123\/sport_event_markets\.json$/);
+});
+
+test("Prematch discovery uses official Sports, Books and Sport Competitions endpoints", async () => {
+  const config = loadSportsbookConfig(env);
+  const requested = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      requested.push(String(url));
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => requested.length === 1 ? { sports: [{ id: "sr:sport:1", name: "Soccer" }] }
+          : requested.length === 2 ? { books: [{ id: "sr:book:1", name: "Book" }] }
+          : { competitions: [{ id: "sr:competition:1", name: "League", markets: true }] }
+      };
+    }
+  });
+  assert.equal((await client.getSports()).body.sports[0].id, "sr:sport:1");
+  assert.equal((await client.getBooks()).body.books[0].id, "sr:book:1");
+  assert.equal((await client.getCompetitions("sr:sport:1")).body.competitions[0].markets, true);
+  assert.match(requested[0], /\/sports\.json$/);
+  assert.match(requested[1], /\/books\.json$/);
+  assert.match(requested[2], /\/sports\/sr:sport:1\/competitions\.json$/);
 });
 
 test("daily schedules use bounded offset pagination and stop at provider total", async () => {
