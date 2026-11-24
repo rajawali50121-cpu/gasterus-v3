@@ -185,6 +185,28 @@ test("client calls the documented Prematch change-log and per-event market endpo
   assert.match(requested[1], /sport_events\/sr:sport_event:123\/sport_event_markets\.json$/);
 });
 
+test("Prematch discovery uses official Sports, Books and Sport Competitions endpoints", async () => {
+  const config = loadSportsbookConfig(env);
+  const requested = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      requested.push(String(url));
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => requested.length === 1 ? { sports: [{ id: "sr:sport:1", name: "Soccer" }] }
+          : requested.length === 2 ? { books: [{ id: "sr:book:1", name: "Book" }] }
+          : { competitions: [{ id: "sr:competition:1", name: "League", markets: true }] }
+      };
+    }
+  });
+  assert.equal((await client.getSports()).body.sports[0].id, "sr:sport:1");
+  assert.equal((await client.getBooks()).body.books[0].id, "sr:book:1");
+  assert.equal((await client.getCompetitions("sr:sport:1")).body.competitions[0].markets, true);
+  assert.match(requested[0], /\/sports\.json$/);
+  assert.match(requested[1], /\/books\.json$/);
+  assert.match(requested[2], /\/sports\/sr:sport:1\/competitions\.json$/);
+});
+
 test("daily schedules use bounded offset pagination and stop at provider total", async () => {
   const config = loadSportsbookConfig(env);
   const offsets = [];
