@@ -8,8 +8,11 @@ function positiveInteger(name, value) {
 
 export function loadSoccerV4Config(env = process.env) {
   const enabled = String(env.SPORTRADAR_SOCCER_ENABLED || "false").toLowerCase() === "true";
-  const pollMinutes = positiveInteger("SPORTRADAR_SOCCER_POLL_MINUTES", env.SPORTRADAR_SOCCER_POLL_MINUTES ?? 150);
-  const maxCallsPerCycle = positiveInteger("SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE ?? 2);
+  const pollMinutes = positiveInteger("SPORTRADAR_SOCCER_POLL_MINUTES", env.SPORTRADAR_SOCCER_POLL_MINUTES ?? 60);
+  if (pollMinutes < 60) throw new Error("Soccer v4 polling must be at least 60 minutes to protect the trial request budget");
+  const maxCallsPerCycle = positiveInteger("SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE ?? 1);
+  if (maxCallsPerCycle !== 1) throw new Error("Soccer v4 is limited to one request per cycle; increase cadence only after verifying quota");
+
   if (!enabled) return Object.freeze({ enabled, pollIntervalMs: pollMinutes * MINUTE, maxCallsPerCycle });
 
   const apiKey = String(env.SPORTRADAR_SOCCER_API_KEY || env.SPORTRADAR_API_KEY || "").trim();
@@ -30,7 +33,6 @@ export function loadSoccerV4Config(env = process.env) {
   if (accessLevel === "trial" && maxCallsPer30Days > 800) {
     throw new Error("Soccer trial internal budget must not exceed 800 calls per rolling 30 days");
   }
-  if (maxCallsPerCycle > 5) throw new Error("Soccer v4 max calls per cycle must not exceed 5");
   const language = String(env.SPORTRADAR_SOCCER_LANGUAGE || "en").trim();
   const requestTimeoutMs = positiveInteger("SPORTRADAR_SOCCER_TIMEOUT_MS", env.SPORTRADAR_SOCCER_TIMEOUT_MS ?? 15000);
 
