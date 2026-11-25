@@ -96,7 +96,8 @@ test("only final soccer results with a valid provider timestamp are verified", (
 });
 
 test("result feed validates its root shape and event identity", () => {
-  assert.throws(() => normalizeSoccerResults({ summaries: {} }), /SPORTRADAR_RESULTS_SHAPE_INVALID/);\n  assert.equal(normalizeSoccerResults({ generated_at: null, summaries: [{ sport_event: { id: "sr:sport_event:11" }, sport_event_status: { status: "closed", home_score: 1, away_score: 0 } }] }, "2026-11-25T02:00:00Z", "2026-11-25T01:59:00Z")[0].verified, true);
+  assert.throws(() => normalizeSoccerResults({ summaries: {} }), /SPORTRADAR_RESULTS_SHAPE_INVALID/);
+  assert.equal(normalizeSoccerResults({ generated_at: null, summaries: [{ sport_event: { id: "sr:sport_event:11" }, sport_event_status: { status: "closed", home_score: 1, away_score: 0 } }] }, "2026-11-25T02:00:00Z", "2026-11-25T01:59:00Z")[0].verified, true);
   assert.throws(() => normalizeSoccerResult({ sport_event: { id: "bad" }, sport_event_status: {} }), /SPORTRADAR_RESULT_EVENT_ID_INVALID/);
 });
 
