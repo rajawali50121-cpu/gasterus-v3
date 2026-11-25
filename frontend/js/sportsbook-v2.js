@@ -3,7 +3,7 @@ if(root){
   root.replaceChildren();
   const notice=document.createElement("div");
   notice.className="empty";
-  notice.textContent="Feed Sportradar trial bersifat internal dan hanya dapat dilihat OWNER. Halaman member tidak mengakses snapshot internal.";
+  notice.append(document.createTextNode("Feed Sportradar trial bersifat internal dan hanya dapat dilihat OWNER. Halaman member tidak mengakses snapshot internal."));
   root.append(notice);
 }
 const status=document.querySelector("#feed-status");
