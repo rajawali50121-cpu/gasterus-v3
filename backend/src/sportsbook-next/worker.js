@@ -96,7 +96,13 @@ async function runCycle(config, client) {
         const date = utcDate(day);
         try {
           const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 2 });
-          const rows = normalizeDailySportEventMarkets(result.body, sportId);
+          if (result.pagination?.complete !== true) {
+            const error = new Error("SPORTRADAR_FEED_PAGINATION_INCOMPLETE");
+            error.code = error.message;
+            error.pagination = result.pagination;
+            throw error;
+          }
+          const rows = normalizeDailySportEventMarkets(result.body, sportId, new Date().toISOString());
           for (const event of rows) events.set(event.id, event);
         } catch (error) {
           if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
@@ -113,10 +119,13 @@ async function runCycle(config, client) {
 
     const pricedEvents = [...events.values()];
 
+    const receivedAt = new Date().toISOString();
+    const sourceTimes = pricedEvents.map(event => Date.parse(event.providerGeneratedAt || "")).filter(Number.isFinite);
     const snapshot = {
       schemaVersion: 1,
       provider: "sportradar-odds-comparison-prematch-v2",
-      fetchedAt: new Date().toISOString(),
+      fetchedAt: sourceTimes.length ? new Date(Math.max(...sourceTimes)).toISOString() : null,
+      receivedAt,
       complete: errors.length === 0 && !quotaLimited && !budgetLimited && pricedEvents.length > 0,
       emptyFeed: pricedEvents.length === 0,
       callsThisCycle: client.cycleCalls,
@@ -130,15 +139,15 @@ async function runCycle(config, client) {
     };
     // Never replace a last-known-good snapshot with partial or quota-truncated data.
     const persisted = snapshot.complete
-      ? await persistSportsbookSnapshot(pricedEvents, snapshot.fetchedAt)
+      ? await persistSportsbookSnapshot(pricedEvents, snapshot.receivedAt)
       : { skipped: true, reason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE")) };
     if (snapshot.complete) {
       await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
       // Initialize only once. Only a successful Change Log response may advance this cursor.
       await initializeChangeLogBaseline(redis, CHANGE_LOG_LAST_SUCCESS_KEY, Date.now());
     }
-    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.fetchedAt, complete: snapshot.complete, quotaLimited, quotaReason, quotaDetails, budgetLimited, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
-    await redis.set(HEARTBEAT_KEY, snapshot.fetchedAt, { EX: 600 });
+    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.receivedAt, complete: snapshot.complete, quotaLimited, quotaReason, quotaDetails, budgetLimited, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
+    await redis.set(HEARTBEAT_KEY, snapshot.receivedAt, { EX: 600 });
     return {
       events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle,
       persisted, errors: errors.length, quotaLimited, quotaReason, quotaDetails, budgetLimited, emptyFeed: snapshot.emptyFeed,
@@ -217,10 +226,12 @@ async function runChangeLogCycle(config, client) {
     const fetchedAt = new Date().toISOString();
     if (refreshed.length) {
       await persistSportsbookSnapshot(refreshed, fetchedAt);
+      const refreshedSourceTimes = refreshed.map(event => Date.parse(event.providerGeneratedAt || "")).filter(Number.isFinite);
+      if (refreshedSourceTimes.length) snapshot.fetchedAt = new Date(Math.max(...refreshedSourceTimes)).toISOString();
       const updates = new Map(refreshed.map(event => [event.id, event]));
       snapshot.events = snapshot.events.map(event => updates.get(event.id) || event);
     }
-    snapshot.fetchedAt = fetchedAt;
+    snapshot.receivedAt = fetchedAt;
     snapshot.callsThisCycle = client.cycleCalls;
     snapshot.complete = true;
     snapshot.emptyFeed = snapshot.events.length === 0;
