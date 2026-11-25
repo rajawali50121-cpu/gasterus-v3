@@ -5,7 +5,7 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
-import { normalizeDailySportEventMarkets, normalizeEventMarkets, filterPrematchEvents, isPersistableDiscoverySnapshot } from "./normalize.js";
+import { normalizeDailySportEventMarkets, normalizeEventMarkets, filterPrematchEvents, isPersistableDiscoverySnapshot, persistDiscoverySnapshotIfComplete } from "./normalize.js";
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
@@ -142,11 +142,14 @@ async function runCycle(config, client) {
     };
     // Never replace a last-known-good snapshot with partial or quota-truncated data.
     if (snapshot.truncated) logger.warn("Sportradar sportsbook page cap reached; snapshot may omit events", { reportedTotal: snapshot.totalReported, fetched: snapshot.pagination?.fetched, pages: snapshot.pagination?.pages });
-    const persisted = snapshot.complete
-      ? await persistSportsbookSnapshot(pricedEvents, snapshot.fetchedAt)
-      : { skipped: true, reason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE")) };
+    const persisted = await persistDiscoverySnapshotIfComplete(snapshot, {
+      persist: persistSportsbookSnapshot,
+      redis,
+      snapshotKey: SNAPSHOT_KEY,
+      ttlSeconds: Math.ceil(config.maxSnapshotAgeMs / 1000),
+      incompleteReason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE"))
+    });
     if (snapshot.complete) {
-      await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
       // Initialize only once. Only a successful Change Log response may advance this cursor.
       await initializeChangeLogBaseline(redis, CHANGE_LOG_LAST_SUCCESS_KEY, Date.now());
     }
