@@ -490,3 +490,47 @@ test("Sportradar 429 propagates Retry-After into shared cooldown callback", asyn
   await assert.rejects(client.getSports(),error=>error.code==="SPORTRADAR_RATE_LIMITED");
   assert.deepEqual(cooldown,{retryAfter:"12",httpStatus:429});
 });
+
+test("bulk daily market pagination reports incomplete when the hard page cap truncates results", async () => {
+  const config = loadSportsbookConfig(env);
+  const offsets = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      const parsed = new URL(url);
+      offsets.push(Number(parsed.searchParams.get("start")));
+      return {
+        ok: true, status: 200,
+        headers: { get: name => name === "x-max-results" ? "150" : name === "x-result" ? "50" : null },
+        json: async () => ({
+          generated_at: "2026-11-25T00:00:00Z",
+          sport_schedule_sport_event_markets: Array.from({ length: 50 }, (_, i) => ({ sport_event: { id: `sr:sport_event:${offsets.at(-1)+i}` }, markets: [] }))
+        })
+      };
+    }
+  });
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25", { pageSize: 50, maxPages: 2 });
+  assert.deepEqual(offsets, [0, 50]);
+  assert.equal(result.pagination.complete, false);
+  assert.equal(result.pagination.received, 100);
+  assert.equal(result.body.generated_at, "2026-11-25T00:00:00Z");
+});
+
+test("normalizer preserves scheduled events with no available markets and provider generated_at", () => {
+  const rows = normalizeDailySportEventMarkets({
+    generated_at: "2026-11-25T01:02:03Z",
+    sport_schedule_sport_event_markets: [{
+      sport_event: { id: "sr:sport_event:888", start_time: "2026-11-25T20:00:00Z", status: "not_started" },
+      markets: []
+    }]
+  }, "sr:sport:1", "2026-11-25T01:02:05Z");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "sr:sport_event:888");
+  assert.deepEqual(rows[0].markets, []);
+  assert.equal(rows[0].providerGeneratedAt, "2026-11-25T01:02:03.000Z");
+});
+
+test("normalizer rejects malformed event identity instead of silently dropping the row", () => {
+  assert.throws(() => normalizeDailySportEventMarkets({
+    sport_schedule_sport_event_markets: [{ sport_event: { id: "not-a-provider-event" }, markets: [] }]
+  }, "sr:sport:1"), /SPORTRADAR_EVENT_ID_INVALID/);
+});
