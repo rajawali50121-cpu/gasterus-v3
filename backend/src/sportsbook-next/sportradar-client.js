@@ -183,7 +183,7 @@ export class SportradarClient {
     const fetched = items.length;
     const truncated = hasMore && pages >= maxPages;
     return {
-      body: { sport_schedule_sport_event_markets: items },
+      body: { sport_schedule_sport_event_markets: items, sport_events: items },
       meta: { truncated, reportedTotal, fetched, pages }
     };
   }
