@@ -42,7 +42,7 @@ test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key",
       requested = String(url);
       assert.equal(options.headers["x-api-key"], "secret-test");
       return {
-        ok: true, status: 200, headers: { get: name => name === "cache-control" ? "public, max-age=300, s-maxage=300" : null },
+        ok: true, status: 200, headers: { get: name => ({ "cache-control": "public, max-age=300, s-maxage=300", "x-max-results": "250", "x-result": "200", "x-offset": "0" })[name] || null },
         json: async () => ({ generated_at: "2026-11-25T00:00:00Z", summaries: [] })
       };
     }
@@ -50,7 +50,8 @@ test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key",
   const response = await client.getDailySummaries("2026-11-25", { start: 0, limit: 200 });
   assert.deepEqual(response.body.summaries, []);
   assert.equal(response.metadata.cacheTtlMs, 300_000);
-  assert.ok(requested.endsWith("/soccer/trial/v4/en/schedules/2026-11-25/summaries.json?start=0&limit=200"));\n  assert.equal(response.metadata.maxResults, 250);
+  assert.ok(requested.endsWith("/soccer/trial/v4/en/schedules/2026-11-25/summaries.json?start=0&limit=200"));
+  assert.equal(response.metadata.maxResults, 250);
   assert.doesNotMatch(requested, /oddscomparison/);
 });
 
@@ -120,5 +121,5 @@ test("Soccer v4 paginates up to 200 events and does not silently drop later page
   assert.equal(getSoccerNextPageStart({ start: 200, limit: 200, returned: 200, maxResults: 450 }), 400);
   assert.equal(getSoccerNextPageStart({ start: 400, limit: 200, returned: 50, maxResults: 450 }), 0);
   assert.equal(getSoccerNextPageStart({ start: 0, limit: 200, returned: 200, maxResults: null }), 200);
-  assert.equal(getSoccerNextPageStart({ start: 200, limit: 200, returned: 10, maxResults: null }), 0);
+  assert.equal(getSoccerNextPageStart({ start: 200, limit: 200, returned: 10, maxResults: null }), 0);\n  assert.throws(() => getSoccerNextPageStart({ start: 200, limit: 200, returned: 0, maxResults: 450 }), /PAGINATION_STALLED/);
 });
