@@ -1,5 +1,21 @@
 const arr = value => Array.isArray(value) ? value : [];
 
+export function isPersistableDiscoverySnapshot({ errors = [], quotaLimited = false, budgetLimited = false, truncated = false, events = [] } = {}) {
+  return errors.length === 0 && !quotaLimited && !budgetLimited && !truncated && events.length > 0;
+}
+
+export async function persistDiscoverySnapshotIfComplete(snapshot, { persist, redis, snapshotKey, ttlSeconds, incompleteReason = "SPORTRADAR_CYCLE_INCOMPLETE" }) {
+  const eligible = snapshot?.complete === true && isPersistableDiscoverySnapshot(snapshot);
+  if (!eligible) return { skipped: true, reason: incompleteReason };
+  const persisted = await persist(snapshot.events, snapshot.fetchedAt);
+  await redis.set(snapshotKey, JSON.stringify(snapshot), { EX: ttlSeconds });
+  return { skipped: false, persisted };
+}
+
+export function isRemoved(value) {
+  return value === true || (typeof value === "string" && value.trim().toLowerCase() === "true");
+}
+
 export function normalizeDailySchedule(payload) {
   return arr(payload?.schedules ?? payload?.sport_events).flatMap(item => {
     const event = item?.sport_event ?? item;
@@ -27,9 +43,9 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
     const marketId = market?.id;
     if (typeof marketId !== "string" || !marketId.startsWith("sr:market:")) return [];
     const books = arr(market?.books).flatMap(book => {
-      if (!book?.id || book.removed === true) return [];
+      if (!book?.id || isRemoved(book.removed)) return [];
       const outcomes = arr(book.outcomes).flatMap(outcome => {
-        if (outcome?.removed === true) return [];
+        if (isRemoved(outcome?.removed)) return [];
         const price = Number(outcome?.odds_decimal);
         if (!Number.isFinite(price) || price <= 1) return [];
         return [{
@@ -104,4 +120,31 @@ export function normalizeSoccerResult(item) {
     awayScore: Number.isInteger(status?.away_score) ? status.away_score : null,
     coverage: event?.coverage ?? null
   };
+}
+
+export function filterPrematchEvents(events, now = Date.now()) {
+  const filtered = { started: 0, invalidScheduled: 0, liveMarkets: 0 };
+  const kept = [];
+  for (const event of arr(events)) {
+    const scheduledAt = Date.parse(event?.scheduled ?? "");
+    if (!Number.isFinite(scheduledAt)) {
+      filtered.invalidScheduled += 1;
+      continue;
+    }
+    if (scheduledAt <= now) {
+      filtered.started += 1;
+      continue;
+    }
+    const markets = arr(event.markets);
+    const safeMarkets = markets.filter(market => {
+      if (market?.live === true) {
+        filtered.liveMarkets += 1;
+        return false;
+      }
+      return true;
+    });
+    if (safeMarkets.length === 0) continue;
+    kept.push({ ...event, markets: safeMarkets });
+  }
+  return { events: kept, filtered };
 }

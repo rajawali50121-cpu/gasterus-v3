@@ -150,40 +150,42 @@ export class SportradarClient {
   async getAllDailySportEventMarkets(sportId, date, { pageSize = 50, maxPages = 10 } = {}) {
     const items = [];
     let start = 0;
+    let reportedTotal = null;
+    let pages = 0;
+    let hasMore = false;
     for (let page = 0; page < maxPages; page += 1) {
       const result = await this.getDailySportEventMarkets(sportId, date, { start, limit: pageSize });
-      const rows = result.body?.sport_schedule_sport_event_markets
-        ?? result.body?.sport_events
-        ?? result.body?.events
-        ?? result.body?.schedules;
+      const rows = result.body?.sport_schedule_sport_event_markets;
       if (!Array.isArray(rows)) {
         throw providerError(
           "SPORTRADAR_BULK_MARKETS_SHAPE_INVALID",
-          "Sportradar Prematch Daily Sport Event Markets response is missing a documented event array"
+          "Sportradar Prematch Daily Sport Event Markets response is missing the expected event array"
         );
       }
+      pages += 1;
       items.push(...rows);
-      const reportedHeader = result.headers.get("x-max-results");
-      const receivedHeader = result.headers.get("x-result");
-      const reported = reportedHeader === null ? null : Number(reportedHeader);
-      const received = receivedHeader === null ? null : Number(receivedHeader);
-      if (reported !== null && Number.isFinite(reported) && reported > start + rows.length) {
-        start += rows.length || pageSize;
-        continue;
+      const totalHeader = result.headers.get("x-max-results");
+      const resultHeader = result.headers.get("x-result");
+      const parsedTotal = totalHeader === null ? null : Number(totalHeader);
+      const parsedResult = resultHeader === null ? null : Number(resultHeader);
+      const validTotal = Number.isSafeInteger(parsedTotal) && parsedTotal >= 0;
+      const validResult = Number.isSafeInteger(parsedResult) && parsedResult >= 0;
+      if (validTotal) reportedTotal = parsedTotal;
+
+      if (validTotal) {
+        hasMore = reportedTotal > start + rows.length;
+      } else {
+        hasMore = (validResult && parsedResult >= pageSize) || (totalHeader === null && resultHeader === null && rows.length >= pageSize);
       }
-      if (received !== null && Number.isFinite(received) && received >= pageSize) {
-        start += rows.length || pageSize;
-        continue;
-      }
-      // If the provider omits both pagination headers, a full page is the
-      // only safe signal to request another offset; maxPages remains the cap.
-      if (reportedHeader === null && receivedHeader === null && rows.length >= pageSize) {
-        start += rows.length || pageSize;
-        continue;
-      }
-      break;
+      if (!hasMore) break;
+      start += rows.length || pageSize;
     }
-    return { body: { sport_events: items } };
+    const fetched = items.length;
+    const truncated = hasMore && pages >= maxPages;
+    return {
+      body: { sport_schedule_sport_event_markets: items, sport_events: items },
+      meta: { truncated, reportedTotal, fetched, pages }
+    };
   }
   getSportEventMarkets(eventId) {
     return this.request(this.config.prematchBaseUrl, `sport_events/${encodeUrnPathSegment(eventId)}/sport_event_markets`);

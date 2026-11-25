@@ -5,10 +5,12 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
-import { normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normalize.js";
+import { normalizeDailySportEventMarkets, normalizeEventMarkets, filterPrematchEvents, isPersistableDiscoverySnapshot, persistDiscoverySnapshotIfComplete } from "./normalize.js";
+import { aggregatePaginationMeta } from "./pagination.js";
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
+import { setSportsbookHalt, getSportsbookHalt, clearSportsbookHalt } from "./halt.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
 const LOCK_KEY = "sportsbook:next:poll-lock:v1";
@@ -80,6 +82,7 @@ async function runCycle(config, client) {
 
   client.cycleCalls = 0;
   const events = new Map();
+  const paginationFeeds = [];
   const errors = [];
   let quotaLimited = false;
   let quotaReason = null;
@@ -97,7 +100,11 @@ async function runCycle(config, client) {
         try {
           const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 2 });
           const rows = normalizeDailySportEventMarkets(result.body, sportId);
-          for (const event of rows) events.set(event.id, event);
+          const filtered = filterPrematchEvents(rows);
+          for (const event of filtered.events) events.set(event.id, event);
+          const pagination = result.meta || { truncated: false, reportedTotal: null, fetched: rows.length, pages: 1 };
+          paginationFeeds.push({ sportId, date, ...pagination });
+          client.lastFiltered = filtered.filtered;
         } catch (error) {
           if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
             quotaLimited = true;
@@ -112,12 +119,17 @@ async function runCycle(config, client) {
     }
 
     const pricedEvents = [...events.values()];
+    const pagination = aggregatePaginationMeta(paginationFeeds);
 
     const snapshot = {
       schemaVersion: 1,
       provider: "sportradar-odds-comparison-prematch-v2",
       fetchedAt: new Date().toISOString(),
-      complete: errors.length === 0 && !quotaLimited && !budgetLimited && pricedEvents.length > 0,
+      complete: isPersistableDiscoverySnapshot({
+        errors, quotaLimited, budgetLimited,
+        truncated: pagination.truncated,
+        events: pricedEvents
+      }),
       emptyFeed: pricedEvents.length === 0,
       callsThisCycle: client.cycleCalls,
       quotaLimited,
@@ -125,19 +137,27 @@ async function runCycle(config, client) {
       quotaDetails,
       budgetLimited,
       coverage,
+      truncated: pagination.truncated,
+      totalReported: pagination.reportedTotal,
+      pagination,
+      filtered: client.lastFiltered || { started: 0, invalidScheduled: 0, liveMarkets: 0 },
       events: pricedEvents,
       errors
     };
     // Never replace a last-known-good snapshot with partial or quota-truncated data.
-    const persisted = snapshot.complete
-      ? await persistSportsbookSnapshot(pricedEvents, snapshot.fetchedAt)
-      : { skipped: true, reason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE")) };
+    if (snapshot.truncated) logger.warn("Sportradar sportsbook page cap reached; snapshot may omit events", { reportedTotal: snapshot.totalReported, fetched: snapshot.pagination?.fetched, pages: snapshot.pagination?.pages });
+    const persisted = await persistDiscoverySnapshotIfComplete(snapshot, {
+      persist: persistSportsbookSnapshot,
+      redis,
+      snapshotKey: SNAPSHOT_KEY,
+      ttlSeconds: Math.ceil(config.maxSnapshotAgeMs / 1000),
+      incompleteReason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE"))
+    });
     if (snapshot.complete) {
-      await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
       // Initialize only once. Only a successful Change Log response may advance this cursor.
       await initializeChangeLogBaseline(redis, CHANGE_LOG_LAST_SUCCESS_KEY, Date.now());
     }
-    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.fetchedAt, complete: snapshot.complete, quotaLimited, quotaReason, quotaDetails, budgetLimited, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
+    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.fetchedAt, complete: snapshot.complete, truncated: snapshot.truncated, totalReported: snapshot.totalReported, filtered: snapshot.filtered, quotaLimited, quotaReason, quotaDetails, budgetLimited, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     await redis.set(HEARTBEAT_KEY, snapshot.fetchedAt, { EX: 600 });
     return {
       events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle,
@@ -259,6 +279,19 @@ async function runChangeLogCycle(config, client) {
 async function main() {
   const config = loadSportsbookConfig();
   await connectRedis();
+  if (process.env.SPORTRADAR_CLEAR_HALT_ON_START === "true") {
+    await clearSportsbookHalt(redis);
+    logger.warn("Sportradar sportsbook halt manually cleared at startup");
+  }
+  const existingHalt = await getSportsbookHalt(redis);
+  if (existingHalt) {
+    logger.error("Sportradar sportsbook worker remains halted; manual reset required", {
+      code: existingHalt.code,
+      httpStatus: existingHalt.httpStatus,
+      haltedAt: existingHalt.haltedAt || null
+    });
+    return;
+  }
   const client = new SportradarClient(config, {
     onResponse: details => logger.info("Sportradar provider response", details),
     onRateLimit: ({ retryAfter }) => applySportradarRateLimitCooldown(redis, retryAfter),
@@ -290,6 +323,15 @@ async function main() {
   let nextDiscoveryAt = Date.now();
   let nextChangeLogAt = Date.now() + config.changeLogPollMs;
   while (!stopping) {
+    const activeHalt = await getSportsbookHalt(redis);
+    if (activeHalt) {
+      logger.error("Sportradar sportsbook worker halted; no further provider requests will be made", {
+        code: activeHalt.code,
+        httpStatus: activeHalt.httpStatus,
+        haltedAt: activeHalt.haltedAt || null
+      });
+      break;
+    }
     let now = Date.now();
     if (now >= nextDiscoveryAt) {
       client.cycleCalls = 0;
@@ -299,6 +341,14 @@ async function main() {
         logger.info("Sportradar sportsbook discovery completed", { ...result, quotaUsage });
         nextDiscoveryAt = Date.now() + config.pollIntervalMs;
       } catch (error) {
+        if (await setSportsbookHalt(redis, error)) {
+          stopping = true;
+          logger.error("Sportradar sportsbook worker halted after authentication failure", {
+            code: error?.code || "SPORTRADAR_AUTH_REJECTED",
+            httpStatus: error?.httpStatus
+          });
+          break;
+        }
         logger.warn("Sportradar sportsbook discovery stopped safely", {
           code: error?.code || "SPORTRADAR_POLL_FAILED",
           quotaScope: error?.quotaScope || null,
@@ -331,6 +381,14 @@ async function main() {
         // beyond the provider's rolling five-minute window.
         nextChangeLogAt = Math.max(Date.now(), changeLogCycleStartedAt + config.changeLogPollMs);
       } catch (error) {
+        if (await setSportsbookHalt(redis, error)) {
+          stopping = true;
+          logger.error("Sportradar sportsbook worker halted after authentication failure", {
+            code: error?.code || "SPORTRADAR_AUTH_REJECTED",
+            httpStatus: error?.httpStatus
+          });
+          break;
+        }
         logger.warn("Sportradar Prematch change-log refresh stopped safely", {
           code: error?.code || "SPORTRADAR_CHANGELOG_POLL_FAILED",
           quotaScope: error?.quotaScope || null,
