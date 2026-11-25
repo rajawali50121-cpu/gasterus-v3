@@ -25,28 +25,37 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
   }
   const markets = arr(payload?.markets).flatMap(market => {
     const marketId = market?.id;
-    if (typeof marketId !== "string" || !marketId.startsWith("sr:market:")) return [];
+    if (typeof marketId !== "string" || !/^sr:market:\d+$/.test(marketId)) return [];
     const books = arr(market?.books).flatMap(book => {
-      if (!book?.id || book.removed === true) return [];
+      if (!book?.id) return [];
+      const bookRemoved = book.removed === true;
       const outcomes = arr(book.outcomes).flatMap(outcome => {
-        if (outcome?.removed === true) return [];
-        const price = Number(outcome?.odds_decimal);
-        if (!Number.isFinite(price) || price <= 1) return [];
+        const price = outcome?.odds_decimal == null ? null : Number(outcome.odds_decimal);
+        const removed = outcome?.removed === true;
+        // Preserve removed selections (including 1.00) in the raw audit payload.
+        if ((!Number.isFinite(price) || price <= 1) && !removed) return [];
         return [{
           id: outcome.id ?? null,
           type: outcome.type ?? null,
           name: outcome.name ?? null,
-          oddsDecimal: price,
+          oddsDecimal: Number.isFinite(price) ? price : null,
+          oddsAmerican: outcome.odds_american ?? null,
+          oddsFraction: outcome.odds_fraction ?? null,
           openingOddsDecimal: outcome.open_odds_decimal != null && Number.isFinite(Number(outcome.open_odds_decimal)) ? Number(outcome.open_odds_decimal) : null,
+          openingOddsAmerican: outcome.open_odds_american ?? null,
+          openingOddsFraction: outcome.open_odds_fraction ?? null,
           line: outcome.handicap ?? outcome.total ?? outcome.spread ?? outcome.line ?? null,
+          openingLine: outcome.open_handicap ?? outcome.open_total ?? outcome.open_spread ?? null,
           fieldId: outcome.field_id ?? null,
           externalOutcomeId: outcome.external_outcome_id ?? null,
           playerId: outcome.player_id ?? null,
-          playerName: outcome.player_name ?? null
+          playerName: outcome.player_name ?? null,
+          removed,
+          bookRemoved
         }];
       });
       return outcomes.length ? [{
-        id: book.id, name: book.name ?? null,
+        id: book.id, name: book.name ?? null, removed: bookRemoved,
         externalMarketId: book.external_market_id ?? null,
         externalSportEventId: book.external_sport_event_id ?? null,
         outcomes
