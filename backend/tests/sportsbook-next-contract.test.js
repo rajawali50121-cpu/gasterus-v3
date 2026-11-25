@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isRemoved, normalizeEventMarkets, filterPrematchEvents } from "../src/sportsbook-next/normalize.js";
+import { isRemoved, normalizeEventMarkets, filterPrematchEvents, isPersistableDiscoverySnapshot } from "../src/sportsbook-next/normalize.js";
 
 test("isRemoved accepts boolean and string true only", () => {
   for (const value of [true, "true", "TRUE", " True "]) assert.equal(isRemoved(value), true);
@@ -34,4 +34,14 @@ test("filterPrematchEvents drops started, invalid-time and live-market data", ()
   assert.deepEqual(result.filtered, { started: 1, invalidScheduled: 1, liveMarkets: 1 });
   assert.equal(result.events.length, 1);
   assert.equal(result.events[0].markets.length, 1);
+});
+
+test("truncated or otherwise incomplete discovery never qualifies for persistence", () => {
+  const events = [{ id: "sr:sport_event:1", markets: [{ live: false }] }];
+  assert.equal(isPersistableDiscoverySnapshot({ events, truncated: true }), false);
+  assert.equal(isPersistableDiscoverySnapshot({ events, quotaLimited: true }), false);
+  assert.equal(isPersistableDiscoverySnapshot({ events, budgetLimited: true }), false);
+  assert.equal(isPersistableDiscoverySnapshot({ events, errors: [new Error("partial")] }), false);
+  assert.equal(isPersistableDiscoverySnapshot({ events: [] }), false);
+  assert.equal(isPersistableDiscoverySnapshot({ events, truncated: false }), true);
 });
