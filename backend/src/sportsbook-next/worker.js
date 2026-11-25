@@ -5,7 +5,7 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
-import { normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normalize.js";
+import { normalizeDailySportEventMarkets, normalizeEventMarkets, filterPrematchEvents } from "./normalize.js";
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
@@ -97,7 +97,10 @@ async function runCycle(config, client) {
         try {
           const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 2 });
           const rows = normalizeDailySportEventMarkets(result.body, sportId);
-          for (const event of rows) events.set(event.id, event);
+          const filtered = filterPrematchEvents(rows);
+          for (const event of filtered.events) events.set(event.id, event);
+          client.lastPaginationMeta = result.meta || { truncated: false, reportedTotal: null, fetched: rows.length, pages: 1 };
+          client.lastFiltered = filtered.filtered;
         } catch (error) {
           if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
             quotaLimited = true;
@@ -125,10 +128,15 @@ async function runCycle(config, client) {
       quotaDetails,
       budgetLimited,
       coverage,
+      truncated: client.lastPaginationMeta?.truncated === true,
+      totalReported: client.lastPaginationMeta?.reportedTotal ?? null,
+      pagination: client.lastPaginationMeta || null,
+      filtered: client.lastFiltered || { started: 0, invalidScheduled: 0, liveMarkets: 0 },
       events: pricedEvents,
       errors
     };
     // Never replace a last-known-good snapshot with partial or quota-truncated data.
+    if (snapshot.truncated) logger.warn("Sportradar sportsbook page cap reached; snapshot may omit events", { reportedTotal: snapshot.totalReported, fetched: snapshot.pagination?.fetched, pages: snapshot.pagination?.pages });
     const persisted = snapshot.complete
       ? await persistSportsbookSnapshot(pricedEvents, snapshot.fetchedAt)
       : { skipped: true, reason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE")) };
@@ -137,7 +145,7 @@ async function runCycle(config, client) {
       // Initialize only once. Only a successful Change Log response may advance this cursor.
       await initializeChangeLogBaseline(redis, CHANGE_LOG_LAST_SUCCESS_KEY, Date.now());
     }
-    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.fetchedAt, complete: snapshot.complete, quotaLimited, quotaReason, quotaDetails, budgetLimited, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
+    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.fetchedAt, complete: snapshot.complete, truncated: snapshot.truncated, totalReported: snapshot.totalReported, filtered: snapshot.filtered, quotaLimited, quotaReason, quotaDetails, budgetLimited, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     await redis.set(HEARTBEAT_KEY, snapshot.fetchedAt, { EX: 600 });
     return {
       events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle,
