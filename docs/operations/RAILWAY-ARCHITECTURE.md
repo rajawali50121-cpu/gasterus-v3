@@ -12,24 +12,22 @@ Canonical deployment source: `railway-migration-fix-039`.
 | Dedicated Sportradar v2 worker | Isolated odds ingestion, quota enforcement and snapshot persistence; no TOTO or wallet scheduler coupling |
 | `gasterus-db-migration` | One-shot reviewed database migrations |
 
-## Sportradar sportsbook replacement
+## Legacy sportsbook architecture restored
 
-The old sportsbook feed, provider adapter, render pipeline, bet lifecycle and settlement implementation have been removed from the application runtime. The replacement lives under `backend/src/sportsbook-next/`.
+The legacy GASTERUS sportsbook is restored from baseline `18f713ae0f87c199e983f89dc702de622f87d1b2` on an isolated branch. Its feed, Sportradar adapter, render worker, pagination, market lifecycle, quote/bet flow, settlement, cashout, realtime stream, member UI and owner trading desk are reconnected to the current application.
 
-The integration follows the official Odds Comparison Prematch v2 contract:
-- Authentication uses the `x-api-key` request header. The key stays server-side.
-- Base URL: `https://api.sportradar.com/oddscomparison-prematch/{trial|production}/v2/en`.
-- Discover entitled coverage in order from `sports.json`, `books.json`, and `sports/{sport_id}/competitions.json`; do not assume sports, competitions, bookmakers or markets. Coverage is cached for 24 hours.
-- The worker uses the documented Prematch Daily Sport Event Markets feed `sports/{sport_id}/schedules/{date}/sport_event_markets.json` (current UTC date only), paginates with `start`/ `limit` (50 rows per page; maximum two pages per cycle), and reads `X-Max-Results`, `X-Offset`, and `X-Result`.
-- The event-level source of truth is `sport_events/{sport_event_id}/sport_event_markets.json`; bookmaker/outcome IDs, `removed` flags, decimal odds, opening odds, handicaps, totals, and external bookmaker IDs are preserved.
-- Market instances are keyed by both provider market ID and market name because one market ID can represent multiple period/inning instances.
-- Free Trial mapping: Odds Comparison Prematch v2 only. Sportradar states Live Odds is unavailable through a self-issued trial; no Live Odds, Player Props, Futures, UOF/AMQP, or OC Core entitlement is assumed. The provider trial allowance previously verified for this account is 1,000 calls per rolling 30 days and 1 request/second. GASTERUS caps internal usage at 800 calls/30 days, tracks one entitled sport, the current UTC date, and at most two 50-event pages per cycle. Discovery feeds are cached for 24 hours. Polling is every 150 minutes. The official odds change log covers only a five-minute window and must be polled every 1–5 minutes; that cadence would exceed the trial budget, so this integration is read-only and cannot accept wagers. Bet acceptance remains disabled until an approved fresh-price update path (change-log polling within quota or UOF AMQP credentials) is enabled.
-- Soccer fixtures/results context uses Soccer API v4 feeds and must not be treated as odds.
-- A Redis-backed rolling 30-day budget and global 1.1-second request pacer reserve every outbound request before it is sent; no hidden retry loop is allowed. The initial provider-usage baseline expires from the budget after 30 days.
-- HTTP 429 stops the current cycle and honors Retry-After. Failed cycles wait at least the configured 150-minute cadence; there is no five-minute retry loop and no provider fallback.
-- Poll interval default is 150 minutes. Odds older than the configured freshness threshold must never be accepted for a wager.
+The legacy runtime uses:
+- `backend/src/sportsbook-render-worker.js` for Sportradar ingestion and signed snapshot delivery.
+- `backend/src/sportsbook-feed.js` and the provider/feed lifecycle modules for normalization, pagination, freshness, market availability, risk and member projection.
+- `backend/src/sportsbook-betting.js`, settlement, quote, cashout and trading modules for wager lifecycle and controls.
+- `backend/src/app.js` routes for member feed, event details, streaming, quotes, bets, cashout, owner operations and private worker ingestion.
+- `frontend/sportsbook.html`, `frontend/js/sportsbook.js` and `frontend/css/pages/sportsbook-v3.css` for the legacy member experience.
 
-Quota limits and access level must be set from the actual Sportradar account/package. A valid API key alone does not prove entitlement to every Sportradar product. UOF/AMQP is a separate product path and must not be assumed enabled by a REST key.
+The provider integration targets Sportradar Odds Comparison Prematch v2; credentials remain server-side on the dedicated worker. The legacy worker's production startup guard requires a production Sportradar entitlement; a self-issued Trial key is not treated as commercial/live betting access. No production wager acceptance is authorized until provider entitlement, odds freshness, settlement authority and end-to-end wallet/ledger checks are verified.
+
+The dedicated worker Dockerfile and environment template are restored. Legacy sportsbook migrations 002 and 010–014 are present again so fresh installations can create the required schema. Before running migrations against an existing database, verify the corresponding filenames in `schema_migrations`; the migrations must not be replayed blindly.
+
+Cloudflare remains the frontend platform. Railway remains responsible for backend services, PostgreSQL, Redis and background workers. No production deployment or database migration is performed by this restoration PR.
 
 ## Safety boundaries
 

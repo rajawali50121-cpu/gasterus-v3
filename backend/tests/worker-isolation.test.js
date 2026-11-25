@@ -14,7 +14,7 @@ test('settlement worker and feed/collector worker are separate processes', () =>
   assert.match(launcher, /'feed-worker':heapMB\('FEED_WORKER_HEAP_MB',256(?:,\d+)?\)/);
   assert.match(launcher, /isRecoverable = label => \['core', 'worker', 'feed-worker'/);
   assert.doesNotMatch(settlement, /refreshSportsbookFeed|runTotoCollector|DRAW_SCHEDULE/);
-  assert.doesNotMatch(feed, /sportsbook|sportradar/i);
+  assert.match(feed, /refreshSportsbookFeedFromPoll/);
   assert.match(feed, /runTotoCollector/);
 });
 
