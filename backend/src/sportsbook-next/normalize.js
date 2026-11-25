@@ -59,6 +59,7 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
     schemaVersion: 1,
     provider: "sportradar-odds-comparison-prematch-v2",
     fetchedAt,
+    providerGeneratedAt: typeof payload?.generated_at === "string" && Number.isFinite(Date.parse(payload.generated_at)) ? new Date(payload.generated_at).toISOString() : null,
     event: {
       id: eventId,
       scheduled: event.start_time ?? null,
@@ -75,20 +76,16 @@ export function normalizeDailySportEventMarkets(payload, sportId, fetchedAt = ne
   return rows.flatMap(item => {
     const event = item?.sport_event ?? item;
     const marketsPayload = item?.sport_event_markets ?? item;
-    const markets = arr(marketsPayload?.markets ?? item?.markets);
-    if (!event?.id || !markets.length) return [];
-    try {
-      const normalized = normalizeEventMarkets({ sport_event: event, markets }, fetchedAt);
-      return [{
-        ...normalized.event,
-        sportId,
-        competition: item?.sport_event_context?.competition?.name ?? item?.competition?.name ?? null,
-        competitionId: item?.sport_event_context?.competition?.id ?? item?.competition?.id ?? null,
-        markets: normalized.markets
-      }];
-    } catch {
-      return [];
-    }
+    const markets = marketsPayload?.markets ?? item?.markets ?? [];
+    if (!Array.isArray(markets)) throw new Error("SPORTRADAR_MARKETS_SHAPE_INVALID");
+    const normalized = normalizeEventMarkets({ generated_at: payload?.generated_at, sport_event: event, markets }, fetchedAt);
+    return [{
+      ...normalized.event,
+      sportId,
+      competition: item?.sport_event_context?.competition?.name ?? item?.competition?.name ?? null,
+      competitionId: item?.sport_event_context?.competition?.id ?? item?.competition?.id ?? null,
+      markets: normalized.markets
+    }];
   });
 }
 
