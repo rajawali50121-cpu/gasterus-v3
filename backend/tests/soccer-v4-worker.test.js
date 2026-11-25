@@ -56,15 +56,22 @@ test("Soccer v4 quota has a namespace separate from Odds Comparison monthly quot
   assert.doesNotMatch(__soccerQuota.CALLS_KEY, /sportsbook:next:sportradar:quota/);
 });
 
-test("Soccer v4 date selection rotates through tracked dates without starvation", () => {
-  const first = selectSoccerV4DatesRoundRobin(["2026-11-21", "2026-11-22", "2026-11-23"], 0, 2);
-  assert.deepEqual(first.dates, ["2026-11-21", "2026-11-22"]);
-  assert.equal(first.nextCursor, 2);
-  const second = selectSoccerV4DatesRoundRobin(["2026-11-21", "2026-11-22", "2026-11-23"], first.nextCursor, 2);
-  assert.deepEqual(second.dates, ["2026-11-23", "2026-11-21"]);
-  assert.equal(second.nextCursor, 1);
+test("Soccer v4 follows hourly current-date and daily previous-date refresh budgets", () => {
+  const now = Date.parse("2026-11-25T12:00:00Z");
+  const today = "2026-11-25";
+  const yesterday = "2026-11-24";
+  assert.equal(selectSoccerV4DueDate([yesterday, today], {}, now, today), today);
+  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now }, now, today), yesterday);
+  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now, [yesterday]: now }, now + 60 * 60 * 1000, today), today);
+  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now, [yesterday]: now }, now + 23 * 60 * 60 * 1000, today), null);
+  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now, [yesterday]: now }, now + 24 * 60 * 60 * 1000, today), yesterday);
 });
 
+test("Soccer v4 parses Cache-Control max-age and safely ignores absent TTL", () => {
+  assert.equal(parseSoccerCacheTtlMs("public, max-age=300, s-maxage=300"), 300_000);
+  assert.equal(parseSoccerCacheTtlMs("max-age=60"), 60_000);
+  assert.equal(parseSoccerCacheTtlMs(null), null);
+});
 test("Soccer v4 reserves against its own rolling quota keys", async () => {
   let argsSeen;
   const redis = { eval: async (_script, args) => { argsSeen = args; return [1, 121, 500]; } };
