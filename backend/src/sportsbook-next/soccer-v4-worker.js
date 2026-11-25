@@ -41,12 +41,14 @@ async function runCycle(config, client) {
     const limit = 200;
     const response = await client.getDailySummaries(date, { start, limit });
     const receivedAt = new Date().toISOString();
-    const results = normalizeSoccerResults(response.body, receivedAt);
+    const results = normalizeSoccerResults(response.body, receivedAt, response.metadata.lastModified);
     const persisted = await persistSoccerResultRevisions(results);
+    const nextStart = getSoccerNextPageStart({ start, limit, returned: results.length, maxResults: response.metadata.maxResults });
+    await redis.set(PAGE_CURSOR_PREFIX + date, String(nextStart), { EX: 3 * 24 * 60 * 60 });
     const completedAt = new Date().toISOString();
     await redis.set(LAST_SUCCESS_PREFIX + date, String(Date.now()), { EX: 3 * 24 * 60 * 60 });
     const status = {
-      attemptedAt: completedAt, complete: true, date, dates: 1,
+      attemptedAt: completedAt, cycleComplete: true, dateComplete: nextStart === 0, date, dates: 1,
       pagination: { start, limit, returned: results.length, maxResults: response.metadata.maxResults, nextStart, complete: nextStart === 0 },
       calls: client.cycleCalls, received: persisted.received,
       inserted: persisted.inserted, duplicates: persisted.duplicates, verified: persisted.verified,
