@@ -5,7 +5,7 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
-import { normalizeDailySportEventMarkets, normalizeEventMarkets, filterPrematchEvents } from "./normalize.js";
+import { normalizeDailySportEventMarkets, normalizeEventMarkets, filterPrematchEvents, isPersistableDiscoverySnapshot } from "./normalize.js";
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
@@ -121,7 +121,11 @@ async function runCycle(config, client) {
       schemaVersion: 1,
       provider: "sportradar-odds-comparison-prematch-v2",
       fetchedAt: new Date().toISOString(),
-      complete: errors.length === 0 && !quotaLimited && !budgetLimited && pricedEvents.length > 0,
+      complete: isPersistableDiscoverySnapshot({
+        errors, quotaLimited, budgetLimited,
+        truncated: client.lastPaginationMeta?.truncated === true,
+        events: pricedEvents
+      }),
       emptyFeed: pricedEvents.length === 0,
       callsThisCycle: client.cycleCalls,
       quotaLimited,
