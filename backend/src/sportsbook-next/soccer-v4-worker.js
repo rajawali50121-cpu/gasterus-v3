@@ -42,8 +42,8 @@ async function runCycle(config, client) {
     const response = await client.getDailySummaries(date, { start, limit });
     const receivedAt = new Date().toISOString();
     const results = normalizeSoccerResults(response.body, receivedAt, response.metadata.lastModified);
-    const persisted = await persistSoccerResultRevisions(results);
     const nextStart = getSoccerNextPageStart({ start, limit, returned: results.length, maxResults: response.metadata.maxResults });
+    const persisted = await persistSoccerResultRevisions(results);
     await redis.set(PAGE_CURSOR_PREFIX + date, String(nextStart), { EX: 3 * 24 * 60 * 60 });
     const completedAt = new Date().toISOString();
     await redis.set(LAST_SUCCESS_PREFIX + date, String(Date.now()), { EX: 3 * 24 * 60 * 60 });
