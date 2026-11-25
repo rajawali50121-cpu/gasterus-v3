@@ -1,5 +1,9 @@
 const arr = value => Array.isArray(value) ? value : [];
 
+export function isPersistableDiscoverySnapshot({ errors = [], quotaLimited = false, budgetLimited = false, truncated = false, events = [] } = {}) {
+  return errors.length === 0 && !quotaLimited && !budgetLimited && !truncated && events.length > 0;
+}
+
 export function isRemoved(value) {
   return value === true || (typeof value === "string" && value.trim().toLowerCase() === "true");
 }
