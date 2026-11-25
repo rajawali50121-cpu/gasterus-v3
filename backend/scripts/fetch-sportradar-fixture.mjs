@@ -15,7 +15,7 @@ if (!["trial", "production"].includes(accessLevel)) {
 }
 const language = String(process.env.SPORTRADAR_LANGUAGE || "en").trim();
 const sportId = String((process.env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",")[0]).trim();
-if (!/^sr:sport:\\d+$/.test(sportId)) {
+if (!/^sr:sport:\d+$/.test(sportId)) {
   console.error("SPORTRADAR_SPORT_IDS must begin with a valid Sportradar sport URN.");
   process.exit(2);
 }
