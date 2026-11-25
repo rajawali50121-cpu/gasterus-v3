@@ -5,14 +5,14 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSoccerV4Config } from "./soccer-v4-config.js";
 import { SoccerV4Client } from "./soccer-v4-client.js";
-import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown, selectSoccerV4DatesRoundRobin } from "./soccer-v4-quota.js";
+import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown, selectSoccerV4DueDate } from "./soccer-v4-quota.js";
 import { normalizeSoccerResults } from "./results.js";
 import { listResultCandidateDates, persistSoccerResultRevisions } from "./results-repository.js";
 
 const LOCK_KEY = "sportsbook:soccer-v4:poll-lock:v1";
 const HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
 const STATUS_KEY = "sportsbook:soccer-v4:status:v1";
-const DATE_CURSOR_KEY = "sportsbook:soccer-v4:date-cursor:v1";
+const LAST_SUCCESS_PREFIX = "sportsbook:soccer-v4:last-success:";
 let stopping = false;
 const shutdownController = new AbortController();
 
@@ -23,28 +23,37 @@ async function runCycle(config, client) {
   client.cycleCalls = 0;
   try {
     const candidates = await listResultCandidateDates();
-    if (!candidates.length) return { skipped: "no tracked event dates", dates: 0 };
-    const cursor = Number(await redis.get(DATE_CURSOR_KEY) || 0);
-    const selection = selectSoccerV4DatesRoundRobin(candidates, cursor, config.maxCallsPerCycle);
-    const dates = selection.dates;
-    let received = 0, inserted = 0, duplicates = 0, verified = 0;
-    for (const date of dates) {
-      const response = await client.getDailySummaries(date);
-      const results = normalizeSoccerResults(response.body, new Date().toISOString());
-      const persisted = await persistSoccerResultRevisions(results);
-      received += persisted.received;
-      inserted += persisted.inserted;
-      duplicates += persisted.duplicates;
-      verified += persisted.verified;
+    const lastPolls = {};
+    for (const date of candidates) {
+      lastPolls[date] = Number(await redis.get(LAST_SUCCESS_PREFIX + date) || 0);
     }
-    await redis.set(DATE_CURSOR_KEY, String(selection.nextCursor), { EX: 30 * 24 * 60 * 60 });
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    const date = selectSoccerV4DueDate(candidates, lastPolls, Date.now(), todayUtc);
+    if (!date) {
+      const completedAt = new Date().toISOString();
+      await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
+      return { skipped: "no Soccer result date is due", dates: 0, calls: 0 };
+    }
+
+    const response = await client.getDailySummaries(date);
+    const receivedAt = new Date().toISOString();
+    const results = normalizeSoccerResults(response.body, receivedAt);
+    const persisted = await persistSoccerResultRevisions(results);
     const completedAt = new Date().toISOString();
-    await redis.set(STATUS_KEY, JSON.stringify({
-      attemptedAt: completedAt, complete: true, dates: dates.length,
-      calls: client.cycleCalls, received, inserted, duplicates, verified
-    }), { EX: 30 * 24 * 60 * 60 });
+    await redis.set(LAST_SUCCESS_PREFIX + date, String(Date.now()), { EX: 3 * 24 * 60 * 60 });
+    const status = {
+      attemptedAt: completedAt, complete: true, date, dates: 1,
+      calls: client.cycleCalls, received: persisted.received,
+      inserted: persisted.inserted, duplicates: persisted.duplicates, verified: persisted.verified,
+      providerGeneratedAt: response.body.generated_at || null,
+      cacheControl: response.metadata.cacheControl,
+      cacheTtlMs: response.metadata.cacheTtlMs,
+      etag: response.metadata.etag,
+      lastModified: response.metadata.lastModified
+    };
+    await redis.set(STATUS_KEY, JSON.stringify(status), { EX: 30 * 24 * 60 * 60 });
     await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
-    return { dates: dates.length, calls: client.cycleCalls, received, inserted, duplicates, verified };
+    return status;
   } catch (error) {
     await redis.set(STATUS_KEY, JSON.stringify({
       attemptedAt: new Date().toISOString(), complete: false,
@@ -86,9 +95,11 @@ async function main() {
     quotaLimit30Days: config.maxCallsPer30Days
   });
   while (!stopping) {
+    let nextDelayMs = config.pollIntervalMs;
     try {
       const result = await runCycle(config, client);
       logger.info("Sportradar Soccer v4 results sync completed", result);
+      if (Number.isFinite(result.cacheTtlMs)) nextDelayMs = Math.max(nextDelayMs, result.cacheTtlMs);
     } catch (error) {
       logger.warn("Sportradar Soccer v4 results sync stopped safely", {
         code: error?.code || "SOCCER_V4_SYNC_FAILED",
@@ -97,8 +108,12 @@ async function main() {
         httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
         retryAfter: error?.retryAfter || null
       });
+      const retrySeconds = Number(error?.retryAfter);
+      if (Number.isFinite(retrySeconds) && retrySeconds > 0) {
+        nextDelayMs = Math.max(nextDelayMs, retrySeconds * 1000 + 1000);
+      }
     }
-    await sleep(config.pollIntervalMs, undefined, { signal: shutdownController.signal }).catch(() => {});
+    await sleep(nextDelayMs, undefined, { signal: shutdownController.signal }).catch(() => {});
   }
 }
 
