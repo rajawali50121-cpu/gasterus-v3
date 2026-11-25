@@ -5,8 +5,9 @@ export async function listResultCandidateDates() {
     const result = await client.query(`
       SELECT DISTINCT to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date
       FROM sportsbook_v2_events
-      WHERE scheduled_at >= now() - interval '3 days'
-        AND scheduled_at < now() + interval '1 day'
+      WHERE (scheduled_at AT TIME ZONE 'UTC')::date
+        BETWEEN ((now() AT TIME ZONE 'UTC')::date - 1)
+            AND (now() AT TIME ZONE 'UTC')::date
       ORDER BY date
     `);
     return result.rows.map(row => row.date);
