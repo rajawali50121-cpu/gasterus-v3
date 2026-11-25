@@ -48,15 +48,18 @@ export async function applySoccerV4RateLimitCooldown(redis, retryAfter) {
   return applySportradarRateLimitCooldown(redis, retryAfter);
 }
 
-export function selectSoccerV4DatesRoundRobin(dates, cursor, limit) {
-  if (!Array.isArray(dates) || !Number.isSafeInteger(limit) || limit < 1) {
+export function selectSoccerV4DueDate(dates, lastPolls, now = Date.now(), todayUtc = new Date(now).toISOString().slice(0, 10)) {
+  if (!Array.isArray(dates) || !lastPolls || typeof lastPolls !== "object") {
     throw new TypeError("SOCCER_V4_DATE_SELECTION_INVALID");
   }
-  if (!dates.length) return { dates: [], nextCursor: 0 };
-  const start = Number.isSafeInteger(cursor) && cursor >= 0 ? cursor % dates.length : 0;
-  const count = Math.min(limit, dates.length);
-  const selected = Array.from({ length: count }, (_, index) => dates[(start + index) % dates.length]);
-  return { dates: selected, nextCursor: (start + count) % dates.length };
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const HOUR_MS = 60 * 60 * 1000;
+  return dates.map(date => {
+    const lastPoll = Number(lastPolls[date] || 0);
+    const interval = date === todayUtc ? HOUR_MS : DAY_MS;
+    return { date, dueAt: lastPoll > 0 ? lastPoll + interval : 0, priority: date === todayUtc ? 0 : 1 };
+  }).filter(item => item.dueAt <= now)
+    .sort((a, b) => a.dueAt - b.dueAt || a.priority - b.priority || a.date.localeCompare(b.date))[0]?.date ?? null;
 }
 
 export const __soccerQuota = { CALLS_KEY, BASELINE_KEY, RESERVE_SCRIPT, WINDOW_MS };
