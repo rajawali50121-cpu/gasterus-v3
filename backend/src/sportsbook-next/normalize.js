@@ -81,6 +81,7 @@ export function normalizeDailySportEventMarkets(payload, sportId, fetchedAt = ne
     const normalized = normalizeEventMarkets({ generated_at: payload?.generated_at, sport_event: event, markets }, fetchedAt);
     return [{
       ...normalized.event,
+      providerGeneratedAt: normalized.providerGeneratedAt,
       sportId,
       competition: item?.sport_event_context?.competition?.name ?? item?.competition?.name ?? null,
       competitionId: item?.sport_event_context?.competition?.id ?? item?.competition?.id ?? null,
