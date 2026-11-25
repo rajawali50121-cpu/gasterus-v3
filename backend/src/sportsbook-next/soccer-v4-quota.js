@@ -57,7 +57,7 @@ export function selectSoccerV4DueDate(dates, lastPolls, now = Date.now(), todayU
   return dates.map(date => {
     const lastPoll = Number(lastPolls[date] || 0);
     const interval = date === todayUtc ? HOUR_MS : DAY_MS;
-    return { date, dueAt: lastPoll > 0 ? lastPoll + interval : 0, priority: date === todayUtc ? 0 : 1 };
+    return { date, dueAt: lastPoll > 0 ? lastPoll + interval : 0, priority: lastPoll > 0 ? (date === todayUtc ? 1 : 0) : (date === todayUtc ? 0 : 1) };
   }).filter(item => item.dueAt <= now)
     .sort((a, b) => a.dueAt - b.dueAt || a.priority - b.priority || a.date.localeCompare(b.date))[0]?.date ?? null;
 }
