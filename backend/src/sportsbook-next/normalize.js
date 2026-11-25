@@ -4,6 +4,14 @@ export function isPersistableDiscoverySnapshot({ errors = [], quotaLimited = fal
   return errors.length === 0 && !quotaLimited && !budgetLimited && !truncated && events.length > 0;
 }
 
+export async function persistDiscoverySnapshotIfComplete(snapshot, { persist, redis, snapshotKey, ttlSeconds, incompleteReason = "SPORTRADAR_CYCLE_INCOMPLETE" }) {
+  const eligible = snapshot?.complete === true && isPersistableDiscoverySnapshot(snapshot);
+  if (!eligible) return { skipped: true, reason: incompleteReason };
+  const persisted = await persist(snapshot.events, snapshot.fetchedAt);
+  await redis.set(snapshotKey, JSON.stringify(snapshot), { EX: ttlSeconds });
+  return { skipped: false, persisted };
+}
+
 export function isRemoved(value) {
   return value === true || (typeof value === "string" && value.trim().toLowerCase() === "true");
 }
