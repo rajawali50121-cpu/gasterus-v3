@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import { readFile } from 'node:fs/promises';
 const schema=await readFile(new URL('../migrations/001_platform.sql',import.meta.url),'utf8');
 const sportsbookSchema=await readFile(new URL('../migrations/042_sportsbook_v2_core.sql',import.meta.url),'utf8');
+const sportsbookTimestampSchema=await readFile(new URL('../migrations/043_sportsbook_v2_provider_timestamps.sql',import.meta.url),'utf8');
 const memberExperienceSchema=await readFile(new URL('../migrations/003_member_experience.sql',import.meta.url),'utf8');
 const lotterySchema=await readFile(new URL('../migrations/004_lottery_enterprise.sql',import.meta.url),'utf8');
 const enterpriseBackofficeSchema=await readFile(new URL('../migrations/005_enterprise_backoffice.sql',import.meta.url),'utf8');
@@ -23,3 +24,5 @@ test('enterprise operations schema includes compliance responsible play risk sup
 
 
 test('money integrity schema reserves withdrawals and makes accounting history immutable',()=>{for(const token of ['money_transaction_events','wallet_requests_member_idempotency_uq','ledger_transactions_no_update','ledger_entries_no_update','ledger_transaction_balance_commit','WALLET_REVERSAL','payment_provider_events'])assert.ok(moneyIntegritySchema.includes(token),token);});
+
+test('sportsbook source timestamps remain distinct from ingestion time without destructive migration',()=>{for(const token of ['provider_generated_at','ALTER COLUMN source_updated_at DROP NOT NULL','sportsbook_v2_events','sportsbook_v2_markets'])assert.ok(sportsbookTimestampSchema.includes(token),token);assert.doesNotMatch(sportsbookTimestampSchema,/\bDROP\s+TABLE\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);});
