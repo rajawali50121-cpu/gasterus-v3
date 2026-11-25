@@ -11,14 +11,17 @@ export function loadSportsbookConfig(env = process.env) {
   if (!apiKey) throw new Error("SPORTRADAR_API_KEY is required");
   const accessLevel = String(env.SPORTRADAR_ACCESS_LEVEL || "trial").toLowerCase();
   if (!["trial", "production"].includes(accessLevel)) throw new Error("SPORTRADAR_ACCESS_LEVEL must be trial or production");
-  const maxCallsPer30Days = requiredPositiveInteger(
-    "SPORTRADAR_MAX_CALLS_PER_30_DAYS",
-    env.SPORTRADAR_MAX_CALLS_PER_30_DAYS ?? (accessLevel === "trial" ? 800 : undefined)
-  );
+  if (env.SPORTRADAR_MAX_CALLS_PER_30_DAYS === undefined || env.SPORTRADAR_INITIAL_30_DAY_USAGE === undefined) {
+    throw new Error("Sportradar requires explicit SPORTRADAR_MAX_CALLS_PER_30_DAYS and actual SPORTRADAR_INITIAL_30_DAY_USAGE");
+  }
+  if (String(env.SPORTRADAR_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() !== "true") {
+    throw new Error("Sportradar provider quota baseline is unconfirmed; set SPORTRADAR_QUOTA_BASELINE_CONFIRMED=true only after checking current provider usage");
+  }
+  const maxCallsPer30Days = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_30_DAYS", env.SPORTRADAR_MAX_CALLS_PER_30_DAYS);
   if (accessLevel === "trial" && maxCallsPer30Days > 800) {
     throw new Error("Trial internal budget must not exceed 800 calls per rolling 30 days (provider trial ceiling: 1,000)");
   }
-  const initialCallsUsed30Days = Number(env.SPORTRADAR_INITIAL_30_DAY_USAGE ?? 0);
+  const initialCallsUsed30Days = Number(env.SPORTRADAR_INITIAL_30_DAY_USAGE);
   if (!Number.isSafeInteger(initialCallsUsed30Days) || initialCallsUsed30Days < 0 || initialCallsUsed30Days > maxCallsPer30Days) {
     throw new Error("SPORTRADAR_INITIAL_30_DAY_USAGE must be an integer within the configured 30-day quota");
   }
