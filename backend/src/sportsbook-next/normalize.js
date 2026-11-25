@@ -109,3 +109,29 @@ export function normalizeSoccerResult(item) {
     coverage: event?.coverage ?? null
   };
 }
+
+export function filterPrematchEvents(events, now = Date.now()) {
+  const filtered = { started: 0, invalidScheduled: 0, liveMarkets: 0 };
+  const kept = [];
+  for (const event of arr(events)) {
+    const scheduledAt = Date.parse(event?.scheduled ?? "");
+    if (!Number.isFinite(scheduledAt)) {
+      filtered.invalidScheduled += 1;
+      continue;
+    }
+    if (scheduledAt <= now) {
+      filtered.started += 1;
+      continue;
+    }
+    const markets = arr(event.markets);
+    const safeMarkets = markets.filter(market => {
+      if (market?.live === true) {
+        filtered.liveMarkets += 1;
+        return false;
+      }
+      return true;
+    });
+    kept.push({ ...event, markets: safeMarkets });
+  }
+  return { events: kept, filtered };
+}
