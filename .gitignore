@@ -14,3 +14,9 @@ coverage/
 
 # Local tools and binaries; keep local copies out of Git
 .tools/
+
+# Local Wrangler state
+.wrangler/
+
+# Real provider fixtures may contain trial/account data; never commit them
+backend/tests/fixtures/sportradar/*.sample.json
