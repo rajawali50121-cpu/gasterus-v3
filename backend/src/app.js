@@ -48,9 +48,8 @@ add('GET',new RegExp('^/api/health/toto-markets/detail$'),totoMarketsDetail);
 add('GET',new RegExp('^/api/health/simple$'),simpleHealth);
 add('GET',/^\/healthz$/,async({res})=>{let healthy=false;try{const raw=await redis.get(config.workerHeartbeatKey);healthy=isWorkerHeartbeatFresh(raw,{staleAfterSeconds:Math.max(config.workerHeartbeatMaxAgeSeconds*2,120)});}catch{healthy=false;}ok(res,{status:healthy?'ok':'degraded'},healthy?200:503);});
 
-add('GET',/^\/api\/owner\/sportsbook\/v2\/events$/,async({req,res})=>{
-  // Sportradar self-issued trial data is internal evaluation only, never member-facing.
-  await ownerSession(req,'bets:read');
+add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
+  await memberSession(req);
   await rateLimit(req,'sportsbook-v2-feed',120,60);
   const feedStatusRaw=await redis.get('sportsbook:next:feed-status:v1');
   let feedStatus=null;
