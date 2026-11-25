@@ -48,4 +48,15 @@ export async function applySoccerV4RateLimitCooldown(redis, retryAfter) {
   return applySportradarRateLimitCooldown(redis, retryAfter);
 }
 
+export function selectSoccerV4DatesRoundRobin(dates, cursor, limit) {
+  if (!Array.isArray(dates) || !Number.isSafeInteger(limit) || limit < 1) {
+    throw new TypeError("SOCCER_V4_DATE_SELECTION_INVALID");
+  }
+  if (!dates.length) return { dates: [], nextCursor: 0 };
+  const start = Number.isSafeInteger(cursor) && cursor >= 0 ? cursor % dates.length : 0;
+  const count = Math.min(limit, dates.length);
+  const selected = Array.from({ length: count }, (_, index) => dates[(start + index) % dates.length]);
+  return { dates: selected, nextCursor: (start + count) % dates.length };
+}
+
 export const __soccerQuota = { CALLS_KEY, BASELINE_KEY, RESERVE_SCRIPT, WINDOW_MS };
