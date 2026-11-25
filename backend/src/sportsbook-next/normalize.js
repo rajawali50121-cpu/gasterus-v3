@@ -1,5 +1,9 @@
 const arr = value => Array.isArray(value) ? value : [];
 
+export function isRemoved(value) {
+  return value === true || (typeof value === "string" && value.trim().toLowerCase() === "true");
+}
+
 export function normalizeDailySchedule(payload) {
   return arr(payload?.schedules ?? payload?.sport_events).flatMap(item => {
     const event = item?.sport_event ?? item;
@@ -27,9 +31,9 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
     const marketId = market?.id;
     if (typeof marketId !== "string" || !marketId.startsWith("sr:market:")) return [];
     const books = arr(market?.books).flatMap(book => {
-      if (!book?.id || book.removed === true) return [];
+      if (!book?.id || isRemoved(book.removed)) return [];
       const outcomes = arr(book.outcomes).flatMap(outcome => {
-        if (outcome?.removed === true) return [];
+        if (isRemoved(outcome?.removed)) return [];
         const price = Number(outcome?.odds_decimal);
         if (!Number.isFinite(price) || price <= 1) return [];
         return [{
