@@ -21,7 +21,7 @@ if (!/^sr:sport:\\d+$/.test(sportId)) {
 }
 
 const date = new Date().toISOString().slice(0, 10);
-const url = new URL(`https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${encodeURIComponent(language)}/sports/${encodeURIComponent(sportId)}/schedules/${date}/sport_event_markets.json`);
+const url = new URL(`https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${encodeURIComponent(language)}/sports/${encodeURIComponent(sportId).replace(/%3A/gi, ":")}/schedules/${date}/sport_event_markets.json`);
 url.searchParams.set("start", "0");
 url.searchParams.set("limit", "50");
 
