@@ -38,15 +38,8 @@ export function loadSoccerV4Config(env = process.env) {
 
   return Object.freeze({
     enabled, apiKey, accessLevel, language, maxCallsPer30Days, initialCallsUsed30Days,
-    quotaBaselineConfirmed: String(env.SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() === "true",
     maxCallsPerCycle, pollIntervalMs: pollMinutes * MINUTE, requestTimeoutMs,
     baseUrl: "https://api.sportradar.com/soccer/" + accessLevel + "/v4/" + language
   });
 }
 
-export function assertSoccerV4QuotaBaseline(config) {
-  if (config?.enabled === true && config.quotaBaselineConfirmed !== true) {
-    throw new Error("Soccer provider quota baseline is unconfirmed; verify current Soccer product usage before enabling outbound requests");
-  }
-  return true;
-}
