@@ -30,8 +30,8 @@ export function normalizeSoccerResult(item, { generatedAt = null, receivedAt = n
   };
 }
 
-export function normalizeSoccerResults(payload, receivedAt = new Date().toISOString()) {
+export function normalizeSoccerResults(payload, receivedAt = new Date().toISOString(), generatedAtOverride = null) {
   const summaries = payload?.summaries;
   if (!Array.isArray(summaries)) throw new Error("SPORTRADAR_RESULTS_SHAPE_INVALID");
-  return summaries.map(item => normalizeSoccerResult(item, { generatedAt: payload.generated_at, receivedAt }));
+  return summaries.map(item => normalizeSoccerResult(item, { generatedAt: generatedAtOverride || payload.generated_at, receivedAt }));
 }
