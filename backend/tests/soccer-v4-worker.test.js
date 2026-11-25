@@ -121,5 +121,6 @@ test("Soccer v4 paginates up to 200 events and does not silently drop later page
   assert.equal(getSoccerNextPageStart({ start: 200, limit: 200, returned: 200, maxResults: 450 }), 400);
   assert.equal(getSoccerNextPageStart({ start: 400, limit: 200, returned: 50, maxResults: 450 }), 0);
   assert.equal(getSoccerNextPageStart({ start: 0, limit: 200, returned: 200, maxResults: null }), 200);
-  assert.equal(getSoccerNextPageStart({ start: 200, limit: 200, returned: 10, maxResults: null }), 0);\n  assert.throws(() => getSoccerNextPageStart({ start: 200, limit: 200, returned: 0, maxResults: 450 }), /PAGINATION_STALLED/);
+  assert.equal(getSoccerNextPageStart({ start: 200, limit: 200, returned: 10, maxResults: null }), 0);
+  assert.throws(() => getSoccerNextPageStart({ start: 200, limit: 200, returned: 0, maxResults: 450 }), /PAGINATION_STALLED/);
 });
