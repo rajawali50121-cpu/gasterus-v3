@@ -5,13 +5,14 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSoccerV4Config } from "./soccer-v4-config.js";
 import { SoccerV4Client } from "./soccer-v4-client.js";
-import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown } from "./soccer-v4-quota.js";
+import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown, selectSoccerV4DatesRoundRobin } from "./soccer-v4-quota.js";
 import { normalizeSoccerResults } from "./results.js";
 import { listResultCandidateDates, persistSoccerResultRevisions } from "./results-repository.js";
 
 const LOCK_KEY = "sportsbook:soccer-v4:poll-lock:v1";
 const HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
 const STATUS_KEY = "sportsbook:soccer-v4:status:v1";
+const DATE_CURSOR_KEY = "sportsbook:soccer-v4:date-cursor:v1";
 let stopping = false;
 const shutdownController = new AbortController();
 
@@ -21,8 +22,11 @@ async function runCycle(config, client) {
   if (!lock) return { skipped: "another Soccer v4 worker owns the poll lock" };
   client.cycleCalls = 0;
   try {
-    const dates = (await listResultCandidateDates()).slice(0, config.maxCallsPerCycle);
-    if (!dates.length) return { skipped: "no tracked event dates", dates: 0 };
+    const candidates = await listResultCandidateDates();
+    if (!candidates.length) return { skipped: "no tracked event dates", dates: 0 };
+    const cursor = Number(await redis.get(DATE_CURSOR_KEY) || 0);
+    const selection = selectSoccerV4DatesRoundRobin(candidates, cursor, config.maxCallsPerCycle);
+    const dates = selection.dates;
     let received = 0, inserted = 0, duplicates = 0, verified = 0;
     for (const date of dates) {
       const response = await client.getDailySummaries(date);
@@ -33,6 +37,7 @@ async function runCycle(config, client) {
       duplicates += persisted.duplicates;
       verified += persisted.verified;
     }
+    await redis.set(DATE_CURSOR_KEY, String(selection.nextCursor), { EX: 30 * 24 * 60 * 60 });
     const completedAt = new Date().toISOString();
     await redis.set(STATUS_KEY, JSON.stringify({
       attemptedAt: completedAt, complete: true, dates: dates.length,
