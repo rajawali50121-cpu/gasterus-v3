@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadSoccerV4Config } from "../src/sportsbook-next/soccer-v4-config.js";
-import { SoccerV4Client, parseSoccerCacheTtlMs } from "../src/sportsbook-next/soccer-v4-client.js";
+import { SoccerV4Client, parseSoccerCacheTtlMs, getSoccerNextPageStart } from "../src/sportsbook-next/soccer-v4-client.js";
 import { __soccerQuota, selectSoccerV4DueDate, reserveSoccerV4Call } from "../src/sportsbook-next/soccer-v4-quota.js";
 
 test("Soccer v4 is disabled by default and does not require a key or quota", () => {
@@ -47,10 +47,10 @@ test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key",
       };
     }
   });
-  const response = await client.getDailySummaries("2026-11-25");
+  const response = await client.getDailySummaries("2026-11-25", { start: 0, limit: 200 });
   assert.deepEqual(response.body.summaries, []);
   assert.equal(response.metadata.cacheTtlMs, 300_000);
-  assert.ok(requested.endsWith("/soccer/trial/v4/en/schedules/2026-11-25/summaries.json"));
+  assert.ok(requested.endsWith("/soccer/trial/v4/en/schedules/2026-11-25/summaries.json?start=0&limit=200"));\n  assert.equal(response.metadata.maxResults, 250);
   assert.doesNotMatch(requested, /oddscomparison/);
 });
 
@@ -113,4 +113,12 @@ test("Soccer v4 429 stops the request and invokes the shared provider cooldown",
     error.code === "SOCCER_V4_RATE_LIMITED" && error.retryAfter === "300"
   );
   assert.deepEqual(cooldown, { retryAfter: "300", httpStatus: 429 });
+});
+
+test("Soccer v4 paginates up to 200 events and does not silently drop later pages", () => {
+  assert.equal(getSoccerNextPageStart({ start: 0, limit: 200, returned: 200, maxResults: 450 }), 200);
+  assert.equal(getSoccerNextPageStart({ start: 200, limit: 200, returned: 200, maxResults: 450 }), 400);
+  assert.equal(getSoccerNextPageStart({ start: 400, limit: 200, returned: 50, maxResults: 450 }), 0);
+  assert.equal(getSoccerNextPageStart({ start: 0, limit: 200, returned: 200, maxResults: null }), 200);
+  assert.equal(getSoccerNextPageStart({ start: 200, limit: 200, returned: 10, maxResults: null }), 0);
 });
