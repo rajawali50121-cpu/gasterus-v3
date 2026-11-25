@@ -7,7 +7,8 @@ import { __soccerQuota, selectSoccerV4DueDate, reserveSoccerV4Call } from "../sr
 test("Soccer v4 is disabled by default and does not require a key or quota", () => {
   const config = loadSoccerV4Config({});
   assert.equal(config.enabled, false);
-  assert.equal(config.pollIntervalMs, 60 * 60 * 1000);\n  assert.equal(config.maxCallsPerCycle, 1);
+  assert.equal(config.pollIntervalMs, 60 * 60 * 1000);
+  assert.equal(config.maxCallsPerCycle, 1);
 });
 
 test("enabled Soccer v4 requires an explicit independent quota and usage baseline", () => {
@@ -23,7 +24,9 @@ test("enabled Soccer v4 requires an explicit independent quota and usage baselin
   });
   assert.equal(config.maxCallsPer30Days, 500);
   assert.equal(config.initialCallsUsed30Days, 120);
-  assert.equal(config.baseUrl, "https://api.sportradar.com/soccer/trial/v4/en");\n  assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_POLL_MINUTES: "30" }), /at least 60 minutes/);\n  assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE: "2" }), /one request per cycle/);
+  assert.equal(config.baseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
+  assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_POLL_MINUTES: "30" }), /at least 60 minutes/);
+  assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE: "2" }), /one request per cycle/);
 });
 
 test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key", async () => {
@@ -45,7 +48,8 @@ test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key",
     }
   });
   const response = await client.getDailySummaries("2026-11-25");
-  assert.deepEqual(response.body.summaries, []);\n  assert.equal(response.metadata.cacheTtlMs, 300_000);
+  assert.deepEqual(response.body.summaries, []);
+  assert.equal(response.metadata.cacheTtlMs, 300_000);
   assert.ok(requested.endsWith("/soccer/trial/v4/en/schedules/2026-11-25/summaries.json"));
   assert.doesNotMatch(requested, /oddscomparison/);
 });
@@ -63,8 +67,8 @@ test("Soccer v4 follows hourly current-date and daily previous-date refresh budg
   assert.equal(selectSoccerV4DueDate([yesterday, today], {}, now, today), today);
   assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now }, now, today), yesterday);
   assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now, [yesterday]: now }, now + 60 * 60 * 1000, today), today);
-  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now, [yesterday]: now }, now + 23 * 60 * 60 * 1000, today), null);
-  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now, [yesterday]: now }, now + 24 * 60 * 60 * 1000, today), yesterday);
+  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now + 60 * 60 * 1000, [yesterday]: now }, now + 23 * 60 * 60 * 1000, today), today);
+  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now + 23 * 60 * 60 * 1000, [yesterday]: now }, now + 24 * 60 * 60 * 1000, today), yesterday);
 });
 
 test("Soccer v4 parses Cache-Control max-age and safely ignores absent TTL", () => {
