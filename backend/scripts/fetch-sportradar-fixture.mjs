@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,6 +18,19 @@ const sportId = String((process.env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(
 if (!/^sr:sport:\d+$/.test(sportId)) {
   console.error("SPORTRADAR_SPORT_IDS must begin with a valid Sportradar sport URN.");
   process.exit(2);
+}
+
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const output = resolve(scriptDir, "../tests/fixtures/sportradar/daily-sport-event-markets.sample.json");
+try {
+  await access(output);
+  console.error("Fixture already exists; no Sportradar request was made. Inspect the existing fixture instead.");
+  process.exit(2);
+} catch (error) {
+  if (error.code !== "ENOENT") {
+    console.error("Could not safely verify fixture path; no Sportradar request was made.");
+    process.exit(2);
+  }
 }
 
 const date = new Date().toISOString().slice(0, 10);
@@ -59,8 +72,6 @@ if (response) {
     console.error("Provider returned a non-object JSON payload; no fixture was written.");
     process.exitCode = 1;
   } else {
-    const scriptDir = dirname(fileURLToPath(import.meta.url));
-    const output = resolve(scriptDir, "../tests/fixtures/sportradar/daily-sport-event-markets.sample.json");
     await mkdir(dirname(output), { recursive: true });
     await writeFile(output, JSON.stringify({
       capturedAt: new Date().toISOString(),
