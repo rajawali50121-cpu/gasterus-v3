@@ -155,10 +155,12 @@ export class SportradarClient {
     let start = 0;
     let pages = 0;
     let reportedTotal = null;
+    let providerGeneratedAt = null;
     let complete = false;
     for (let page = 0; page < maxPages; page += 1) {
       const result = await this.getDailySportEventMarkets(sportId, date, { start, limit: pageSize });
       pages += 1;
+      if (typeof result.body?.generated_at === "string") providerGeneratedAt = result.body.generated_at;
       const rows = result.body?.sport_schedule_sport_event_markets ?? result.body?.sport_events ?? result.body?.events ?? result.body?.schedules;
       if (!Array.isArray(rows)) {
         throw providerError("SPORTRADAR_BULK_MARKETS_SHAPE_INVALID", "Sportradar Prematch Daily Sport Event Markets response is missing a documented event array");
@@ -179,7 +181,7 @@ export class SportradarClient {
     }
     if (reportedTotal !== null && items.length >= reportedTotal) complete = true;
     return {
-      body: { sport_events: items, generated_at: null },
+      body: { sport_events: items, generated_at: providerGeneratedAt },
       pagination: { pages, received: items.length, total: reportedTotal, complete }
     };
   }
