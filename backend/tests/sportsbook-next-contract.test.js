@@ -1,6 +1,42 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { isRemoved, normalizeEventMarkets, filterPrematchEvents, isPersistableDiscoverySnapshot } from "../src/sportsbook-next/normalize.js";
+
+const realFixtureUrl = new URL("./fixtures/sportradar/daily-sport-event-markets.sample.json", import.meta.url);
+let realFixture = null;
+try {
+  realFixture = JSON.parse(await readFile(realFixtureUrl, "utf8"));
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
+
+function countFields(value, predicate, result = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) countFields(item, predicate, result);
+  } else if (value && typeof value === "object") {
+    for (const [key, child] of Object.entries(value)) {
+      if (predicate(key, child)) result.push(child);
+      countFields(child, predicate, result);
+    }
+  }
+  return result;
+}
+
+test("real Sportradar fixture matches the inspected Prematch v2 response contract", { skip: !realFixture }, () => {
+  const response = realFixture.response;
+  assert.deepEqual(Object.keys(response).sort(), ["generated_at", "sport_schedule_sport_event_markets"]);
+  assert.equal(Number.isFinite(Date.parse(response.generated_at)), true);
+  assert.equal(response.sport_schedule_sport_event_markets.length, 15);
+
+  const markets = countFields(response, key => key === "is_live");
+  assert.equal(markets.length, 77);
+  assert.deepEqual(new Set(markets), new Set([false]));
+
+  for (const field of ["live", "replaced_by", "resume_time"]) {
+    assert.equal(countFields(response, key => key === field).length, 0, `${field} was not present in the inspected fixture`);
+  }
+});
 
 test("isRemoved accepts boolean and string true only", () => {
   for (const value of [true, "true", "TRUE", " True "]) assert.equal(isRemoved(value), true);
