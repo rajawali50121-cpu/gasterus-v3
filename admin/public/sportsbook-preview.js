@@ -12,10 +12,10 @@ const number=n=>Number(n||0).toLocaleString('id-ID');
 function node(tag,cls,value){const n=document.createElement(tag);if(cls)n.className=cls;if(value!==undefined)n.textContent=String(value);return n;}
 function renderEvent(event){
  const card=node('article','event'),top=node('div','event-top'),left=node('div');
- const names=[event.home,event.away].filter(Boolean);
- left.append(node('div','teams',names.length===2?names.join(' vs '):event.id||'Pertandingan'));
- left.append(node('div','meta',event.competition||event.status||'Prematch'));
- top.append(left,node('div','kickoff',event.scheduled?new Date(event.scheduled).toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short'}):'Jadwal belum tersedia'));
+ const detail=event.event||event;const names=[detail.home,detail.away].filter(Boolean);
+ left.append(node('div','teams',names.length===2?names.join(' vs '):detail.id||'Pertandingan'));
+ left.append(node('div','meta',event.competition||detail.status||'Prematch'));
+ top.append(left,node('div','kickoff',detail.scheduled?new Date(detail.scheduled).toLocaleString('id-ID',{dateStyle:'medium',timeStyle:'short'}):'Jadwal belum tersedia'));
  card.append(top);
  const markets=node('div','markets');
  for(const market of Array.isArray(event.markets)?event.markets:[]){
