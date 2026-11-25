@@ -5,6 +5,12 @@ function providerError(code, message, details = {}) {
   return error;
 }
 
+export function parseSoccerCacheTtlMs(cacheControl) {
+  if (typeof cacheControl !== "string") return null;
+  const match = cacheControl.match(/(?:^|,)\s*max-age\s*=\s*(\d+)/i);
+  return match ? Number(match[1]) * 1000 : null;
+}
+
 export class SoccerV4Client {
   constructor(config, { fetchImpl = fetch, beforeRequest = null, onRateLimit = null, onResponse = null } = {}) {
     this.config = config;
@@ -30,9 +36,17 @@ export class SoccerV4Client {
         headers: { "x-api-key": this.config.apiKey, accept: "application/json" },
         signal: controller.signal
       });
-      const body = await response.json().catch(() => null);
       const retryAfter = response.headers.get("retry-after");
-      this.onResponse?.({ httpStatus: response.status, retryAfter });
+      const cacheControl = response.headers.get("cache-control");
+      const metadata = {
+        httpStatus: response.status,
+        retryAfter,
+        cacheControl,
+        cacheTtlMs: parseSoccerCacheTtlMs(cacheControl),
+        etag: response.headers.get("etag"),
+        lastModified: response.headers.get("last-modified")
+      };
+      this.onResponse?.(metadata);
       if (response.status === 429) {
         try { await this.onRateLimit?.({ retryAfter, httpStatus: 429 }); } catch {}
         throw providerError("SOCCER_V4_RATE_LIMITED", "Sportradar Soccer v4 rate limit reached", {
@@ -41,13 +55,14 @@ export class SoccerV4Client {
       }
       if (!response.ok) {
         throw providerError("SOCCER_V4_HTTP_" + response.status, "Sportradar Soccer v4 request failed (HTTP " + response.status + ")", {
-          httpStatus: response.status
+          httpStatus: response.status, retryAfter
         });
       }
+      const body = await response.json().catch(() => null);
       if (!body || typeof body !== "object" || !Array.isArray(body.summaries)) {
         throw providerError("SOCCER_V4_RESULTS_SHAPE_INVALID", "Soccer v4 summaries response has an invalid shape");
       }
-      return { body, headers: response.headers };
+      return { body, headers: response.headers, metadata };
     } finally {
       clearTimeout(timeout);
     }
