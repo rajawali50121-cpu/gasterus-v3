@@ -5,14 +5,14 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSoccerV4Config } from "./soccer-v4-config.js";
 import { SoccerV4Client } from "./soccer-v4-client.js";
-import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown, selectSoccerV4DueDate } from "./soccer-v4-quota.js";
+import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown, selectSoccerV4DueDate } from "./soccer-v4-quota.js";\nimport { getSoccerNextPageStart } from "./soccer-v4-client.js";
 import { normalizeSoccerResults } from "./results.js";
 import { listResultCandidateDates, persistSoccerResultRevisions } from "./results-repository.js";
 
 const LOCK_KEY = "sportsbook:soccer-v4:poll-lock:v1";
 const HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
 const STATUS_KEY = "sportsbook:soccer-v4:status:v1";
-const LAST_SUCCESS_PREFIX = "sportsbook:soccer-v4:last-success:";
+const LAST_SUCCESS_PREFIX = "sportsbook:soccer-v4:last-success:";\nconst PAGE_CURSOR_PREFIX = "sportsbook:soccer-v4:page-cursor:";
 let stopping = false;
 const shutdownController = new AbortController();
 
@@ -25,7 +25,7 @@ async function runCycle(config, client) {
     const candidates = await listResultCandidateDates();
     const lastPolls = {};
     for (const date of candidates) {
-      lastPolls[date] = Number(await redis.get(LAST_SUCCESS_PREFIX + date) || 0);
+      const pageCursor = Number(await redis.get(PAGE_CURSOR_PREFIX + date) || 0);\n      lastPolls[date] = pageCursor > 0 ? 0 : Number(await redis.get(LAST_SUCCESS_PREFIX + date) || 0);
     }
     const todayUtc = new Date().toISOString().slice(0, 10);
     const date = selectSoccerV4DueDate(candidates, lastPolls, Date.now(), todayUtc);
@@ -35,17 +35,17 @@ async function runCycle(config, client) {
       return { skipped: "no Soccer result date is due", dates: 0, calls: 0 };
     }
 
-    const response = await client.getDailySummaries(date);
+    const start = Number(await redis.get(PAGE_CURSOR_PREFIX + date) || 0);\n    const limit = 200;\n    const response = await client.getDailySummaries(date, { start, limit });
     const receivedAt = new Date().toISOString();
     const results = normalizeSoccerResults(response.body, receivedAt);
     const persisted = await persistSoccerResultRevisions(results);
     const completedAt = new Date().toISOString();
     await redis.set(LAST_SUCCESS_PREFIX + date, String(Date.now()), { EX: 3 * 24 * 60 * 60 });
     const status = {
-      attemptedAt: completedAt, complete: true, date, dates: 1,
+      attemptedAt: completedAt, complete: true, date, dates: 1,\n      pagination: { start, limit, returned: results.length, maxResults: response.metadata.maxResults, nextStart, complete: nextStart === 0 },
       calls: client.cycleCalls, received: persisted.received,
       inserted: persisted.inserted, duplicates: persisted.duplicates, verified: persisted.verified,
-      providerGeneratedAt: response.body.generated_at || null,
+      providerGeneratedAt: response.body.generated_at || response.metadata.lastModified || null,
       cacheControl: response.metadata.cacheControl,
       cacheTtlMs: response.metadata.cacheTtlMs,
       etag: response.metadata.etag,
