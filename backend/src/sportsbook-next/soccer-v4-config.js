@@ -26,9 +26,6 @@ export function loadSoccerV4Config(env = process.env) {
     throw new Error("Soccer v4 requires explicit SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS and SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE");
   }
   const maxCallsPer30Days = positiveInteger("SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS", quotaRaw);
-  if (String(env.SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() !== "true") {
-    throw new Error("Soccer provider quota baseline is unconfirmed; set SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED=true only after checking current Soccer product usage");
-  }
   const initialCallsUsed30Days = Number(initialRaw);
   if (!Number.isSafeInteger(initialCallsUsed30Days) || initialCallsUsed30Days < 0 || initialCallsUsed30Days > maxCallsPer30Days) {
     throw new Error("SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE must be an integer within the Soccer quota");
@@ -41,7 +38,15 @@ export function loadSoccerV4Config(env = process.env) {
 
   return Object.freeze({
     enabled, apiKey, accessLevel, language, maxCallsPer30Days, initialCallsUsed30Days,
+    quotaBaselineConfirmed: String(env.SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() === "true",
     maxCallsPerCycle, pollIntervalMs: pollMinutes * MINUTE, requestTimeoutMs,
     baseUrl: "https://api.sportradar.com/soccer/" + accessLevel + "/v4/" + language
   });
+}
+
+export function assertSoccerV4QuotaBaseline(config) {
+  if (config?.enabled === true && config.quotaBaselineConfirmed !== true) {
+    throw new Error("Soccer provider quota baseline is unconfirmed; verify current Soccer product usage before enabling outbound requests");
+  }
+  return true;
 }
