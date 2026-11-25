@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadSoccerV4Config } from "../src/sportsbook-next/soccer-v4-config.js";
-import { SoccerV4Client } from "../src/sportsbook-next/soccer-v4-client.js";
-import { __soccerQuota, selectSoccerV4DatesRoundRobin, reserveSoccerV4Call } from "../src/sportsbook-next/soccer-v4-quota.js";
+import { SoccerV4Client, parseSoccerCacheTtlMs } from "../src/sportsbook-next/soccer-v4-client.js";
+import { __soccerQuota, selectSoccerV4DueDate, reserveSoccerV4Call } from "../src/sportsbook-next/soccer-v4-quota.js";
 
 test("Soccer v4 is disabled by default and does not require a key or quota", () => {
   const config = loadSoccerV4Config({});
   assert.equal(config.enabled, false);
-  assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
+  assert.equal(config.pollIntervalMs, 60 * 60 * 1000);\n  assert.equal(config.maxCallsPerCycle, 1);
 });
 
 test("enabled Soccer v4 requires an explicit independent quota and usage baseline", () => {
@@ -23,7 +23,7 @@ test("enabled Soccer v4 requires an explicit independent quota and usage baselin
   });
   assert.equal(config.maxCallsPer30Days, 500);
   assert.equal(config.initialCallsUsed30Days, 120);
-  assert.equal(config.baseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
+  assert.equal(config.baseUrl, "https://api.sportradar.com/soccer/trial/v4/en");\n  assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_POLL_MINUTES: "30" }), /at least 60 minutes/);\n  assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE: "2" }), /one request per cycle/);
 });
 
 test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key", async () => {
@@ -39,13 +39,13 @@ test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key",
       requested = String(url);
       assert.equal(options.headers["x-api-key"], "secret-test");
       return {
-        ok: true, status: 200, headers: { get: () => null },
+        ok: true, status: 200, headers: { get: name => name === "cache-control" ? "public, max-age=300, s-maxage=300" : null },
         json: async () => ({ generated_at: "2026-11-25T00:00:00Z", summaries: [] })
       };
     }
   });
   const response = await client.getDailySummaries("2026-11-25");
-  assert.deepEqual(response.body.summaries, []);
+  assert.deepEqual(response.body.summaries, []);\n  assert.equal(response.metadata.cacheTtlMs, 300_000);
   assert.ok(requested.endsWith("/soccer/trial/v4/en/schedules/2026-11-25/summaries.json"));
   assert.doesNotMatch(requested, /oddscomparison/);
 });
