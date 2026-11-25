@@ -43,6 +43,22 @@ test("unverified or disabled provider market mappings can never be bettable", ()
   assert.equal(resolveProviderOutcome({ outcomeType: "HOME", mapping: resolved }).bettable, false);
 });
 
+test("market resolver accepts exact PostgreSQL snake_case mapping rows", () => {
+  const row = {
+    sport_id: mapping.sportId, provider_market_id: mapping.providerMarketId,
+    provider_market_name: mapping.providerMarketName, period_code: mapping.periodCode,
+    market_code: mapping.marketCode, settlement_rule: mapping.settlementRule,
+    mapping_status: "VERIFIED", enabled: true, mapping_version: 2, outcomes: mapping.outcomes
+  };
+  const resolved = resolveProviderMarket({
+    sportId: mapping.sportId, providerMarketId: mapping.providerMarketId,
+    providerMarketName: mapping.providerMarketName, periodCode: mapping.periodCode, mappings: [row]
+  });
+  assert.equal(resolved.bettable, true);
+  assert.equal(resolved.mappingVersion, 2);
+  assert.equal(resolveProviderOutcome({ outcomeType: "HOME", mapping: resolved }).outcomeCode, "HOME");
+});
+
 test("provider outcome mapping is explicit and rejects unknown outcome types", () => {
   const resolved = resolveProviderMarket({
     sportId: mapping.sportId, providerMarketId: mapping.providerMarketId,
