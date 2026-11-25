@@ -3,6 +3,7 @@ const schema=await readFile(new URL('../migrations/001_platform.sql',import.meta
 const sportsbookSchema=await readFile(new URL('../migrations/042_sportsbook_v2_core.sql',import.meta.url),'utf8');
 const sportsbookTimestampSchema=await readFile(new URL('../migrations/043_sportsbook_v2_provider_timestamps.sql',import.meta.url),'utf8');
 const sportsbookSettlementSchema=await readFile(new URL('../migrations/044_sportsbook_v2_market_results_settlement.sql',import.meta.url),'utf8');
+const sportsbookResultsRepository=await readFile(new URL('../src/sportsbook-next/results-repository.js',import.meta.url),'utf8');
 const memberExperienceSchema=await readFile(new URL('../migrations/003_member_experience.sql',import.meta.url),'utf8');
 const lotterySchema=await readFile(new URL('../migrations/004_lottery_enterprise.sql',import.meta.url),'utf8');
 const enterpriseBackofficeSchema=await readFile(new URL('../migrations/005_enterprise_backoffice.sql',import.meta.url),'utf8');
@@ -29,3 +30,5 @@ test('money integrity schema reserves withdrawals and makes accounting history i
 test('sportsbook source timestamps remain distinct from ingestion time without destructive migration',()=>{for(const token of ['provider_generated_at','ALTER COLUMN source_updated_at DROP NOT NULL','sportsbook_v2_events','sportsbook_v2_markets'])assert.ok(sportsbookTimestampSchema.includes(token),token);assert.doesNotMatch(sportsbookTimestampSchema,/\bDROP\s+TABLE\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);});
 
 test('sportsbook market mapping, result and settlement revisions are additive and auditable',()=>{for(const token of ['sportsbook_v2_market_catalog','sportsbook_v2_provider_market_mappings','sportsbook_v2_event_result_revisions','sportsbook_v2_settlement_revisions','UNIQUE(ticket_id,revision_no)','ledger_transaction_id'])assert.ok(sportsbookSettlementSchema.includes(token),token);assert.doesNotMatch(sportsbookSettlementSchema,/\bDROP\s+TABLE\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);});
+
+test('sportsbook result persistence deduplicates provider versions and never stores ingestion time as source time',()=>{assert.ok(sportsbookSettlementSchema.includes('sportsbook_v2_result_revisions_source_version_uq'));assert.ok(sportsbookResultsRepository.includes('ON CONFLICT (provider_event_id,result_source,provider_generated_at)'));assert.ok(sportsbookResultsRepository.includes('if (!result?.providerGeneratedAt) continue;'));});
