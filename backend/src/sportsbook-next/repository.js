@@ -15,17 +15,18 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
       await client.query(`
         INSERT INTO sportsbook_v2_events(
           provider_event_id,sport_id,competition_id,competition_name,scheduled_at,event_status,
-          home_name,away_name,snapshot_at,provider_payload,updated_at
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,now())
+          home_name,away_name,snapshot_at,provider_generated_at,provider_payload,updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,now())
         ON CONFLICT(provider_event_id) DO UPDATE SET
           sport_id=excluded.sport_id,competition_id=excluded.competition_id,
           competition_name=excluded.competition_name,scheduled_at=excluded.scheduled_at,
           event_status=excluded.event_status,home_name=excluded.home_name,away_name=excluded.away_name,
-          snapshot_at=excluded.snapshot_at,provider_payload=excluded.provider_payload,updated_at=now()
+          snapshot_at=excluded.snapshot_at,provider_generated_at=excluded.provider_generated_at,
+          provider_payload=excluded.provider_payload,updated_at=now()
       `,[
         event.id,event.sportId,event.competitionId||null,event.competition||null,
         event.scheduled||null,event.status||"unknown",event.home||null,event.away||null,
-        fetchedAt,JSON.stringify(event)
+        fetchedAt,event.providerGeneratedAt ? new Date(event.providerGeneratedAt) : null,JSON.stringify(event)
       ]);
       eventCount += 1;
       await client.query("UPDATE sportsbook_v2_markets SET is_active=FALSE WHERE provider_event_id=$1",[event.id]);
@@ -34,12 +35,13 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
       for (const market of event.markets||[]) {
         await client.query(`
           INSERT INTO sportsbook_v2_markets(
-            provider_event_id,provider_market_key,provider_market_id,market_name,is_live,is_active,snapshot_at,provider_payload
-          ) VALUES($1,$2,$3,$4,$5,TRUE,$6,$7::jsonb)
+            provider_event_id,provider_market_key,provider_market_id,market_name,is_live,is_active,snapshot_at,provider_generated_at,provider_payload
+          ) VALUES($1,$2,$3,$4,$5,TRUE,$6,$7,$8::jsonb)
           ON CONFLICT(provider_event_id,provider_market_key) DO UPDATE SET
             market_name=excluded.market_name,is_live=excluded.is_live,is_active=TRUE,
-            snapshot_at=excluded.snapshot_at,provider_payload=excluded.provider_payload
-        `,[event.id,market.key||`${market.id}|${market.name||market.id}`,market.id,market.name||null,market.live===true,fetchedAt,JSON.stringify(market)]);
+            snapshot_at=excluded.snapshot_at,provider_generated_at=excluded.provider_generated_at,
+            provider_payload=excluded.provider_payload
+        `,[event.id,market.key||`${market.id}|${market.name||market.id}`,market.id,market.name||null,market.live===true,fetchedAt,event.providerGeneratedAt ? new Date(event.providerGeneratedAt) : null,JSON.stringify(market)]);
         marketCount += 1;
 
         for (const book of market.books||[]) {
@@ -63,7 +65,7 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
               outcome.fieldId==null?null:String(outcome.fieldId),outcome.playerId||null,outcome.playerName||null,
               outcome.type||null,outcome.name||null,outcome.oddsDecimal,
               outcome.openingOddsDecimal,outcome.line==null?null:String(outcome.line),
-              fetchedAt,JSON.stringify(outcome)
+              event.providerGeneratedAt ? new Date(event.providerGeneratedAt) : null,JSON.stringify(outcome)
             ]);
             priceCount += 1;
           }
