@@ -131,6 +131,7 @@ export function filterPrematchEvents(events, now = Date.now()) {
       }
       return true;
     });
+    if (safeMarkets.length === 0) continue;
     kept.push({ ...event, markets: safeMarkets });
   }
   return { events: kept, filtered };
