@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadSoccerV4Config } from "../src/sportsbook-next/soccer-v4-config.js";
 import { SoccerV4Client } from "../src/sportsbook-next/soccer-v4-client.js";
-import { __soccerQuota } from "../src/sportsbook-next/soccer-v4-quota.js";
+import { __soccerQuota, selectSoccerV4DatesRoundRobin } from "../src/sportsbook-next/soccer-v4-quota.js";
 
 test("Soccer v4 is disabled by default and does not require a key or quota", () => {
   const config = loadSoccerV4Config({});
@@ -54,4 +54,13 @@ test("Soccer v4 quota has a namespace separate from Odds Comparison monthly quot
   assert.equal(__soccerQuota.CALLS_KEY, "sportsbook:soccer-v4:quota:calls:v1");
   assert.equal(__soccerQuota.BASELINE_KEY, "sportsbook:soccer-v4:quota:baseline:v1");
   assert.doesNotMatch(__soccerQuota.CALLS_KEY, /sportsbook:next:sportradar:quota/);
+});
+
+test("Soccer v4 date selection rotates through tracked dates without starvation", () => {
+  const first = selectSoccerV4DatesRoundRobin(["2026-11-21", "2026-11-22", "2026-11-23"], 0, 2);
+  assert.deepEqual(first.dates, ["2026-11-21", "2026-11-22"]);
+  assert.equal(first.nextCursor, 2);
+  const second = selectSoccerV4DatesRoundRobin(["2026-11-21", "2026-11-22", "2026-11-23"], first.nextCursor, 2);
+  assert.deepEqual(second.dates, ["2026-11-23", "2026-11-21"]);
+  assert.equal(second.nextCursor, 1);
 });
