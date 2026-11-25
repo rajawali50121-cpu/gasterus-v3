@@ -9,6 +9,7 @@ import { normalizeDailySportEventMarkets, normalizeEventMarkets, filterPrematchE
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
+import { setSportsbookHalt, getSportsbookHalt, clearSportsbookHalt } from "./halt.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
 const LOCK_KEY = "sportsbook:next:poll-lock:v1";
@@ -267,6 +268,19 @@ async function runChangeLogCycle(config, client) {
 async function main() {
   const config = loadSportsbookConfig();
   await connectRedis();
+  if (process.env.SPORTRADAR_CLEAR_HALT_ON_START === "true") {
+    await clearSportsbookHalt(redis);
+    logger.warn("Sportradar sportsbook halt manually cleared at startup");
+  }
+  const existingHalt = await getSportsbookHalt(redis);
+  if (existingHalt) {
+    logger.error("Sportradar sportsbook worker remains halted; manual reset required", {
+      code: existingHalt.code,
+      httpStatus: existingHalt.httpStatus,
+      haltedAt: existingHalt.haltedAt || null
+    });
+    return;
+  }
   const client = new SportradarClient(config, {
     onResponse: details => logger.info("Sportradar provider response", details),
     onRateLimit: ({ retryAfter }) => applySportradarRateLimitCooldown(redis, retryAfter),
@@ -298,6 +312,15 @@ async function main() {
   let nextDiscoveryAt = Date.now();
   let nextChangeLogAt = Date.now() + config.changeLogPollMs;
   while (!stopping) {
+    const activeHalt = await getSportsbookHalt(redis);
+    if (activeHalt) {
+      logger.error("Sportradar sportsbook worker halted; no further provider requests will be made", {
+        code: activeHalt.code,
+        httpStatus: activeHalt.httpStatus,
+        haltedAt: activeHalt.haltedAt || null
+      });
+      break;
+    }
     let now = Date.now();
     if (now >= nextDiscoveryAt) {
       client.cycleCalls = 0;
@@ -307,6 +330,14 @@ async function main() {
         logger.info("Sportradar sportsbook discovery completed", { ...result, quotaUsage });
         nextDiscoveryAt = Date.now() + config.pollIntervalMs;
       } catch (error) {
+        if (await setSportsbookHalt(redis, error)) {
+          stopping = true;
+          logger.error("Sportradar sportsbook worker halted after authentication failure", {
+            code: error?.code || "SPORTRADAR_AUTH_REJECTED",
+            httpStatus: error?.httpStatus
+          });
+          break;
+        }
         logger.warn("Sportradar sportsbook discovery stopped safely", {
           code: error?.code || "SPORTRADAR_POLL_FAILED",
           quotaScope: error?.quotaScope || null,
@@ -339,6 +370,14 @@ async function main() {
         // beyond the provider's rolling five-minute window.
         nextChangeLogAt = Math.max(Date.now(), changeLogCycleStartedAt + config.changeLogPollMs);
       } catch (error) {
+        if (await setSportsbookHalt(redis, error)) {
+          stopping = true;
+          logger.error("Sportradar sportsbook worker halted after authentication failure", {
+            code: error?.code || "SPORTRADAR_AUTH_REJECTED",
+            httpStatus: error?.httpStatus
+          });
+          break;
+        }
         logger.warn("Sportradar Prematch change-log refresh stopped safely", {
           code: error?.code || "SPORTRADAR_CHANGELOG_POLL_FAILED",
           quotaScope: error?.quotaScope || null,
