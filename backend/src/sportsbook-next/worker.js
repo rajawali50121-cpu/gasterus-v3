@@ -9,8 +9,6 @@ import { normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normal
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
-import { normalizeSoccerResults } from "./results.js";
-import { listResultCandidateDates, persistSoccerResultRevisions } from "./results-repository.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
 const LOCK_KEY = "sportsbook:next:poll-lock:v1";
@@ -269,22 +267,6 @@ async function runChangeLogCycle(config, client) {
   }
 }
 
-async function runResultsCycle(client) {
-  const dates = await listResultCandidateDates();
-  if (!dates.length) return { skipped: "no tracked event dates" };
-  let received = 0, inserted = 0, duplicates = 0, verified = 0;
-  for (const date of dates) {
-    const response = await client.getSoccerDailySummaries(date);
-    const results = normalizeSoccerResults(response.body, new Date().toISOString());
-    const persisted = await persistSoccerResultRevisions(results);
-    received += persisted.received;
-    inserted += persisted.inserted;
-    duplicates += persisted.duplicates;
-    verified += persisted.verified;
-  }
-  return { dates: dates.length, received, inserted, duplicates, verified };
-}
-
 async function main() {
   const config = loadSportsbookConfig();
   await connectRedis();
@@ -318,7 +300,6 @@ async function main() {
 
   let nextDiscoveryAt = Date.now();
   let nextChangeLogAt = Date.now() + config.changeLogPollMs;
-  let nextResultsAt = Date.now();
   while (!stopping) {
     let now = Date.now();
     if (now >= nextDiscoveryAt) {
@@ -379,24 +360,10 @@ async function main() {
       }
     }
 
-    now = Date.now();
-    if (now >= nextResultsAt) {
-      client.cycleCalls = 0;
-      try {
-        const result = await runResultsCycle(client);
-        logger.info("Sportradar Soccer results sync completed", result);
-      } catch (error) {
-        logger.warn("Sportradar Soccer results sync stopped safely", {
-          code: error?.code || "SPORTRADAR_RESULTS_SYNC_FAILED",
-          httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null
-        });
-      }
-      nextResultsAt = Date.now() + config.pollIntervalMs;
-    }
 
     const nextRunAt = config.changeLogEnabled
-      ? Math.min(nextDiscoveryAt, nextChangeLogAt, nextResultsAt)
-      : Math.min(nextDiscoveryAt, nextResultsAt);
+      ? Math.min(nextDiscoveryAt, nextChangeLogAt)
+      : nextDiscoveryAt;
     await sleep(Math.max(250, nextRunAt - Date.now()), undefined, { signal: shutdownController.signal }).catch(() => {});
   }
 }
