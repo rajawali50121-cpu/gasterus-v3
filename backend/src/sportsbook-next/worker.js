@@ -15,6 +15,8 @@ const LOCK_KEY = "sportsbook:next:poll-lock:v1";
 const HEARTBEAT_KEY = "sportsbook:next:worker-heartbeat:v1";
 const FEED_STATUS_KEY = "sportsbook:next:feed-status:v1";
 const CHANGE_LOG_LAST_SUCCESS_KEY = "sportsbook:next:changelog:last-success-ms:v1";
+const CHANGE_LOG_RECONCILE_QUEUE_KEY = "sportsbook:next:changelog:reconcile-queue:v1";
+const CHANGE_LOG_PENDING_IDS_KEY = "sportsbook:next:changelog:pending-event-ids:v1";
 const COVERAGE_KEY = "sportsbook:next:coverage:v1";
 const COVERAGE_TTL_SECONDS = 24 * 60 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -181,6 +183,9 @@ async function runChangeLogCycle(config, client) {
 
   client.cycleCalls = 0;
   try {
+    if (config.maxCallsPerCycle < 2) {
+      throw new Error("SPORTRADAR_CHANGELOG_REQUIRES_TWO_CALLS_PER_CYCLE");
+    }
     const rawSnapshot = await redis.get(SNAPSHOT_KEY);
     if (!rawSnapshot) return { skipped: "no complete snapshot to refresh" };
     const snapshot = JSON.parse(rawSnapshot);
@@ -190,21 +195,34 @@ async function runChangeLogCycle(config, client) {
 
     const now = Date.now();
     const lastSuccess = await redis.get(CHANGE_LOG_LAST_SUCCESS_KEY);
-    const fullReconcile = shouldReconcileChangeLog(lastSuccess, now);
     const tracked = new Map(snapshot.events.map(event => [event.id, event]));
+    const trackedIds = new Set(tracked.keys());
+    const readQueue = async key => {
+      const raw = await redis.get(key);
+      if (!raw) return [];
+      try {
+        const value = JSON.parse(raw);
+        return Array.isArray(value) ? [...new Set(value.filter(id => trackedIds.has(id)))] : [];
+      } catch { return []; }
+    };
+
+    let reconcileQueue = await readQueue(CHANGE_LOG_RECONCILE_QUEUE_KEY);
+    const fullReconcile = shouldReconcileChangeLog(lastSuccess, now) || reconcileQueue.length > 0;
+    if (fullReconcile && reconcileQueue.length === 0) reconcileQueue = [...tracked.keys()];
+    let pendingQueue = await readQueue(CHANGE_LOG_PENDING_IDS_KEY);
+
     const refreshed = [];
     const refreshedIds = new Set();
-
     const refreshEvent = async eventId => {
       const previous = tracked.get(eventId);
       if (!previous || refreshedIds.has(eventId)) return;
       const result = await client.getSportEventMarkets(eventId);
       const normalized = normalizeEventMarkets(result.body, new Date().toISOString());
-      if (normalized.event.id !== eventId) {
-        throw new Error("SPORTRADAR_CHANGELOG_EVENT_ID_MISMATCH");
-      }
+      if (normalized.event.id !== eventId) throw new Error("SPORTRADAR_CHANGELOG_EVENT_ID_MISMATCH");
+      if (!normalized.providerGeneratedAt) throw new Error("SPORTRADAR_CHANGELOG_PROVIDER_TIMESTAMP_MISSING");
       refreshed.push({
         ...normalized.event,
+        providerGeneratedAt: normalized.providerGeneratedAt,
         sportId: previous.sportId,
         competition: previous.competition ?? null,
         competitionId: previous.competitionId ?? null,
@@ -213,47 +231,70 @@ async function runChangeLogCycle(config, client) {
       refreshedIds.add(eventId);
     };
 
-    // The five-minute change-log window cannot be replayed. After startup or
-    // a missed window, refresh all tracked boards first, then consume the
-    // current change log and refresh any additional events it reports.
-    if (fullReconcile) {
-      for (const eventId of tracked.keys()) await refreshEvent(eventId);
-    }
+    // Always reserve one call for the five-minute Change Log. A missed window
+    // is reconciled in bounded batches, so large slates cannot starve polling.
+    const reconcileCapacity = fullReconcile ? config.maxCallsPerCycle - 1 : 0;
+    const reconcileBatch = reconcileQueue.slice(0, reconcileCapacity);
+    for (const eventId of reconcileBatch) await refreshEvent(eventId);
+    const remainingReconcile = reconcileQueue.slice(reconcileBatch.length);
 
     const changeLogResult = await client.getSportEventMarketsChangeLog();
-    const changeLogEnd = Number(changeLogResult.body?.status?.to);
-    const lastSuccessfulPollAt = Number.isFinite(changeLogEnd) && changeLogEnd > 0
-      ? changeLogEnd * 1000
-      : Date.now();
-    const changedIds = getChangedSportEventIds(changeLogResult.body, new Set(tracked.keys()));
-    for (const eventId of changedIds) await refreshEvent(eventId);
+    const windowFrom = Number(changeLogResult.body?.status?.from);
+    const windowTo = Number(changeLogResult.body?.status?.to);
+    if (!Number.isFinite(windowFrom) || !Number.isFinite(windowTo) || windowFrom <= 0 || windowTo < windowFrom) {
+      throw new Error("SPORTRADAR_CHANGELOG_WINDOW_INVALID");
+    }
+    const changedIds = getChangedSportEventIds(changeLogResult.body, trackedIds);
+    const queued = [...new Set([...pendingQueue, ...changedIds])]
+      .filter(eventId => trackedIds.has(eventId) && !refreshedIds.has(eventId));
+    pendingQueue = queued;
+    while (pendingQueue.length && client.cycleCalls < config.maxCallsPerCycle) {
+      const eventId = pendingQueue[0];
+      await refreshEvent(eventId);
+      pendingQueue.shift();
+    }
 
     const fetchedAt = new Date().toISOString();
     if (refreshed.length) {
       await persistSportsbookSnapshot(refreshed, fetchedAt);
-      const refreshedSourceTimes = refreshed.map(event => Date.parse(event.providerGeneratedAt || "")).filter(Number.isFinite);
-      if (refreshedSourceTimes.length) snapshot.fetchedAt = new Date(Math.max(...refreshedSourceTimes)).toISOString();
       const updates = new Map(refreshed.map(event => [event.id, event]));
       snapshot.events = snapshot.events.map(event => updates.get(event.id) || event);
     }
+    const sourceTimes = snapshot.events.map(event => Date.parse(event.providerGeneratedAt || "")).filter(Number.isFinite);
+    snapshot.providerGeneratedAt = sourceTimes.length ? new Date(Math.max(...sourceTimes)).toISOString() : null;
+    snapshot.fetchedAt = fetchedAt;
     snapshot.receivedAt = fetchedAt;
     snapshot.callsThisCycle = client.cycleCalls;
     snapshot.complete = true;
     snapshot.emptyFeed = snapshot.events.length === 0;
+    snapshot.refreshPending = remainingReconcile.length > 0 || pendingQueue.length > 0;
+
+    if (remainingReconcile.length) {
+      await redis.set(CHANGE_LOG_RECONCILE_QUEUE_KEY, JSON.stringify(remainingReconcile), { EX: 30 * 24 * 60 * 60 });
+    } else {
+      await redis.del(CHANGE_LOG_RECONCILE_QUEUE_KEY);
+    }
+    if (pendingQueue.length) {
+      await redis.set(CHANGE_LOG_PENDING_IDS_KEY, JSON.stringify(pendingQueue), { EX: 30 * 24 * 60 * 60 });
+    } else {
+      await redis.del(CHANGE_LOG_PENDING_IDS_KEY);
+    }
+
     await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     await redis.set(FEED_STATUS_KEY, JSON.stringify({
       attemptedAt: fetchedAt, complete: true, quotaLimited: false,
       quotaReason: null, budgetLimited: false, errorCount: 0,
       changeLogPoll: true, fullReconcile, changedEvents: changedIds.length,
-      refreshedEvents: refreshed.length
+      refreshedEvents: refreshed.length, reconcilePending: remainingReconcile.length,
+      changedPending: pendingQueue.length
     }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
-    // Store the change-log window end, not completion time: slow event refreshes
-    // must not hide a gap that could make the next five-minute window unqueryable.
-    await redis.set(CHANGE_LOG_LAST_SUCCESS_KEY, String(lastSuccessfulPollAt), { EX: 30 * 24 * 60 * 60 });
+    // Use the provider's window end, not completion time, to detect missed windows.
+    await redis.set(CHANGE_LOG_LAST_SUCCESS_KEY, String(windowTo * 1000), { EX: 30 * 24 * 60 * 60 });
     await redis.set(HEARTBEAT_KEY, fetchedAt, { EX: 600 });
     return {
       calls: client.cycleCalls, fullReconcile, changedEvents: changedIds.length,
-      refreshedEvents: refreshed.length, complete: true
+      refreshedEvents: refreshed.length, reconcilePending: remainingReconcile.length,
+      changedPending: pendingQueue.length, complete: true
     };
   } catch (error) {
     const quotaLimited = error?.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED";
@@ -271,7 +312,6 @@ async function runChangeLogCycle(config, client) {
     });
   }
 }
-
 
 async function main() {
   const config = loadSportsbookConfig();
