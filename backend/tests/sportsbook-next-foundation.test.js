@@ -11,7 +11,8 @@ const env = {
   SPORTRADAR_ACCESS_LEVEL: "trial",
   SPORTRADAR_MAX_CALLS_PER_30_DAYS: "100",
   SPORTRADAR_MAX_CALLS_PER_HOUR: "20",
-  SPORTRADAR_INITIAL_30_DAY_USAGE: "10"
+  SPORTRADAR_INITIAL_30_DAY_USAGE: "10",
+  SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
 };
 
 test("config defaults to 150-minute refresh, current UTC date only and official Odds Comparison/Soccer v4 base URLs", () => {
@@ -77,11 +78,23 @@ test("trial configuration cannot exceed the 800-call internal budget or fan out 
   );
 });
 
-test("config rejects missing API key and unsupported tier, and defaults trial budget conservatively", () => {
+test("config rejects missing API key, unsupported tier, and unverified quota baselines", () => {
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_API_KEY: "" }), /SPORTRADAR_API_KEY/);
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "free" }), /trial or production/);
-  const defaults = loadSportsbookConfig({ SPORTRADAR_API_KEY: "test" });
+  assert.throws(() => loadSportsbookConfig({ SPORTRADAR_API_KEY: "test" }), /explicit SPORTRADAR_MAX_CALLS_PER_30_DAYS/);
+  assert.throws(() => loadSportsbookConfig({
+    SPORTRADAR_API_KEY: "test",
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800",
+    SPORTRADAR_INITIAL_30_DAY_USAGE: "0"
+  }), /baseline is unconfirmed/);
+  const defaults = loadSportsbookConfig({
+    SPORTRADAR_API_KEY: "test",
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800",
+    SPORTRADAR_INITIAL_30_DAY_USAGE: "120",
+    SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
+  });
   assert.equal(defaults.maxCallsPer30Days, 800);
+  assert.equal(defaults.initialCallsUsed30Days, 120);
   assert.equal(defaults.daysAhead, 0);
   assert.equal(defaults.maxCallsPerCycle, 5);
 });
