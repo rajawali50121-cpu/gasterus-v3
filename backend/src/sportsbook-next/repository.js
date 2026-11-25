@@ -46,13 +46,18 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
 
         for (const book of market.books||[]) {
           for (const outcome of book.outcomes||[]) {
+            const price = Number(outcome?.oddsDecimal);
+            // Odds <= 1.00 are not valid bet prices. Removed 1.00 rows remain
+            // available in the market JSON payload, but cannot enter the price table.
+            if (!Number.isFinite(price) || price <= 1) continue;
+            const isActive = book.removed !== true && outcome.removed !== true && outcome.bookRemoved !== true;
             const key=selectionKey(outcome);
             await client.query(`
               INSERT INTO sportsbook_v2_prices(
                 provider_event_id,provider_market_key,provider_market_id,provider_book_id,provider_book_name,
                 provider_selection_key,provider_outcome_id,external_outcome_id,external_market_id,external_sport_event_id,field_id,player_id,player_name,outcome_type,outcome_name,
                 odds_decimal,opening_odds_decimal,line_value,is_active,source_updated_at,provider_payload
-               ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,TRUE,$19,$20::jsonb)
+               ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb)
               ON CONFLICT(provider_event_id,provider_market_key,provider_book_id,provider_selection_key)
               DO UPDATE SET provider_book_name=excluded.provider_book_name,
                 provider_outcome_id=excluded.provider_outcome_id,external_outcome_id=excluded.external_outcome_id,external_market_id=excluded.external_market_id,external_sport_event_id=excluded.external_sport_event_id,field_id=excluded.field_id,player_id=excluded.player_id,player_name=excluded.player_name,outcome_type=excluded.outcome_type,
