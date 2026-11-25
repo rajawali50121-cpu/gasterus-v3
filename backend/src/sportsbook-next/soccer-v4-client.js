@@ -23,7 +23,8 @@ export function getSoccerNextPageStart({ start, limit, returned, maxResults }) {
   }
   if (maxResults !== null && maxResults !== undefined) {
     if (!Number.isSafeInteger(maxResults) || maxResults < 0) throw new TypeError("SOCCER_V4_PAGINATION_INVALID");
-    if (returned === 0 && start < maxResults) throw new Error("SOCCER_V4_PAGINATION_STALLED");\n    return start + returned < maxResults ? start + returned : 0;
+    if (returned === 0 && start < maxResults) throw new Error("SOCCER_V4_PAGINATION_STALLED");
+    return start + returned < maxResults ? start + returned : 0;
   }
   return returned === limit ? start + returned : 0;
 }
