@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS sportsbook_v2_event_result_revisions (
   provider_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS sportsbook_v2_result_revisions_source_version_uq
+  ON sportsbook_v2_event_result_revisions(provider_event_id,result_source,provider_generated_at)
+  WHERE provider_generated_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS sportsbook_v2_result_revisions_event_idx
   ON sportsbook_v2_event_result_revisions(provider_event_id,provider_generated_at DESC,id DESC);
 
