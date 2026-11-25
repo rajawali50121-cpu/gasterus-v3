@@ -20,11 +20,18 @@ test("enabled Soccer v4 requires an explicit independent quota and usage baselin
     SPORTRADAR_SOCCER_ENABLED: "true",
     SPORTRADAR_API_KEY: "test-key",
     SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
-    SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "120"
+    SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "120",
+    SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true"
   });
   assert.equal(config.maxCallsPer30Days, 500);
   assert.equal(config.initialCallsUsed30Days, 120);
   assert.equal(config.baseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
+  assert.throws(() => loadSoccerV4Config({
+    SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_API_KEY: "test-key",
+    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
+    SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0"
+  }), /baseline is unconfirmed/);
   assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_POLL_MINUTES: "30" }), /at least 60 minutes/);
   assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE: "2" }), /one request per cycle/);
 });
@@ -34,7 +41,8 @@ test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key",
     SPORTRADAR_SOCCER_ENABLED: "true",
     SPORTRADAR_SOCCER_API_KEY: "secret-test",
     SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
-    SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0"
+    SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
+    SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true"
   });
   let requested = "";
   const client = new SoccerV4Client(config, {
