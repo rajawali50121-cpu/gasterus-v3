@@ -12,7 +12,7 @@ export function parseSoccerCacheTtlMs(cacheControl) {
 }
 
 function parseHeaderInteger(value) {
-  if (typeof value !== "string" || !/^\\d+$/.test(value)) return null;
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
@@ -42,6 +42,9 @@ export class SoccerV4Client {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date + "T00:00:00Z"))) {
       throw new TypeError("SOCCER_V4_DATE_INVALID");
     }
+    if (!Number.isSafeInteger(start) || start < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+      throw new TypeError("SOCCER_V4_PAGINATION_INVALID");
+    }
     if (this.beforeRequest) await this.beforeRequest();
     const url = this.config.baseUrl + "/schedules/" + encodeURIComponent(date) + "/summaries.json?start=" + start + "&limit=" + limit;
     const controller = new AbortController();
@@ -61,7 +64,10 @@ export class SoccerV4Client {
         cacheControl,
         cacheTtlMs: parseSoccerCacheTtlMs(cacheControl),
         etag: response.headers.get("etag"),
-        lastModified: response.headers.get("last-modified"),\n        maxResults: parseHeaderInteger(response.headers.get("x-max-results")),\n        resultCountHeader: parseHeaderInteger(response.headers.get("x-result")),\n        offset: parseHeaderInteger(response.headers.get("x-offset"))
+        lastModified: response.headers.get("last-modified"),
+        maxResults: parseHeaderInteger(response.headers.get("x-max-results")),
+        resultCountHeader: parseHeaderInteger(response.headers.get("x-result")),
+        offset: parseHeaderInteger(response.headers.get("x-offset"))
       };
       this.onResponse?.(metadata);
       if (response.status === 429) {
