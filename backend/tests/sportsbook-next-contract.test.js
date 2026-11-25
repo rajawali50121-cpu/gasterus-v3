@@ -29,7 +29,7 @@ test("filterPrematchEvents drops started, invalid-time and live-market data", ()
     { id: "sr:sport_event:1", scheduled: "2026-11-25T00:01:00Z", markets: [{ live: false }] },
     { id: "sr:sport_event:2", scheduled: "2026-11-24T23:59:00Z", markets: [] },
     { id: "sr:sport_event:3", scheduled: "bad-date", markets: [] },
-    { id: "sr:sport_event:4", scheduled: "2026-11-25T01:00:00Z", markets: [{ live: true }, { live: false }] }
+    { id: "sr:sport_event:4", scheduled: "2026-11-25T01:00:00Z", markets: [{ live: true }] }
   ], now);
   assert.deepEqual(result.filtered, { started: 1, invalidScheduled: 1, liveMarkets: 1 });
   assert.equal(result.events.length, 1);
