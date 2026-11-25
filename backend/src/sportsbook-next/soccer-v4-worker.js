@@ -13,6 +13,7 @@ const LOCK_KEY = "sportsbook:soccer-v4:poll-lock:v1";
 const HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
 const STATUS_KEY = "sportsbook:soccer-v4:status:v1";
 let stopping = false;
+const shutdownController = new AbortController();
 
 async function runCycle(config, client) {
   const token = randomUUID();
@@ -92,12 +93,12 @@ async function main() {
         retryAfter: error?.retryAfter || null
       });
     }
-    await sleep(config.pollIntervalMs).catch(() => {});
+    await sleep(config.pollIntervalMs, undefined, { signal: shutdownController.signal }).catch(() => {});
   }
 }
 
-process.once("SIGTERM", () => { stopping = true; });
-process.once("SIGINT", () => { stopping = true; });
+process.once("SIGTERM", () => { stopping = true; shutdownController.abort(); });
+process.once("SIGINT", () => { stopping = true; shutdownController.abort(); });
 main().catch(async error => {
   logger.error("Sportradar Soccer v4 worker failed to start", { code: error?.code || "WORKER_START_FAILED" });
   process.exitCode = 1;
