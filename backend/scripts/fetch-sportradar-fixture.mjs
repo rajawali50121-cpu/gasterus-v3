@@ -66,7 +66,7 @@ if (response) {
       capturedAt: new Date().toISOString(),
       request: { endpoint: "daily-sport-event-markets", accessLevel, language, sportId, date, start: 0, limit: 50 },
       response: body
-    }, null, 2) + "\\n", { flag: "wx" });
+    }, null, 2) + "\n", { flag: "wx" });
     const arrayKeys = Object.keys(body).filter(key => Array.isArray(body[key]));
     console.log(`FIXTURE_WRITTEN=${output}`);
     console.log(`ROOT_KEYS=${Object.keys(body).sort().join(",")}`);
