@@ -23,7 +23,7 @@ const RESERVE_SCRIPT = [
 "redis.call('ZADD', KEYS[1], now, ARGV[5])",
 "redis.call('EXPIRE', KEYS[1], 2678400)",
 "return {1, used + 1, limit}"
-].join("\\n");
+].join("\n");
 
 export async function reserveSoccerV4Call(redis, config, now = Date.now()) {
   const result = await redis.eval(RESERVE_SCRIPT, {
