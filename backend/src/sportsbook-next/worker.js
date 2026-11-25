@@ -131,7 +131,8 @@ async function runCycle(config, client) {
     const snapshot = {
       schemaVersion: 1,
       provider: "sportradar-odds-comparison-prematch-v2",
-      fetchedAt: sourceTimes.length ? new Date(Math.max(...sourceTimes)).toISOString() : null,
+      fetchedAt: receivedAt,
+      providerGeneratedAt: sourceTimes.length ? new Date(Math.max(...sourceTimes)).toISOString() : null,
       receivedAt,
       complete: errors.length === 0 && !quotaLimited && !budgetLimited && pricedEvents.length > 0,
       emptyFeed: pricedEvents.length === 0,
