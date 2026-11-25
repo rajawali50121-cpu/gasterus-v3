@@ -49,7 +49,7 @@ add('GET',new RegExp('^/api/health/toto-markets/detail$'),totoMarketsDetail);
 add('GET',new RegExp('^/api/health/simple$'),simpleHealth);
 add('GET',/^\/healthz$/,async({res})=>{let healthy=false;try{const raw=await redis.get(config.workerHeartbeatKey);healthy=isWorkerHeartbeatFresh(raw,{staleAfterSeconds:Math.max(config.workerHeartbeatMaxAgeSeconds*2,120)});}catch{healthy=false;}ok(res,{status:healthy?'ok':'degraded'},healthy?200:503);});
 
-add('GET',/^\\/api\\/public\\/sportsbook\\/v2\\/events$/,async({req,res})=>{
+add('GET',/^\/api\/public\/sportsbook\/v2\/events$/,async({req,res})=>{
   await rateLimit(req,'sportsbook-v2-public-feed',60,60);
   const snapshot=await readPublicSportsbookSnapshot({redis});
   ok(res,{...snapshot,betAcceptanceEnabled:false});
