@@ -1,0 +1,18 @@
+{
+  "sources": {
+    "sportradar": {
+      "code": "sportradar",
+      "label": "Sportradar Odds Comparison",
+      "status": "active",
+      "lastSuccess": 0,
+      "lastError": 0,
+      "consecutiveErrors": 0,
+      "totalSuccess": 0,
+      "totalErrors": 0,
+      "evictedAt": 0,
+      "promotedAt": 0,
+      "lastEvent": ""
+    }
+  },
+  "updatedAt": 0
+}
