@@ -37,14 +37,19 @@ async function refreshCoverage(config, client) {
 
   // Official Odds Comparison discovery order: Sports, Books, then
   // Sport Competitions. Never infer a sport, book or competition from IDs.
-  const [sportsResult, booksResult] = await Promise.all([
-    client.getSports(),
-    client.getBooks()
-  ]);
+  // Keep discovery sequential: if Sports is rejected (especially HTTP 429),
+  // do not send a queued Books request after the provider cooldown begins.
+  const sportsResult = await client.getSports();
   const sports = sportsResult.body?.sports;
+  if (!Array.isArray(sports)) {
+    const error = new Error("SPORTRADAR_SPORTS_SHAPE_INVALID");
+    error.code = error.message;
+    throw error;
+  }
+  const booksResult = await client.getBooks();
   const books = booksResult.body?.books;
-  if (!Array.isArray(sports) || !Array.isArray(books)) {
-    const error = new Error("SPORTRADAR_DISCOVERY_SHAPE_INVALID");
+  if (!Array.isArray(books)) {
+    const error = new Error("SPORTRADAR_BOOKS_SHAPE_INVALID");
     error.code = error.message;
     throw error;
   }
