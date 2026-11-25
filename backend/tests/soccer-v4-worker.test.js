@@ -46,7 +46,7 @@ test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key",
   });
   const response = await client.getDailySummaries("2026-11-25");
   assert.deepEqual(response.body.summaries, []);
-  assert.match(requested, /\\/soccer\\/trial\\/v4\\/en\\/schedules\\/2026-11-25\\/summaries\\.json$/);
+  assert.ok(requested.endsWith("/soccer/trial/v4/en/schedules/2026-11-25/summaries.json"));
   assert.doesNotMatch(requested, /oddscomparison/);
 });
 
