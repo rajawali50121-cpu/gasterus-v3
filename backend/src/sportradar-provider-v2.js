@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from './config.js';
 import { __sportradarNormalizer } from './sportradar-normalizer.js';
 import { buildSportradarHeaders, buildSportradarProductBaseUrl, getSportradarAccessFromPrematchBaseUrl } from './sportradar-products.js';
-import { connectRedis, redis } from './redis.js';
+import { createClient } from 'redis';
 import { logger } from './logger.js';
 
 const PROVIDER = 'sportradar';
@@ -19,7 +19,21 @@ const STATE_TTL_SECONDS = 48 * 60 * 60;
 const LEASE_TTL_MS = 10 * 60 * 1000;
 const DISCOVERY_TTL_MS = 24 * 60 * 60 * 1000;
 const discoveryCache = { value: null, expiresAt: 0 };
-let redisClient = redis;
+let redisClient = createClient({
+  url: config.redisUrl,
+  disableOfflineQueue: true,
+  commandOptions: { timeout: 8000 },
+  pingInterval: 20000,
+  socket: {
+    connectTimeout: 8000,
+    socketTimeout: 45000,
+    keepAlive: true,
+    keepAliveInitialDelay: 10000,
+    reconnectStrategy: retries => Math.min(1000 + retries * 250, 10000)
+  }
+});
+redisClient.on('error', error => logger.error('Sportradar Redis client error', { error: error.message }));
+redisClient.on('reconnecting', () => logger.warn('Sportradar Redis reconnecting'));
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function clean(value, max = 160) {
@@ -46,8 +60,7 @@ function parseDate(value) {
 async function ensureRedis() {
   if (!config.redisUrl) throw new Error('REDIS_URL is required for shared Sportradar state and quota protection.');
   if (!redisClient.isOpen) {
-    if (redisClient === redis) await connectRedis();
-    else if (typeof redisClient.connect === 'function') await redisClient.connect();
+    if (typeof redisClient.connect === 'function') await redisClient.connect();
     else throw new Error('Injected Sportradar Redis client is not connected.');
   }
 }
