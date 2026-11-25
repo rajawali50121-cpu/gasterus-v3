@@ -30,6 +30,12 @@ export function loadSoccerV4Config(env = process.env) {
   if (!Number.isSafeInteger(initialCallsUsed30Days) || initialCallsUsed30Days < 0 || initialCallsUsed30Days > maxCallsPer30Days) {
     throw new Error("SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE must be an integer within the Soccer quota");
   }
+  // A shared key may already have consumed Soccer quota outside this worker.
+  // Require explicit confirmation before reusing it across Odds + Soccer.
+  if (!env.SPORTRADAR_SOCCER_API_KEY &&
+      String(env.SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() !== "true") {
+    throw new Error("Shared Sportradar key requires confirmed Soccer product usage; set SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED=true only after checking provider reporting");
+  }
   if (accessLevel === "trial" && maxCallsPer30Days > 800) {
     throw new Error("Soccer trial internal budget must not exceed 800 calls per rolling 30 days");
   }
