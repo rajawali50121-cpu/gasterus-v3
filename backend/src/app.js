@@ -27,6 +27,7 @@ import { totoMarketsHealth, totoMarketsDetail, simpleHealth } from './health-che
 import { requestMemberPasswordReset, resetMemberPasswordByToken } from './password-reset.js';
 import { casinoProviders, casinoGames, casinoPassthrough, casinoRapidApiStatus, diagnoseCasinoUpstream, launchCasinoGame } from './casino-rapidapi.js';
 import { processBetnexCallback, recordBetnexCallbackLog } from './casino-wallet.js';
+import { readPublicSportsbookSnapshot } from './sportsbook-next/public-feed.js';
 
 const startedAt=Date.now();const metrics={requests:0,errors:0,rateLimited:0,latencyTotal:0};
 const route=(method,pattern,handler,options={})=>({method,pattern,handler,...options});
@@ -48,6 +49,11 @@ add('GET',new RegExp('^/api/health/toto-markets/detail$'),totoMarketsDetail);
 add('GET',new RegExp('^/api/health/simple$'),simpleHealth);
 add('GET',/^\/healthz$/,async({res})=>{let healthy=false;try{const raw=await redis.get(config.workerHeartbeatKey);healthy=isWorkerHeartbeatFresh(raw,{staleAfterSeconds:Math.max(config.workerHeartbeatMaxAgeSeconds*2,120)});}catch{healthy=false;}ok(res,{status:healthy?'ok':'degraded'},healthy?200:503);});
 
+add('GET',/^\/api\/public\/sportsbook\/v2\/events$/,async({req,res})=>{
+  await rateLimit(req,'sportsbook-v2-public-feed',60,60);
+  const snapshot=await readPublicSportsbookSnapshot({redis});
+  ok(res,{...snapshot,betAcceptanceEnabled:false});
+});
 add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
   await memberSession(req);
   await rateLimit(req,'sportsbook-v2-feed',120,60);

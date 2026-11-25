@@ -40,7 +40,7 @@ function renderEvent(event){
 async function load(){
   refreshButton.disabled=true;setStatus("loading","Memeriksa feed");
   try{
-    const response=await fetch("/api/member/sportsbook/v2/events",{credentials:"same-origin",headers:{accept:"application/json"}});
+    const response=await fetch("/api/public/sportsbook/v2/events",{credentials:"same-origin",headers:{accept:"application/json"}});
     const payload=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(payload?.error?.message||payload?.message||"Feed belum tersedia.");
     const snapshot=payload.data||payload;
