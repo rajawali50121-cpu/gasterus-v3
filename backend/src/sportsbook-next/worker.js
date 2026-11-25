@@ -6,6 +6,7 @@ import { logger } from "../logger.js";
 import { loadSportsbookConfig } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
 import { normalizeDailySportEventMarkets, normalizeEventMarkets, filterPrematchEvents, isPersistableDiscoverySnapshot, persistDiscoverySnapshotIfComplete } from "./normalize.js";
+import { aggregatePaginationMeta } from "./pagination.js";
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot } from "./repository.js";
@@ -81,6 +82,7 @@ async function runCycle(config, client) {
 
   client.cycleCalls = 0;
   const events = new Map();
+  const paginationFeeds = [];
   const errors = [];
   let quotaLimited = false;
   let quotaReason = null;
@@ -100,7 +102,8 @@ async function runCycle(config, client) {
           const rows = normalizeDailySportEventMarkets(result.body, sportId);
           const filtered = filterPrematchEvents(rows);
           for (const event of filtered.events) events.set(event.id, event);
-          client.lastPaginationMeta = result.meta || { truncated: false, reportedTotal: null, fetched: rows.length, pages: 1 };
+          const pagination = result.meta || { truncated: false, reportedTotal: null, fetched: rows.length, pages: 1 };
+          paginationFeeds.push({ sportId, date, ...pagination });
           client.lastFiltered = filtered.filtered;
         } catch (error) {
           if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
@@ -116,6 +119,7 @@ async function runCycle(config, client) {
     }
 
     const pricedEvents = [...events.values()];
+    const pagination = aggregatePaginationMeta(paginationFeeds);
 
     const snapshot = {
       schemaVersion: 1,
@@ -123,7 +127,7 @@ async function runCycle(config, client) {
       fetchedAt: new Date().toISOString(),
       complete: isPersistableDiscoverySnapshot({
         errors, quotaLimited, budgetLimited,
-        truncated: client.lastPaginationMeta?.truncated === true,
+        truncated: pagination.truncated,
         events: pricedEvents
       }),
       emptyFeed: pricedEvents.length === 0,
@@ -133,9 +137,9 @@ async function runCycle(config, client) {
       quotaDetails,
       budgetLimited,
       coverage,
-      truncated: client.lastPaginationMeta?.truncated === true,
-      totalReported: client.lastPaginationMeta?.reportedTotal ?? null,
-      pagination: client.lastPaginationMeta || null,
+      truncated: pagination.truncated,
+      totalReported: pagination.reportedTotal,
+      pagination,
       filtered: client.lastFiltered || { started: 0, invalidScheduled: 0, liveMarkets: 0 },
       events: pricedEvents,
       errors
