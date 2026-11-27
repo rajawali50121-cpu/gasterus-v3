@@ -28,7 +28,7 @@ import { requestMemberPasswordReset, resetMemberPasswordByToken } from './passwo
 import { casinoProviders, casinoGames, casinoPassthrough, casinoRapidApiStatus, diagnoseCasinoUpstream, launchCasinoGame } from './casino-rapidapi.js';
 import { processBetnexCallback, recordBetnexCallbackLog } from './casino-wallet.js';
 import { readPublicSportsbookSnapshot } from './sportsbook-next/public-feed.js';
-import { createSportsbookTicket, getSportsbookBetAcceptanceReadiness } from './sportsbook-next/betting-service.js';
+import { createSportsbookTicket, getSportsbookBetAcceptanceReadiness, listMemberSportsbookTickets } from './sportsbook-next/betting-service.js';
 
 const startedAt=Date.now();const metrics={requests:0,errors:0,rateLimited:0,latencyTotal:0};
 const route=(method,pattern,handler,options={})=>({method,pattern,handler,...options});
@@ -83,6 +83,12 @@ add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
 add('GET',/^\/api\/member\/sportsbook\/v2\/eligibility$/,async({req,res})=>{
   await memberSession(req);
   ok(res,await getSportsbookBetAcceptanceReadiness({redis}));
+});
+add('GET',/^\/api\/member\/sportsbook\/v2\/tickets$/,async({req,res,url})=>{
+  const member=await memberSession(req);
+  const limit=asInt(url.searchParams.get('limit'),20,1,100);
+  const offset=asInt(url.searchParams.get('offset'),0,0,1000000);
+  ok(res,await listMemberSportsbookTickets(member.userId,{limit,offset}));
 });
 add('POST',/^\/api\/member\/sportsbook\/v2\/tickets$/,async({req,res,ip})=>{
   const member=await memberSession(req);
