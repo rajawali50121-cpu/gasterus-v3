@@ -331,13 +331,13 @@ test("Soccer v4 rejects a polling cadence that exceeds remaining rolling quota",
     SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true",
     SPORTRADAR_SOCCER_POLL_MINUTES: "60"
   }), /quota budget is insufficient/);
-  const config = loadSoccerV4Config({
+  assert.throws(() => loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
     SPORTRADAR_SOCCER_API_KEY: "test-key",
-    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
+    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
     SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true",
     SPORTRADAR_SOCCER_POLL_MINUTES: "90"
-  });
+  }), /exactly 60 minutes/);
   assert.equal(config.pollIntervalMs, 90 * 60 * 1000);
 });
