@@ -124,7 +124,8 @@ test("public feed marks only an exact verified full-time 1X2 mapping as bettable
   }];
   const result = await readPublicSportsbookSnapshot({
     redis: redisWith(snapshot), now,
-    loadMappings: async () => ({ rows })
+    loadMappings: async () => ({ rows }),
+    loadVerifiedSchedules: async () => ({ rows: [{ provider_event_id: "sr:sport_event:123" }] })
   });
   assert.equal(result.events[0].markets[0].bettable, true);
   assert.equal(result.events[0].markets[0].books[0].outcomes[0].bettable, true);
