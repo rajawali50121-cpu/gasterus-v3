@@ -49,7 +49,7 @@ Before enabling bets, verify all of the following from the provider account dash
 - Record the current rolling 30-day usage separately for each product and set the matching baseline-confirmed flag only after checking provider reporting.
 - Change Log is disabled. Do not set `SPORTRADAR_CHANGELOG_ENABLED=true`; code intentionally ignores that flag. This removes Change Log polling and per-event refresh calls from this worker. Since bulk snapshots remain on a 150-minute cadence, betting must remain disabled until synchronous provider price/market-status revalidation at ticket placement is implemented and tested; stored snapshot status alone cannot prove current provider status.
 - Soccer v4 Daily Summaries polling is fixed at 60 minutes. The quota projection includes 720 current-date hourly requests plus one daily request for each configured historical lookback date (default seven days, 930 calls/30 days before pagination). Pagination can require additional calls; Redis quota reservation remains authoritative.
-- Daily Schedules are not polled separately and their timestamp is not a bet-acceptance gate. Daily Sport Event Markets is polled every 150 minutes, with every page fetched until the provider reports completion (page size 50; runtime rolling quota reservation counts each page). The minimum quota projection assumes one page per cycle plus 90 daily discovery calls; extra pages increase actual usage and can exhaust the provider quota. The calculator does not assume two pages or a fixed event count.
+- Daily Schedules are not polled separately and their timestamp is not a bet-acceptance gate. Daily Sport Event Markets is polled every 150 minutes, with every page fetched until the provider reports completion (page size 50; no artificial per-cycle page cap; runtime rolling quota reservation counts every page). The minimum quota projection assumes one page per market cycle plus 90 daily discovery calls; extra pages increase actual usage and can exhaust the provider quota. The calculator does not assume two pages or a fixed event count. Snapshot telemetry counts both market pages and discovery requests.
 - Configure explicit positive maximum stake and maximum payout.
 - The Soccer result worker heartbeat and settlement worker heartbeat/status must be fresh and healthy.
 - At least one full-time Soccer 1X2 provider mapping must be reviewed against actual live provider payloads and enabled as `VERIFIED`.
@@ -70,7 +70,7 @@ The server rejects:
 - missing, disabled, pending, ambiguous, or non-verified mappings;
 - unknown provider outcome types;
 - non-full-time markets;
-- stale, changed, removed, suspended, live, started, or near-kickoff prices;
+- changed, removed, suspended, live, started, or near-kickoff prices;
 - unsupported settlement rules.
 
 Asian Handicap, totals, Draw No Bet, half-time, player props and other sports remain display-only until their grading, void, push, correction and regression tests are implemented.
