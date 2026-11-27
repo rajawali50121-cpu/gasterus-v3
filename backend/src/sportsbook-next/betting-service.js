@@ -528,6 +528,7 @@ export async function listMemberSportsbookTickets(memberId, { limit = 20, offset
   const result = await query(`
     SELECT t.id,t.invoice,t.stake,t.total_odds::text AS total_odds,
            t.potential_payout,t.status,t.accepted_at,t.settled_at,
+           t.review_required,t.review_reason,
            COALESCE(jsonb_agg(jsonb_build_object(
              'eventId',l.provider_event_id,
              'home',e.home_name,
