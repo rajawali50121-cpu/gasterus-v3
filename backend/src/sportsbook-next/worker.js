@@ -6,7 +6,7 @@ import { logger } from "../logger.js";
 import { loadSportsbookConfig, isSportradarOddsEnabled } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
 import { normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normalize.js";
-import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
+import { getChangedSportEventIds, shouldReconcileChangeLog } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 import { persistSportsbookSnapshot, confirmSportsbookPricesThrough } from "./repository.js";
 import { setSportsbookHalt, getSportsbookHalt, clearSportsbookHalt } from "./halt.js";
@@ -152,8 +152,6 @@ async function runCycle(config, client) {
       : { skipped: true, reason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE")) };
     if (snapshot.complete) {
       await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
-      // Initialize only once. Only a successful Change Log response may advance this cursor.
-      await initializeChangeLogBaseline(redis, CHANGE_LOG_LAST_SUCCESS_KEY, Date.now());
     }
     await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.receivedAt, complete: snapshot.complete, quotaLimited, quotaReason, quotaDetails, budgetLimited, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     await redis.set(HEARTBEAT_KEY, snapshot.receivedAt, { EX: 600 });
