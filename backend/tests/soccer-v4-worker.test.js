@@ -198,6 +198,15 @@ test("Soccer result date rotation skips a just-polled oldest date until the next
 });
 
 
+test("Soccer result polling is hourly for today and daily for historical dates", () => {
+  const now = Date.parse("2026-11-28T12:00:00.000Z");
+  const dates = ["2026-11-26", "2026-11-28"];
+  const interval = date => date === "2026-11-28" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-26": now - 23 * 60 * 60 * 1000, "2026-11-28": now - 30 * 60 * 1000 }, now, 60 * 60 * 1000, {}, interval), null);
+  assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-26": now - 24 * 60 * 60 * 1000, "2026-11-28": now - 30 * 60 * 1000 }, now, 60 * 60 * 1000, {}, interval), "2026-11-26");
+  assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-26": now - 24 * 60 * 60 * 1000, "2026-11-28": now - 60 * 60 * 1000 }, now, 60 * 60 * 1000, {}, interval), "2026-11-28");
+});
+
 test("Soccer result buffer excludes kickoffs that have not passed the configured buffer", () => {
   const groups = buildSoccerResultCandidateGroups([
     resultEvent("2026-11-27T10:00:00.000Z", { resultStatus: "unknown" })
