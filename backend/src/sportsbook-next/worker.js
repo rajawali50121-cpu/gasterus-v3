@@ -200,8 +200,8 @@ async function runCycle(config, client) {
       if (quotaLimited || budgetLimited) break;
     }
 
-    // Daily Schedules run on their own hourly cadence; market discovery must
-    // not delay schedule corrections behind the 150-minute odds refresh.
+    // Daily Schedules are not polled separately; event metadata and prices
+    // are ingested together from the complete Daily Sport Event Markets feed.
     const scheduleSync = { rows: [], status: [] };
     // Keep the market-page count while discovery runs so callsThisCycle reports
     // every reserved provider request, not just the final discovery phase.
