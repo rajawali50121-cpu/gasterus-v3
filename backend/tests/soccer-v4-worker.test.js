@@ -168,7 +168,7 @@ test("Soccer result candidates outside the configured lookback are skipped for m
   assert.deepEqual(groups.manualReviewEventIds, ["sr:sport_event:manual-review"]);
 });
 
-test("Soccer ended status is not a verified final result; invalid provider timestamps are not final", () => {
+test("Soccer ended remains pending while provider-confirmed closed is final without generated_at", () => {
   const groups = buildSoccerResultCandidateGroups([
     resultEvent("2026-11-26T08:00:00.000Z", {
       resultStatus: "ended", resultVerified: true,
@@ -180,7 +180,7 @@ test("Soccer ended status is not a verified final result; invalid provider times
     })
   ], { now: RESULT_NOW });
   assert.deepEqual(groups.dates, ["2026-11-26"]);
-  assert.equal(groups.candidateCount, 2);
+  assert.equal(groups.candidateCount, 1);
 });
 
 test("Soccer result date rotation skips a just-polled oldest date until the next interval", () => {
