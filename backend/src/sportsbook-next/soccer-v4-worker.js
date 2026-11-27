@@ -46,7 +46,7 @@ async function runCycle(config, client) {
         manualReviewEvents: candidateResult.manualReviewEvents
       };
       await redis.set(STATUS_KEY, JSON.stringify(status), { EX: 30 * 24 * 60 * 60 });
-      await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
+      await redis.set(HEARTBEAT_KEY, completedAt, { EX: heartbeatTtlSeconds });
       return status;
     }
 
@@ -88,7 +88,7 @@ async function runCycle(config, client) {
       lastModified: response.metadata.lastModified
     };
     await redis.set(STATUS_KEY, JSON.stringify(status), { EX: 30 * 24 * 60 * 60 });
-    await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
+    await redis.set(HEARTBEAT_KEY, completedAt, { EX: heartbeatTtlSeconds });
     return status;
   } catch (error) {
     await redis.set(STATUS_KEY, JSON.stringify({
@@ -112,6 +112,7 @@ async function main() {
     return;
   }
   await connectRedis();
+  const heartbeatTtlSeconds = Math.ceil(Math.max(config.pollIntervalMs * 3, 3 * 60 * 60 * 1000) / 1000);
   const client = new SoccerV4Client(config, {
     beforeRequest: async () => {
       if (client.cycleCalls >= config.maxCallsPerCycle) {
