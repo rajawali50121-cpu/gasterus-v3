@@ -36,13 +36,15 @@ async function runCycle(config, client) {
     );
     if (!date) {
       const completedAt = new Date().toISOString();
-      await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
-      return {
-        skipped: "no Soccer result date is due", dates: 0, calls: 0,
-        candidates: candidateResult.candidateCount,
+      const status = {
+        attemptedAt: completedAt, skipped: "no Soccer result date is due",
+        dates: 0, calls: 0, candidates: candidateResult.candidateCount,
         manualReviewRequired: candidateResult.manualReviewCount,
         manualReviewEventIds: candidateResult.manualReviewEventIds
       };
+      await redis.set(STATUS_KEY, JSON.stringify(status), { EX: 30 * 24 * 60 * 60 });
+      await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
+      return status;
     }
 
     const start = Number(await redis.get(PAGE_CURSOR_PREFIX + date) || 0);
