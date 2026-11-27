@@ -11,6 +11,7 @@ const SOCCER_STATUS_KEY = "sportsbook:soccer-v4:status:v1";
 const SOCCER_HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
 const SETTLEMENT_STATUS_KEY = "sportsbook:settlement:status:v1";
 const SETTLEMENT_HEARTBEAT_KEY = "sportsbook:settlement:heartbeat:v1";
+const KICKOFF_CUTOFF_MINUTES = 5;
 const ODDS_SCALE = 1_000_000n;
 const MAX_LEGS = 10;
 const PROVIDER_PRODUCT = "oddscomparison-prematch-v2";
