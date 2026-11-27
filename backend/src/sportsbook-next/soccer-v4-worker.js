@@ -6,7 +6,7 @@ import { logger } from "../logger.js";
 import { loadSoccerV4Config } from "./soccer-v4-config.js";
 import { SoccerV4Client, getSoccerNextPageStart } from "./soccer-v4-client.js";
 import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown, selectSoccerV4DueDate } from "./soccer-v4-quota.js";
-import { normalizeSoccerResults } from "./results.js";
+import { normalizeSoccerResults, normalizeSportEventId } from "./results.js";
 import { listResultCandidateDates, persistSoccerResultRevisions, selectOldestDueSoccerResultDate } from "./results-repository.js";
 
 const LOCK_KEY = "sportsbook:soccer-v4:poll-lock:v1";
@@ -28,11 +28,13 @@ async function runCycle(config, client) {
       maxLookbackDays: Number(process.env.SOCCER_V4_MAX_LOOKBACK_DAYS ?? 7)
     });
     const lastPolls = {};
+    const cursors = {};
     for (const candidateDate of candidateResult.dates) {
       lastPolls[candidateDate] = Number(await redis.get(LAST_SUCCESS_PREFIX + candidateDate) || 0);
+      cursors[candidateDate] = Number(await redis.get(PAGE_CURSOR_PREFIX + candidateDate) || 0);
     }
     const date = selectOldestDueSoccerResultDate(
-      candidateResult.dates, lastPolls, Date.now(), config.pollIntervalMs
+      candidateResult.dates, lastPolls, Date.now(), config.pollIntervalMs, cursors
     );
     if (!date) {
       const completedAt = new Date().toISOString();
@@ -51,12 +53,21 @@ async function runCycle(config, client) {
     const limit = 200;
     const response = await client.getDailySummaries(date, { start, limit });
     const receivedAt = new Date().toISOString();
-    const results = normalizeSoccerResults(response.body, receivedAt, response.metadata.lastModified);
-    const nextStart = getSoccerNextPageStart({ start, limit, returned: results.length, maxResults: response.metadata.maxResults });
+    const results = normalizeSoccerResults(response.body, receivedAt, response.metadata.lastModified)
+      .map(result => ({ ...result, eventId: normalizeSportEventId(result.eventId) }))
+      .filter(result => result.eventId !== null);
+    const nextStart = getSoccerNextPageStart({
+      start, limit,
+      returned: response.metadata.pageResultCount ?? response.body.summaries.length,
+      maxResults: response.metadata.maxResults,
+      resultCountHeader: response.metadata.resultCountHeader
+    });
     const persisted = await persistSoccerResultRevisions(results);
-    await redis.set(PAGE_CURSOR_PREFIX + date, String(nextStart), { EX: 3 * 24 * 60 * 60 });
+    await redis.set(PAGE_CURSOR_PREFIX + date, String(nextStart), { EX: 7 * 24 * 60 * 60 });
     const completedAt = new Date().toISOString();
-    await redis.set(LAST_SUCCESS_PREFIX + date, String(Date.now()), { EX: 3 * 24 * 60 * 60 });
+    if (nextStart === 0) {
+      await redis.set(LAST_SUCCESS_PREFIX + date, String(Date.now()), { EX: 7 * 24 * 60 * 60 });
+    }
     const status = {
       attemptedAt: completedAt, cycleComplete: true, dateComplete: nextStart === 0, date, dates: 1,
       candidates: candidateResult.candidateCount, manualReviewRequired: candidateResult.manualReviewCount,
