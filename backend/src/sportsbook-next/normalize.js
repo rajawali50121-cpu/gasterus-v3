@@ -93,7 +93,11 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
       }
     }
     const name = market.name ?? marketId;
-    return [{ id: marketId, key: `${marketId}|${name}`, name, live: market.is_live === true, books, removedBooks }];
+    return [{
+      id: marketId, key: `${marketId}|${name}`, name,
+      specifiers: market.specifiers ?? null,
+      live: market.is_live === true, books, removedBooks
+    }];
   });
   return {
     schemaVersion: 1,
