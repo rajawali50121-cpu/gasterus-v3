@@ -212,10 +212,8 @@ async function loadBettablePrice(client, leg, nowMs) {
         AND pm.provider_market_name = m.market_name
         AND pm.mapping_status = 'VERIFIED'
         AND pm.enabled = TRUE
-        AND (
-          pm.provider_definition->>'specifiers' IS NULL
-          OR pm.provider_definition->>'specifiers' = m.provider_payload->>'specifiers'
-        )
+        AND COALESCE(pm.provider_definition->>'specifiers', '') =
+            COALESCE(m.provider_payload->>'specifiers', '')
     ) mapped ON TRUE
     WHERE e.provider_event_id = $1
       AND m.provider_market_key = $2
@@ -226,10 +224,10 @@ async function loadBettablePrice(client, leg, nowMs) {
     leg.providerEventId, leg.providerMarketKey, leg.providerBookId,
     leg.providerSelectionKey, PROVIDER_PRODUCT
   ]);
-  assert(result.rows.length === 1, 409,
+  assert(result.rows.length >= 1, 409,
     "Harga pilihan sudah berubah atau tidak tersedia. Muat ulang odds.", "SPORTSBOOK_PRICE_UNAVAILABLE");
   const row = result.rows[0];
-  if (Number(row.mapping_count || 0) > 1) {
+  if (Number(row.mapping_count || 0) > 1 || result.rows.length > 1) {
     throw new AppError(409, "Mapping market ambigu; taruhan ditahan untuk pemeriksaan operator.", "SPORTSBOOK_MARKET_MAPPING_AMBIGUOUS");
   }
   assert(row.market_code && row.mapping_status === "VERIFIED", 409,
@@ -251,13 +249,15 @@ async function loadBettablePrice(client, leg, nowMs) {
     "Jadwal pertandingan sudah dimulai atau tidak valid.", "SPORTSBOOK_EVENT_STARTED");
   assert(row.change_log_verified_at, 409,
     "Harga belum dikonfirmasi oleh Change Log Sportradar.", "SPORTSBOOK_PRICE_NOT_CHANGELOG_VERIFIED");
+  assert(row.received_at, 409,
+    "Waktu penerimaan harga tidak tersedia.", "SPORTSBOOK_PRICE_RECEIPT_TIME_MISSING");
 
   const storedOddsMicros = decimalOddsToMicros(row.odds_decimal);
   assert(storedOddsMicros === leg.expectedOddsMicros, 409,
     "Harga odds berubah. Periksa harga terbaru sebelum mengirim tiket.", "SPORTSBOOK_PRICE_CHANGED");
   const priceCheck = evaluateOddsFreshness({
     snapshot: {
-      capturedAt: row.change_log_verified_at,
+      capturedAt: row.received_at,
       marketStatus: "open",
       eventStartsAt: row.scheduled_at,
       price: Number(row.odds_decimal)
