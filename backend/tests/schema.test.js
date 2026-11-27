@@ -5,6 +5,7 @@ const sportsbookTimestampSchema=await readFile(new URL('../migrations/043_sports
 const sportsbookSettlementSchema=await readFile(new URL('../migrations/044_sportsbook_v2_market_results_settlement.sql',import.meta.url),'utf8');
 const sportsbookResultReceiptSchema=await readFile(new URL('../migrations/045_sportsbook_v2_result_receipt_times.sql',import.meta.url),'utf8');
 const sportsbookBetAcceptanceSchema=await readFile(new URL('../migrations/046_sportsbook_v2_bet_acceptance.sql',import.meta.url),'utf8');
+const sportsbookCorrectionReviewSchema=await readFile(new URL('../migrations/047_sportsbook_v2_result_correction_review.sql',import.meta.url),'utf8');
 const sportsbookBettingService=await readFile(new URL('../src/sportsbook-next/betting-service.js',import.meta.url),'utf8');
 const sportsbookSettlementService=await readFile(new URL('../src/sportsbook-next/settlement-service.js',import.meta.url),'utf8');
 const sportsbookResultsRepository=await readFile(new URL('../src/sportsbook-next/results-repository.js',import.meta.url),'utf8');
@@ -54,6 +55,12 @@ test('sportsbook acceptance cannot start before settlement is explicitly enabled
 test('sportsbook settlement uses confirmed results, SKIP LOCKED and the existing double-entry ledger',()=>{
   for(const token of ['FOR UPDATE OF t SKIP LOCKED','evaluateSoccer1x2Leg','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','PAYOUT_RESERVE_RELEASE','postSystemTransfer','postTransfer','SPORTSBOOK_TICKET_SETTLED']) assert.ok(sportsbookSettlementService.includes(token),token);
   assert.ok(sportsbookBetAcceptanceSchema.includes('settlement_ledger_transaction_id'));
+});
+
+test('settled result corrections are quarantined for audited owner review',()=>{
+  for(const token of ['review_required','review_reason','review_detected_at','reviewed_at','reviewed_by','review_note']) assert.ok(sportsbookCorrectionReviewSchema.includes(token),token);
+  assert.doesNotMatch(sportsbookCorrectionReviewSchema,/\\bDROP\\s+TABLE\\b|\\bTRUNCATE\\b|\\bDELETE\\s+FROM\\b/i);
+  for(const token of ['PROVIDER_RESULT_CHANGED_AFTER_SETTLEMENT','resultPayloads','financiallyReconciled','SPORTSBOOK_RESULT_CORRECTION_REVIEWED']) assert.ok(sportsbookSettlementService.includes(token),token);
 });
 
 test('sportsbook result persistence allows optional provider time and records receipt time separately',()=>{
