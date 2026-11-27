@@ -3,6 +3,8 @@ const schema=await readFile(new URL('../migrations/001_platform.sql',import.meta
 const sportsbookSchema=await readFile(new URL('../migrations/042_sportsbook_v2_core.sql',import.meta.url),'utf8');
 const sportsbookTimestampSchema=await readFile(new URL('../migrations/043_sportsbook_v2_provider_timestamps.sql',import.meta.url),'utf8');
 const sportsbookSettlementSchema=await readFile(new URL('../migrations/044_sportsbook_v2_market_results_settlement.sql',import.meta.url),'utf8');
+const sportsbookBetAcceptanceSchema=await readFile(new URL('../migrations/046_sportsbook_v2_bet_acceptance.sql',import.meta.url),'utf8');
+const sportsbookBettingService=await readFile(new URL('../src/sportsbook-next/betting-service.js',import.meta.url),'utf8');
 const sportsbookResultsRepository=await readFile(new URL('../src/sportsbook-next/results-repository.js',import.meta.url),'utf8');
 const memberExperienceSchema=await readFile(new URL('../migrations/003_member_experience.sql',import.meta.url),'utf8');
 const lotterySchema=await readFile(new URL('../migrations/004_lottery_enterprise.sql',import.meta.url),'utf8');
@@ -30,5 +32,16 @@ test('money integrity schema reserves withdrawals and makes accounting history i
 test('sportsbook source timestamps remain distinct from ingestion time without destructive migration',()=>{for(const token of ['provider_generated_at','ALTER COLUMN source_updated_at DROP NOT NULL','sportsbook_v2_events','sportsbook_v2_markets'])assert.ok(sportsbookTimestampSchema.includes(token),token);assert.doesNotMatch(sportsbookTimestampSchema,/\bDROP\s+TABLE\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);});
 
 test('sportsbook market mapping, result and settlement revisions are additive and auditable',()=>{for(const token of ['sportsbook_v2_market_catalog','sportsbook_v2_provider_market_mappings','sportsbook_v2_event_result_revisions','sportsbook_v2_settlement_revisions','UNIQUE(ticket_id,revision_no)','ledger_transaction_id'])assert.ok(sportsbookSettlementSchema.includes(token),token);assert.doesNotMatch(sportsbookSettlementSchema,/\bDROP\s+TABLE\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);});
+
+test('sportsbook bet acceptance separates receipt time, change-log verification and immutable settlement mapping',()=>{
+  for(const token of ['received_at','change_log_verified_at','price_received_at','market_code','outcome_code','settlement_rule','mapping_version','ALTER COLUMN source_updated_at DROP NOT NULL']) assert.ok(sportsbookBetAcceptanceSchema.includes(token),token);
+  assert.doesNotMatch(sportsbookBetAcceptanceSchema,/\\bDROP\\s+TABLE\\b|\\bTRUNCATE\\b|\\bDELETE\\s+FROM\\b/i);
+});
+
+test('sportsbook ticket acceptance is gated by a fresh complete Change Log and uses the existing double-entry ledger',()=>{
+  for(const token of ['SPORTRADAR_CHANGELOG_ENABLED','SPORTRADAR_ACCESS_LEVEL','PRODUCTION_ENTITLEMENT_REQUIRED','CHANGE_LOG_WINDOW_STALE','change_log_verified_at','postTransfer','SPORTSBOOK_HOLD','enforceResponsiblePlay','requestFingerprint']) assert.ok(sportsbookBettingService.includes(token),token);
+  assert.ok(sportsbookBettingService.includes('SUPPORTED_MARKET_CODE'));
+  assert.ok(sportsbookBettingService.includes('SPORTSBOOK_SETTLEMENT_RULE_UNSUPPORTED'));
+});
 
 test('sportsbook result persistence deduplicates provider versions and never stores ingestion time as source time',()=>{assert.ok(sportsbookSettlementSchema.includes('sportsbook_v2_result_revisions_source_version_uq'));assert.ok(sportsbookResultsRepository.includes('ON CONFLICT (provider_event_id,result_source,provider_generated_at)'));assert.ok(sportsbookResultsRepository.includes('if (!result?.providerGeneratedAt) continue;'));});
