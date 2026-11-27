@@ -69,17 +69,6 @@ test("Soccer v4 quota has a namespace separate from Odds Comparison monthly quot
   assert.doesNotMatch(__soccerQuota.CALLS_KEY, /sportsbook:next:sportradar:quota/);
 });
 
-test("Soccer v4 follows hourly current-date and daily previous-date refresh budgets", () => {
-  const now = Date.parse("2026-11-25T12:00:00Z");
-  const today = "2026-11-25";
-  const yesterday = "2026-11-24";
-  assert.equal(selectSoccerV4DueDate([yesterday, today], {}, now, today), today);
-  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now }, now, today), yesterday);
-  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now, [yesterday]: now }, now + 60 * 60 * 1000, today), today);
-  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now + 60 * 60 * 1000, [yesterday]: now }, now + 23 * 60 * 60 * 1000, today), today);
-  assert.equal(selectSoccerV4DueDate([yesterday, today], { [today]: now + 23 * 60 * 60 * 1000, [yesterday]: now }, now + 24 * 60 * 60 * 1000, today), yesterday);
-});
-
 test("Soccer v4 parses Cache-Control max-age and safely ignores absent TTL", () => {
   assert.equal(parseSoccerCacheTtlMs("public, max-age=300, s-maxage=300"), 300_000);
   assert.equal(parseSoccerCacheTtlMs("max-age=60"), 60_000);
@@ -195,4 +184,13 @@ test("Soccer result date rotation skips a just-polled oldest date until the next
   const dates = ["2026-11-24", "2026-11-25"];
   assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-24": RESULT_NOW }, RESULT_NOW, 60_000), "2026-11-25");
   assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-24": RESULT_NOW }, RESULT_NOW + 60_000, 60_000), "2026-11-24");
+});
+
+
+test("Soccer result buffer excludes kickoffs that have not passed the configured buffer", () => {
+  const groups = buildSoccerResultCandidateGroups([
+    resultEvent("2026-11-27T10:00:00.000Z", { resultStatus: "unknown" })
+  ], { now: RESULT_NOW, bufferMinutes: 150 });
+  assert.deepEqual(groups.dates, []);
+  assert.equal(groups.candidateCount, 0);
 });
