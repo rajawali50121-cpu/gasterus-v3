@@ -259,35 +259,6 @@ async function runCycle(config, client) {
   }
 }
 
-async function runScheduleCycle(config, client) {
-  const token = randomUUID();
-  const lock = await redis.set(LOCK_KEY, token, { NX: true, PX: 30 * 60 * 1000 });
-  if (!lock) return { skipped: "another worker owns the poll lock" };
-  client.cycleCalls = 0;
-  try {
-    const result = await syncDailySchedules(config, client);
-    const completedAt = new Date().toISOString();
-    const complete = result.status.length > 0 && result.status.every(item => item.complete === true);
-    const status = {
-      attemptedAt: completedAt, complete, calls: client.cycleCalls,
-      rows: result.rows.length, dates: result.status
-    };
-    await redis.set(SCHEDULE_STATUS_KEY, JSON.stringify(status), { EX: 7 * 24 * 60 * 60 });
-    await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
-    return status;
-  } catch (error) {
-    await redis.set(SCHEDULE_STATUS_KEY, JSON.stringify({
-      attemptedAt: new Date().toISOString(), complete: false,
-      code: error?.code || "SPORTRADAR_SCHEDULE_SYNC_FAILED"
-    }), { EX: 7 * 24 * 60 * 60 }).catch(() => {});
-    throw error;
-  } finally {
-    await redis.eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", {
-      keys: [LOCK_KEY], arguments: [token]
-    });
-  }
-}
-
 async function main() {
   const config = loadSportsbookConfig();
   await connectRedis();
