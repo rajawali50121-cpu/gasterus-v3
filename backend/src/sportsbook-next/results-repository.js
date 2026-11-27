@@ -108,7 +108,7 @@ export function buildSoccerResultCandidateGroups(events, {
   };
 }
 
-export function selectOldestDueSoccerResultDate(dates, lastPolls = {}, now = Date.now(), intervalMs = 60 * 60 * 1000, cursors = {}) {
+export function selectOldestDueSoccerResultDate(dates, lastPolls = {}, now = Date.now(), intervalMs = 60 * 60 * 1000, cursors = {}, intervalForDate = null) {
   if (!Array.isArray(dates) || !lastPolls || typeof lastPolls !== "object" ||
       !Number.isFinite(now) || !Number.isFinite(intervalMs) || intervalMs < 0) {
     throw new TypeError("SOCCER_V4_RESULT_DATE_SELECTION_INVALID");
@@ -117,7 +117,9 @@ export function selectOldestDueSoccerResultDate(dates, lastPolls = {}, now = Dat
     const cursor = Number(cursors[date] || 0);
     if (cursor > 0) return true;
     const lastPoll = Number(lastPolls[date] || 0);
-    return !Number.isFinite(lastPoll) || lastPoll <= 0 || now - lastPoll >= intervalMs;
+    const dueInterval = typeof intervalForDate === "function" ? intervalForDate(date) : intervalMs;
+    return Number.isFinite(dueInterval) && dueInterval >= 0 &&
+      (!Number.isFinite(lastPoll) || lastPoll <= 0 || now - lastPoll >= dueInterval);
   }) ?? null;
 }
 
