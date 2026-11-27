@@ -23,6 +23,7 @@ end
 local hourlyWindow = tonumber(ARGV[4])
 local hourlyLimit = tonumber(ARGV[5])
 local monthlyLimit = tonumber(ARGV[6])
+local softLimit = tonumber(ARGV[7])
 local hourly = redis.call('ZCOUNT', KEYS[1], now - hourlyWindow, '+inf')
 local used = tonumber(baselineCount) + redis.call('ZCARD', KEYS[1])
 local oldest = redis.call('ZRANGEBYSCORE', KEYS[1], now - hourlyWindow, '+inf', 'WITHSCORES', 'LIMIT', 0, 1)
@@ -32,9 +33,10 @@ if #oldest >= 2 then
 end
 
 if hourlyLimit > 0 and hourly >= hourlyLimit then return {2, hourly, used, retryAfter} end
+if used >= softLimit then return {3, hourly, used, 0} end
 if used >= monthlyLimit then return {0, hourly, used, 0} end
 
-redis.call('ZADD', KEYS[1], now, ARGV[7])
+redis.call('ZADD', KEYS[1], now, ARGV[8])
 redis.call('EXPIRE', KEYS[1], 2678400)
 return {1, hourly + 1, used + 1, 0}
 `;
@@ -49,6 +51,7 @@ export async function reserveSportradarCall(redis, config, now = Date.now()) {
       String(HOUR_MS),
       String(config.maxCallsPerHour),
       String(config.maxCallsPer30Days),
+      String(Math.ceil(config.maxCallsPer30Days * 0.9)),
       randomUUID()
     ]
   });
