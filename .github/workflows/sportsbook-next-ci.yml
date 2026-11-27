@@ -7,6 +7,7 @@ on:
       - "backend/migrations/042_sportsbook_v2_core.sql"
       - "backend/migrations/043_sportsbook_v2_provider_timestamps.sql"
       - "backend/migrations/044_sportsbook_v2_market_results_settlement.sql"
+      - "backend/migrations/045_sportsbook_v2_result_receipt_times.sql"
       - "backend/tests/sportsbook-next-foundation.test.js"
       - "backend/tests/sportsbook-next-domain.test.js"
       - "backend/tests/soccer-v4-worker.test.js"
