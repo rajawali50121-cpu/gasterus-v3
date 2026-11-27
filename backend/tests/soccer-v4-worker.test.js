@@ -10,6 +10,8 @@ test("Soccer v4 is disabled by default and does not require a key or quota", () 
   const config = loadSoccerV4Config({});
   assert.equal(config.enabled, false);
   assert.equal(config.pollIntervalMs, 60 * 60 * 1000);
+  assert.equal(config.resultBufferMinutes, 150);
+  assert.equal(config.maxLookbackDays, 7);
   assert.equal(config.maxCallsPerCycle, 1);
 });
 
