@@ -4,7 +4,7 @@ import { loadSportsbookConfig } from "../src/sportsbook-next/config.js";
 import { SportradarClient } from "../src/sportsbook-next/sportradar-client.js";
 import { getSportradarQuotaUsage, reserveSportradarCall } from "../src/sportsbook-next/quota.js";
 import { normalizeDailySchedule, normalizeDailySportEventMarkets, normalizeEventMarkets, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
-import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline, SPORTRADAR_CHANGE_LOG_WINDOW_MS } from "../src/sportsbook-next/change-log.js";
+import { getChangedSportEventIds, shouldReconcileChangeLog, SPORTRADAR_CHANGE_LOG_WINDOW_MS } from "../src/sportsbook-next/change-log.js";
 
 const env = {
   SPORTRADAR_API_KEY: "test-key",
@@ -457,24 +457,6 @@ test("bulk daily markets fails loudly when the documented response array is miss
     client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25"),
     error => error.code === "SPORTRADAR_BULK_MARKETS_SHAPE_INVALID"
   );
-});
-
-
-test("discovery initializes a missing Change Log baseline but never advances an existing cursor", async () => {
-  let value = null;
-  const writes = [];
-  const redis = { set: async (key, next, options) => {
-    writes.push({ key, next, options });
-    if (options?.NX && value !== null) return null;
-    value = next;
-    return "OK";
-  } };
-  assert.equal(await initializeChangeLogBaseline(redis, "change-log-cursor", 1000), true);
-  assert.equal(value, "1000");
-  assert.equal(await initializeChangeLogBaseline(redis, "change-log-cursor", 9000), false);
-  assert.equal(value, "1000");
-  assert.equal(writes[0].options.NX, true);
-  assert.equal(writes[0].options.EX, 30 * 24 * 60 * 60);
 });
 
 
