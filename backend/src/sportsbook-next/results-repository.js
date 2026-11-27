@@ -1,5 +1,3 @@
-import { tx } from "./db.js";
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function validDate(value) {
@@ -68,6 +66,7 @@ export async function listResultCandidateDates({
       !Number.isInteger(maxLookbackDays) || maxLookbackDays < 1) {
     throw new TypeError("SOCCER_V4_RESULT_CANDIDATE_CONFIG_INVALID");
   }
+  const { tx } = await import("./db.js");
   return tx(async client => {
     const result = await client.query(`
       SELECT e.provider_event_id, e.scheduled_at,
