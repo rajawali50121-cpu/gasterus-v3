@@ -10,6 +10,8 @@ const betslip=document.querySelector("#betslip");
 const stakeInput=document.querySelector("#bet-stake");
 const submitBet=document.querySelector("#submit-bet");
 const betslipStatus=document.querySelector("#betslip-status");
+const ticketHistory=document.querySelector("#ticket-history");
+const refreshTickets=document.querySelector("#refresh-tickets");
 const selectedLegs=new Map();
 let betAcceptanceEnabled=false;
 
@@ -137,6 +139,39 @@ function renderEvent(event){
   card.append(markets);
   return card;
 }
+function renderTicket(ticket){
+  const card=el("article","ticket-card");
+  const header=el("div","ticket-head");
+  header.append(el("strong","",ticket.invoice));
+  const status=el("span",`ticket-status status-${String(ticket.status||"").toLowerCase()}`,ticket.status);
+  header.append(status);card.append(header);
+  card.append(el("div","ticket-meta",`Dipasang ${new Date(ticket.accepted_at).toLocaleString("id-ID")} · Taruhan ${money(Number(ticket.stake))}`));
+  card.append(el("div","ticket-meta",`Total odds ${Number(ticket.total_odds).toFixed(4)} · Potensi payout ${money(Number(ticket.potential_payout))}`));
+  for(const leg of (ticket.legs||[])){
+    const row=el("div","ticket-leg");
+    const teams=[leg.home,leg.away].filter(Boolean).join(" vs ")||leg.eventId;
+    row.append(el("strong","",teams));
+    row.append(el("span","",`${leg.selection||leg.outcomeType||"Pilihan"} · ${leg.market||"Market"} · ${Number(leg.acceptedOdds).toFixed(2)} · ${leg.resultStatus}`));
+    card.append(row);
+  }
+  return card;
+}
+async function loadTicketHistory(){
+  if(!localStorage.getItem("gasterus_token")){
+    ticketHistory.replaceChildren(el("p","betslip-empty","Login untuk melihat riwayat tiket sportsbook."));
+    return;
+  }
+  refreshTickets.disabled=true;
+  try{
+    const response=await api.get("/member/sportsbook/v2/tickets?limit=10");
+    const tickets=response.data?.tickets||[];
+    ticketHistory.replaceChildren();
+    if(!tickets.length)ticketHistory.append(el("p","betslip-empty","Belum ada tiket sportsbook."));
+    else tickets.forEach(ticket=>ticketHistory.append(renderTicket(ticket)));
+  }catch(error){
+    ticketHistory.replaceChildren(el("p","betslip-empty",error.message||"Riwayat tiket belum dapat dimuat."));
+  }finally{refreshTickets.disabled=false;}
+}
 async function submitTicket(){
   const summary=preview();
   if(!summary||!selectedLegs.size)return;
@@ -153,7 +188,7 @@ async function submitTicket(){
     });
     const ticket=response.data||response;
     betslipStatus.textContent=`Tiket ${ticket.invoice} diterima. Status: ${ticket.status}. Saldo setelah transaksi: ${money(ticket.balanceAfter)}.`;
-    selectedLegs.clear();renderBetslip();
+    selectedLegs.clear();renderBetslip();await loadTicketHistory();
   }catch(error){
     betslipStatus.textContent=error.message||"Taruhan ditolak. Muat ulang odds dan coba lagi.";
   }finally{
@@ -203,5 +238,7 @@ async function load(){
 stakeInput.addEventListener("input",renderBetslip);
 submitBet.addEventListener("click",submitTicket);
 refreshButton.addEventListener("click",load);
+refreshTickets.addEventListener("click",loadTicketHistory);
 renderBetslip();
 load();
+loadTicketHistory();
