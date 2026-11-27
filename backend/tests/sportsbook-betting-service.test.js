@@ -91,7 +91,7 @@ test("payout ceiling and invalid stake are enforced before ledger debit", () => 
     error => error.code === "SPORTSBOOK_STAKE_INVALID");
 });
 
-test("bet acceptance requires production entitlement and continuous complete Change Log coverage", async () => {
+test("bet acceptance requires production entitlement but not Change Log or hourly schedule verification", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -101,10 +101,9 @@ test("bet acceptance requires production entitlement and continuous complete Cha
   });
   assert.equal(readiness.enabled, true);
   assert.deepEqual(readiness.reasons, []);
-  assert.equal(readiness.lastChangeLogSuccessAt, new Date(now - 15_000).toISOString());
 });
 
-test("trial quota and an unverified Change Log window fail closed", async () => {
+test("trial entitlement fails closed; Change Log budget and reconciliation timestamps are not readiness gates", async () => {
   const now = 1_800_000_000_000;
   const trial = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -114,7 +113,6 @@ test("trial quota and an unverified Change Log window fail closed", async () => 
   });
   assert.equal(trial.enabled, false);
   assert.ok(trial.reasons.includes("PRODUCTION_ENTITLEMENT_REQUIRED"));
-  assert.ok(trial.reasons.includes("CHANGE_LOG_QUOTA_BUDGET_INSUFFICIENT"));
 
   const pending = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -122,11 +120,11 @@ test("trial quota and an unverified Change Log window fail closed", async () => 
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now, { refreshPending: true }), env: readyEnv, now
   });
-  assert.equal(pending.enabled, false);
-  assert.ok(pending.reasons.includes("SPORTSBOOK_RECONCILIATION_PENDING"));
+  assert.equal(pending.enabled, true);
+  assert.deepEqual(pending.reasons, []);
 });
 
-test("stale Change Log coverage blocks ticket acceptance", async () => {
+test("stale or absent Change Log timestamps do not block ticket acceptance", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -134,8 +132,8 @@ test("stale Change Log coverage blocks ticket acceptance", async () => {
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now, { lastSuccessAgeMs: 5 * 60 * 1000 + 1 }), env: readyEnv, now
   });
-  assert.equal(readiness.enabled, false);
-  assert.ok(readiness.reasons.includes("CHANGE_LOG_WINDOW_STALE"));
+  assert.equal(readiness.enabled, true);
+  assert.deepEqual(readiness.reasons, []);
 });
 
 test("no approved verified full-time mapping keeps betting disabled", async () => {
@@ -203,7 +201,7 @@ test("unfunded sportsbook risk reserve blocks bet acceptance before any ticket i
   assert.equal(readiness.requiredRiskReserveBalance, 10_000_000);
 });
 
-test("stale or missing Daily Schedules verification blocks ticket acceptance", async () => {
+test("missing Daily Schedules verification does not block ticket acceptance", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -211,6 +209,6 @@ test("stale or missing Daily Schedules verification blocks ticket acceptance", a
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: readyEnv, now
   });
-  assert.equal(readiness.enabled, false);
-  assert.ok(readiness.reasons.includes("NO_FRESH_DAILY_SCHEDULES"));
+  assert.equal(readiness.enabled, true);
+  assert.deepEqual(readiness.reasons, []);
 });
