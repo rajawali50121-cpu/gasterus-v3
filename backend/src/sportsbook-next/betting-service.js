@@ -161,10 +161,10 @@ export async function getSportsbookBetAcceptanceReadiness({
     ? Math.ceil((30 * 24 * 60 * 60) / pollSeconds) + cycleCalls
     : Number.POSITIVE_INFINITY;
   const minimumScheduleCalls = cadenceValid
-    ? Math.ceil((30 * 24 * 60) / schedulePollMinutes) * sportCount * dateCount
+    ? Math.ceil((30 * 24 * 60) / schedulePollMinutes) * sportCount * dateCount * 2
     : Number.POSITIVE_INFINITY;
   const minimumMarketCalls = cadenceValid
-    ? Math.ceil((30 * 24 * 60) / marketPollMinutes) * sportCount * dateCount
+    ? Math.ceil((30 * 24 * 60) / marketPollMinutes) * sportCount * dateCount * 2
     : Number.POSITIVE_INFINITY;
   const minimumDiscoveryCalls = 90;
   const minimumCalls = minimumChangeLogCalls + minimumScheduleCalls + minimumMarketCalls + minimumDiscoveryCalls;
