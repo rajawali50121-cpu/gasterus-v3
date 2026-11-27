@@ -4,6 +4,7 @@ import { loadSoccerV4Config } from "../src/sportsbook-next/soccer-v4-config.js";
 import { SoccerV4Client, parseSoccerCacheTtlMs, getSoccerNextPageStart } from "../src/sportsbook-next/soccer-v4-client.js";
 import { __soccerQuota, reserveSoccerV4Call } from "../src/sportsbook-next/soccer-v4-quota.js";
 import { buildSoccerResultCandidateGroups, selectOldestDueSoccerResultDate } from "../src/sportsbook-next/results-repository.js";
+import { normalizeSoccerResult, normalizeSoccerResults, normalizeSportEventId } from "../src/sportsbook-next/results.js";
 
 test("Soccer v4 is disabled by default and does not require a key or quota", () => {
   const config = loadSoccerV4Config({});
@@ -125,7 +126,7 @@ test("Soccer v4 paginates up to 200 events and does not silently drop later page
 
 
 const RESULT_NOW = Date.parse("2026-11-27T12:00:00.000Z");
-const resultEvent = (scheduledAt, result = {}) => ({ scheduledAt, ...result });
+const resultEvent = (scheduledAt, result = {}) => ({ providerEventId: "sr:sport_event:" + Date.parse(scheduledAt), scheduledAt, ...result });
 
 test("Soccer result candidates skip a date when every tracked event has verified closed results", () => {
   const groups = buildSoccerResultCandidateGroups([
@@ -207,4 +208,91 @@ test("Soccer cancelled status is retained as a candidate status, not treated as 
   ], { now: RESULT_NOW });
   assert.deepEqual(groups.dates, ["2026-11-26"]);
   assert.equal(groups.candidateCount, 1);
+});
+
+
+test("Soccer 381-event date paginates 200 then 181 and completes from X-Result headers", () => {
+  const firstNext = getSoccerNextPageStart({
+    start: 0, limit: 200, returned: 200, maxResults: 381, resultCountHeader: 200
+  });
+  assert.equal(firstNext, 200);
+  const secondNext = getSoccerNextPageStart({
+    start: firstNext, limit: 200, returned: 181, maxResults: 381, resultCountHeader: 381
+  });
+  assert.equal(secondNext, 0);
+  assert.equal(selectOldestDueSoccerResultDate(
+    ["2026-11-24", "2026-11-25"],
+    { "2026-11-24": RESULT_NOW, "2026-11-25": RESULT_NOW },
+    RESULT_NOW, 60 * 60 * 1000,
+    { "2026-11-24": firstNext }
+  ), "2026-11-24");
+});
+
+test("Soccer postponed event with replaced_by is excluded and replacement ID is retained for review", () => {
+  const normalized = normalizeSoccerResult({
+    sport_event: { id: "sr:match:7001", replaced_by: { id: "sr:sport_event:8001" } },
+    sport_event_status: { status: "postponed" }
+  }, { generatedAt: "2026-11-26T12:00:00Z", receivedAt: "2026-11-27T12:00:00Z" });
+  assert.equal(normalized.eventId, "sr:sport_event:7001");
+  assert.equal(normalized.replacedBy, "sr:sport_event:8001");
+  assert.equal(normalized.reviewRequired, true);
+  const groups = buildSoccerResultCandidateGroups([
+    resultEvent("2026-11-26T08:00:00Z", {
+      resultStatus: "postponed", providerPayload: normalized.payload
+    })
+  ], { now: RESULT_NOW });
+  assert.deepEqual(groups.dates, []);
+  assert.deepEqual(groups.manualReviewEvents, [{
+    eventId: "sr:sport_event:7001",
+    replacedBy: "sr:sport_event:8001",
+    reason: "postponed_replaced"
+  }]);
+});
+
+test("Soccer suspended remains a result candidate", () => {
+  const groups = buildSoccerResultCandidateGroups([
+    resultEvent("2026-11-26T08:00:00Z", { resultStatus: "suspended" })
+  ], { now: RESULT_NOW });
+  assert.deepEqual(groups.dates, ["2026-11-26"]);
+});
+
+test("Soccer cancelled is final with no score and is not settlement-verified", () => {
+  const result = normalizeSoccerResult({
+    sport_event: { id: "sr:sport_event:9001" },
+    sport_event_status: { status: "cancelled", home_score: 2, away_score: 1 }
+  }, { generatedAt: "2026-11-26T12:00:00Z", receivedAt: "2026-11-27T12:00:00Z" });
+  assert.equal(result.isFinal, true);
+  assert.equal(result.verified, false);
+  assert.equal(result.homeScore, null);
+  assert.equal(result.awayScore, null);
+  const groups = buildSoccerResultCandidateGroups([
+    resultEvent("2026-11-26T08:00:00Z", {
+      resultStatus: "cancelled", resultVerified: false,
+      providerGeneratedAt: "2026-11-26T12:00:00Z"
+    })
+  ], { now: RESULT_NOW });
+  assert.deepEqual(groups.dates, []);
+});
+
+test("Soccer abandoned is excluded from polling and flagged for manual review", () => {
+  const groups = buildSoccerResultCandidateGroups([
+    resultEvent("2026-11-26T08:00:00Z", { resultStatus: "abandoned" })
+  ], { now: RESULT_NOW });
+  assert.deepEqual(groups.dates, []);
+  assert.equal(groups.manualReviewEvents[0].reason, "abandoned");
+});
+
+test("Soccer match and sport_event prefixes normalize to one ID and duplicate summaries", () => {
+  assert.equal(normalizeSportEventId("sr:match:123"), "sr:sport_event:123");
+  assert.equal(normalizeSportEventId("sr:sport_event:123"), "sr:sport_event:123");
+  assert.equal(normalizeSportEventId("other:match:123"), null);
+  const results = normalizeSoccerResults({
+    generated_at: "2026-11-26T12:00:00Z",
+    summaries: [
+      { sport_event: { id: "sr:match:123" }, sport_event_status: { status: "ended" } },
+      { sport_event: { id: "sr:sport_event:123" }, sport_event_status: { status: "closed", home_score: 1, away_score: 0 } }
+    ]
+  }, "2026-11-27T12:00:00Z");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].eventId, "sr:sport_event:123");
 });
