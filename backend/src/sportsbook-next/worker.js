@@ -90,13 +90,14 @@ async function refreshCoverage(config, client, { allowFetch = true } = {}) {
 export async function syncDailySchedules(config, client, {
   redisClient = redis,
   persistSchedules = persistSportsbookSchedules,
-  now = () => new Date().toISOString()
+  now = () => new Date().toISOString(),
+  dateForDay = utcDate
 } = {}) {
   const rows = [];
   const status = [];
   for (const sportId of config.sportIds) {
     for (let day = 0; day <= config.daysAhead; day += 1) {
-      const date = utcDate(day);
+      const date = dateForDay(day);
       const completeKey = `${SCHEDULE_COMPLETE_PREFIX}${sportId}:${date}`;
       if (await redisClient.get(completeKey)) continue;
       if (client.cycleCalls >= config.maxCallsPerCycle) {
