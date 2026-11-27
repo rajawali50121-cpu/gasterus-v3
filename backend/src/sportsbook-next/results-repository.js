@@ -65,7 +65,7 @@ export function buildSoccerResultCandidateGroups(events, {
       const state = String(value.resultStatus ?? value.result_status ?? value.event_status ?? "").toLowerCase();
       const providerAt = validDate(value.providerGeneratedAt ?? value.provider_generated_at ?? value.source_updated_at);
       const verified = (value.resultVerified ?? value.result_verified ?? value.verified) === true;
-      if (providerAt !== null && ((state === "closed" && verified) || state === "cancelled")) return 3;
+      if (state === "cancelled" || (providerAt !== null && state === "closed" && verified)) return 3;
       if (state === "abandoned" || (state === "postponed" && replacedByFrom(value))) return 2;
       return 1;
     };
@@ -79,8 +79,8 @@ export function buildSoccerResultCandidateGroups(events, {
     const status = String(event.resultStatus ?? event.result_status ?? event.event_status ?? "").toLowerCase();
     const providerAt = validDate(event.providerGeneratedAt ?? event.provider_generated_at ?? event.source_updated_at);
     const verified = (event.resultVerified ?? event.result_verified ?? event.verified) === true;
-    const isVerifiedFinal = providerAt !== null &&
-      ((status === "closed" && verified) || status === "cancelled");
+    const isVerifiedFinal = status === "cancelled" ||
+      (providerAt !== null && status === "closed" && verified);
     if (isVerifiedFinal) continue;
 
     const replacedBy = replacedByFrom(event);
