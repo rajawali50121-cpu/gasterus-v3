@@ -137,7 +137,7 @@ export async function getSportsbookBetAcceptanceReadiness({
   const soccerInitialRaw = String(env.SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE ?? "").trim();
   const soccerInitialUsage = /^\d+$/.test(soccerInitialRaw) ? Number(soccerInitialRaw) : null;
   const soccerPollMinutes = Number(env.SPORTRADAR_SOCCER_POLL_MINUTES ?? 60);
-  const soccerMinimumCalls = Number.isInteger(soccerPollMinutes) && soccerPollMinutes >= 60
+  const soccerMinimumCalls = Number.isInteger(soccerPollMinutes) && soccerPollMinutes === 60
     ? Math.ceil((30 * 24 * 60) / soccerPollMinutes)
     : Number.POSITIVE_INFINITY;
   if (!soccerMaxCalls || !Number.isSafeInteger(soccerInitialUsage) || soccerInitialUsage < 0 ||
@@ -155,7 +155,7 @@ export async function getSportsbookBetAcceptanceReadiness({
   const daysAhead = Number(env.SPORTRADAR_DAYS_AHEAD ?? 0);
   const sportCount = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").filter(Boolean).length;
   const dateCount = Number.isInteger(daysAhead) && daysAhead >= 0 ? daysAhead + 1 : Number.POSITIVE_INFINITY;
-  const cadenceValid = Number.isInteger(schedulePollMinutes) && schedulePollMinutes >= 60 &&
+  const cadenceValid = Number.isInteger(schedulePollMinutes) && schedulePollMinutes === 60 &&
     Number.isInteger(marketPollMinutes) && marketPollMinutes >= 1 && Number.isFinite(dateCount) && sportCount > 0;
   const minimumChangeLogCalls = Number.isInteger(pollSeconds) && pollSeconds >= 60 && pollSeconds <= 300 && cycleCalls
     ? Math.ceil((30 * 24 * 60 * 60) / pollSeconds) + cycleCalls
