@@ -8,7 +8,7 @@ import { SportradarClient } from "./sportradar-client.js";
 import { normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normalize.js";
 import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
-import { persistSportsbookSnapshot } from "./repository.js";
+import { persistSportsbookSnapshot, confirmSportsbookPricesThrough } from "./repository.js";
 import { setSportsbookHalt, getSportsbookHalt, clearSportsbookHalt } from "./halt.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
@@ -282,6 +282,11 @@ async function runChangeLogCycle(config, client) {
       await redis.del(CHANGE_LOG_PENDING_IDS_KEY);
     }
 
+    // A successful five-minute Change Log window proves unchanged prices remain
+    // current only after every changed/reconcile event has been refreshed.
+    if (!snapshot.refreshPending) {
+      await confirmSportsbookPricesThrough(new Date(windowTo * 1000));
+    }
     await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     await redis.set(FEED_STATUS_KEY, JSON.stringify({
       attemptedAt: fetchedAt, complete: true, quotaLimited: false,
