@@ -128,6 +128,13 @@ export async function persistSoccerResultRevisions(results) {
     for (const result of results) {
       const eventId = normalizeSportEventId(result?.eventId);
       if (!eventId) continue;
+      const trackedEvent = await client.query(`
+        SELECT provider_event_id FROM sportsbook_v2_events
+        WHERE regexp_replace(provider_event_id, '^sr:match:', 'sr:sport_event:') = $1
+        ORDER BY provider_event_id LIMIT 1
+      `, [eventId]);
+      if (!trackedEvent.rowCount) continue;
+      const storageEventId = trackedEvent.rows[0].provider_event_id;
       const providerAt = result.providerGeneratedAt ? new Date(result.providerGeneratedAt) : null;
       const receivedAt = result.receivedAt ? new Date(result.receivedAt) : null;
       if (providerAt && !Number.isFinite(providerAt.getTime())) continue;
