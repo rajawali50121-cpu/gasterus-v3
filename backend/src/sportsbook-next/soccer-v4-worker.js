@@ -30,69 +30,54 @@ async function runCycle(config, client) {
       bufferMinutes: config.resultBufferMinutes,
       maxLookbackDays: config.maxLookbackDays
     });
-    const lastPolls = {};
-    const cursors = {};
+    const lastPolls = {}, cursors = {};
     for (const candidateDate of candidateResult.dates) {
       lastPolls[candidateDate] = Number(await redis.get(LAST_SUCCESS_PREFIX + candidateDate) || 0);
       cursors[candidateDate] = Number(await redis.get(PAGE_CURSOR_PREFIX + candidateDate) || 0);
     }
-    const now = Date.now();
-    const currentUtcDate = new Date(now).toISOString().slice(0, 10);
-    const date = selectOldestDueSoccerResultDate(
-      candidateResult.dates, lastPolls, now, config.pollIntervalMs, cursors,
-      candidateDate => candidateDate === currentUtcDate ? config.pollIntervalMs : DAY_MS
-    );
-    if (!date) {
-      const completedAt = new Date().toISOString();
-      const status = {
-        attemptedAt: completedAt, skipped: "no Soccer result date is due",
-        dates: 0, calls: 0, candidates: candidateResult.candidateCount,
-        manualReviewRequired: candidateResult.manualReviewCount,
-        manualReviewEventIds: candidateResult.manualReviewEventIds,
-        manualReviewEvents: candidateResult.manualReviewEvents
-      };
-      await redis.set(STATUS_KEY, JSON.stringify(status), { EX: 30 * 24 * 60 * 60 });
-      await redis.set(HEARTBEAT_KEY, completedAt, { EX: heartbeatTtlSeconds });
-      return status;
+    const currentUtcDate = new Date().toISOString().slice(0, 10), cycleResults = [];
+    let receivedTotal = 0, projectedTotal = 0, insertedTotal = 0, duplicateTotal = 0, verifiedTotal = 0;
+    for (let requestIndex = 0; requestIndex < config.maxCallsPerCycle; requestIndex += 1) {
+      const date = selectOldestDueSoccerResultDate(candidateResult.dates, lastPolls, Date.now(),
+        config.pollIntervalMs, cursors,
+        candidateDate => candidateDate === currentUtcDate ? config.pollIntervalMs : DAY_MS, currentUtcDate);
+      if (!date) break;
+      const start = cursors[date] || 0, limit = 200;
+      const response = await client.getDailySummaries(date, { start, limit });
+      const receivedAt = new Date().toISOString();
+      const results = normalizeSoccerResults(response.body, receivedAt)
+        .map(result => ({ ...result, eventId: normalizeSportEventId(result.eventId) })).filter(result => result.eventId !== null);
+      const nextStart = getSoccerNextPageStart({ start, limit,
+        returned: response.metadata.pageResultCount ?? response.body.summaries.length,
+        maxResults: response.metadata.maxResults, resultCountHeader: response.metadata.resultCountHeader });
+      const persisted = await persistSoccerResultRevisions(results);
+      if (nextStart === 0) {
+        await redis.del(PAGE_CURSOR_PREFIX + date);
+        lastPolls[date] = Date.now(); cursors[date] = 0;
+        await redis.set(LAST_SUCCESS_PREFIX + date, String(lastPolls[date]), { EX: 7 * 24 * 60 * 60 });
+      } else {
+        cursors[date] = nextStart;
+        await redis.set(PAGE_CURSOR_PREFIX + date, String(nextStart), { EX: 7 * 24 * 60 * 60 });
+      }
+      receivedTotal += persisted.received; projectedTotal += persisted.projected;
+      insertedTotal += persisted.inserted; duplicateTotal += persisted.duplicates; verifiedTotal += persisted.verified;
+      cycleResults.push({ date, pagination: { start, limit, returned: response.metadata.pageResultCount ?? results.length,
+        maxResults: response.metadata.maxResults, nextStart, complete: nextStart === 0 },
+        received: persisted.received, projected: persisted.projected, inserted: persisted.inserted,
+        duplicates: persisted.duplicates, verified: persisted.verified,
+        providerGeneratedAt: response.body.generated_at || null, cacheControl: response.metadata.cacheControl,
+        cacheTtlMs: response.metadata.cacheTtlMs, etag: response.metadata.etag, lastModified: response.metadata.lastModified });
+      if (nextStart !== 0) break;
     }
-
-    const start = Number(await redis.get(PAGE_CURSOR_PREFIX + date) || 0);
-    const limit = 200;
-    const response = await client.getDailySummaries(date, { start, limit });
-    const receivedAt = new Date().toISOString();
-    // Soccer Daily Summaries documents generated_at when supplied, but the
-    // endpoint contract does not guarantee it. Keep provider time unknown rather
-    // than blocking all result ingestion or substituting HTTP Last-Modified.
-    const results = normalizeSoccerResults(response.body, receivedAt)
-      .map(result => ({ ...result, eventId: normalizeSportEventId(result.eventId) }))
-      .filter(result => result.eventId !== null);
-    const nextStart = getSoccerNextPageStart({
-      start, limit,
-      returned: response.metadata.pageResultCount ?? response.body.summaries.length,
-      maxResults: response.metadata.maxResults,
-      resultCountHeader: response.metadata.resultCountHeader
-    });
-    const persisted = await persistSoccerResultRevisions(results);
-    await redis.set(PAGE_CURSOR_PREFIX + date, String(nextStart), { EX: 7 * 24 * 60 * 60 });
     const completedAt = new Date().toISOString();
-    if (nextStart === 0) {
-      await redis.set(LAST_SUCCESS_PREFIX + date, String(Date.now()), { EX: 7 * 24 * 60 * 60 });
-    }
-    const status = {
-      attemptedAt: completedAt, cycleComplete: true, dateComplete: nextStart === 0, date, dates: 1,
-      candidates: candidateResult.candidateCount, manualReviewRequired: candidateResult.manualReviewCount,
-      manualReviewEventIds: candidateResult.manualReviewEventIds,
-      manualReviewEvents: candidateResult.manualReviewEvents,
-      pagination: { start, limit, returned: results.length, maxResults: response.metadata.maxResults, nextStart, complete: nextStart === 0 },
-      calls: client.cycleCalls, received: persisted.received,
-      projected: persisted.projected, revisionInserted: persisted.inserted,
-      revisionDuplicates: persisted.duplicates, verified: persisted.verified,
-      providerGeneratedAt: response.body.generated_at || null,
-      cacheControl: response.metadata.cacheControl,
-      cacheTtlMs: response.metadata.cacheTtlMs,
-      etag: response.metadata.etag,
-      lastModified: response.metadata.lastModified
-    };
+    const status = { attemptedAt: completedAt, cycleComplete: true, dates: cycleResults.length,
+      date: cycleResults[0]?.date || null, candidates: candidateResult.candidateCount,
+      manualReviewRequired: candidateResult.manualReviewCount, manualReviewEventIds: candidateResult.manualReviewEventIds,
+      manualReviewEvents: candidateResult.manualReviewEvents, cycleResults,
+      pagination: { complete: cycleResults.every(item => item.pagination.complete) },
+      calls: client.cycleCalls, received: receivedTotal, projected: projectedTotal,
+      revisionInserted: insertedTotal, revisionDuplicates: duplicateTotal, verified: verifiedTotal };
+    if (!cycleResults.length) status.skipped = "no Soccer result date is due";
     await redis.set(STATUS_KEY, JSON.stringify(status), { EX: 30 * 24 * 60 * 60 });
     await redis.set(HEARTBEAT_KEY, completedAt, { EX: heartbeatTtlSeconds });
     return status;
