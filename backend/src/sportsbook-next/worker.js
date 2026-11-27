@@ -469,7 +469,9 @@ async function main() {
   logger.info("Sportradar sportsbook replacement worker started", {
     pollMinutes: config.pollIntervalMs / 60_000,
     changeLogEnabled: config.changeLogEnabled,
-    changeLogPollSeconds: config.changeLogPollMs / 1000,\n    schedulePollMinutes: config.schedulePollIntervalMs / 60_000,\n    minimumCalls30Days: config.minimumCalls30Days,
+    changeLogPollSeconds: config.changeLogPollMs / 1000,
+    schedulePollMinutes: config.schedulePollIntervalMs / 60_000,
+    minimumCalls30Days: config.minimumCalls30Days,
     minimumChangeLogCalls30Days: config.minimumChangeLogCalls30Days,
     sportCount: config.sportIds.length,
     daysAhead: config.daysAhead,
