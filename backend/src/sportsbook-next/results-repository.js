@@ -25,7 +25,7 @@ export function buildSoccerResultCandidateGroups(events, {
     const kickoff = validDate(event.scheduledAt ?? event.scheduled_at);
     if (kickoff === null || kickoff > cutoff) continue;
     const status = String(event.resultStatus ?? event.event_status ?? "").toLowerCase();
-    const generatedAt = validDate(event.providerGeneratedAt ?? event.source_updated_at);
+    const generatedAt = validDate(event.providerGeneratedAt ?? event.provider_generated_at ?? event.source_updated_at);
     const isVerifiedFinal = status === "closed" &&
       (event.resultVerified ?? event.verified) === true && generatedAt !== null;
     if (isVerifiedFinal) continue;
