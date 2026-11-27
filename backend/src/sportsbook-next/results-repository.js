@@ -65,7 +65,7 @@ export function buildSoccerResultCandidateGroups(events, {
       const state = String(value.resultStatus ?? value.result_status ?? value.event_status ?? "").toLowerCase();
       const providerAt = validDate(value.providerGeneratedAt ?? value.provider_generated_at ?? value.source_updated_at);
       const verified = (value.resultVerified ?? value.result_verified ?? value.verified) === true;
-      if (state === "cancelled" || (providerAt !== null && state === "closed" && verified)) return 3;
+      if (state === "cancelled" || (state === "closed" && verified)) return 3;
       if (state === "abandoned" || (state === "postponed" && replacedByFrom(value))) return 2;
       return 1;
     };
@@ -79,8 +79,7 @@ export function buildSoccerResultCandidateGroups(events, {
     const status = String(event.resultStatus ?? event.result_status ?? event.event_status ?? "").toLowerCase();
     const providerAt = validDate(event.providerGeneratedAt ?? event.provider_generated_at ?? event.source_updated_at);
     const verified = (event.resultVerified ?? event.result_verified ?? event.verified) === true;
-    const isVerifiedFinal = status === "cancelled" ||
-      (providerAt !== null && status === "closed" && verified);
+    const isVerifiedFinal = status === "cancelled" || (status === "closed" && verified);
     if (isVerifiedFinal) continue;
 
     const replacedBy = replacedByFrom(event);
@@ -138,6 +137,7 @@ export async function listResultCandidateDates({
              r.event_status AS result_status,
              r.verified AS result_verified,
              r.source_updated_at AS provider_generated_at,
+             r.received_at,
              r.provider_payload
       FROM sportsbook_v2_events e
       LEFT JOIN sportsbook_v2_event_results r
@@ -159,8 +159,8 @@ export async function persistSoccerResultRevisions(results) {
     let duplicates = 0;
     let verified = 0;
     for (const result of results) {
-      // event_results.source_updated_at is NOT NULL; never persist a result without provider time.
-      if (!result?.providerGeneratedAt) continue;
+      // Provider generation time may be absent from Daily Summaries. Keep it NULL;
+      // record local receipt time separately and never substitute it as provider time.
       const eventId = normalizeSportEventId(result?.eventId);
       if (!eventId) continue;
       const trackedEvent = await client.query(`
@@ -171,14 +171,15 @@ export async function persistSoccerResultRevisions(results) {
       if (!trackedEvent.rowCount) continue;
       const storageEventId = trackedEvent.rows[0].provider_event_id;
       const providerAt = result.providerGeneratedAt ? new Date(result.providerGeneratedAt) : null;
-      const receivedAt = result.receivedAt ? new Date(result.receivedAt) : null;
+      const receivedAt = result.receivedAt ? new Date(result.receivedAt) : new Date();
       if (providerAt && !Number.isFinite(providerAt.getTime())) continue;
-      if (receivedAt && !Number.isFinite(receivedAt.getTime())) continue;
+      if (!Number.isFinite(receivedAt.getTime())) continue;
       const payload = JSON.stringify({
         ...(result.payload ?? {}),
         soccer_v4: { replaced_by: result.replacedBy ?? null, review_required: result.reviewRequired === true }
       });
       if (providerAt) {
+        if (providerAt) {
         const revision = await client.query(`
           INSERT INTO sportsbook_v2_event_result_revisions(
             provider_event_id,result_source,event_status,home_score,away_score,provider_generated_at,received_at,verified,provider_payload
@@ -197,9 +198,9 @@ export async function persistSoccerResultRevisions(results) {
       }
       await client.query(`
         INSERT INTO sportsbook_v2_event_results(
-          provider_event_id,result_source,event_status,home_score,away_score,source_updated_at,verified,provider_payload
+          provider_event_id,result_source,event_status,home_score,away_score,source_updated_at,received_at,verified,provider_payload
         )
-        SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb
+        SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb
         WHERE EXISTS (
           SELECT 1 FROM sportsbook_v2_events
           WHERE provider_event_id = $1
@@ -209,10 +210,8 @@ export async function persistSoccerResultRevisions(results) {
           home_score=excluded.home_score,away_score=excluded.away_score,
           source_updated_at=excluded.source_updated_at,verified=excluded.verified,
           provider_payload=excluded.provider_payload
-        WHERE sportsbook_v2_event_results.source_updated_at IS NULL
-           OR (excluded.source_updated_at IS NOT NULL AND
-               sportsbook_v2_event_results.source_updated_at <= excluded.source_updated_at)
-      `,[storageEventId,result.source,result.status,result.homeScore,result.awayScore,providerAt, result.verified===true,payload]);
+        WHERE sportsbook_v2_event_results.received_at <= excluded.received_at
+      `,[storageEventId,result.source,result.status,result.homeScore,result.awayScore,providerAt,receivedAt,result.verified===true,payload]);
       if (result.verified === true) verified += 1;
     }
     return { received: results.length, inserted, duplicates, verified };
