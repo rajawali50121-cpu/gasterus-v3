@@ -28,6 +28,44 @@ export async function confirmSportsbookPricesThrough(providerWindowEnd) {
   });
 }
 
+export async function persistSportsbookSchedules(events, sportId, snapshotAt = new Date().toISOString()) {
+  if (!Array.isArray(events) || typeof sportId !== "string" || !sportId) {
+    throw new TypeError("SPORTSBOOK_SCHEDULES_INVALID");
+  }
+  const fetchedAt = new Date(snapshotAt);
+  if (!Number.isFinite(fetchedAt.getTime())) throw new Error("SPORTSBOOK_SCHEDULE_TIMESTAMP_INVALID");
+  let schedulesPersisted = 0;
+  await tx(async client => {
+    for (const event of events) {
+      if (!event?.id || !String(event.id).startsWith("sr:sport_event:")) continue;
+      await client.query(`
+        INSERT INTO sportsbook_v2_events(
+          provider_event_id,sport_id,competition_id,competition_name,scheduled_at,event_status,
+          home_name,away_name,snapshot_at,provider_payload,updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,now())
+        ON CONFLICT(provider_event_id) DO UPDATE SET
+          sport_id=excluded.sport_id,
+          competition_id=COALESCE(excluded.competition_id,sportsbook_v2_events.competition_id),
+          competition_name=COALESCE(excluded.competition_name,sportsbook_v2_events.competition_name),
+          scheduled_at=COALESCE(excluded.scheduled_at,sportsbook_v2_events.scheduled_at),
+          event_status=CASE WHEN excluded.event_status='unknown'
+            THEN sportsbook_v2_events.event_status ELSE excluded.event_status END,
+          home_name=COALESCE(excluded.home_name,sportsbook_v2_events.home_name),
+          away_name=COALESCE(excluded.away_name,sportsbook_v2_events.away_name),
+          snapshot_at=GREATEST(sportsbook_v2_events.snapshot_at,excluded.snapshot_at),
+          provider_payload=sportsbook_v2_events.provider_payload || excluded.provider_payload,
+          updated_at=now()
+      `, [
+        event.id,sportId,event.competitionId||null,event.competition||null,
+        event.scheduled||null,event.status||"unknown",event.home||null,event.away||null,
+        fetchedAt,JSON.stringify({ daily_schedule: event })
+      ]);
+      schedulesPersisted += 1;
+    }
+  });
+  return { schedulesPersisted };
+}
+
 export async function persistSportsbookSnapshot(events, snapshotAt = new Date().toISOString()) {
   const fetchedAt = new Date(snapshotAt);
   if (!Number.isFinite(fetchedAt.getTime())) throw new Error("SPORTSBOOK_SNAPSHOT_TIMESTAMP_INVALID");
