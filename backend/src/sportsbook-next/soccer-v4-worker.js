@@ -18,6 +18,7 @@ let stopping = false;
 const shutdownController = new AbortController();
 
 async function runCycle(config, client) {
+  const heartbeatTtlSeconds = Math.ceil(Math.max(config.pollIntervalMs * 3, 3 * 60 * 60 * 1000) / 1000);
   const token = randomUUID();
   const lock = await redis.set(LOCK_KEY, token, { NX: true, PX: 30 * 60 * 1000 });
   if (!lock) return { skipped: "another Soccer v4 worker owns the poll lock" };
@@ -112,7 +113,6 @@ async function main() {
     return;
   }
   await connectRedis();
-  const heartbeatTtlSeconds = Math.ceil(Math.max(config.pollIntervalMs * 3, 3 * 60 * 60 * 1000) / 1000);
   const client = new SoccerV4Client(config, {
     beforeRequest: async () => {
       if (client.cycleCalls >= config.maxCallsPerCycle) {
