@@ -27,7 +27,7 @@ export function loadSportsbookConfig(env = process.env) {
   }
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
   const schedulePollMinutes = requiredPositiveInteger("SPORTRADAR_SCHEDULE_POLL_MINUTES", env.SPORTRADAR_SCHEDULE_POLL_MINUTES ?? 60);
-  if (schedulePollMinutes < 60) throw new Error("SPORTRADAR_SCHEDULE_POLL_MINUTES must be at least 60 to match official Daily Schedules guidance");
+  if (schedulePollMinutes !== 60) throw new Error("SPORTRADAR_SCHEDULE_POLL_MINUTES must be exactly 60 to keep schedule verification within its readiness freshness limit");
   const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? (accessLevel === "trial" ? 6 : 80));
   if (accessLevel === "trial" && maxCallsPerCycle > 6) {
     throw new Error("Trial max calls per cycle must not exceed 6");
