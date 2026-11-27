@@ -159,6 +159,8 @@ export async function persistSoccerResultRevisions(results) {
     let duplicates = 0;
     let verified = 0;
     for (const result of results) {
+      // event_results.source_updated_at is NOT NULL; never persist a result without provider time.
+      if (!result?.providerGeneratedAt) continue;
       const eventId = normalizeSportEventId(result?.eventId);
       if (!eventId) continue;
       const trackedEvent = await client.query(`
