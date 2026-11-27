@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reserveSportradarCall, __quota } from "../src/sportsbook-next/quota.js";
+import { reserveSportradarCall, __quota, __qps } from "../src/sportsbook-next/quota.js";
 
 test("quota reservation uses a shared rolling 30-day Redis window", async () => {
   let args;
@@ -53,5 +53,5 @@ test("Redis reservation script enforces the 90 percent rolling quota guard", asy
 });
 
 test("shared Sportradar QPS interval is at least 1200ms", () => {
-  assert.equal(__quota.QPS_INTERVAL_MS, 1200);
+  assert.equal(__qps.QPS_INTERVAL_MS, 1200);
 });
