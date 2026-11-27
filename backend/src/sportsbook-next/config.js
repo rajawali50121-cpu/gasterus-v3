@@ -54,8 +54,8 @@ export function loadSportsbookConfig(env = process.env) {
   const minimumChangeLogCalls30Days = Math.ceil((30 * 24 * 60 * 60) / changeLogPollSeconds);
   const sportCount = sportIds.length;
   const dateCount = daysAhead + 1;
-  const minimumScheduleCalls30Days = Math.ceil((30 * 24 * 60) / schedulePollMinutes) * sportCount * dateCount;
-  const minimumMarketCalls30Days = Math.ceil((30 * 24 * 60) / pollMinutes) * sportCount * dateCount;
+  const minimumScheduleCalls30Days = Math.ceil((30 * 24 * 60) / schedulePollMinutes) * sportCount * dateCount * 2;
+  const minimumMarketCalls30Days = Math.ceil((30 * 24 * 60) / pollMinutes) * sportCount * dateCount * 2;
   // Sports, Books and Sport Competitions are refreshed once per day.
   const minimumDiscoveryCalls30Days = 3 * 30;
   const minimumCalls30Days = minimumScheduleCalls30Days + minimumMarketCalls30Days +
