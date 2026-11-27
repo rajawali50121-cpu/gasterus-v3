@@ -54,9 +54,9 @@ async function runCycle(config, client) {
     const limit = 200;
     const response = await client.getDailySummaries(date, { start, limit });
     const receivedAt = new Date().toISOString();
-    if (typeof response.body?.generated_at !== "string" || !Number.isFinite(Date.parse(response.body.generated_at))) {
-      throw Object.assign(new Error("SOCCER_V4_PROVIDER_TIMESTAMP_MISSING"), { code: "SOCCER_V4_PROVIDER_TIMESTAMP_MISSING" });
-    }
+    // Soccer Daily Summaries documents generated_at when supplied, but the
+    // endpoint contract does not guarantee it. Keep provider time unknown rather
+    // than blocking all result ingestion or substituting HTTP Last-Modified.
     const results = normalizeSoccerResults(response.body, receivedAt)
       .map(result => ({ ...result, eventId: normalizeSportEventId(result.eventId) }))
       .filter(result => result.eventId !== null);
