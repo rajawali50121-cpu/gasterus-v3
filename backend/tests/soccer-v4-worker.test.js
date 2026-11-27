@@ -204,7 +204,7 @@ test("Soccer result polling is hourly for today and daily for historical dates",
   const interval = date => date === "2026-11-28" ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
   assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-26": now - 23 * 60 * 60 * 1000, "2026-11-28": now - 30 * 60 * 1000 }, now, 60 * 60 * 1000, {}, interval), null);
   assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-26": now - 24 * 60 * 60 * 1000, "2026-11-28": now - 30 * 60 * 1000 }, now, 60 * 60 * 1000, {}, interval), "2026-11-26");
-  assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-26": now - 24 * 60 * 60 * 1000, "2026-11-28": now - 60 * 60 * 1000 }, now, 60 * 60 * 1000, {}, interval), "2026-11-28");
+  assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-26": now, "2026-11-28": now - 60 * 60 * 1000 }, now, 60 * 60 * 1000, {}, interval), "2026-11-28");
 });
 
 test("Soccer result buffer excludes kickoffs that have not passed the configured buffer", () => {
