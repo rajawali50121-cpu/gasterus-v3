@@ -19,7 +19,7 @@ export function loadSportsbookConfig(env = process.env) {
   }
   const maxCallsPer30Days = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_30_DAYS", env.SPORTRADAR_MAX_CALLS_PER_30_DAYS);
   if (accessLevel === "trial" && maxCallsPer30Days > 800) {
-    throw new Error("Trial internal budget must not exceed 800 calls per rolling 30 days (provider trial ceiling: 1,000)");
+    throw new Error("Trial internal budget must not exceed 800 calls per rolling 30 days; provider entitlement is account-specific");
   }
   const initialCallsUsed30Days = Number(env.SPORTRADAR_INITIAL_30_DAY_USAGE);
   if (!Number.isSafeInteger(initialCallsUsed30Days) || initialCallsUsed30Days < 0 || initialCallsUsed30Days > maxCallsPer30Days) {
@@ -28,7 +28,7 @@ export function loadSportsbookConfig(env = process.env) {
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
   const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? (accessLevel === "trial" ? 6 : 80));
   if (accessLevel === "trial" && maxCallsPerCycle > 6) {
-    throw new Error("Trial max calls per cycle must not exceed 5");
+    throw new Error("Trial max calls per cycle must not exceed 6");
   }
   // GASTERUS does not impose a rolling one-hour cap. The rolling 30-day
   // budget and per-cycle ceiling remain enforced as independent safeguards.
