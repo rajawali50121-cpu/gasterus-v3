@@ -11,9 +11,15 @@ export function loadSoccerV4Config(env = process.env) {
   const pollMinutes = positiveInteger("SPORTRADAR_SOCCER_POLL_MINUTES", env.SPORTRADAR_SOCCER_POLL_MINUTES ?? 60);
   if (pollMinutes < 60) throw new Error("Soccer v4 polling must be at least 60 minutes to protect the trial request budget");
   const maxCallsPerCycle = positiveInteger("SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE ?? 1);
+  const resultBufferMinutes = positiveInteger("SPORTRADAR_SOCCER_RESULT_BUFFER_MINUTES", env.SPORTRADAR_SOCCER_RESULT_BUFFER_MINUTES ?? 150);
+  const maxLookbackDays = positiveInteger("SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS", env.SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS ?? 7);
+  if (maxLookbackDays > 14) throw new Error("SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS must not exceed 14");
   if (maxCallsPerCycle !== 1) throw new Error("Soccer v4 is limited to one request per cycle; increase cadence only after verifying quota");
 
-  if (!enabled) return Object.freeze({ enabled, pollIntervalMs: pollMinutes * MINUTE, maxCallsPerCycle });
+  if (!enabled) return Object.freeze({
+    enabled, pollIntervalMs: pollMinutes * MINUTE, maxCallsPerCycle,
+    resultBufferMinutes, maxLookbackDays
+  });
 
   const apiKey = String(env.SPORTRADAR_SOCCER_API_KEY || env.SPORTRADAR_API_KEY || "").trim();
   if (!apiKey) throw new Error("SPORTRADAR_SOCCER_API_KEY or SPORTRADAR_API_KEY is required when Soccer v4 is enabled");
@@ -49,6 +55,7 @@ export function loadSoccerV4Config(env = process.env) {
   return Object.freeze({
     enabled, apiKey, accessLevel, language, maxCallsPer30Days, initialCallsUsed30Days,
     maxCallsPerCycle, pollIntervalMs: pollMinutes * MINUTE, requestTimeoutMs,
+    resultBufferMinutes, maxLookbackDays,
     baseUrl: "https://api.sportradar.com/soccer/" + accessLevel + "/v4/" + language
   });
 }
