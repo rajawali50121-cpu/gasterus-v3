@@ -26,6 +26,8 @@ export function loadSportsbookConfig(env = process.env) {
     throw new Error("SPORTRADAR_INITIAL_30_DAY_USAGE must be an integer within the configured 30-day quota");
   }
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
+  const schedulePollMinutes = requiredPositiveInteger("SPORTRADAR_SCHEDULE_POLL_MINUTES", env.SPORTRADAR_SCHEDULE_POLL_MINUTES ?? 60);
+  if (schedulePollMinutes < 60) throw new Error("SPORTRADAR_SCHEDULE_POLL_MINUTES must be at least 60 to match official Daily Schedules guidance");
   const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? (accessLevel === "trial" ? 6 : 80));
   if (accessLevel === "trial" && maxCallsPerCycle > 6) {
     throw new Error("Trial max calls per cycle must not exceed 6");
@@ -39,8 +41,16 @@ export function loadSportsbookConfig(env = process.env) {
     throw new Error("SPORTRADAR_CHANGELOG_POLL_SECONDS must be between 60 and 300 seconds");
   }
   const minimumChangeLogCalls30Days = Math.ceil((30 * 24 * 60 * 60) / changeLogPollSeconds);
-  if (changeLogEnabled && maxCallsPer30Days < minimumChangeLogCalls30Days + maxCallsPerCycle) {
-    throw new Error("SPORTRADAR_CHANGELOG_ENABLED requires a 30-day request budget covering every change-log poll plus the per-cycle safety reserve");
+  const sportCount = sportIds.length;
+  const dateCount = daysAhead + 1;
+  const minimumScheduleCalls30Days = Math.ceil((30 * 24 * 60) / schedulePollMinutes) * sportCount * dateCount;
+  const minimumMarketCalls30Days = Math.ceil((30 * 24 * 60) / pollMinutes) * sportCount * dateCount;
+  // Sports, Books and Sport Competitions are refreshed once per day.
+  const minimumDiscoveryCalls30Days = 3 * 30;
+  const minimumCalls30Days = minimumScheduleCalls30Days + minimumMarketCalls30Days +
+    minimumDiscoveryCalls30Days + (changeLogEnabled ? minimumChangeLogCalls30Days + maxCallsPerCycle : 0);
+  if (maxCallsPer30Days - initialCallsUsed30Days < minimumCalls30Days) {
+    throw new Error("Sportradar 30-day budget is insufficient for the configured Daily Schedules, market discovery, discovery feeds and Change Log request cadence");
   }
   const daysAhead = Number(env.SPORTRADAR_DAYS_AHEAD ?? 0);
   if (!Number.isSafeInteger(daysAhead) || daysAhead < 0 || daysAhead > (accessLevel === "trial" ? 0 : 14)) {
@@ -57,9 +67,11 @@ export function loadSportsbookConfig(env = process.env) {
   return Object.freeze({
     apiKey, accessLevel, language, sportIds, daysAhead,
     pollIntervalMs: pollMinutes * MINUTE,
+    schedulePollIntervalMs: schedulePollMinutes * MINUTE,
     maxCallsPerCycle, maxCallsPerHour, maxCallsPer30Days, initialCallsUsed30Days,
     changeLogEnabled, changeLogPollMs: changeLogPollSeconds * 1000,
-    minimumChangeLogCalls30Days,
+    minimumChangeLogCalls30Days, minimumScheduleCalls30Days,
+    minimumMarketCalls30Days, minimumDiscoveryCalls30Days, minimumCalls30Days,
     maxSnapshotAgeMs: pollMinutes * MINUTE * 2,
     prematchBaseUrl: `https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${language}`,
     soccerBaseUrl: `https://api.sportradar.com/soccer/${accessLevel}/v4/${language}`,
