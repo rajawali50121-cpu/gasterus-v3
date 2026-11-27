@@ -41,8 +41,8 @@ export async function persistSportsbookSchedules(events, sportId, snapshotAt = n
       await client.query(`
         INSERT INTO sportsbook_v2_events(
           provider_event_id,sport_id,competition_id,competition_name,scheduled_at,event_status,
-          home_name,away_name,snapshot_at,provider_payload,updated_at
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,now())
+          home_name,away_name,snapshot_at,schedule_verified_at,provider_payload,updated_at
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),$10::jsonb,now())
         ON CONFLICT(provider_event_id) DO UPDATE SET
           sport_id=excluded.sport_id,
           competition_id=COALESCE(excluded.competition_id,sportsbook_v2_events.competition_id),
@@ -53,6 +53,7 @@ export async function persistSportsbookSchedules(events, sportId, snapshotAt = n
           home_name=COALESCE(excluded.home_name,sportsbook_v2_events.home_name),
           away_name=COALESCE(excluded.away_name,sportsbook_v2_events.away_name),
           snapshot_at=GREATEST(sportsbook_v2_events.snapshot_at,excluded.snapshot_at),
+          schedule_verified_at=now(),
           provider_payload=sportsbook_v2_events.provider_payload || excluded.provider_payload,
           updated_at=now()
       `, [
