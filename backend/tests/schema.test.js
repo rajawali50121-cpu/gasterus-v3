@@ -44,7 +44,7 @@ test('sportsbook bet acceptance separates receipt time, change-log verification 
 });
 
 test('sportsbook ticket acceptance is gated by a fresh complete Change Log and uses the existing double-entry ledger',()=>{
-  for(const token of ['SPORTRADAR_CHANGELOG_ENABLED','SPORTRADAR_ACCESS_LEVEL','PRODUCTION_ENTITLEMENT_REQUIRED','CHANGE_LOG_WINDOW_STALE','change_log_verified_at','postTransfer','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','enforceResponsiblePlay','requestFingerprint','NO_VERIFIED_MARKET_MAPPINGS','listMemberSportsbookTickets']) assert.ok(sportsbookBettingService.includes(token),token);
+  for(const token of ['SPORTRADAR_CHANGELOG_ENABLED','SPORTRADAR_ACCESS_LEVEL','PRODUCTION_ENTITLEMENT_REQUIRED','CHANGE_LOG_WINDOW_STALE','change_log_verified_at','postTransfer','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','enforceResponsiblePlay','requestFingerprint','NO_VERIFIED_MARKET_MAPPINGS','NO_FRESH_DAILY_SCHEDULES','SPORTSBOOK_SCHEDULE_NOT_VERIFIED','SCHEDULE_MAX_AGE_MINUTES','listMemberSportsbookTickets']) assert.ok(sportsbookBettingService.includes(token),token);
   assert.ok(sportsbookBettingService.includes('SUPPORTED_MARKET_CODE'));
   assert.ok(sportsbookBettingService.includes('SPORTSBOOK_SETTLEMENT_RULE_UNSUPPORTED'));
 });
@@ -73,7 +73,7 @@ test('Daily Schedules and Odds Comparison market ingestion are separate feeds an
 });
 
 test('settled result corrections are quarantined for audited owner review',()=>{
-  for(const token of ['review_required','review_reason','review_detected_at','reviewed_at','reviewed_by','review_note']) assert.ok(sportsbookCorrectionReviewSchema.includes(token),token);
+  for(const token of ['schedule_verified_at','review_required','review_reason','review_detected_at','reviewed_at','reviewed_by','review_note']) assert.ok(sportsbookCorrectionReviewSchema.includes(token),token);
   assert.doesNotMatch(sportsbookCorrectionReviewSchema,/\\bDROP\\s+TABLE\\b|\\bTRUNCATE\\b|\\bDELETE\\s+FROM\\b/i);
   for(const token of ['PROVIDER_RESULT_CHANGED_AFTER_SETTLEMENT','resultPayloads','financiallyReconciled','SPORTSBOOK_RESULT_CORRECTION_REVIEWED']) assert.ok(sportsbookSettlementService.includes(token),token);
 });
