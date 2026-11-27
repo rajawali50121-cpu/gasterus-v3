@@ -141,7 +141,7 @@ async function detectSettledResultCorrections(client) {
     UPDATE sportsbook_v2_tickets t
     SET review_required=TRUE,
         review_reason='PROVIDER_RESULT_CHANGED_AFTER_SETTLEMENT',
-        review_detected_at=COALESCE(t.review_detected_at,now())
+        review_detected_at=CASE WHEN t.review_required THEN t.review_detected_at ELSE now() END
     FROM changed_tickets changed
     WHERE t.id=changed.id
     RETURNING t.id
