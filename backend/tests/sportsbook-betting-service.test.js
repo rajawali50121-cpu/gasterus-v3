@@ -80,6 +80,7 @@ test("payout ceiling and invalid stake are enforced before ledger debit", () => 
 test("bet acceptance requires production entitlement and continuous complete Change Log coverage", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
     redis: healthyRedis(now), env: readyEnv, now
   });
   assert.equal(readiness.enabled, true);
@@ -90,6 +91,7 @@ test("bet acceptance requires production entitlement and continuous complete Cha
 test("trial quota and an unverified Change Log window fail closed", async () => {
   const now = 1_800_000_000_000;
   const trial = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
     redis: healthyRedis(now), env: { ...readyEnv, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800" }, now
   });
   assert.equal(trial.enabled, false);
@@ -97,6 +99,7 @@ test("trial quota and an unverified Change Log window fail closed", async () => 
   assert.ok(trial.reasons.includes("CHANGE_LOG_QUOTA_BUDGET_INSUFFICIENT"));
 
   const pending = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
     redis: healthyRedis(now, { refreshPending: true }), env: readyEnv, now
   });
   assert.equal(pending.enabled, false);
@@ -106,8 +109,19 @@ test("trial quota and an unverified Change Log window fail closed", async () => 
 test("stale Change Log coverage blocks ticket acceptance", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
     redis: healthyRedis(now, { lastSuccessAgeMs: 5 * 60 * 1000 + 1 }), env: readyEnv, now
   });
   assert.equal(readiness.enabled, false);
   assert.ok(readiness.reasons.includes("CHANGE_LOG_WINDOW_STALE"));
+});
+
+test("no approved verified full-time mapping keeps betting disabled", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 0,
+    redis: healthyRedis(now), env: readyEnv, now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("NO_VERIFIED_MARKET_MAPPINGS"));
 });
