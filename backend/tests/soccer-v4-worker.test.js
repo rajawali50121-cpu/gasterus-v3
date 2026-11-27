@@ -33,7 +33,7 @@ test("enabled Soccer v4 requires an explicit independent quota and usage baselin
     SPORTRADAR_API_KEY: "test-key",
     SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0"
-  }), /baseline is unconfirmed/);
+  }), /requires confirmed Soccer product usage/);
   assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_POLL_MINUTES: "30" }), /at least 60 minutes/);
   assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE: "2" }), /one request per cycle/);
 });
