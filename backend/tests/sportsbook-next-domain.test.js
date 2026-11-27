@@ -69,7 +69,7 @@ test("provider outcome mapping is explicit and rejects unknown outcome types", (
   assert.equal(resolveProviderOutcome({ outcomeType: "unknown", mapping: resolved }).bettable, false);
 });
 
-test("only final soccer results with a valid provider timestamp are verified", () => {
+test("closed Soccer results are verified from confirmed status and score without requiring generated_at", () => {
   const live = normalizeSoccerResult({
     sport_event: { id: "sr:sport_event:10" },
     sport_event_status: { status: "live", home_score: 1, away_score: 0 }
@@ -86,7 +86,8 @@ test("only final soccer results with a valid provider timestamp are verified", (
     sport_event: { id: "sr:sport_event:10" },
     sport_event_status: { status: "closed", home_score: 2, away_score: 1 }
   });
-  assert.equal(noTimestamp.verified, false);
+  assert.equal(noTimestamp.providerGeneratedAt, null);
+  assert.equal(noTimestamp.verified, true);
   const ended = normalizeSoccerResult({
     sport_event: { id: "sr:sport_event:10" },
     sport_event_status: { status: "ended", home_score: 2, away_score: 1 }
@@ -107,7 +108,12 @@ test("settlement evaluates only explicitly mapped and verified soccer 1X2 result
   assert.equal(evaluateSoccer1x2Leg({ marketCode: "SOCCER_1X2_3WAY", outcomeCode: "DRAW", result }), "LOST");
   assert.equal(evaluateSoccer1x2Leg({ marketCode: "UNMAPPED", outcomeCode: "HOME", result }), null);
   assert.equal(evaluateSoccer1x2Leg({ marketCode: "SOCCER_1X2_3WAY", outcomeCode: "HOME", result: { ...result, verified: false } }), null);
-  assert.equal(evaluateSoccer1x2Leg({ marketCode: "SOCCER_1X2_3WAY", outcomeCode: "HOME", result: { status: "cancelled", isFinal: true, verified: true } }), "VOID");
+  const cancelled = normalizeSoccerResult({
+    sport_event: { id: "sr:sport_event:12" },
+    sport_event_status: { status: "cancelled" }
+  });
+  assert.equal(cancelled.verified, true);
+  assert.equal(evaluateSoccer1x2Leg({ marketCode: "SOCCER_1X2_3WAY", outcomeCode: "HOME", result: cancelled }), "VOID");
 });
 
 test("parlay settlement waits for all legs and payout excludes void or push legs", () => {
