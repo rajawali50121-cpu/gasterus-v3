@@ -33,15 +33,28 @@ export function buildSoccerResultCandidateGroups(events, {
   const cutoff = nowMs - bufferMinutes * 60_000;
   const oldestAllowed = nowMs - maxLookbackDays * DAY_MS;
   const groups = new Map();
-  const seenEvents = new Set();
+  const uniqueEvents = new Map();
   const manualReviewEventIds = [];
   const manualReviewEvents = [];
   let candidateCount = 0;
 
   for (const event of Array.isArray(events) ? events : []) {
     const eventId = normalizeSportEventId(event.providerEventId ?? event.provider_event_id);
-    if (!eventId || seenEvents.has(eventId)) continue;
-    seenEvents.add(eventId);
+    if (!eventId) continue;
+    const existing = uniqueEvents.get(eventId);
+    const rank = value => {
+      const state = String(value.resultStatus ?? value.result_status ?? value.event_status ?? "").toLowerCase();
+      const providerAt = validDate(value.providerGeneratedAt ?? value.provider_generated_at ?? value.source_updated_at);
+      const verified = (value.resultVerified ?? value.result_verified ?? value.verified) === true;
+      if (providerAt !== null && ((state === "closed" && verified) || state === "cancelled")) return 3;
+      if (state === "abandoned" || (state === "postponed" && replacedByFrom(value))) return 2;
+      return 1;
+    };
+    if (!existing || rank(event) > rank(existing)) uniqueEvents.set(eventId, { ...event, providerEventId: eventId });
+  }
+
+  for (const event of uniqueEvents.values()) {
+    const eventId = event.providerEventId;
     const kickoff = validDate(event.scheduledAt ?? event.scheduled_at);
     if (kickoff === null || kickoff > cutoff) continue;
     const status = String(event.resultStatus ?? event.result_status ?? event.event_status ?? "").toLowerCase();
