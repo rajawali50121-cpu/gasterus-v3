@@ -8,9 +8,9 @@ import { getChangedSportEventIds, shouldReconcileChangeLog, SPORTRADAR_CHANGE_LO
 
 const env = {
   SPORTRADAR_API_KEY: "test-key",
-  SPORTRADAR_ACCESS_LEVEL: "trial",
-  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "100",
-  SPORTRADAR_MAX_CALLS_PER_HOUR: "20",
+  SPORTRADAR_ACCESS_LEVEL: "production",
+  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2000",
+  SPORTRADAR_MAX_CALLS_PER_HOUR: "20",\n  SPORTRADAR_MAX_CALLS_PER_CYCLE: "6",
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10",
   SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
 };
@@ -32,12 +32,12 @@ test("change-log configuration is opt-in and refuses a request budget too small 
   assert.equal(config.minimumChangeLogCalls30Days, 10_800);
   assert.throws(
     () => loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" }),
-    /requires a 30-day request budget/
+    /30-day budget is insufficient/
   );
   assert.throws(
     () => loadSportsbookConfig({
       ...env,
-      SPORTRADAR_MAX_CALLS_PER_30_DAYS: "11000",
+      SPORTRADAR_MAX_CALLS_PER_30_DAYS: "12000",
       SPORTRADAR_CHANGELOG_ENABLED: "true"
     }),
     /must not exceed 800/
@@ -69,11 +69,11 @@ test("change log reconciles after startup or a gap longer than five minutes", ()
 
 test("trial configuration cannot exceed the 800-call internal budget or fan out across sports", () => {
   assert.throws(
-    () => loadSportsbookConfig({ ...env, SPORTRADAR_MAX_CALLS_PER_30_DAYS: "801" }),
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "801" }),
     /must not exceed 800/
   );
   assert.throws(
-    () => loadSportsbookConfig({ ...env, SPORTRADAR_SPORT_IDS: "sr:sport:1,sr:sport:2" }),
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800", SPORTRADAR_SPORT_IDS: "sr:sport:1,sr:sport:2" }),
     /exactly one sport/
   );
 });
@@ -93,7 +93,7 @@ test("config rejects missing API key, unsupported tier, and unverified quota bas
     SPORTRADAR_INITIAL_30_DAY_USAGE: "120",
     SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
   });
-  assert.equal(defaults.maxCallsPer30Days, 800);
+  assert.equal(defaults.maxCallsPer30Days, 2000);
   assert.equal(defaults.initialCallsUsed30Days, 120);
   assert.equal(defaults.daysAhead, 0);
   assert.equal(defaults.maxCallsPerCycle, 6);
