@@ -305,3 +305,15 @@ test("Soccer candidate repository deduplicates sr:match and sr:sport_event alias
   assert.equal(groups.candidateCount, 1);
   assert.deepEqual(groups.dates, ["2026-11-26"]);
 });
+
+test("Soccer result is not provider-timestamped or verified when generated_at is absent", () => {
+  const results = normalizeSoccerResults({
+    summaries: [{
+      sport_event: { id: "sr:sport_event:9002" },
+      sport_event_status: { status: "closed", home_score: 2, away_score: 1 }
+    }]
+  }, "2026-11-27T12:00:00Z");
+  assert.equal(results.length, 1);
+  assert.equal(results[0].providerGeneratedAt, null);
+  assert.equal(results[0].verified, false);
+});
