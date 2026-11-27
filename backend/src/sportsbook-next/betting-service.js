@@ -139,13 +139,13 @@ export async function getSportsbookBetAcceptanceReadiness({ redis, env = process
   };
 }
 
-function normalizeLegInput(leg) {
+export function normalizeSportsbookLegInput(leg) {
   assert(leg && typeof leg === "object", 400, "Pilihan taruhan tidak valid.", "SPORTSBOOK_LEG_INVALID");
   const providerEventId = String(leg.providerEventId || "");
   const providerMarketKey = String(leg.providerMarketKey || "");
   const providerBookId = String(leg.providerBookId || "");
   const providerSelectionKey = String(leg.providerSelectionKey || "");
-  assert(/^sr:sport_event:\\d+$/.test(providerEventId), 400, "ID pertandingan Sportradar tidak valid.", "SPORTSBOOK_EVENT_ID_INVALID");
+  assert(/^sr:sport_event:\d+$/.test(providerEventId), 400, "ID pertandingan Sportradar tidak valid.", "SPORTSBOOK_EVENT_ID_INVALID");
   assert(providerMarketKey.length > 0 && providerMarketKey.length <= 512, 400, "Market tidak valid.", "SPORTSBOOK_MARKET_INVALID");
   assert(providerBookId.length > 0 && providerBookId.length <= 128, 400, "Bookmaker tidak valid.", "SPORTSBOOK_BOOK_INVALID");
   assert(providerSelectionKey.length > 0 && providerSelectionKey.length <= 256, 400, "Pilihan odds tidak valid.", "SPORTSBOOK_SELECTION_INVALID");
@@ -287,7 +287,7 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
     "Idempotency key wajib unik dan valid.", "SPORTSBOOK_IDEMPOTENCY_KEY_INVALID");
   assert(Array.isArray(input?.legs) && input.legs.length >= 1 && input.legs.length <= MAX_LEGS,
     400, "Jumlah pilihan taruhan tidak valid.", "SPORTSBOOK_LEGS_INVALID");
-  const legs = input.legs.map(normalizeLegInput);
+  const legs = input.legs.map(normalizeSportsbookLegInput);
   const eventIds = legs.map(leg => leg.providerEventId);
   assert(new Set(eventIds).size === eventIds.length, 400,
     "Satu tiket tidak boleh memuat dua pilihan dari pertandingan yang sama.", "SPORTSBOOK_DUPLICATE_EVENT");
