@@ -118,7 +118,7 @@ export async function getSportsbookBetAcceptanceReadiness({
   if (String(env.SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() !== "true") reasons.push("SOCCER_QUOTA_BASELINE_UNCONFIRMED");
   const soccerMaxCalls = safeIntegerEnv(env, "SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS");
   const soccerInitialRaw = String(env.SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE ?? "").trim();
-  const soccerInitialUsage = /^\\d+$/.test(soccerInitialRaw) ? Number(soccerInitialRaw) : null;
+  const soccerInitialUsage = /^\d+$/.test(soccerInitialRaw) ? Number(soccerInitialRaw) : null;
   const soccerPollMinutes = Number(env.SPORTRADAR_SOCCER_POLL_MINUTES ?? 60);
   const soccerMinimumCalls = Number.isInteger(soccerPollMinutes) && soccerPollMinutes >= 60
     ? Math.ceil((30 * 24 * 60) / soccerPollMinutes)
@@ -508,6 +508,8 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
 
 export const __sportsbookBetting = {
   CHANGE_LOG_LAST_SUCCESS_KEY, FEED_STATUS_KEY, SNAPSHOT_KEY,
+  SOCCER_STATUS_KEY, SOCCER_HEARTBEAT_KEY,
+  SETTLEMENT_STATUS_KEY, SETTLEMENT_HEARTBEAT_KEY,
   CHANGE_LOG_WINDOW_MS, ODDS_SCALE, MAX_LEGS, PROVIDER_PRODUCT
 };
 
