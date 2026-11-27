@@ -53,6 +53,7 @@ Before enabling bets, verify all of the following from the provider account dash
 - Configure explicit positive maximum stake and maximum payout.
 - The Soccer result worker heartbeat and settlement worker heartbeat/status must be fresh and healthy.
 - At least one full-time Soccer 1X2 provider mapping must be reviewed against actual live provider payloads and enabled as `VERIFIED`.
+- A ticket's event must have a separate Daily Schedules verification timestamp no older than six hours; market-feed event metadata alone is not sufficient to accept a bet.
 - Fund `SYSTEM:SPORTSBOOK_RISK_RESERVE` through the approved finance/ledger process. A zero or insufficient reserve rejects the ticket; the code never manufactures bankroll.
 - Apply migrations 045, 046 and 047 through the normal migration runner in staging first. Do not manually skip earlier migrations.
 
