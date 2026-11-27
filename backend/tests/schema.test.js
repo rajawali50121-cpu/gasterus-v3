@@ -43,10 +43,13 @@ test('sportsbook bet acceptance separates receipt time, change-log verification 
   assert.doesNotMatch(sportsbookBetAcceptanceSchema,/\\bDROP\\s+TABLE\\b|\\bTRUNCATE\\b|\\bDELETE\\s+FROM\\b/i);
 });
 
-test('sportsbook ticket acceptance is gated by a fresh complete Change Log and uses the existing double-entry ledger',()=>{
-  for(const token of ['SPORTRADAR_CHANGELOG_ENABLED','SPORTRADAR_ACCESS_LEVEL','PRODUCTION_ENTITLEMENT_REQUIRED','CHANGE_LOG_WINDOW_STALE','change_log_verified_at','postTransfer','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','enforceResponsiblePlay','requestFingerprint','NO_VERIFIED_MARKET_MAPPINGS','NO_FRESH_DAILY_SCHEDULES','SPORTSBOOK_SCHEDULE_NOT_VERIFIED','SCHEDULE_MAX_AGE_MINUTES','listMemberSportsbookTickets']) assert.ok(sportsbookBettingService.includes(token),token);
+test('sportsbook ticket acceptance does not depend on internal schedule or Change Log timestamps and keeps ledger safeguards',()=>{
+  for(const token of ['SPORTRADAR_ACCESS_LEVEL','PRODUCTION_ENTITLEMENT_REQUIRED','postTransfer','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','enforceResponsiblePlay','requestFingerprint','NO_VERIFIED_MARKET_MAPPINGS','listMemberSportsbookTickets']) assert.ok(sportsbookBettingService.includes(token),token);
+  for(const token of ['CHANGE_LOG_WINDOW_STALE','change_log_verified_at','NO_FRESH_DAILY_SCHEDULES','SPORTSBOOK_SCHEDULE_NOT_VERIFIED','SCHEDULE_MAX_AGE_MINUTES']) assert.ok(!sportsbookBettingService.includes(token),token);
   assert.ok(sportsbookBettingService.includes('SUPPORTED_MARKET_CODE'));
   assert.ok(sportsbookBettingService.includes('SPORTSBOOK_SETTLEMENT_RULE_UNSUPPORTED'));
+  assert.ok(sportsbookWorker.includes('getAllDailySportEventMarkets'));
+  assert.ok(!sportsbookWorker.includes('runChangeLogCycle'));
 });
 
 test('sportsbook acceptance cannot start before settlement is explicitly enabled',()=>{
