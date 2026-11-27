@@ -179,7 +179,6 @@ export async function persistSoccerResultRevisions(results) {
         soccer_v4: { replaced_by: result.replacedBy ?? null, review_required: result.reviewRequired === true }
       });
       if (providerAt) {
-        if (providerAt) {
         const revision = await client.query(`
           INSERT INTO sportsbook_v2_event_result_revisions(
             provider_event_id,result_source,event_status,home_score,away_score,provider_generated_at,received_at,verified,provider_payload
@@ -208,8 +207,8 @@ export async function persistSoccerResultRevisions(results) {
         ON CONFLICT(provider_event_id) DO UPDATE SET
           result_source=excluded.result_source,event_status=excluded.event_status,
           home_score=excluded.home_score,away_score=excluded.away_score,
-          source_updated_at=excluded.source_updated_at,verified=excluded.verified,
-          provider_payload=excluded.provider_payload
+          source_updated_at=excluded.source_updated_at,received_at=excluded.received_at,
+          verified=excluded.verified,provider_payload=excluded.provider_payload
         WHERE sportsbook_v2_event_results.received_at <= excluded.received_at
       `,[storageEventId,result.source,result.status,result.homeScore,result.awayScore,providerAt,receivedAt,result.verified===true,payload]);
       if (result.verified === true) verified += 1;
