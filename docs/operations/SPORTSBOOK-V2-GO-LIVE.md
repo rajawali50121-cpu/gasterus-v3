@@ -4,7 +4,7 @@
 
 The provider and financial paths are deliberately separate:
 
-1. **Odds Comparison Prematch v2 worker** imports event metadata from the official Daily Schedules `schedules.json` feed into the events table, separately imports prices from the official Daily Sport Event Markets feed, and joins them only by exact `sr:sport_event` URN. It then refreshes changed events from the official five-minute Change Log. Schedule sync never writes markets or prices; the market feed never overwrites schedule-owned event metadata.
+1. **Odds Comparison Prematch v2 worker** imports event metadata and prices from every page of the official Daily Sport Event Markets feed, joined only by exact `sr:sport_event` URN. The worker completes pagination before publishing a snapshot. Change Log polling and separate Daily Schedules polling are disabled in this release.
 2. **Soccer API v4 result worker** independently polls daily summaries for tracked events after the configured result buffer. It stores provider time separately from local receipt time and treats only verified `closed` results with complete scores, or provider-confirmed `cancelled`, as settleable.
 3. **Member API** exposes only operator-approved, verified full-time Soccer 1X2 selections. The server rechecks the exact provider event, market, bookmaker, selection, odds, status, freshness, mapping and risk limits before debiting a member.
 4. **Settlement worker** settles only verified result contracts, using the existing GASTERUS double-entry ledger. Stake is held in `SYSTEM:SPORTSBOOK_HOLD`; potential profit is reserved from `SYSTEM:SPORTSBOOK_RISK_RESERVE`. Unused reserve is released atomically.
@@ -15,7 +15,7 @@ The provider and financial paths are deliberately separate:
 - Odds Comparison Prematch v2 base: `https://api.sportradar.com/oddscomparison-prematch/{trial|production}/v2/{language}`.
 - Soccer API v4 base: `https://api.sportradar.com/soccer/{trial|production}/v4/{language}`.
 - Both products authenticate server-side using the `x-api-key` header.
-- Prematch flow: Daily Schedules (`schedules.json`) for event metadata; Daily Sport Event Markets for market prices; Sport Event Markets Change Log for incremental updates. The Change Log reports changed events in a five-minute window; if a gap exceeds that window, reconcile every tracked event before restoring betting.
+- Prematch flow: Daily Sport Event Markets provides event metadata and market prices in the same paginated feed. The Change Log endpoint is not called by this release.
 - Soccer results use Soccer v4 Daily Summaries and preserve the exact `sr:sport_event:` URN. Do not join by team names, kickoff time, or legacy `sr:match:` IDs.
 
 Official references:
@@ -33,11 +33,11 @@ Deploy these as separate Railway services from the same repository and shared Po
 | Service | Entrypoint / image | Required flag |
 |---|---|---|
 | API | existing GASTERUS backend | existing production API |
-| Odds discovery + Change Log | `node src/sportsbook-next/worker.js` | `SPORTRADAR_ODDS_ENABLED=true` |
+| Odds discovery (bulk markets) | `node src/sportsbook-next/worker.js` | `SPORTRADAR_ODDS_ENABLED=true` |
 | Soccer v4 results | `deploy/Dockerfile.soccer-v4-worker` | `SPORTRADAR_SOCCER_ENABLED=true` |
 | Ticket settlement | `deploy/Dockerfile.sportsbook-settlement-worker` | `SPORTSBOOK_SETTLEMENT_ENABLED=true` |
 
-The Odds Comparison worker remains separately controlled by its own quota and Change Log flags. Keep all betting flags false during initial deployment.
+The Odds Comparison worker remains separately controlled by its own quota flag. Change Log is hard-disabled in code; keep all betting flags false during initial deployment.
 
 ## Configuration gates
 
@@ -47,13 +47,13 @@ Before enabling bets, verify all of the following from the provider account dash
 
 - Odds Comparison and Soccer v4 each have **production** entitlement.
 - Record the current rolling 30-day usage separately for each product and set the matching baseline-confirmed flag only after checking provider reporting.
-- Change Log cadence must be 60–300 seconds. At 240 seconds it requires at least 10,800 Change Log calls per rolling 30 days before any event-market refresh calls; a trial budget of 800 or 1,000 cannot support continuous Change Log coverage. Keep bet acceptance disabled if the account quota cannot support the required cadence.
+- Change Log is disabled. Do not set `SPORTRADAR_CHANGELOG_ENABLED=true`; code intentionally ignores that flag. This removes Change Log polling and per-event refresh calls from this worker.
 - Soccer v4 Daily Summaries polling is fixed at 60 minutes. The quota projection includes 720 current-date hourly requests plus one daily request for each configured historical lookback date (default seven days, 930 calls/30 days before pagination). Pagination can require additional calls; Redis quota reservation remains authoritative.
-- Daily Schedules are refreshed independently every 60 minutes; schedule verification accepted by the ticket API must be no older than 60 minutes. Daily Sport Event Markets discovery remains on its separate 150-minute cadence. The quota projection budgets two pages per schedule and market cycle plus daily Sports/Books/Competitions discovery. At these defaults, before Change Log polling, the minimum projected Odds Comparison usage is 2,106 calls/30 days. With a 240-second Change Log cadence and an 80-call cycle reserve, the projected requirement is 12,986 calls/30 days plus actual starting usage. A trial ceiling of 800 cannot support this configuration; the worker refuses to start rather than silently degrading freshness.
+- Daily Schedules are not polled separately and their timestamp is not a bet-acceptance gate. Daily Sport Event Markets is polled every 150 minutes, with every page fetched until the provider reports completion (page size 50; runtime rolling quota reservation counts each page). The minimum quota projection assumes one page per cycle plus 90 daily discovery calls; extra pages increase actual usage and can exhaust the provider quota. The calculator does not assume two pages or a fixed event count.
 - Configure explicit positive maximum stake and maximum payout.
 - The Soccer result worker heartbeat and settlement worker heartbeat/status must be fresh and healthy.
 - At least one full-time Soccer 1X2 provider mapping must be reviewed against actual live provider payloads and enabled as `VERIFIED`.
-- A ticket's event must have a separate Daily Schedules verification timestamp no older than 60 minutes; market-feed event metadata alone is not sufficient to accept a bet.
+- A ticket is not rejected because a separate Daily Schedules poll or Change Log poll is late. It is still rejected for an event that has started, a suspended/closed market or price, a changed submitted price, an unverified settlement mapping, stake/payout limits, insufficient balance, or other financial/session safeguards.
 - Fund `SYSTEM:SPORTSBOOK_RISK_RESERVE` through the approved finance/ledger process. Readiness requires its available balance to be at least the configured maximum single-ticket payout; insufficient reserve keeps bet acceptance disabled, and ticket-time atomic reservation remains the final safeguard.
 - Apply migrations 045, 046 and 047 through the normal migration runner in staging first. Do not manually skip earlier migrations.
 
@@ -102,7 +102,7 @@ Member endpoints:
 - [ ] Migrations 045–047 apply cleanly to a staging copy and schema readiness passes.
 - [ ] Both Sportradar product entitlements and rolling usage baselines are confirmed.
 - [ ] Real, non-mock provider requests succeed for the configured account and expected coverage.
-- [ ] Change Log full reconciliation completes; no pending refresh queue remains.
+- [ ] Confirm Change Log remains disabled in this release and no Change Log endpoint is called.
 - [ ] At least one approved market/outcome mapping is verified against actual provider payloads.
 - [ ] Soccer results worker and settlement worker heartbeats are healthy.
 - [ ] Risk reserve is funded and reconciled against finance records.
