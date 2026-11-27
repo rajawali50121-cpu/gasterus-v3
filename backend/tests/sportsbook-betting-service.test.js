@@ -1,0 +1,92 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  calculateSportsbookBetAmounts,
+  decimalOddsToMicros,
+  getSportsbookBetAcceptanceReadiness,
+  __sportsbookBetting
+} from "../src/sportsbook-next/betting-service.js";
+
+const readyEnv = {
+  SPORTSBOOK_BET_ACCEPTANCE_ENABLED: "true",
+  SPORTRADAR_ODDS_ENABLED: "true",
+  SPORTRADAR_CHANGELOG_ENABLED: "true",
+  SPORTRADAR_ACCESS_LEVEL: "production",
+  SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true",
+  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "12000",
+  SPORTRADAR_INITIAL_30_DAY_USAGE: "0",
+  SPORTRADAR_CHANGELOG_POLL_SECONDS: "240",
+  SPORTRADAR_MAX_CALLS_PER_CYCLE: "80",
+  SPORTSBOOK_BET_MAX_STAKE_IDR: "100000",
+  SPORTSBOOK_BET_MAX_PAYOUT_IDR: "10000000"
+};
+
+function healthyRedis(now, { refreshPending = false, lastSuccessAgeMs = 15_000 } = {}) {
+  const values = new Map([
+    [__sportsbookBetting.FEED_STATUS_KEY, JSON.stringify({
+      complete: true, changeLogPoll: true, quotaLimited: false, errorCount: 0,
+      reconcilePending: 0, changedPending: 0
+    })],
+    [__sportsbookBetting.SNAPSHOT_KEY, JSON.stringify({ complete: true, refreshPending })],
+    [__sportsbookBetting.CHANGE_LOG_LAST_SUCCESS_KEY, String(now - lastSuccessAgeMs)]
+  ]);
+  return { get: async key => values.get(key) ?? null };
+}
+
+test("decimal odds are parsed to exact six-decimal integer precision", () => {
+  assert.equal(decimalOddsToMicros("2.10"), 2_100_000n);
+  assert.equal(decimalOddsToMicros("12.345678"), 12_345_678n);
+  assert.throws(() => decimalOddsToMicros("1.00"), error => error.code === "SPORTSBOOK_ODDS_OUT_OF_RANGE");
+  assert.throws(() => decimalOddsToMicros("2e0"), error => error.code === "SPORTSBOOK_ODDS_INVALID");
+  assert.throws(() => decimalOddsToMicros("2.1234567"), error => error.code === "SPORTSBOOK_ODDS_INVALID");
+});
+
+test("parlay odds and payout use fixed-point integer arithmetic", () => {
+  assert.deepEqual(
+    calculateSportsbookBetAmounts(10_000, ["2.10", "1.80"], 50_000),
+    { totalOdds: "3.780000", potentialPayout: 37_800, oddsMicros: ["2100000", "1800000"] }
+  );
+  assert.equal(calculateSportsbookBetAmounts(1_000, ["1.91", "1.91"], 10_000).potentialPayout, 3_648);
+});
+
+test("payout ceiling and invalid stake are enforced before ledger debit", () => {
+  assert.throws(() => calculateSportsbookBetAmounts(10_000, ["2.10"], 20_000),
+    error => error.code === "SPORTSBOOK_PAYOUT_LIMIT");
+  assert.throws(() => calculateSportsbookBetAmounts(0, ["2.10"], 20_000),
+    error => error.code === "SPORTSBOOK_STAKE_INVALID");
+});
+
+test("bet acceptance requires production entitlement and continuous complete Change Log coverage", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    redis: healthyRedis(now), env: readyEnv, now
+  });
+  assert.equal(readiness.enabled, true);
+  assert.deepEqual(readiness.reasons, []);
+  assert.equal(readiness.lastChangeLogSuccessAt, new Date(now - 15_000).toISOString());
+});
+
+test("trial quota and an unverified Change Log window fail closed", async () => {
+  const now = 1_800_000_000_000;
+  const trial = await getSportsbookBetAcceptanceReadiness({
+    redis: healthyRedis(now), env: { ...readyEnv, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800" }, now
+  });
+  assert.equal(trial.enabled, false);
+  assert.ok(trial.reasons.includes("PRODUCTION_ENTITLEMENT_REQUIRED"));
+  assert.ok(trial.reasons.includes("CHANGE_LOG_QUOTA_BUDGET_INSUFFICIENT"));
+
+  const pending = await getSportsbookBetAcceptanceReadiness({
+    redis: healthyRedis(now, { refreshPending: true }), env: readyEnv, now
+  });
+  assert.equal(pending.enabled, false);
+  assert.ok(pending.reasons.includes("SPORTSBOOK_RECONCILIATION_PENDING"));
+});
+
+test("stale Change Log coverage blocks ticket acceptance", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    redis: healthyRedis(now, { lastSuccessAgeMs: 5 * 60 * 1000 + 1 }), env: readyEnv, now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("CHANGE_LOG_WINDOW_STALE"));
+});
