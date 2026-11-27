@@ -73,6 +73,7 @@ export class SoccerV4Client {
         lastModified: response.headers.get("last-modified"),
         maxResults: parseHeaderInteger(response.headers.get("x-max-results")),
         resultCountHeader: parseHeaderInteger(response.headers.get("x-result")),
+        pageResultCount: null,
         offset: parseHeaderInteger(response.headers.get("x-offset"))
       };
       this.onResponse?.(metadata);
@@ -91,6 +92,7 @@ export class SoccerV4Client {
       if (!body || typeof body !== "object" || !Array.isArray(body.summaries)) {
         throw providerError("SOCCER_V4_RESULTS_SHAPE_INVALID", "Soccer v4 summaries response has an invalid shape");
       }
+      metadata.pageResultCount = body.summaries.length;
       const unique = new Map();
       for (const summary of body.summaries) {
         const id = normalizeSportEventId(summary?.sport_event?.id);
