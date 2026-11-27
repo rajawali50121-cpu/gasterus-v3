@@ -17,7 +17,7 @@ function hasValidOdds(market) {
  * Read-only public projection of the worker-owned Redis snapshot.
  * This function never calls the Sportradar provider or writes to Redis.
  */
-export async function readPublicSportsbookSnapshot({ redis, now = Date.now(), maxAgeMs = MAX_SNAPSHOT_AGE_MS }) {
+export async function readPublicSportsbookSnapshot({ redis, now = Date.now(), maxAgeMs = MAX_SNAPSHOT_AGE_MS, loadMappings = query }) {
   let raw;
   try {
     raw = await redis.get("sportsbook:next:snapshot:v1");
@@ -62,7 +62,7 @@ export async function readPublicSportsbookSnapshot({ redis, now = Date.now(), ma
   let mappingRows = [];
   let bettingMappingsAvailable = false;
   try {
-    const mapped = await query(`
+    const mapped = await loadMappings(`
       SELECT pm.sport_id,pm.provider_market_id,pm.provider_market_name,
              COALESCE(pm.provider_definition->>'specifiers','') AS specifiers,
              pm.outcomes,pm.market_code,pm.settlement_rule
