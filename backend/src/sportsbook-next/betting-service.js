@@ -87,15 +87,17 @@ export async function getSportsbookBetAcceptanceReadiness({ redis, env = process
   if (String(env.SPORTSBOOK_BET_ACCEPTANCE_ENABLED || "").toLowerCase() !== "true") reasons.push("BET_ACCEPTANCE_DISABLED");
   if (String(env.SPORTRADAR_ODDS_ENABLED || "").toLowerCase() !== "true") reasons.push("ODDS_WORKER_DISABLED");
   if (String(env.SPORTRADAR_CHANGELOG_ENABLED || "").toLowerCase() !== "true") reasons.push("CHANGE_LOG_DISABLED");
+  if (String(env.SPORTSBOOK_SETTLEMENT_ENABLED || "").toLowerCase() !== "true") reasons.push("SETTLEMENT_ENGINE_DISABLED");
   if (String(env.SPORTRADAR_ACCESS_LEVEL || "").toLowerCase() !== "production") reasons.push("PRODUCTION_ENTITLEMENT_REQUIRED");
   if (String(env.SPORTRADAR_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() !== "true") reasons.push("QUOTA_BASELINE_UNCONFIRMED");
 
   const maxCalls = safeIntegerEnv(env, "SPORTRADAR_MAX_CALLS_PER_30_DAYS");
-  const initialUsage = Number(env.SPORTRADAR_INITIAL_30_DAY_USAGE);
+  const initialRaw = String(env.SPORTRADAR_INITIAL_30_DAY_USAGE ?? "").trim();
+  const initialUsage = /^\d+$/.test(initialRaw) ? Number(initialRaw) : null;
   const pollSeconds = Number(env.SPORTRADAR_CHANGELOG_POLL_SECONDS ?? 240);
-  const cycleCalls = Number(env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? 80);
-  const minimumCalls = Number.isInteger(pollSeconds) && pollSeconds >= 60 && pollSeconds <= 300
-    ? Math.ceil((30 * 24 * 60 * 60) / pollSeconds) + Math.max(1, Number.isInteger(cycleCalls) ? cycleCalls : 80)
+  const cycleCalls = safeIntegerEnv(env, "SPORTRADAR_MAX_CALLS_PER_CYCLE");
+  const minimumCalls = Number.isInteger(pollSeconds) && pollSeconds >= 60 && pollSeconds <= 300 && cycleCalls
+    ? Math.ceil((30 * 24 * 60 * 60) / pollSeconds) + cycleCalls
     : Number.POSITIVE_INFINITY;
   if (!maxCalls || !Number.isSafeInteger(initialUsage) || initialUsage < 0 ||
       maxCalls - initialUsage < minimumCalls) reasons.push("CHANGE_LOG_QUOTA_BUDGET_INSUFFICIENT");
