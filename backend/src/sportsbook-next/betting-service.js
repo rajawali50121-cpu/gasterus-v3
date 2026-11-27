@@ -11,7 +11,6 @@ const SOCCER_STATUS_KEY = "sportsbook:soccer-v4:status:v1";
 const SOCCER_HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
 const SETTLEMENT_STATUS_KEY = "sportsbook:settlement:status:v1";
 const SETTLEMENT_HEARTBEAT_KEY = "sportsbook:settlement:heartbeat:v1";
-const KICKOFF_CUTOFF_MINUTES = 5;
 const ODDS_SCALE = 1_000_000n;
 const MAX_LEGS = 10;
 const PROVIDER_PRODUCT = "oddscomparison-prematch-v2";
@@ -176,7 +175,6 @@ export async function getSportsbookBetAcceptanceReadiness({
   let snapshot = null;
   let soccerStatus = null;
   let settlementStatus = null;
-  let lastSuccessAt = null;
   let soccerHeartbeatAt = null;
   let settlementHeartbeatAt = null;
   try {
@@ -342,12 +340,6 @@ async function loadBettablePrice(client, leg, nowMs) {
     "Status pertandingan tidak mengizinkan taruhan prematch.", "SPORTSBOOK_EVENT_NOT_PREMATCH");
   assert(row.scheduled_at && new Date(row.scheduled_at).getTime() > nowMs, 409,
     "Jadwal pertandingan sudah dimulai atau tidak valid.", "SPORTSBOOK_EVENT_STARTED");
-  assert(row.change_log_verified_at, 409,
-    "Harga belum dikonfirmasi oleh Change Log Sportradar.", "SPORTSBOOK_PRICE_NOT_CHANGELOG_VERIFIED");
-  const scheduleVerifiedAt = Date.parse(String(row.schedule_verified_at || ""));
-  assert(Number.isFinite(scheduleVerifiedAt) &&
-    nowMs - scheduleVerifiedAt <= SCHEDULE_MAX_AGE_MINUTES * 60_000,
-    409, "Jadwal pertandingan belum diverifikasi dari Daily Schedules terbaru.", "SPORTSBOOK_SCHEDULE_NOT_VERIFIED");
   assert(row.received_at, 409,
     "Waktu penerimaan harga tidak tersedia.", "SPORTSBOOK_PRICE_RECEIPT_TIME_MISSING");
 
