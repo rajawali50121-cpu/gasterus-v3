@@ -40,6 +40,17 @@ export function loadSportsbookConfig(env = process.env) {
   if (changeLogPollSeconds < 60 || changeLogPollSeconds > 300) {
     throw new Error("SPORTRADAR_CHANGELOG_POLL_SECONDS must be between 60 and 300 seconds");
   }
+  const daysAhead = Number(env.SPORTRADAR_DAYS_AHEAD ?? 0);
+  if (!Number.isSafeInteger(daysAhead) || daysAhead < 0 || daysAhead > (accessLevel === "trial" ? 0 : 14)) {
+    throw new Error(accessLevel === "trial"
+      ? "Trial mode supports only the current UTC date (SPORTRADAR_DAYS_AHEAD=0)"
+      : "SPORTRADAR_DAYS_AHEAD must be an integer between 0 and 14");
+  }
+  const sportIds = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").map(v => v.trim()).filter(Boolean);
+  if (!sportIds.length || sportIds.some(id => !/^sr:sport:\d+$/.test(id))) throw new Error("SPORTRADAR_SPORT_IDS must be comma-separated Sportradar sport URNs");
+  if (accessLevel === "trial" && sportIds.length !== 1) {
+    throw new Error("Trial mode must track exactly one sport to protect the 30-day request budget");
+  }
   const minimumChangeLogCalls30Days = Math.ceil((30 * 24 * 60 * 60) / changeLogPollSeconds);
   const sportCount = sportIds.length;
   const dateCount = daysAhead + 1;
@@ -51,17 +62,6 @@ export function loadSportsbookConfig(env = process.env) {
     minimumDiscoveryCalls30Days + (changeLogEnabled ? minimumChangeLogCalls30Days + maxCallsPerCycle : 0);
   if (maxCallsPer30Days - initialCallsUsed30Days < minimumCalls30Days) {
     throw new Error("Sportradar 30-day budget is insufficient for the configured Daily Schedules, market discovery, discovery feeds and Change Log request cadence");
-  }
-  const daysAhead = Number(env.SPORTRADAR_DAYS_AHEAD ?? 0);
-  if (!Number.isSafeInteger(daysAhead) || daysAhead < 0 || daysAhead > (accessLevel === "trial" ? 0 : 14)) {
-    throw new Error(accessLevel === "trial"
-      ? "Trial mode supports only the current UTC date (SPORTRADAR_DAYS_AHEAD=0)"
-      : "SPORTRADAR_DAYS_AHEAD must be an integer between 0 and 14");
-  }
-  const sportIds = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").map(v => v.trim()).filter(Boolean);
-  if (!sportIds.length || sportIds.some(id => !/^sr:sport:\d+$/.test(id))) throw new Error("SPORTRADAR_SPORT_IDS must be comma-separated Sportradar sport URNs");
-  if (accessLevel === "trial" && sportIds.length !== 1) {
-    throw new Error("Trial mode must track exactly one sport to protect the 30-day request budget");
   }
   const language = String(env.SPORTRADAR_LANGUAGE || "en").trim();
   return Object.freeze({
