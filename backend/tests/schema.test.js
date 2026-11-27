@@ -60,7 +60,9 @@ test('sportsbook result persistence allows optional provider time and records re
   assert.ok(sportsbookSettlementSchema.includes('sportsbook_v2_result_revisions_source_version_uq'));
   assert.ok(sportsbookResultReceiptSchema.includes('ADD COLUMN IF NOT EXISTS received_at'));
   assert.ok(sportsbookResultReceiptSchema.includes('ALTER COLUMN source_updated_at DROP NOT NULL'));
+  assert.ok(sportsbookResultReceiptSchema.includes('sportsbook_v2_result_revisions_receipt_version_uq'));
   assert.ok(sportsbookResultsRepository.includes('ON CONFLICT (provider_event_id,result_source,provider_generated_at)'));
   assert.ok(sportsbookResultsRepository.includes('received_at=excluded.received_at'));
+  assert.ok(sportsbookResultsRepository.includes('ON CONFLICT (provider_event_id,result_source,received_at)'));
   assert.doesNotMatch(sportsbookResultsRepository,/if \\(!result\\?\\.providerGeneratedAt\\) continue;/);
 });
