@@ -24,6 +24,10 @@ ALTER TABLE sportsbook_v2_prices
 -- Persist exactly which settlement contract and outcome mapping were accepted.
 -- Historical ticket legs are backfilled conservatively; new placements require
 -- these fields to be resolved from an enabled, verified provider mapping.
+ALTER TABLE sportsbook_v2_tickets
+  ADD COLUMN IF NOT EXISTS settlement_ledger_transaction_id UUID
+    REFERENCES ledger_transactions(id) ON DELETE RESTRICT;
+
 ALTER TABLE sportsbook_v2_ticket_legs
   ADD COLUMN IF NOT EXISTS price_received_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS market_code TEXT,
