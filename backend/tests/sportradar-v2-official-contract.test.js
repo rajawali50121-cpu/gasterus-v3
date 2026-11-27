@@ -81,6 +81,15 @@ function createMockProvider() {
       return;
     }
 
+    if (url.pathname.endsWith("/sports/sr:sport:1/schedules/2026-11-28/schedules.json") && Number(url.searchParams.get("limit") || 50) > 50) {
+      res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ message: "limit maximum is 50" }));
+      return;
+    }
+    if (url.pathname.endsWith("/schedules/2026-11-28/summaries.json") && Number(url.searchParams.get("limit") || 200) > 200) {
+      res.writeHead(400, { "content-type": "application/json" }).end(JSON.stringify({ message: "limit maximum is 200" }));
+      return;
+    }
+
     let body;
     if (url.pathname.endsWith("/books.json")) body = responses.books;
     else if (url.pathname.endsWith("/sports.json")) body = responses.sports;
@@ -150,10 +159,8 @@ test("Odds Daily Schedules rejects a limit above the official endpoint maximum",
     `http://127.0.0.1:${port}/oddscomparison-prematch/trial/v2/en/sports/sr:sport:1/schedules/2026-11-28/schedules.json?start=0&limit=51&live=false`,
     { headers: { "x-api-key": "contract-test-dummy" } }
   );
-  // The mock intentionally returns the documented route response; limit validation
-  // belongs to the caller contract test and is asserted here from official docs.
-  assert.equal(Number(new URL(response.url).searchParams.get("limit")) > 50, true);
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).message, "limit maximum is 50");
 });
 
 test("Odds Change Log uses status.change, not an invented top-level changes array", async t => {
