@@ -29,6 +29,10 @@ ALTER TABLE sportsbook_v2_tickets
     REFERENCES ledger_transactions(id) ON DELETE RESTRICT;
 
 ALTER TABLE sportsbook_v2_ticket_legs
+  ADD COLUMN IF NOT EXISTS provider_market_name TEXT,
+  ADD COLUMN IF NOT EXISTS provider_book_name TEXT,
+  ADD COLUMN IF NOT EXISTS provider_outcome_name TEXT,
+  ADD COLUMN IF NOT EXISTS provider_outcome_type TEXT,
   ADD COLUMN IF NOT EXISTS price_received_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS market_code TEXT,
   ADD COLUMN IF NOT EXISTS outcome_code TEXT,
