@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const seed = readFileSync(new URL('../migrations/seed.js', import.meta.url), 'utf8');
+const seedPath = fileURLToPath(new URL('../migrations/seed.js', import.meta.url));
+const seed = readFileSync(seedPath, 'utf8');
 const conflictStart = seed.indexOf('ON CONFLICT(provider_path)');
 const paramsStart = seed.indexOf('`, [', conflictStart);
 const conflictClause = seed.slice(conflictStart, paramsStart);
@@ -22,4 +25,8 @@ test('seed INSERT uses the verificationStatus supplied by markets.seed.json', ()
 
 test('seed protection test does not require a database connection', () => {
   assert.doesNotMatch(seed, /connect\(\)|pool\.connect\(/);
+});
+
+test('seed migration passes Node syntax validation', () => {
+  execFileSync(process.execPath, ['--check', seedPath], { stdio: 'pipe' });
 });
