@@ -3,7 +3,11 @@ import { normalizeSportEventId } from "./results.js";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function validDate(value) {
-  const time = value instanceof Date ? value.getTime() : Date.parse(value);
+  const time = value instanceof Date
+    ? value.getTime()
+    : typeof value === "number"
+      ? value
+      : Date.parse(value);
   return Number.isFinite(time) ? time : null;
 }
 
