@@ -55,6 +55,26 @@ test("change log extracts only tracked Sportradar sport-event IDs", () => {
   ] }, tracked), ["sr:sport_event:1", "sr:sport_event:2"]);
 });
 
+test("change log accepts the documented reference response status.change array", () => {
+  const tracked = new Set(["sr:sport_event:1", "sr:sport_event:2"]);
+  assert.deepEqual(getChangedSportEventIds({ status: {
+    from: 1799999700, to: 1800000000,
+    change: [
+      { type: "sport_event", id: "sr:sport_event:2" },
+      { type: "competition", id: "sr:competition:1" },
+      { type: "sport_event", id: "sr:sport_event:missing" }
+    ]
+  } }, tracked), ["sr:sport_event:2"]);
+});
+
+test("change log unions documented root and nested changes without duplicating event IDs", () => {
+  const tracked = new Set(["sr:sport_event:1", "sr:sport_event:2"]);
+  assert.deepEqual(getChangedSportEventIds({
+    changes: [{ type: "sport_event", id: "sr:sport_event:1" }],
+    status: { change: [{ type: "sport_event", id: "sr:sport_event:1" }, { type: "sport_event", id: "sr:sport_event:2" }] }
+  }, tracked), ["sr:sport_event:1", "sr:sport_event:2"]);
+});
+
 test("change log rejects a malformed payload instead of treating it as no changes", () => {
   assert.throws(() => getChangedSportEventIds({ unexpected: [] }, new Set()), /SPORTRADAR_CHANGELOG_SHAPE_INVALID/);
 });
