@@ -358,6 +358,7 @@ export async function listSportsbookResultCorrectionReviews({ limit = 50 } = {})
   const result = await query(`
     SELECT t.id,t.invoice,t.status,t.review_reason,t.review_detected_at,
            t.reviewed_at,t.review_note,
+           settlement.settled_results,
            COALESCE(jsonb_agg(jsonb_build_object(
              'eventId',l.provider_event_id,
              'home',e.home_name,
@@ -374,6 +375,13 @@ export async function listSportsbookResultCorrectionReviews({ limit = 50 } = {})
     JOIN sportsbook_v2_ticket_legs l ON l.ticket_id=t.id
     LEFT JOIN sportsbook_v2_events e ON e.provider_event_id=l.provider_event_id
     LEFT JOIN sportsbook_v2_event_results r ON r.provider_event_id=l.provider_event_id
+    LEFT JOIN LATERAL (
+      SELECT metadata->'resultPayloads' AS settled_results
+      FROM sportsbook_v2_settlement_revisions sr
+      WHERE sr.ticket_id=t.id
+      ORDER BY sr.revision_no DESC
+      LIMIT 1
+    ) settlement ON TRUE
     WHERE t.review_required=TRUE
     GROUP BY t.id
     ORDER BY t.review_detected_at ASC
