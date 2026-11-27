@@ -312,7 +312,8 @@ test("quota usage reports rolling hourly and 30-day consumption without exposing
   } }, config, 1_800_000_000_000);
   assert.deepEqual(usage, {
     hourlyUsed: 7, hourlyLimit: null, hourlyRemaining: null, hourlyEnforced: false,
-    monthlyUsed: 123, monthlyLimit: 500, monthlyRemaining: 377
+    monthlyUsed: 123, monthlyLimit: 500, monthlyRemaining: 377,
+    monthlyPercent: 24.6, criticalAlert: false, throttledAt: 450
   });
 });
 
@@ -481,7 +482,7 @@ test("discovery initializes a missing Change Log baseline but never advances an 
 test("global Sportradar QPS limiter uses Redis server time and shared cooldown", async () => {
   const { waitForSportradarRequestSlot, applySportradarRateLimitCooldown, __qps } = await import("../src/sportsbook-next/quota.js");
   assert.match(__qps.QPS_RESERVE_SCRIPT, /redis.call\('TIME'\)/);
-  assert.equal(__qps.QPS_INTERVAL_MS, 1100);
+  assert.equal(__qps.QPS_INTERVAL_MS, 1200);
   const calls=[];
   const redis={
     eval: async (_script,args) => { calls.push(args); return 0; },
