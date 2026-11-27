@@ -3,6 +3,7 @@ const schema=await readFile(new URL('../migrations/001_platform.sql',import.meta
 const sportsbookSchema=await readFile(new URL('../migrations/042_sportsbook_v2_core.sql',import.meta.url),'utf8');
 const sportsbookTimestampSchema=await readFile(new URL('../migrations/043_sportsbook_v2_provider_timestamps.sql',import.meta.url),'utf8');
 const sportsbookSettlementSchema=await readFile(new URL('../migrations/044_sportsbook_v2_market_results_settlement.sql',import.meta.url),'utf8');
+const sportsbookResultReceiptSchema=await readFile(new URL('../migrations/045_sportsbook_v2_result_receipt_times.sql',import.meta.url),'utf8');
 const sportsbookBetAcceptanceSchema=await readFile(new URL('../migrations/046_sportsbook_v2_bet_acceptance.sql',import.meta.url),'utf8');
 const sportsbookBettingService=await readFile(new URL('../src/sportsbook-next/betting-service.js',import.meta.url),'utf8');
 const sportsbookSettlementService=await readFile(new URL('../src/sportsbook-next/settlement-service.js',import.meta.url),'utf8');
@@ -55,4 +56,11 @@ test('sportsbook settlement uses confirmed results, SKIP LOCKED and the existing
   assert.ok(sportsbookBetAcceptanceSchema.includes('settlement_ledger_transaction_id'));
 });
 
-test('sportsbook result persistence deduplicates provider versions and never stores ingestion time as source time',()=>{assert.ok(sportsbookSettlementSchema.includes('sportsbook_v2_result_revisions_source_version_uq'));assert.ok(sportsbookResultsRepository.includes('ON CONFLICT (provider_event_id,result_source,provider_generated_at)'));assert.ok(sportsbookResultsRepository.includes('if (!result?.providerGeneratedAt) continue;'));});
+test('sportsbook result persistence allows optional provider time and records receipt time separately',()=>{
+  assert.ok(sportsbookSettlementSchema.includes('sportsbook_v2_result_revisions_source_version_uq'));
+  assert.ok(sportsbookResultReceiptSchema.includes('ADD COLUMN IF NOT EXISTS received_at'));
+  assert.ok(sportsbookResultReceiptSchema.includes('ALTER COLUMN source_updated_at DROP NOT NULL'));
+  assert.ok(sportsbookResultsRepository.includes('ON CONFLICT (provider_event_id,result_source,provider_generated_at)'));
+  assert.ok(sportsbookResultsRepository.includes('received_at=excluded.received_at'));
+  assert.doesNotMatch(sportsbookResultsRepository,/if \\(!result\\?\\.providerGeneratedAt\\) continue;/);
+});
