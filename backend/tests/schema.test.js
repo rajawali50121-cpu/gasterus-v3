@@ -9,6 +9,8 @@ const sportsbookCorrectionReviewSchema=await readFile(new URL('../migrations/047
 const sportsbookBettingService=await readFile(new URL('../src/sportsbook-next/betting-service.js',import.meta.url),'utf8');
 const sportsbookSettlementService=await readFile(new URL('../src/sportsbook-next/settlement-service.js',import.meta.url),'utf8');
 const sportsbookResultsRepository=await readFile(new URL('../src/sportsbook-next/results-repository.js',import.meta.url),'utf8');
+const sportsbookRepository=await readFile(new URL('../src/sportsbook-next/repository.js',import.meta.url),'utf8');
+const sportsbookWorker=await readFile(new URL('../src/sportsbook-next/worker.js',import.meta.url),'utf8');
 const memberExperienceSchema=await readFile(new URL('../migrations/003_member_experience.sql',import.meta.url),'utf8');
 const lotterySchema=await readFile(new URL('../migrations/004_lottery_enterprise.sql',import.meta.url),'utf8');
 const enterpriseBackofficeSchema=await readFile(new URL('../migrations/005_enterprise_backoffice.sql',import.meta.url),'utf8');
@@ -55,6 +57,19 @@ test('sportsbook acceptance cannot start before settlement is explicitly enabled
 test('sportsbook settlement uses confirmed results, SKIP LOCKED and the existing double-entry ledger',()=>{
   for(const token of ['FOR UPDATE OF t SKIP LOCKED','evaluateSoccer1x2Leg','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','PAYOUT_RESERVE_RELEASE','postSystemTransfer','postTransfer','SPORTSBOOK_TICKET_SETTLED']) assert.ok(sportsbookSettlementService.includes(token),token);
   assert.ok(sportsbookBetAcceptanceSchema.includes('settlement_ledger_transaction_id'));
+});
+
+test('Daily Schedules and Odds Comparison market ingestion are separate feeds and persistence paths',()=>{
+  const start=sportsbookRepository.indexOf('export async function persistSportsbookSchedules');
+  const end=sportsbookRepository.indexOf('export async function persistSportsbookSnapshot',start);
+  assert.ok(start>=0&&end>start);
+  const scheduleWriter=sportsbookRepository.slice(start,end);
+  assert.ok(scheduleWriter.includes('INSERT INTO sportsbook_v2_events'));
+  assert.doesNotMatch(scheduleWriter,/INSERT INTO sportsbook_v2_(markets|prices)/);
+  assert.ok(sportsbookWorker.includes('client.getDailySchedules'));
+  assert.ok(sportsbookWorker.includes('client.getAllDailySportEventMarkets'));
+  assert.ok(sportsbookWorker.includes('normalizeDailySchedule'));
+  assert.ok(sportsbookWorker.includes('SCHEDULE_CURSOR_PREFIX'));
 });
 
 test('settled result corrections are quarantined for audited owner review',()=>{
