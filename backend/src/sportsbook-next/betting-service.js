@@ -4,19 +4,14 @@ import { AppError, assert } from "../errors.js";
 import { memberAccount, postSystemTransfer, postTransfer, SYSTEM_ACCOUNTS } from "../ledger.js";
 import { enforceResponsiblePlay } from "../responsible-play.js";
 import { audit } from "../audit.js";
-import { evaluateOddsFreshness } from "./prematch-freshness-guard.js";
 
-const CHANGE_LOG_LAST_SUCCESS_KEY = "sportsbook:next:changelog:last-success-ms:v1";
 const FEED_STATUS_KEY = "sportsbook:next:feed-status:v1";
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
 const SOCCER_STATUS_KEY = "sportsbook:soccer-v4:status:v1";
 const SOCCER_HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
 const SETTLEMENT_STATUS_KEY = "sportsbook:settlement:status:v1";
 const SETTLEMENT_HEARTBEAT_KEY = "sportsbook:settlement:heartbeat:v1";
-const CHANGE_LOG_WINDOW_MS = 5 * 60 * 1000;
-const PRICE_MAX_AGE_MINUTES = 5;
 const KICKOFF_CUTOFF_MINUTES = 5;
-const SCHEDULE_MAX_AGE_MINUTES = 60;
 const ODDS_SCALE = 1_000_000n;
 const MAX_LEGS = 10;
 const PROVIDER_PRODUCT = "oddscomparison-prematch-v2";
@@ -105,14 +100,6 @@ export async function getSportsbookBetAcceptanceReadiness({
     `);
     return Number(result.rows[0]?.count || 0);
   },
-  loadScheduleCount = async () => {
-    const result = await query(`
-      SELECT COUNT(*)::int AS count
-      FROM sportsbook_v2_events
-      WHERE schedule_verified_at >= now() - ($1::int * interval '1 minute')
-    `, [SCHEDULE_MAX_AGE_MINUTES]);
-    return Number(result.rows[0]?.count || 0);
-  },
   loadRiskReserveBalance = async () => {
     const result = await query(`
       SELECT current_balance::bigint AS balance
@@ -125,7 +112,6 @@ export async function getSportsbookBetAcceptanceReadiness({
   const reasons = [];
   if (String(env.SPORTSBOOK_BET_ACCEPTANCE_ENABLED || "").toLowerCase() !== "true") reasons.push("BET_ACCEPTANCE_DISABLED");
   if (String(env.SPORTRADAR_ODDS_ENABLED || "").toLowerCase() !== "true") reasons.push("ODDS_WORKER_DISABLED");
-  if (String(env.SPORTRADAR_CHANGELOG_ENABLED || "").toLowerCase() !== "true") reasons.push("CHANGE_LOG_DISABLED");
   if (String(env.SPORTSBOOK_SETTLEMENT_ENABLED || "").toLowerCase() !== "true") reasons.push("SETTLEMENT_ENGINE_DISABLED");
   if (String(env.SPORTRADAR_ACCESS_LEVEL || "").toLowerCase() !== "production") reasons.push("PRODUCTION_ENTITLEMENT_REQUIRED");
   if (String(env.SPORTRADAR_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() !== "true") reasons.push("QUOTA_BASELINE_UNCONFIRMED");
@@ -150,28 +136,17 @@ export async function getSportsbookBetAcceptanceReadiness({
   const maxCalls = safeIntegerEnv(env, "SPORTRADAR_MAX_CALLS_PER_30_DAYS");
   const initialRaw = String(env.SPORTRADAR_INITIAL_30_DAY_USAGE ?? "").trim();
   const initialUsage = /^\d+$/.test(initialRaw) ? Number(initialRaw) : null;
-  const pollSeconds = Number(env.SPORTRADAR_CHANGELOG_POLL_SECONDS ?? 240);
-  const cycleCalls = safeIntegerEnv(env, "SPORTRADAR_MAX_CALLS_PER_CYCLE");
-  const schedulePollMinutes = Number(env.SPORTRADAR_SCHEDULE_POLL_MINUTES ?? 60);
   const marketPollMinutes = Number(env.SPORTSBOOK_POLL_MINUTES ?? 150);
   const daysAhead = Number(env.SPORTRADAR_DAYS_AHEAD ?? 0);
   const sportCount = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").filter(Boolean).length;
   const dateCount = Number.isInteger(daysAhead) && daysAhead >= 0 ? daysAhead + 1 : Number.POSITIVE_INFINITY;
-  const cadenceValid = Number.isInteger(schedulePollMinutes) && schedulePollMinutes === 60 &&
-    Number.isInteger(marketPollMinutes) && marketPollMinutes >= 1 && Number.isFinite(dateCount) && sportCount > 0;
-  const minimumChangeLogCalls = Number.isInteger(pollSeconds) && pollSeconds >= 60 && pollSeconds <= 300 && cycleCalls
-    ? Math.ceil((30 * 24 * 60 * 60) / pollSeconds) + cycleCalls
+  const marketCadenceValid = Number.isInteger(marketPollMinutes) && marketPollMinutes >= 1 && Number.isFinite(dateCount) && sportCount > 0;
+  const minimumMarketCalls = marketCadenceValid
+    ? Math.ceil((30 * 24 * 60) / marketPollMinutes) * sportCount * dateCount
     : Number.POSITIVE_INFINITY;
-  const minimumScheduleCalls = cadenceValid
-    ? Math.ceil((30 * 24 * 60) / schedulePollMinutes) * sportCount * dateCount * 2
-    : Number.POSITIVE_INFINITY;
-  const minimumMarketCalls = cadenceValid
-    ? Math.ceil((30 * 24 * 60) / marketPollMinutes) * sportCount * dateCount * 2
-    : Number.POSITIVE_INFINITY;
-  const minimumDiscoveryCalls = 90;
-  const minimumCalls = minimumChangeLogCalls + minimumScheduleCalls + minimumMarketCalls + minimumDiscoveryCalls;
+  const minimumCalls = minimumMarketCalls + 90;
   if (!maxCalls || !Number.isSafeInteger(initialUsage) || initialUsage < 0 ||
-      maxCalls - initialUsage < minimumCalls) reasons.push("CHANGE_LOG_QUOTA_BUDGET_INSUFFICIENT");
+      maxCalls - initialUsage < minimumCalls) reasons.push("ODDS_COMPARISON_QUOTA_BUDGET_INSUFFICIENT");
 
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_STAKE_IDR")) reasons.push("MAX_STAKE_NOT_CONFIGURED");
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_PAYOUT_IDR")) reasons.push("MAX_PAYOUT_NOT_CONFIGURED");
@@ -197,16 +172,6 @@ export async function getSportsbookBetAcceptanceReadiness({
   } catch {
     reasons.push("MARKET_MAPPING_SCHEMA_UNAVAILABLE");
   }
-  let freshScheduleCount = 0;
-  try {
-    freshScheduleCount = await loadScheduleCount();
-    if (!Number.isSafeInteger(freshScheduleCount) || freshScheduleCount < 1) {
-      reasons.push("NO_FRESH_DAILY_SCHEDULES");
-    }
-  } catch {
-    reasons.push("DAILY_SCHEDULES_SCHEMA_UNAVAILABLE");
-  }
-
   let feedStatus = null;
   let snapshot = null;
   let soccerStatus = null;
@@ -216,10 +181,10 @@ export async function getSportsbookBetAcceptanceReadiness({
   let settlementHeartbeatAt = null;
   try {
     const [
-      statusRaw, snapshotRaw, lastSuccessRaw, soccerStatusRaw,
+      statusRaw, snapshotRaw, soccerStatusRaw,
       soccerHeartbeatRaw, settlementStatusRaw, settlementHeartbeatRaw
     ] = await Promise.all([
-      redis.get(FEED_STATUS_KEY), redis.get(SNAPSHOT_KEY), redis.get(CHANGE_LOG_LAST_SUCCESS_KEY),
+      redis.get(FEED_STATUS_KEY), redis.get(SNAPSHOT_KEY),
       redis.get(SOCCER_STATUS_KEY), redis.get(SOCCER_HEARTBEAT_KEY),
       redis.get(SETTLEMENT_STATUS_KEY), redis.get(SETTLEMENT_HEARTBEAT_KEY)
     ]);
@@ -227,8 +192,6 @@ export async function getSportsbookBetAcceptanceReadiness({
     snapshot = parseRedisJson(snapshotRaw, "SPORTSBOOK_SNAPSHOT_INVALID");
     soccerStatus = parseRedisJson(soccerStatusRaw, "SOCCER_RESULTS_STATUS_INVALID");
     settlementStatus = parseRedisJson(settlementStatusRaw, "SPORTSBOOK_SETTLEMENT_STATUS_INVALID");
-    const timestamp = Number(lastSuccessRaw);
-    if (Number.isFinite(timestamp) && timestamp > 0) lastSuccessAt = timestamp;
     const soccerTime = Date.parse(String(soccerHeartbeatRaw || ""));
     if (Number.isFinite(soccerTime)) soccerHeartbeatAt = soccerTime;
     const settlementTime = Date.parse(String(settlementHeartbeatRaw || ""));
@@ -237,17 +200,10 @@ export async function getSportsbookBetAcceptanceReadiness({
     reasons.push(error?.code || "SPORTSBOOK_FEED_STATE_UNAVAILABLE");
   }
 
-  if (feedStatus?.complete !== true || feedStatus?.changeLogPoll !== true ||
-      feedStatus?.quotaLimited === true || feedStatus?.errorCount > 0) {
-    reasons.push("CHANGE_LOG_FEED_NOT_HEALTHY");
+  if (feedStatus?.complete !== true || feedStatus?.quotaLimited === true || feedStatus?.errorCount > 0) {
+    reasons.push("SPORTSBOOK_FEED_NOT_HEALTHY");
   }
-  if (snapshot?.complete !== true || snapshot?.refreshPending !== false) {
-    reasons.push("SPORTSBOOK_RECONCILIATION_PENDING");
-  }
-  if (lastSuccessAt === null || lastSuccessAt > now + 60_000 ||
-      now - lastSuccessAt > CHANGE_LOG_WINDOW_MS) {
-    reasons.push("CHANGE_LOG_WINDOW_STALE");
-  }
+  if (snapshot?.complete !== true) reasons.push("SPORTSBOOK_SNAPSHOT_INCOMPLETE");
   if (soccerStatus?.complete === false || soccerStatus?.code) {
     reasons.push("SOCCER_RESULTS_WORKER_UNHEALTHY");
   }
@@ -268,13 +224,10 @@ export async function getSportsbookBetAcceptanceReadiness({
     enabled: reasons.length === 0,
     reasons: [...new Set(reasons)],
     verifiedMappingCount,
-    freshScheduleCount,
     riskReserveBalance,
     requiredRiskReserveBalance: requiredRiskReserve,
     soccerHeartbeatAt: soccerHeartbeatAt ? new Date(soccerHeartbeatAt).toISOString() : null,
     settlementHeartbeatAt: settlementHeartbeatAt ? new Date(settlementHeartbeatAt).toISOString() : null,
-    lastChangeLogSuccessAt: lastSuccessAt ? new Date(lastSuccessAt).toISOString() : null,
-    maxPriceAgeMs: PRICE_MAX_AGE_MINUTES * 60_000,
     kickoffCutoffMinutes: KICKOFF_CUTOFF_MINUTES
   };
 }
@@ -323,13 +276,13 @@ function mapExistingTicket(row, fingerprint) {
 
 async function loadBettablePrice(client, leg, nowMs) {
   const result = await client.query(`
-    SELECT e.provider_event_id, e.sport_id, e.scheduled_at, e.event_status, e.schedule_verified_at,
+    SELECT e.provider_event_id, e.sport_id, e.scheduled_at, e.event_status,
            m.provider_market_key, m.provider_market_id, m.market_name,
            m.is_live, m.is_active AS market_active, m.provider_payload AS market_payload,
            p.provider_book_id, p.provider_book_name, p.provider_selection_key,
            p.outcome_type, p.outcome_name,
            p.odds_decimal::text AS odds_decimal, p.is_active AS price_active,
-           p.source_updated_at, p.received_at, p.change_log_verified_at,
+           p.source_updated_at, p.received_at,
            mapped.market_code, mapped.settlement_rule, mapped.mapping_status,
            mapped.mapping_version, mapped.period_code, mapped.outcomes,
            mapped.mapping_count
@@ -401,18 +354,7 @@ async function loadBettablePrice(client, leg, nowMs) {
   const storedOddsMicros = decimalOddsToMicros(row.odds_decimal);
   assert(storedOddsMicros === leg.expectedOddsMicros, 409,
     "Harga odds berubah. Periksa harga terbaru sebelum mengirim tiket.", "SPORTSBOOK_PRICE_CHANGED");
-  const priceCheck = evaluateOddsFreshness({
-    snapshot: {
-      capturedAt: row.change_log_verified_at,
-      marketStatus: "open",
-      eventStartsAt: row.scheduled_at,
-      price: Number(row.odds_decimal)
-    },
-    clientPrice: Number(leg.expectedOdds),
-    now: nowMs,
-    config: { maxAgeMinutes: PRICE_MAX_AGE_MINUTES, cutoffBeforeKickoffMinutes: KICKOFF_CUTOFF_MINUTES }
-  });
-  assert(priceCheck.ok, 409, priceCheck.reason, `SPORTSBOOK_${priceCheck.code}`);
+
 
   return { row, outcomeCode, odds: row.odds_decimal };
 }
