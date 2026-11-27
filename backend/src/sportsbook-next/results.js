@@ -44,7 +44,7 @@ export function normalizeSoccerResult(item, { generatedAt = null, receivedAt = n
     providerGeneratedAt,
     receivedAt: validTimestamp(receivedAt),
     isFinal,
-    verified: isFinal && scoreComplete && providerGeneratedAt !== null,
+    verified: eventStatus === "closed" && scoreComplete && providerGeneratedAt !== null,
     payload: item
   };
 }
