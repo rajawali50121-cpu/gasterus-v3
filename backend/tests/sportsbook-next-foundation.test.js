@@ -10,7 +10,8 @@ const env = {
   SPORTRADAR_API_KEY: "test-key",
   SPORTRADAR_ACCESS_LEVEL: "production",
   SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2000",
-  SPORTRADAR_MAX_CALLS_PER_HOUR: "20",\n  SPORTRADAR_MAX_CALLS_PER_CYCLE: "6",
+  SPORTRADAR_MAX_CALLS_PER_HOUR: "20",
+  SPORTRADAR_MAX_CALLS_PER_CYCLE: "6",
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10",
   SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
 };
@@ -21,8 +22,8 @@ test("config defaults to 150-minute refresh, current UTC date only and official 
   assert.equal(config.maxCallsPerHour, 0);
   assert.equal(config.daysAhead, 0);
   assert.equal(config.maxCallsPerCycle, 6);
-  assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
-  assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
+  assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/production/v2/en");
+  assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/production/v4/en");
 });
 
 test("change-log configuration is opt-in and refuses a request budget too small for the documented five-minute window", () => {
@@ -89,7 +90,9 @@ test("config rejects missing API key, unsupported tier, and unverified quota bas
   }), /baseline is unconfirmed/);
   const defaults = loadSportsbookConfig({
     SPORTRADAR_API_KEY: "test",
-    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800",
+    SPORTRADAR_ACCESS_LEVEL: "production",
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2000",
+    SPORTRADAR_MAX_CALLS_PER_CYCLE: "6",
     SPORTRADAR_INITIAL_30_DAY_USAGE: "120",
     SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
   });
