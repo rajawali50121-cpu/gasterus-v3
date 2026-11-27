@@ -16,6 +16,7 @@ const SETTLEMENT_HEARTBEAT_KEY = "sportsbook:settlement:heartbeat:v1";
 const CHANGE_LOG_WINDOW_MS = 5 * 60 * 1000;
 const PRICE_MAX_AGE_MINUTES = 5;
 const KICKOFF_CUTOFF_MINUTES = 5;
+const SCHEDULE_MAX_AGE_MINUTES = 360;
 const ODDS_SCALE = 1_000_000n;
 const MAX_LEGS = 10;
 const PROVIDER_PRODUCT = "oddscomparison-prematch-v2";
@@ -103,6 +104,14 @@ export async function getSportsbookBetAcceptanceReadiness({
         AND catalog.settlement_rule='SOCCER_1X2_3WAY'
     `);
     return Number(result.rows[0]?.count || 0);
+  },
+  loadScheduleCount = async () => {
+    const result = await query(`
+      SELECT COUNT(*)::int AS count
+      FROM sportsbook_v2_events
+      WHERE schedule_verified_at >= now() - ($1::int * interval '1 minute')
+    `, [SCHEDULE_MAX_AGE_MINUTES]);
+    return Number(result.rows[0]?.count || 0);
   }
 }) {
   const reasons = [];
@@ -150,6 +159,15 @@ export async function getSportsbookBetAcceptanceReadiness({
     }
   } catch {
     reasons.push("MARKET_MAPPING_SCHEMA_UNAVAILABLE");
+  }
+  let freshScheduleCount = 0;
+  try {
+    freshScheduleCount = await loadScheduleCount();
+    if (!Number.isSafeInteger(freshScheduleCount) || freshScheduleCount < 1) {
+      reasons.push("NO_FRESH_DAILY_SCHEDULES");
+    }
+  } catch {
+    reasons.push("DAILY_SCHEDULES_SCHEMA_UNAVAILABLE");
   }
 
   let feedStatus = null;
@@ -213,6 +231,7 @@ export async function getSportsbookBetAcceptanceReadiness({
     enabled: reasons.length === 0,
     reasons: [...new Set(reasons)],
     verifiedMappingCount,
+    freshScheduleCount,
     soccerHeartbeatAt: soccerHeartbeatAt ? new Date(soccerHeartbeatAt).toISOString() : null,
     settlementHeartbeatAt: settlementHeartbeatAt ? new Date(settlementHeartbeatAt).toISOString() : null,
     lastChangeLogSuccessAt: lastSuccessAt ? new Date(lastSuccessAt).toISOString() : null,
@@ -265,7 +284,7 @@ function mapExistingTicket(row, fingerprint) {
 
 async function loadBettablePrice(client, leg, nowMs) {
   const result = await client.query(`
-    SELECT e.provider_event_id, e.sport_id, e.scheduled_at, e.event_status,
+    SELECT e.provider_event_id, e.sport_id, e.scheduled_at, e.event_status, e.schedule_verified_at,
            m.provider_market_key, m.provider_market_id, m.market_name,
            m.is_live, m.is_active AS market_active, m.provider_payload AS market_payload,
            p.provider_book_id, p.provider_book_name, p.provider_selection_key,
@@ -333,6 +352,10 @@ async function loadBettablePrice(client, leg, nowMs) {
     "Jadwal pertandingan sudah dimulai atau tidak valid.", "SPORTSBOOK_EVENT_STARTED");
   assert(row.change_log_verified_at, 409,
     "Harga belum dikonfirmasi oleh Change Log Sportradar.", "SPORTSBOOK_PRICE_NOT_CHANGELOG_VERIFIED");
+  const scheduleVerifiedAt = Date.parse(String(row.schedule_verified_at || ""));
+  assert(Number.isFinite(scheduleVerifiedAt) &&
+    nowMs - scheduleVerifiedAt <= SCHEDULE_MAX_AGE_MINUTES * 60_000,
+    409, "Jadwal pertandingan belum diverifikasi dari Daily Schedules terbaru.", "SPORTSBOOK_SCHEDULE_NOT_VERIFIED");
   assert(row.received_at, 409,
     "Waktu penerimaan harga tidak tersedia.", "SPORTSBOOK_PRICE_RECEIPT_TIME_MISSING");
 
@@ -341,7 +364,7 @@ async function loadBettablePrice(client, leg, nowMs) {
     "Harga odds berubah. Periksa harga terbaru sebelum mengirim tiket.", "SPORTSBOOK_PRICE_CHANGED");
   const priceCheck = evaluateOddsFreshness({
     snapshot: {
-      capturedAt: row.received_at,
+      capturedAt: row.change_log_verified_at,
       marketStatus: "open",
       eventStartsAt: row.scheduled_at,
       price: Number(row.odds_decimal)
@@ -518,7 +541,7 @@ export const __sportsbookBetting = {
   CHANGE_LOG_LAST_SUCCESS_KEY, FEED_STATUS_KEY, SNAPSHOT_KEY,
   SOCCER_STATUS_KEY, SOCCER_HEARTBEAT_KEY,
   SETTLEMENT_STATUS_KEY, SETTLEMENT_HEARTBEAT_KEY,
-  CHANGE_LOG_WINDOW_MS, ODDS_SCALE, MAX_LEGS, PROVIDER_PRODUCT
+  CHANGE_LOG_WINDOW_MS, SCHEDULE_MAX_AGE_MINUTES, ODDS_SCALE, MAX_LEGS, PROVIDER_PRODUCT
 };
 
 
