@@ -90,6 +90,7 @@ test("bet acceptance requires production entitlement and continuous complete Cha
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
+    loadScheduleCount: async () => 1,
     redis: healthyRedis(now), env: readyEnv, now
   });
   assert.equal(readiness.enabled, true);
@@ -101,6 +102,7 @@ test("trial quota and an unverified Change Log window fail closed", async () => 
   const now = 1_800_000_000_000;
   const trial = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
+    loadScheduleCount: async () => 1,
     redis: healthyRedis(now), env: { ...readyEnv, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800" }, now
   });
   assert.equal(trial.enabled, false);
@@ -109,6 +111,7 @@ test("trial quota and an unverified Change Log window fail closed", async () => 
 
   const pending = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
+    loadScheduleCount: async () => 1,
     redis: healthyRedis(now, { refreshPending: true }), env: readyEnv, now
   });
   assert.equal(pending.enabled, false);
@@ -119,6 +122,7 @@ test("stale Change Log coverage blocks ticket acceptance", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
+    loadScheduleCount: async () => 1,
     redis: healthyRedis(now, { lastSuccessAgeMs: 5 * 60 * 1000 + 1 }), env: readyEnv, now
   });
   assert.equal(readiness.enabled, false);
@@ -129,6 +133,7 @@ test("no approved verified full-time mapping keeps betting disabled", async () =
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 0,
+    loadScheduleCount: async () => 1,
     redis: healthyRedis(now), env: readyEnv, now
   });
   assert.equal(readiness.enabled, false);
@@ -150,6 +155,7 @@ test("stale Soccer result or settlement worker heartbeat blocks new bets", async
   ]);
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
+    loadScheduleCount: async () => 1,
     redis: { get: async key => values.get(key) ?? null },
     env: readyEnv, now
   });
@@ -162,10 +168,22 @@ test("insufficient independent Soccer product quota blocks bet acceptance", asyn
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
+    loadScheduleCount: async () => 1,
     redis: healthyRedis(now),
     env: { ...readyEnv, SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "300" },
     now
   });
   assert.equal(readiness.enabled, false);
   assert.ok(readiness.reasons.includes("SOCCER_QUOTA_BUDGET_INSUFFICIENT"));
+});
+
+test("stale or missing Daily Schedules verification blocks ticket acceptance", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
+    loadScheduleCount: async () => 0,
+    redis: healthyRedis(now), env: readyEnv, now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("NO_FRESH_DAILY_SCHEDULES"));
 });
