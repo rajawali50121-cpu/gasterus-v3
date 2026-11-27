@@ -144,7 +144,7 @@ test("stale Soccer result or settlement worker heartbeat blocks new bets", async
     [__sportsbookBetting.SNAPSHOT_KEY, JSON.stringify({ complete: true, refreshPending: false })],
     [__sportsbookBetting.CHANGE_LOG_LAST_SUCCESS_KEY, String(now - 15_000)],
     [__sportsbookBetting.SOCCER_STATUS_KEY, JSON.stringify({ cycleComplete: true })],
-    [__sportsbookBetting.SOCCER_HEARTBEAT_KEY, new Date(now - 4 * 60 * 60 * 1000).toISOString()],
+    [__sportsbookBetting.SOCCER_HEARTBEAT_KEY, new Date(now - 5 * 60 * 60 * 1000).toISOString()],
     [__sportsbookBetting.SETTLEMENT_STATUS_KEY, JSON.stringify({ healthy: false })],
     [__sportsbookBetting.SETTLEMENT_HEARTBEAT_KEY, new Date(now - 15_000).toISOString()]
   ]);
