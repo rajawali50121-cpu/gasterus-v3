@@ -383,7 +383,7 @@ export async function listSportsbookResultCorrectionReviews({ limit = 50 } = {})
       LIMIT 1
     ) settlement ON TRUE
     WHERE t.review_required=TRUE
-    GROUP BY t.id
+    GROUP BY t.id,settlement.settled_results
     ORDER BY t.review_detected_at ASC
     LIMIT $1
   `, [safeLimit]);
