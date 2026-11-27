@@ -69,7 +69,7 @@ test("provider outcome mapping is explicit and rejects unknown outcome types", (
   assert.equal(resolveProviderOutcome({ outcomeType: "unknown", mapping: resolved }).bettable, false);
 });
 
-test("only final soccer results with a valid provider timestamp are verified", () => {
+test("closed soccer results remain verifiable when optional provider generated_at is absent", () => {
   const live = normalizeSoccerResult({
     sport_event: { id: "sr:sport_event:10" },
     sport_event_status: { status: "live", home_score: 1, away_score: 0 }
@@ -86,7 +86,9 @@ test("only final soccer results with a valid provider timestamp are verified", (
     sport_event: { id: "sr:sport_event:10" },
     sport_event_status: { status: "closed", home_score: 2, away_score: 1 }
   });
-  assert.equal(noTimestamp.verified, false);
+  assert.equal(noTimestamp.providerGeneratedAt, null);
+  assert.equal(noTimestamp.verified, true);
+  assert.ok(noTimestamp.receivedAt);
 });
 
 test("result feed validates its root shape and event identity", () => {
