@@ -13,7 +13,42 @@ const betslipStatus=document.querySelector("#betslip-status");
 const ticketHistory=document.querySelector("#ticket-history");
 const refreshTickets=document.querySelector("#refresh-tickets");
 const selectedLegs=new Map();
+const pendingTicketKeys=new Map();
+const PENDING_TICKET_KEYS_STORAGE="gasterus_sportsbook_pending_ticket_keys_v1";
 let betAcceptanceEnabled=false;
+
+function getPendingTicketKey(fingerprint){
+  if(pendingTicketKeys.has(fingerprint))return pendingTicketKeys.get(fingerprint);
+  try{
+    const stored=JSON.parse(sessionStorage.getItem(PENDING_TICKET_KEYS_STORAGE)||"{}");
+    if(stored&&typeof stored==="object"&&typeof stored[fingerprint]==="string"){
+      pendingTicketKeys.set(fingerprint,stored[fingerprint]);
+      return stored[fingerprint];
+    }
+  }catch{}
+  const key=crypto.randomUUID();
+  pendingTicketKeys.set(fingerprint,key);
+  try{
+    const stored=JSON.parse(sessionStorage.getItem(PENDING_TICKET_KEYS_STORAGE)||"{}");
+    const entries=stored&&typeof stored==="object"?stored:{};
+    entries[fingerprint]=key;
+    const keys=Object.keys(entries);
+    for(const oldKey of keys.slice(0,Math.max(0,keys.length-10)))delete entries[oldKey];
+    sessionStorage.setItem(PENDING_TICKET_KEYS_STORAGE,JSON.stringify(entries));
+  }catch{}
+  return key;
+}
+
+function clearPendingTicketKey(fingerprint){
+  pendingTicketKeys.delete(fingerprint);
+  try{
+    const stored=JSON.parse(sessionStorage.getItem(PENDING_TICKET_KEYS_STORAGE)||"{}");
+    if(stored&&typeof stored==="object"){
+      delete stored[fingerprint];
+      sessionStorage.setItem(PENDING_TICKET_KEYS_STORAGE,JSON.stringify(stored));
+    }
+  }catch{}
+}
 
 function setStatus(state,label){statusEl.dataset.state=state;statusEl.querySelector("span").textContent=label;}
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=String(text);return node;}
@@ -55,9 +90,6 @@ function renderBetslip(){
   submitBet.disabled=!betAcceptanceEnabled||!loggedIn||!legs.length||!summary;
   submitBet.textContent=loggedIn?"Pasang taruhan":"Login untuk bertaruh";
   if(!loggedIn)submitBet.onclick=()=>{window.location.href="/index.html";};
-  betslipStatus.textContent=betAcceptanceEnabled
-    ? (loggedIn?"Odds akan diverifikasi ulang di server sebelum saldo dipotong.":"Login diperlukan untuk mengirim tiket.")
-    : "Penerimaan taruhan belum memenuhi seluruh pemeriksaan keamanan.";
 }
 function toggleSelection(event,market,book,outcome){
   if(!betAcceptanceEnabled||outcome.bettable!==true)return;
@@ -181,15 +213,18 @@ async function submitTicket(){
   if(!localStorage.getItem("gasterus_token")){window.location.href="/index.html";return;}
   submitBet.disabled=true;submitBet.textContent="Memverifikasi odds…";
   betslipStatus.textContent="Memeriksa sesi, harga terbaru, batas risiko dan saldo.";
+  const requestPayload={
+    stake:summary.stake,
+    legs:[...selectedLegs.values()].map(({providerEventId,providerMarketKey,providerBookId,providerSelectionKey,expectedOdds})=>({
+      providerEventId,providerMarketKey,providerBookId,providerSelectionKey,expectedOdds
+    }))
+  };
+  const fingerprint=JSON.stringify(requestPayload);
+  const idempotencyKey=getPendingTicketKey(fingerprint);
   try{
-    const response=await api.post("/member/sportsbook/v2/tickets",{
-      stake:summary.stake,
-      idempotencyKey:crypto.randomUUID(),
-      legs:[...selectedLegs.values()].map(({providerEventId,providerMarketKey,providerBookId,providerSelectionKey,expectedOdds})=>({
-        providerEventId,providerMarketKey,providerBookId,providerSelectionKey,expectedOdds
-      }))
-    });
+    const response=await api.post("/member/sportsbook/v2/tickets",{...requestPayload,idempotencyKey});
     const ticket=response.data||response;
+    clearPendingTicketKey(fingerprint);
     betslipStatus.textContent=`Tiket ${ticket.invoice} diterima. Status: ${ticket.status}. Saldo setelah transaksi: ${money(ticket.balanceAfter)}.`;
     selectedLegs.clear();renderBetslip();await loadTicketHistory();
   }catch(error){
@@ -231,11 +266,15 @@ async function load(){
       notice.textContent+=` Alasan: ${snapshot.betAcceptanceReasons.join(", ")}.`;
     }
     renderBetslip();
+    betslipStatus.textContent=betAcceptanceEnabled
+      ?"Odds akan diverifikasi ulang di server sebelum saldo dipotong."
+      :"Penerimaan taruhan belum memenuhi seluruh pemeriksaan keamanan.";
   }catch(error){
     root.replaceChildren(el("div","empty",error.message));
     countEl.textContent="—";updatedEl.textContent="—";setStatus("error","Feed tidak tersedia");
     notice.textContent="Tidak ada data odds aktif. Sistem tidak menggunakan data contoh atau fallback.";
     betAcceptanceEnabled=false;renderBetslip();
+    betslipStatus.textContent="Feed tidak tersedia. Penerimaan taruhan tetap dinonaktifkan.";
   }finally{refreshButton.disabled=false;}
 }
 stakeInput.addEventListener("input",renderBetslip);
