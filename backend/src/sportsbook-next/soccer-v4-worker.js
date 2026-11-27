@@ -16,6 +16,13 @@ const LAST_SUCCESS_PREFIX = "sportsbook:soccer-v4:last-success:";
 const PAGE_CURSOR_PREFIX = "sportsbook:soccer-v4:page-cursor:";
 const DAY_MS = 24 * 60 * 60 * 1000;
 let stopping = false;
+
+export function nextSoccerPollDelayMs(result, pollIntervalMs) {
+  if (result?.pagination?.complete === false) return 0;
+  return Number.isFinite(result?.cacheTtlMs)
+    ? Math.max(pollIntervalMs, result.cacheTtlMs)
+    : pollIntervalMs;
+}
 const shutdownController = new AbortController();
 
 async function runCycle(config, client) {
@@ -140,14 +147,7 @@ async function main() {
     try {
       const result = await runCycle(config, client);
       logger.info("Sportradar Soccer v4 results sync completed", result);
-      // Continue a partially paginated date immediately. The next cycle still
-      // reserves exactly one provider call; rolling quota remains authoritative.
-      // Once the cursor completes, return to the hourly/daily date cadence.
-      if (result.pagination?.complete === false) {
-        nextDelayMs = 0;
-      } else if (Number.isFinite(result.cacheTtlMs)) {
-        nextDelayMs = Math.max(nextDelayMs, result.cacheTtlMs);
-      }
+      nextDelayMs = nextSoccerPollDelayMs(result, config.pollIntervalMs);
     } catch (error) {
       logger.warn("Sportradar Soccer v4 results sync stopped safely", {
         code: error?.code || "SOCCER_V4_SYNC_FAILED",
