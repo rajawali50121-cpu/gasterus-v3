@@ -53,6 +53,7 @@ jobs:
       - name: Check backend source syntax
         run: |
           find backend/src -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --check frontend/js/sportsbook-v2.js
           node --check deploy/predeploy.js
           node --check deploy/launcher.js
           node --check scripts/reset-admin-password.mjs
