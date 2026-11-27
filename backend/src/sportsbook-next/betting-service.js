@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { tx } from "../db.js";
 import { AppError, assert } from "../errors.js";
 import { memberAccount, postTransfer, SYSTEM_ACCOUNTS } from "../ledger.js";
+import { enforceResponsiblePlay } from "../responsible-play.js";
+import { audit } from "../audit.js";
 import { evaluateOddsFreshness } from "./prematch-freshness-guard.js";
 
 const CHANGE_LOG_LAST_SUCCESS_KEY = "sportsbook:next:changelog:last-success-ms:v1";
@@ -271,7 +273,9 @@ async function loadBettablePrice(client, leg, nowMs) {
 
 export async function createSportsbookTicket(session, input, { redis, env = process.env, ip = "" } = {}) {
   const readiness = await getSportsbookBetAcceptanceReadiness({ redis, env });
-  assert(readiness.enabled, 503, "Penerimaan taruhan sportsbook belum siap atau sedang dihentikan demi keamanan.", "SPORTSBOOK_BET_ACCEPTANCE_NOT_READY", readiness);
+  if (!readiness.enabled) {
+    throw new AppError(503, "Penerimaan taruhan sportsbook belum siap atau sedang dihentikan demi keamanan.", "SPORTSBOOK_BET_ACCEPTANCE_NOT_READY", readiness);
+  }
 
   const maxStake = safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_STAKE_IDR");
   const maxPayout = safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_PAYOUT_IDR");
@@ -338,6 +342,10 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
       return mapExistingTicket(duplicate.rows[0], fingerprint);
     }
 
+    await enforceResponsiblePlay(session.userId, {
+      kind: "BET", amount: stake, client, sessionCreatedAt: session.createdAt
+    });
+
     for (let index = 0; index < resolved.length; index += 1) {
       const { row, outcomeCode } = resolved[index];
       await client.query(`
@@ -367,11 +375,20 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
     });
     assert(ledger.duplicate !== true && ledger.transactionId, 500,
       "Ledger mendeteksi transaksi duplikat yang tidak diharapkan.", "SPORTSBOOK_LEDGER_IDEMPOTENCY_CONFLICT");
-    await client.query(`
+    const ticketUpdate = await client.query(`
       UPDATE sportsbook_v2_tickets
       SET ledger_transaction_id=$1,balance_before=$2,balance_after=$3
       WHERE id=$4 AND status='OPEN'
+      RETURNING id
     `, [ledger.transactionId, ledger.before, ledger.after, ticketId]);
+    assert(ticketUpdate.rowCount === 1, 500,
+      "Status tiket berubah saat transaksi diterima.", "SPORTSBOOK_TICKET_STATE_CONFLICT");
+    await audit({
+      actorId: session.userId, actorRole: "MEMBER", action: "SPORTSBOOK_BET_ACCEPTED",
+      targetType: "SPORTSBOOK_TICKET", targetId: ticketId,
+      details: { invoice, stake, totalOdds: amounts.totalOdds, potentialPayout: amounts.potentialPayout, legs: resolved.length },
+      ip, client
+    });
 
     return {
       id: ticketId, invoice, stake, totalOdds: amounts.totalOdds,
