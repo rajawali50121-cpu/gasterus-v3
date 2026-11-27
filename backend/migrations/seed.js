@@ -14,7 +14,7 @@ await tx(async client => {
   for (const m of markets) {
     await client.query(`
       INSERT INTO markets(slug, code, name, result, period, draw_date, category, tags, status, provider_path, source_key, sort_order, verification_status, source_updated_at)
-      VALUES($1, $2, $3, $4, $5, $6::date, $7, $8::jsonb, $9, $10, $11, $12, 'VERIFIED', now())
+      VALUES($1, $2, $3, $4, $5, $6::date, $7, $8::jsonb, $9, $10, $11, $12, $13, now())
       ON CONFLICT(provider_path) DO UPDATE SET
         slug = EXCLUDED.slug,
         code = EXCLUDED.code,
@@ -27,12 +27,14 @@ await tx(async client => {
         status = EXCLUDED.status,
         source_key = EXCLUDED.source_key,
         sort_order = EXCLUDED.sort_order,
-        verification_status = 'VERIFIED',
+        verification_status = EXCLUDED.verification_status,
         source_updated_at = now()
+      WHERE COALESCE(NULLIF(BTRIM(markets.result), ''), '----') = '----'
+        AND UPPER(BTRIM(markets.verification_status)) NOT IN ('VERIFIED', 'MANUAL_RESOLUTION', 'RETIRED')
     `, [
       m.slug, m.code, m.name, m.result || '0000', m.period || '1001',
       m.drawDate || '2026-09-07', m.category, JSON.stringify(m.tags || []),
-      m.status, m.providerPath, m.sourceKey, m.sortOrder
+      m.status, m.providerPath, m.sourceKey, m.sortOrder, m.verificationStatus || 'UNMAPPED'
     ]);
   }
   await client.query(`INSERT INTO market_betting_configs(market_id) SELECT id FROM markets ON CONFLICT DO NOTHING`);
