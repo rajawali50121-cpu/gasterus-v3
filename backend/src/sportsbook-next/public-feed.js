@@ -113,6 +113,6 @@ export async function readPublicSportsbookSnapshot({ redis, now = Date.now(), ma
 
   return {
     ...snapshot, events: projectedEvents, ageMs, bettingMappingsAvailable,
-    betAcceptanceEnabled: snapshot.complete === true && bettingMappingsAvailable
+    betAcceptanceEnabled: snapshot.complete === true && bettingMappingsAvailable && mappingRows.length > 0
   };
 }
