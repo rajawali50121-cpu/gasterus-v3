@@ -144,7 +144,10 @@ function renderTicket(ticket){
   const header=el("div","ticket-head");
   header.append(el("strong","",ticket.invoice));
   const status=el("span",`ticket-status status-${String(ticket.status||"").toLowerCase()}`,ticket.status);
-  header.append(status);card.append(header);
+  header.append(status);
+  if(ticket.review_required===true)header.append(el("span","ticket-status status-review","REVIEW"));
+  card.append(header);
+  if(ticket.review_required===true)card.append(el("div","ticket-review-note","Hasil pertandingan mengalami pembaruan dari provider dan sedang diperiksa operator. Tidak ada perubahan saldo otomatis selama pemeriksaan."));
   card.append(el("div","ticket-meta",`Dipasang ${new Date(ticket.accepted_at).toLocaleString("id-ID")} · Taruhan ${money(Number(ticket.stake))}`));
   card.append(el("div","ticket-meta",`Total odds ${Number(ticket.total_odds).toFixed(4)} · Potensi payout ${money(Number(ticket.potential_payout))}`));
   for(const leg of (ticket.legs||[])){
