@@ -42,9 +42,12 @@ export function normalizeSoccerResult(item, { generatedAt = null, receivedAt = n
     homeScore,
     awayScore,
     providerGeneratedAt,
-    receivedAt: validTimestamp(receivedAt),
+    receivedAt: validTimestamp(receivedAt) || new Date().toISOString(),
     isFinal,
-    verified: eventStatus === "closed" && scoreComplete && providerGeneratedAt !== null,
+    // "closed" is Sportradar's confirmed-result state; a provider generation
+    // timestamp is useful audit metadata but is not required by the summaries
+    // endpoint contract. A provider-reported cancellation is terminal for void.
+    verified: eventStatus === "cancelled" || (eventStatus === "closed" && scoreComplete),
     payload: item
   };
 }
