@@ -26,10 +26,9 @@ export function loadSportsbookConfig(env = process.env) {
     throw new Error("SPORTRADAR_INITIAL_30_DAY_USAGE must be an integer within the configured 30-day quota");
   }
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
-  // Complete market pagination is never truncated by an artificial per-cycle cap.
-  // Every page is instead reserved against the authoritative rolling 30-day quota.
-  // GASTERUS does not impose a rolling one-hour cap. The rolling 30-day
-  // budget and per-cycle ceiling remain enforced as independent safeguards.
+  // Complete market pagination has no artificial per-cycle truncation.
+  // Every page is reserved against the authoritative rolling 30-day quota.
+  // GASTERUS does not impose a rolling one-hour cap.
   const maxCallsPerHour = 0;
   // Change Log is intentionally disabled in this release. Market snapshots
   // are refreshed through the complete paginated daily markets feed only.
