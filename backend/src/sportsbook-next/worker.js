@@ -172,8 +172,8 @@ async function runCycle(config, client) {
   let budgetLimited = false;
   let coverage = null;
   try {
-    // Market snapshots and schedules are separate official feeds. The market
-    // board supplies prices; Daily Schedules independently owns event metadata.
+    // Daily Sport Event Markets supplies event metadata and prices together.
+    // No separate Daily Schedules or Change Log polling is active in this worker.
     for (const sportId of config.sportIds) {
       for (let day = 0; day <= config.daysAhead; day += 1) {
         const date = utcDate(day);
@@ -203,7 +203,8 @@ async function runCycle(config, client) {
     // Daily Schedules run on their own hourly cadence; market discovery must
     // not delay schedule corrections behind the 150-minute odds refresh.
     const scheduleSync = { rows: [], status: [] };
-    client.cycleCalls = 0;
+    // Keep the market-page count while discovery runs so callsThisCycle reports
+    // every reserved provider request, not just the final discovery phase.
     coverage = await refreshCoverage(config, client, { allowFetch: !quotaLimited && !budgetLimited });
 
     const pricedEvents = [...events.values()];
@@ -291,7 +292,6 @@ async function main() {
     minimumCalls30Days: config.minimumCalls30Days,
     sportCount: config.sportIds.length,
     daysAhead: config.daysAhead,
-    maxCallsPerCycle: config.maxCallsPerCycle,
     quotaLimit30Days: config.maxCallsPer30Days,
     syncStrategy: "complete-daily-sport-event-markets-pagination"
   });
