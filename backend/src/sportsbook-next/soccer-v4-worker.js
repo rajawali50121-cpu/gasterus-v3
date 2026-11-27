@@ -25,8 +25,8 @@ async function runCycle(config, client) {
   client.cycleCalls = 0;
   try {
     const candidateResult = await listResultCandidateDates({
-      bufferMinutes: Number(process.env.SOCCER_V4_RESULT_BUFFER_MINUTES ?? 150),
-      maxLookbackDays: Number(process.env.SOCCER_V4_MAX_LOOKBACK_DAYS ?? 7)
+      bufferMinutes: config.resultBufferMinutes,
+      maxLookbackDays: config.maxLookbackDays
     });
     const lastPolls = {};
     const cursors = {};
