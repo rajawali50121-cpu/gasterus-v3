@@ -7,7 +7,7 @@ import { loadSoccerV4Config } from "./soccer-v4-config.js";
 import { SoccerV4Client, getSoccerNextPageStart } from "./soccer-v4-client.js";
 import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown, selectSoccerV4DueDate } from "./soccer-v4-quota.js";
 import { normalizeSoccerResults } from "./results.js";
-import { listResultCandidateDates, persistSoccerResultRevisions } from "./results-repository.js";
+import { listResultCandidateDates, persistSoccerResultRevisions, selectOldestDueSoccerResultDate } from "./results-repository.js";
 
 const LOCK_KEY = "sportsbook:soccer-v4:poll-lock:v1";
 const HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
@@ -23,18 +23,25 @@ async function runCycle(config, client) {
   if (!lock) return { skipped: "another Soccer v4 worker owns the poll lock" };
   client.cycleCalls = 0;
   try {
-    const candidates = await listResultCandidateDates();
+    const candidateResult = await listResultCandidateDates({
+      bufferMinutes: Number(process.env.SOCCER_V4_RESULT_BUFFER_MINUTES ?? 150),
+      maxLookbackDays: Number(process.env.SOCCER_V4_MAX_LOOKBACK_DAYS ?? 7)
+    });
     const lastPolls = {};
-    for (const date of candidates) {
-      const pageCursor = Number(await redis.get(PAGE_CURSOR_PREFIX + date) || 0);
-      lastPolls[date] = pageCursor > 0 ? 0 : Number(await redis.get(LAST_SUCCESS_PREFIX + date) || 0);
+    for (const candidateDate of candidateResult.dates) {
+      lastPolls[candidateDate] = Number(await redis.get(LAST_SUCCESS_PREFIX + candidateDate) || 0);
     }
-    const todayUtc = new Date().toISOString().slice(0, 10);
-    const date = selectSoccerV4DueDate(candidates, lastPolls, Date.now(), todayUtc);
+    const date = selectOldestDueSoccerResultDate(
+      candidateResult.dates, lastPolls, Date.now(), config.pollIntervalMs
+    );
     if (!date) {
       const completedAt = new Date().toISOString();
       await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
-      return { skipped: "no Soccer result date is due", dates: 0, calls: 0 };
+      return {
+        skipped: "no Soccer result date is due", dates: 0, calls: 0,
+        candidates: candidateResult.candidateCount,
+        manualReviewRequired: candidateResult.manualReviewCount
+      };
     }
 
     const start = Number(await redis.get(PAGE_CURSOR_PREFIX + date) || 0);
@@ -48,7 +55,7 @@ async function runCycle(config, client) {
     const completedAt = new Date().toISOString();
     await redis.set(LAST_SUCCESS_PREFIX + date, String(Date.now()), { EX: 3 * 24 * 60 * 60 });
     const status = {
-      attemptedAt: completedAt, cycleComplete: true, dateComplete: nextStart === 0, date, dates: 1,
+      attemptedAt: completedAt, cycleComplete: true, dateComplete: nextStart === 0, date, dates: 1,\n      candidates: candidateResult.candidateCount, manualReviewRequired: candidateResult.manualReviewCount,
       pagination: { start, limit, returned: results.length, maxResults: response.metadata.maxResults, nextStart, complete: nextStart === 0 },
       calls: client.cycleCalls, received: persisted.received,
       inserted: persisted.inserted, duplicates: persisted.duplicates, verified: persisted.verified,
