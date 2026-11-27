@@ -14,6 +14,7 @@ const HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
 const STATUS_KEY = "sportsbook:soccer-v4:status:v1";
 const LAST_SUCCESS_PREFIX = "sportsbook:soccer-v4:last-success:";
 const PAGE_CURSOR_PREFIX = "sportsbook:soccer-v4:page-cursor:";
+const DAY_MS = 24 * 60 * 60 * 1000;
 let stopping = false;
 const shutdownController = new AbortController();
 
@@ -34,8 +35,11 @@ async function runCycle(config, client) {
       lastPolls[candidateDate] = Number(await redis.get(LAST_SUCCESS_PREFIX + candidateDate) || 0);
       cursors[candidateDate] = Number(await redis.get(PAGE_CURSOR_PREFIX + candidateDate) || 0);
     }
+    const now = Date.now();
+    const currentUtcDate = new Date(now).toISOString().slice(0, 10);
     const date = selectOldestDueSoccerResultDate(
-      candidateResult.dates, lastPolls, Date.now(), config.pollIntervalMs, cursors
+      candidateResult.dates, lastPolls, now, config.pollIntervalMs, cursors,
+      candidateDate => candidateDate === currentUtcDate ? config.pollIntervalMs : DAY_MS
     );
     if (!date) {
       const completedAt = new Date().toISOString();
