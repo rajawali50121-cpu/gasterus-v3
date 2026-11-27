@@ -18,10 +18,12 @@ test("Soccer v4 is disabled by default and does not require a key or quota", () 
 test("enabled Soccer v4 requires an explicit independent quota and usage baseline", () => {
   assert.throws(() => loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS: "2",
     SPORTRADAR_API_KEY: "test-key"
   }), /SOCCER_MAX_CALLS_PER_30_DAYS/);
   const config = loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS: "2",
     SPORTRADAR_API_KEY: "test-key",
     SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
@@ -32,6 +34,7 @@ test("enabled Soccer v4 requires an explicit independent quota and usage baselin
   assert.equal(config.baseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
   assert.throws(() => loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS: "2",
     SPORTRADAR_API_KEY: "test-key",
     SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0"
@@ -44,6 +47,7 @@ test("enabled Soccer v4 requires an explicit independent quota and usage baselin
 test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key", async () => {
   const config = loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS: "2",
     SPORTRADAR_SOCCER_API_KEY: "secret-test",
     SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
@@ -99,6 +103,7 @@ test("Soccer v4 monthly quota fails closed when its independent limit is exhaust
 test("Soccer v4 429 stops the request and invokes the shared provider cooldown", async () => {
   const config = loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS: "2",
     SPORTRADAR_SOCCER_API_KEY: "test-key",
     SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0"
@@ -325,6 +330,7 @@ test("Soccer result remains verified when generated_at is absent and receipt tim
 test("Soccer v4 rejects a polling cadence that exceeds remaining rolling quota", () => {
   assert.throws(() => loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS: "2",
     SPORTRADAR_SOCCER_API_KEY: "test-key",
     SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
@@ -333,6 +339,7 @@ test("Soccer v4 rejects a polling cadence that exceeds remaining rolling quota",
   }), /quota budget is insufficient/);
   assert.throws(() => loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS: "2",
     SPORTRADAR_SOCCER_API_KEY: "test-key",
     SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
