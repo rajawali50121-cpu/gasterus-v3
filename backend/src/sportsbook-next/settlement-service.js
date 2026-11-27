@@ -146,7 +146,12 @@ async function detectSettledResultCorrections(client) {
     WHERE t.id=changed.id
     RETURNING t.id
   `);
-  return result.rowCount || 0;
+  const pending = await client.query(`
+    SELECT COUNT(*)::int AS count
+    FROM sportsbook_v2_tickets
+    WHERE review_required=TRUE
+  `);
+  return Number(pending.rows[0]?.count || 0);
 }
 
 export async function settleReadySportsbookTickets({ limit = 50, actorId = null } = {}) {
