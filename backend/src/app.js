@@ -29,6 +29,7 @@ import { casinoProviders, casinoGames, casinoPassthrough, casinoRapidApiStatus, 
 import { processBetnexCallback, recordBetnexCallbackLog } from './casino-wallet.js';
 import { readPublicSportsbookSnapshot } from './sportsbook-next/public-feed.js';
 import { createSportsbookTicket, getSportsbookBetAcceptanceReadiness, listMemberSportsbookTickets } from './sportsbook-next/betting-service.js';
+import { acknowledgeSportsbookResultCorrection, listSportsbookResultCorrectionReviews } from './sportsbook-next/settlement-service.js';
 
 const startedAt=Date.now();const metrics={requests:0,errors:0,rateLimited:0,latencyTotal:0};
 const route=(method,pattern,handler,options={})=>({method,pattern,handler,...options});
@@ -83,6 +84,23 @@ add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
 add('GET',/^\/api\/member\/sportsbook\/v2\/eligibility$/,async({req,res})=>{
   await memberSession(req);
   ok(res,await getSportsbookBetAcceptanceReadiness({redis}));
+});
+add('GET',/^\/api\/owner\/sportsbook\/v2\/result-reviews$/,async({req,res,url})=>{
+  await ownerSession(req);
+  const limit=asInt(url.searchParams.get('limit'),50,1,100);
+  ok(res,await listSportsbookResultCorrectionReviews({limit}));
+});
+add('POST',/^\/api\/owner\/sportsbook\/v2\/result-reviews\/[^/]+\/acknowledge$/,async({req,res,url})=>{
+  const owner=await ownerSession(req);
+  requireCsrf(req,owner);
+  const segments=url.pathname.split('/');
+  const ticketId=segments[6];
+  const payload=await body(req,8192);
+  const result=await acknowledgeSportsbookResultCorrection({
+    ticketId,actorId:owner.userId,note:payload.note,
+    financiallyReconciled:payload.financiallyReconciled
+  });
+  ok(res,result);
 });
 add('GET',/^\/api\/member\/sportsbook\/v2\/tickets$/,async({req,res,url})=>{
   const member=await memberSession(req);
