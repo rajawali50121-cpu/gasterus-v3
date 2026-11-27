@@ -5,6 +5,7 @@ import { SoccerV4Client, parseSoccerCacheTtlMs, getSoccerNextPageStart } from ".
 import { __soccerQuota, reserveSoccerV4Call } from "../src/sportsbook-next/soccer-v4-quota.js";
 import { buildSoccerResultCandidateGroups, selectOldestDueSoccerResultDate } from "../src/sportsbook-next/results-repository.js";
 import { normalizeSoccerResult, normalizeSoccerResults, normalizeSportEventId } from "../src/sportsbook-next/results.js";
+import { nextSoccerPollDelayMs } from "../src/sportsbook-next/soccer-v4-worker.js";
 
 test("Soccer v4 is disabled by default and does not require a key or quota", () => {
   const config = loadSoccerV4Config({});
@@ -13,6 +14,13 @@ test("Soccer v4 is disabled by default and does not require a key or quota", () 
   assert.equal(config.resultBufferMinutes, 150);
   assert.equal(config.maxLookbackDays, 7);
   assert.equal(config.maxCallsPerCycle, 1);
+});
+
+test("Soccer cursor pages resume immediately; completed dates return to tiered cadence", () => {
+  const hourly = 60 * 60 * 1000;
+  assert.equal(nextSoccerPollDelayMs({ pagination: { complete: false }, cacheTtlMs: 300_000 }, hourly), 0);
+  assert.equal(nextSoccerPollDelayMs({ pagination: { complete: true }, cacheTtlMs: 300_000 }, hourly), hourly);
+  assert.equal(nextSoccerPollDelayMs({ pagination: { complete: true } }, hourly), hourly);
 });
 
 test("enabled Soccer v4 requires an explicit independent quota and usage baseline", () => {
