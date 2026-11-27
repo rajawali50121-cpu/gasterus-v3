@@ -1,3 +1,4 @@
+import { query } from "../db.js";
 import { AppError } from "../errors.js";
 
 const MAX_SNAPSHOT_AGE_MS = 5 * 60 * 60 * 1000;
@@ -56,5 +57,62 @@ export async function readPublicSportsbookSnapshot({ redis, now = Date.now(), ma
     throw new AppError(503, "Belum ada pertandingan dengan market berodds pada snapshot terakhir.", "SPORTSBOOK_ODDS_UNAVAILABLE");
   }
 
-  return { ...snapshot, events, ageMs };
+  // Only operator-approved, verified full-time Soccer 1X2 mappings are selectable.
+  // If mappings are absent or the catalog cannot be read, odds remain display-only.
+  let mappingRows = [];
+  let bettingMappingsAvailable = false;
+  try {
+    const mapped = await query(`
+      SELECT pm.sport_id,pm.provider_market_id,pm.provider_market_name,
+             COALESCE(pm.provider_definition->>'specifiers','') AS specifiers,
+             pm.outcomes,pm.market_code,pm.settlement_rule
+      FROM sportsbook_v2_provider_market_mappings pm
+      JOIN sportsbook_v2_market_catalog catalog
+        ON catalog.market_code=pm.market_code AND catalog.enabled=TRUE
+      WHERE pm.provider_product='oddscomparison-prematch-v2'
+        AND pm.sport_id='sr:sport:1'
+        AND pm.period_code='FT'
+        AND pm.mapping_status='VERIFIED'
+        AND pm.enabled=TRUE
+        AND pm.market_code='SOCCER_1X2_3WAY'
+        AND catalog.settlement_rule='SOCCER_1X2_3WAY'
+    `);
+    mappingRows = mapped.rows;
+    bettingMappingsAvailable = true;
+  } catch {
+    // Never turn a feed/schema outage into permission to bet.
+    bettingMappingsAvailable = false;
+  }
+
+  const projectedEvents = events.map(event => ({
+    ...event,
+    markets: event.markets.map(market => {
+      const specifiers = typeof market.specifiers === "string" ? market.specifiers : "";
+      const matches = mappingRows.filter(row =>
+        row.sport_id === event.sportId &&
+        row.provider_market_id === market.id &&
+        row.provider_market_name === market.name &&
+        row.specifiers === specifiers
+      );
+      const mapping = matches.length === 1 ? matches[0] : null;
+      const outcomeMap = mapping?.outcomes && typeof mapping.outcomes === "object" ? mapping.outcomes : {};
+      return {
+        ...market,
+        bettable: Boolean(mapping && !market.live),
+        books: market.books.map(book => ({
+          ...book,
+          outcomes: book.outcomes.map(outcome => ({
+            ...outcome,
+            bettable: Boolean(mapping && !market.live &&
+              ["HOME","DRAW","AWAY"].includes(String(outcomeMap[String(outcome.type || "").toUpperCase()] || "").toUpperCase()))
+          }))
+        }))
+      };
+    })
+  }));
+
+  return {
+    ...snapshot, events: projectedEvents, ageMs, bettingMappingsAvailable,
+    betAcceptanceEnabled: snapshot.complete === true && bettingMappingsAvailable
+  };
 }
