@@ -137,8 +137,10 @@ export async function getSportsbookBetAcceptanceReadiness({
   const soccerInitialRaw = String(env.SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE ?? "").trim();
   const soccerInitialUsage = /^\d+$/.test(soccerInitialRaw) ? Number(soccerInitialRaw) : null;
   const soccerPollMinutes = Number(env.SPORTRADAR_SOCCER_POLL_MINUTES ?? 60);
-  const soccerMinimumCalls = Number.isInteger(soccerPollMinutes) && soccerPollMinutes === 60
-    ? Math.ceil((30 * 24 * 60) / soccerPollMinutes)
+  const soccerLookbackDays = Number(env.SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS ?? 7);
+  const soccerMinimumCalls = Number.isInteger(soccerPollMinutes) && soccerPollMinutes === 60 &&
+    Number.isInteger(soccerLookbackDays) && soccerLookbackDays >= 1 && soccerLookbackDays <= 14
+    ? Math.ceil((30 * 24 * 60) / soccerPollMinutes) + (30 * soccerLookbackDays)
     : Number.POSITIVE_INFINITY;
   if (!soccerMaxCalls || !Number.isSafeInteger(soccerInitialUsage) || soccerInitialUsage < 0 ||
       soccerInitialUsage > soccerMaxCalls || soccerMaxCalls - soccerInitialUsage < soccerMinimumCalls) {
