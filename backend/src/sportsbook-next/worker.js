@@ -8,7 +8,7 @@ import { SportradarClient } from "./sportradar-client.js";
 import { normalizeDailySchedule, normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normalize.js";
 import { getChangedSportEventIds, shouldReconcileChangeLog } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
-import { persistSportsbookSchedules, persistSportsbookSnapshot, confirmSportsbookPricesThrough } from "./repository.js";
+import { persistSportsbookSchedules, persistSportsbookSnapshot } from "./repository.js";
 import { setSportsbookHalt, getSportsbookHalt, clearSportsbookHalt } from "./halt.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
@@ -180,10 +180,9 @@ async function runCycle(config, client) {
     // board supplies prices; Daily Schedules independently owns event metadata.
     for (const sportId of config.sportIds) {
       for (let day = 0; day <= config.daysAhead; day += 1) {
-        if (client.cycleCalls >= config.maxCallsPerCycle) { budgetLimited = true; break; }
         const date = utcDate(day);
         try {
-          const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 2 });
+          const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 1000 });
           if (result.pagination?.complete !== true) {
             const error = new Error("SPORTRADAR_FEED_PAGINATION_INCOMPLETE");
             error.code = error.message;
@@ -208,9 +207,8 @@ async function runCycle(config, client) {
     // Daily Schedules run on their own hourly cadence; market discovery must
     // not delay schedule corrections behind the 150-minute odds refresh.
     const scheduleSync = { rows: [], status: [] };
-    coverage = await refreshCoverage(config, client, {
-      allowFetch: !quotaLimited && !budgetLimited && client.cycleCalls + 3 <= config.maxCallsPerCycle
-    });
+    client.cycleCalls = 0;
+    coverage = await refreshCoverage(config, client, { allowFetch: !quotaLimited && !budgetLimited });
 
     const pricedEvents = [...events.values()];
 
@@ -456,11 +454,6 @@ async function main() {
     onResponse: details => logger.info("Sportradar provider response", details),
     onRateLimit: ({ retryAfter }) => applySportradarRateLimitCooldown(redis, retryAfter),
     beforeRequest: async () => {
-      if (client.cycleCalls >= config.maxCallsPerCycle) {
-        const error = new Error("SPORTRADAR_CYCLE_BUDGET_EXHAUSTED");
-        error.code = "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED";
-        throw error;
-      }
       await waitForSportradarRequestSlot(redis);
       await reserveSportradarCall(redis, config);
       client.cycleCalls += 1;
@@ -469,22 +462,16 @@ async function main() {
   logger.info("Sportradar sportsbook replacement worker started", {
     pollMinutes: config.pollIntervalMs / 60_000,
     changeLogEnabled: config.changeLogEnabled,
-    changeLogPollSeconds: config.changeLogPollMs / 1000,
-    schedulePollMinutes: config.schedulePollIntervalMs / 60_000,
+    changeLogPollSeconds: 0,
     minimumCalls30Days: config.minimumCalls30Days,
-    minimumChangeLogCalls30Days: config.minimumChangeLogCalls30Days,
     sportCount: config.sportIds.length,
     daysAhead: config.daysAhead,
     maxCallsPerCycle: config.maxCallsPerCycle,
     quotaLimit30Days: config.maxCallsPer30Days,
-    syncStrategy: config.changeLogEnabled
-      ? "prematch-bulk-discovery-plus-change-log"
-      : "daily-sport-event-markets-bulk"
+    syncStrategy: "complete-daily-sport-event-markets-pagination"
   });
 
   let nextDiscoveryAt = Date.now();
-  let nextScheduleAt = Date.now();
-  let nextChangeLogAt = Date.now() + config.changeLogPollMs;
   while (!stopping) {
     const activeHalt = await getSportsbookHalt(redis);
     if (activeHalt) {
@@ -496,19 +483,6 @@ async function main() {
       break;
     }
     let now = Date.now();
-    if (now >= nextScheduleAt) {
-      try {
-        const result = await runScheduleCycle(config, client);
-        logger.info("Sportradar Daily Schedules hourly sync completed", result);
-      } catch (error) {
-        logger.warn("Sportradar Daily Schedules hourly sync stopped safely", {
-          code: error?.code || "SPORTRADAR_SCHEDULE_SYNC_FAILED",
-          httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
-          retryAfter: error?.retryAfter || null
-        });
-      }
-      nextScheduleAt = Date.now() + config.schedulePollIntervalMs;
-    }
     now = Date.now();
     if (now >= nextDiscoveryAt) {
       client.cycleCalls = 0;
@@ -547,46 +521,7 @@ async function main() {
     }
 
     now = Date.now();
-    if (config.changeLogEnabled && now >= nextChangeLogAt) {
-      client.cycleCalls = 0;
-      const changeLogCycleStartedAt = Date.now();
-      try {
-        const result = await runChangeLogCycle(config, client);
-        const quotaUsage = await getSportradarQuotaUsage(redis, config).catch(() => null);
-        logger.info("Sportradar Prematch change-log refresh completed", { ...result, quotaUsage });
-        // Schedule from cycle start so network/DB work does not push polling
-        // beyond the provider's rolling five-minute window.
-        nextChangeLogAt = Math.max(Date.now(), changeLogCycleStartedAt + config.changeLogPollMs);
-      } catch (error) {
-        if (await setSportsbookHalt(redis, error)) {
-          stopping = true;
-          logger.error("Sportradar sportsbook worker halted after authentication failure", {
-            code: error?.code || "SPORTRADAR_AUTH_REJECTED",
-            httpStatus: error?.httpStatus
-          });
-          break;
-        }
-        logger.warn("Sportradar Prematch change-log refresh stopped safely", {
-          code: error?.code || "SPORTRADAR_CHANGELOG_POLL_FAILED",
-          quotaScope: error?.quotaScope || null,
-          quotaUsed: Number.isFinite(error?.quotaUsed) ? error.quotaUsed : null,
-          quotaLimit: Number.isFinite(error?.quotaLimit) ? error.quotaLimit : null,
-          httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
-          retryAfter: error?.retryAfter || null,
-          providerMessage: error?.providerMessage || null,
-          originId: error?.originId || null
-        });
-        const retrySeconds = Number(error?.retryAfter);
-        const retryDelayMs = Number.isFinite(retrySeconds) && retrySeconds > 0
-          ? Math.max(config.changeLogPollMs, retrySeconds * 1000 + 1_000)
-          : config.changeLogPollMs;
-        nextChangeLogAt = Date.now() + retryDelayMs;
-      }
-    }
-
-    const nextRunAt = config.changeLogEnabled
-      ? Math.min(nextDiscoveryAt, nextScheduleAt, nextChangeLogAt)
-      : Math.min(nextDiscoveryAt, nextScheduleAt);
+    const nextRunAt = nextDiscoveryAt;
     await sleep(Math.max(250, nextRunAt - Date.now()), undefined, { signal: shutdownController.signal }).catch(() => {});
   }
 }
