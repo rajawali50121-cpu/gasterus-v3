@@ -5,10 +5,10 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSportsbookConfig, isSportradarOddsEnabled } from "./config.js";
 import { SportradarClient } from "./sportradar-client.js";
-import { normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normalize.js";
+import { normalizeDailySchedule, normalizeDailySportEventMarkets, normalizeEventMarkets } from "./normalize.js";
 import { getChangedSportEventIds, shouldReconcileChangeLog } from "./change-log.js";
 import { getSportradarQuotaUsage, reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
-import { persistSportsbookSnapshot, confirmSportsbookPricesThrough } from "./repository.js";
+import { persistSportsbookSchedules, persistSportsbookSnapshot, confirmSportsbookPricesThrough } from "./repository.js";
 import { setSportsbookHalt, getSportsbookHalt, clearSportsbookHalt } from "./halt.js";
 
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
@@ -20,6 +20,10 @@ const CHANGE_LOG_RECONCILE_QUEUE_KEY = "sportsbook:next:changelog:reconcile-queu
 const CHANGE_LOG_PENDING_IDS_KEY = "sportsbook:next:changelog:pending-event-ids:v1";
 const COVERAGE_KEY = "sportsbook:next:coverage:v1";
 const COVERAGE_TTL_SECONDS = 24 * 60 * 60;
+const SCHEDULE_CURSOR_PREFIX = "sportsbook:next:schedule-cursor:v1:";
+const SCHEDULE_COMPLETE_PREFIX = "sportsbook:next:schedule-complete:v1:";
+const SCHEDULE_CACHE_TTL_SECONDS = 20 * 60 * 60;
+const SCHEDULE_CURSOR_TTL_SECONDS = 48 * 60 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 let stopping = false;
 
@@ -27,7 +31,7 @@ function utcDate(offset) {
   return new Date(Date.now() + offset * DAY_MS).toISOString().slice(0, 10);
 }
 
-async function refreshCoverage(config, client) {
+async function refreshCoverage(config, client, { allowFetch = true } = {}) {
   const cached = await redis.get(COVERAGE_KEY);
   if (cached) {
     try {
@@ -35,6 +39,8 @@ async function refreshCoverage(config, client) {
       if (value?.checkedAt && Date.now() - Date.parse(value.checkedAt) < COVERAGE_TTL_SECONDS * 1000) return value;
     } catch { /* refresh malformed cache below */ }
   }
+
+  if (!allowFetch) return null;
 
   // Official Odds Comparison discovery order: Sports, Books, then
   // Sport Competitions. Never infer a sport, book or competition from IDs.
