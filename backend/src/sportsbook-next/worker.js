@@ -165,6 +165,7 @@ async function runCycle(config, client) {
 
   client.cycleCalls = 0;
   const events = new Map();
+  const marketFeeds = [];
   const errors = [];
   let quotaLimited = false;
   let quotaReason = null;
@@ -178,7 +179,8 @@ async function runCycle(config, client) {
       for (let day = 0; day <= config.daysAhead; day += 1) {
         const date = utcDate(day);
         try {
-          const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: 50, maxPages: 1000 });
+          const result = await client.getAllDailySportEventMarkets(sportId, date, { pageSize: config.marketPageSize, maxPages: 1000 });
+          marketFeeds.push({ sportId, date, maxResults: result.pagination?.total ?? null, pages: result.pagination?.pages ?? 0, returned: result.pagination?.received ?? 0, complete: result.pagination?.complete === true });
           if (result.pagination?.complete !== true) {
             const error = new Error("SPORTRADAR_FEED_PAGINATION_INCOMPLETE");
             error.code = error.message;
@@ -220,6 +222,7 @@ async function runCycle(config, client) {
       complete: errors.length === 0 && !quotaLimited && !budgetLimited && pricedEvents.length > 0,
       emptyFeed: pricedEvents.length === 0,
       callsThisCycle: client.cycleCalls,
+      marketPagesThisCycle: marketFeeds.reduce((sum, feed) => sum + feed.pages, 0), marketFeeds,
       quotaLimited,
       quotaReason,
       quotaDetails,
@@ -240,7 +243,7 @@ async function runCycle(config, client) {
     await redis.set(HEARTBEAT_KEY, snapshot.receivedAt, { EX: 600 });
     return {
       events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle,
-      persisted, errors: errors.length, quotaLimited, quotaReason, quotaDetails, budgetLimited, emptyFeed: snapshot.emptyFeed,
+      marketPages: snapshot.marketPagesThisCycle, marketFeeds, persisted, errors: errors.length, quotaLimited, quotaReason, quotaDetails, budgetLimited, emptyFeed: snapshot.emptyFeed,
       complete: snapshot.complete,
       scheduleSync: scheduleSync.status,
       coverageFeeds: coverage ? {
@@ -291,7 +294,9 @@ async function main() {
     changeLogPollSeconds: 0,
     minimumCalls30Days: config.minimumCalls30Days,
     sportCount: config.sportIds.length,
-    daysAhead: config.daysAhead,
+    daysAhead: config.daysAhead, targetEvents: config.targetEvents,
+    marketPageSize: config.marketPageSize, marketPagesPerCycle: config.marketPagesPerCycle,
+    projectedMinimumCalls30Days: config.minimumCalls30Days,
     quotaLimit30Days: config.maxCallsPer30Days,
     syncStrategy: "complete-daily-sport-event-markets-pagination"
   });
