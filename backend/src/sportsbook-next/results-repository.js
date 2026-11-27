@@ -151,14 +151,14 @@ export async function persistSoccerResultRevisions(results) {
           SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb
           WHERE EXISTS (
             SELECT 1 FROM sportsbook_v2_events
-            WHERE regexp_replace(provider_event_id, '^sr:match:', 'sr:sport_event:') = $1
+            WHERE provider_event_id = $1
           )
           ON CONFLICT (provider_event_id,result_source,provider_generated_at)
             WHERE provider_generated_at IS NOT NULL DO NOTHING
           RETURNING id
-        `,[eventId,result.source,result.status,result.homeScore,result.awayScore,providerAt,receivedAt,result.verified===true,payload]);
-        if (!revision.rowCount) { duplicates += 1; continue; }
-        inserted += 1;
+        `,[storageEventId,result.source,result.status,result.homeScore,result.awayScore,providerAt,receivedAt,result.verified===true,payload]);
+        if (!revision.rowCount) duplicates += 1;
+        else inserted += 1;
       }
       await client.query(`
         INSERT INTO sportsbook_v2_event_results(
@@ -167,7 +167,7 @@ export async function persistSoccerResultRevisions(results) {
         SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb
         WHERE EXISTS (
           SELECT 1 FROM sportsbook_v2_events
-          WHERE regexp_replace(provider_event_id, '^sr:match:', 'sr:sport_event:') = $1
+          WHERE provider_event_id = $1
         )
         ON CONFLICT(provider_event_id) DO UPDATE SET
           result_source=excluded.result_source,event_status=excluded.event_status,
@@ -177,7 +177,7 @@ export async function persistSoccerResultRevisions(results) {
         WHERE sportsbook_v2_event_results.source_updated_at IS NULL
            OR (excluded.source_updated_at IS NOT NULL AND
                sportsbook_v2_event_results.source_updated_at <= excluded.source_updated_at)
-      `,[eventId,result.source,result.status,result.homeScore,result.awayScore,providerAt, result.verified===true,payload]);
+      `,[storageEventId,result.source,result.status,result.homeScore,result.awayScore,providerAt, result.verified===true,payload]);
       if (result.verified === true) verified += 1;
     }
     return { received: results.length, inserted, duplicates, verified };
