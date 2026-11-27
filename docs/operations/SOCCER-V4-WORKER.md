@@ -15,7 +15,7 @@
 - Completed dates are not re-polled until the configured interval; candidate dates with no outstanding work and no due interval cause zero requests.
 
 ## Event lifecycle and candidate selection
-- Candidates are tracked sportsbook events whose UTC kickoff is at least `SOCCER_V4_RESULT_BUFFER_MINUTES` minutes in the past (default 150), with no provider-confirmed final state.
+- Candidates are tracked sportsbook events whose UTC kickoff is at least `SPORTRADAR_SOCCER_RESULT_BUFFER_MINUTES` minutes in the past (default 150), with no provider-confirmed final state.
 - `closed` plus complete non-negative home/away scores is a provider-confirmed result; an optional `generated_at` is audit metadata, not a prerequisite. `ended` is not final; events without live coverage may remain `not_started` until a result is entered and remain candidates after kickoff.
 - `cancelled` is a provider-confirmed terminal state, persisted with null scores and eligible for a mapped `VOID` result; it is distinct from `postponed` and `abandoned`.
 - `suspended` remains a candidate.
@@ -23,7 +23,7 @@
 - `abandoned` is not treated as final; it is excluded from automatic polling and flagged for manual review.
 - A delay over 48 hours is treated by Sportradar as postponed. A continuation within 48 hours retains the event ID; a restart or continuation after more than 48 hours uses a new event ID and the old event may expose `replaced_by`.
 - Candidate dates are grouped by UTC kickoff date. Only dates with candidates are eligible. The oldest due date is selected; a date with an incomplete pagination cursor takes priority and continues next cycle.
-- `SOCCER_V4_MAX_LOOKBACK_DAYS` bounds automatic polling (default 7). Older unresolved events are excluded from provider requests and surfaced with IDs/reasons for manual review.
+- `SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS` bounds automatic polling (default 7). Older unresolved events are excluded from provider requests and surfaced with IDs/reasons for manual review.
 
 ## Quota and isolation
 - The worker is disabled unless `SPORTRADAR_SOCCER_ENABLED=true`; disabled mode sends no provider requests. Enabled mode requires exactly 60-minute polling.
@@ -40,7 +40,7 @@ Do not enable until Soccer API v4 entitlement, product-specific rolling 30-day q
 - `SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS` (verified Soccer product quota; trial internal cap is 800)
 - `SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE` (actual current usage, not a guessed zero)
 - Optional: `SPORTRADAR_SOCCER_POLL_MINUTES` (must be 60), `SPORTRADAR_SOCCER_LANGUAGE`
-- Optional: `SOCCER_V4_RESULT_BUFFER_MINUTES` (default 150)
-- Optional: `SOCCER_V4_MAX_LOOKBACK_DAYS` (default 7; minimum projected budget is 720 current-date hourly calls + 30 calls per historical lookback day, before extra pagination calls)
+- Optional: `SPORTRADAR_SOCCER_RESULT_BUFFER_MINUTES` (default 150)
+- Optional: `SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS` (default 7; minimum projected budget is 720 current-date hourly calls + 30 calls per historical lookback day, before extra pagination calls)
 
 No production environment variables, Railway services, deployments, migrations or provider calls are changed by this source branch.
