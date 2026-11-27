@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { tx } from "../db.js";
+import { query, tx } from "../db.js";
 import { AppError, assert } from "../errors.js";
 import { audit } from "../audit.js";
 import {
@@ -351,3 +351,78 @@ export async function settleReadySportsbookTickets({ limit = 50, actorId = null 
 export const __sportsbookSettlement = {
   SUPPORTED_MARKET, SUPPORTED_RULE, SCALE
 };
+
+
+export async function listSportsbookResultCorrectionReviews({ limit = 50 } = {}) {
+  const safeLimit = Number.isInteger(limit) ? Math.min(100, Math.max(1, limit)) : 50;
+  const result = await query(`
+    SELECT t.id,t.invoice,t.status,t.review_reason,t.review_detected_at,
+           t.reviewed_at,t.review_note,
+           COALESCE(jsonb_agg(jsonb_build_object(
+             'eventId',l.provider_event_id,
+             'home',e.home_name,
+             'away',e.away_name,
+             'market',l.provider_market_name,
+             'selection',l.provider_outcome_name,
+             'acceptedOdds',l.accepted_odds::text,
+             'currentResult',jsonb_build_object(
+               'status',r.event_status,'homeScore',r.home_score,
+               'awayScore',r.away_score,'receivedAt',r.received_at
+             )
+           ) ORDER BY l.leg_no),'[]'::jsonb) AS legs
+    FROM sportsbook_v2_tickets t
+    JOIN sportsbook_v2_ticket_legs l ON l.ticket_id=t.id
+    LEFT JOIN sportsbook_v2_events e ON e.provider_event_id=l.provider_event_id
+    LEFT JOIN sportsbook_v2_event_results r ON r.provider_event_id=l.provider_event_id
+    WHERE t.review_required=TRUE
+    GROUP BY t.id
+    ORDER BY t.review_detected_at ASC
+    LIMIT $1
+  `, [safeLimit]);
+  return { reviews: result.rows, limit: safeLimit };
+}
+
+export async function acknowledgeSportsbookResultCorrection({
+  ticketId, actorId, note, financiallyReconciled
+}) {
+  assert(typeof ticketId === "string" && /^[0-9a-f-]{36}$/i.test(ticketId), 400,
+    "ID tiket tidak valid.", "SPORTSBOOK_REVIEW_TICKET_ID_INVALID");
+  assert(financiallyReconciled === true, 400,
+    "Owner harus menyatakan rekonsiliasi finansial sudah dilakukan.", "SPORTSBOOK_REVIEW_FINANCIAL_ATTESTATION_REQUIRED");
+  const cleanNote = String(note || "").trim();
+  assert(cleanNote.length >= 30 && cleanNote.length <= 1000, 400,
+    "Catatan rekonsiliasi wajib 30–1000 karakter.", "SPORTSBOOK_REVIEW_NOTE_INVALID");
+
+  return tx(async client => {
+    const current = await client.query(`
+      SELECT id,invoice,review_required,review_reason
+      FROM sportsbook_v2_tickets
+      WHERE id=$1
+      FOR UPDATE
+    `, [ticketId]);
+    assert(current.rows[0], 404, "Tiket tidak ditemukan.", "SPORTSBOOK_REVIEW_TICKET_NOT_FOUND");
+    assert(current.rows[0].review_required === true, 409,
+      "Tiket tidak sedang berada dalam antrean review.", "SPORTSBOOK_REVIEW_NOT_PENDING");
+
+    const updated = await client.query(`
+      UPDATE sportsbook_v2_tickets
+      SET review_required=FALSE,reviewed_at=now(),reviewed_by=$2,review_note=$3
+      WHERE id=$1 AND review_required=TRUE
+      RETURNING id,invoice,reviewed_at
+    `, [ticketId, actorId, cleanNote]);
+    assert(updated.rowCount === 1, 409,
+      "Tiket berubah saat review.", "SPORTSBOOK_REVIEW_STATE_CONFLICT");
+    await audit({
+      actorId, actorRole: "OWNER", action: "SPORTSBOOK_RESULT_CORRECTION_REVIEWED",
+      targetType: "SPORTSBOOK_TICKET", targetId: ticketId,
+      details: {
+        invoice: current.rows[0].invoice,
+        previousReason: current.rows[0].review_reason,
+        financiallyReconciled: true,
+        note: cleanNote
+      },
+      client
+    });
+    return updated.rows[0];
+  });
+}
