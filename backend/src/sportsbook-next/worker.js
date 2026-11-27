@@ -87,20 +87,24 @@ async function refreshCoverage(config, client, { allowFetch = true } = {}) {
   return coverage;
 }
 
-async function syncDailySchedules(config, client) {
+export async function syncDailySchedules(config, client, {
+  redisClient = redis,
+  persistSchedules = persistSportsbookSchedules,
+  now = () => new Date().toISOString()
+} = {}) {
   const rows = [];
   const status = [];
   for (const sportId of config.sportIds) {
     for (let day = 0; day <= config.daysAhead; day += 1) {
       const date = utcDate(day);
       const completeKey = `${SCHEDULE_COMPLETE_PREFIX}${sportId}:${date}`;
-      if (await redis.get(completeKey)) continue;
+      if (await redisClient.get(completeKey)) continue;
       if (client.cycleCalls >= config.maxCallsPerCycle) {
         status.push({ sportId, date, deferred: true, reason: "CYCLE_BUDGET" });
         continue;
       }
       const cursorKey = `${SCHEDULE_CURSOR_PREFIX}${sportId}:${date}`;
-      const cursorRaw = await redis.get(cursorKey);
+      const cursorRaw = await redisClient.get(cursorKey);
       const start = cursorRaw === null ? 0 : Number(cursorRaw);
       if (!Number.isSafeInteger(start) || start < 0) {
         throw new Error("SPORTRADAR_SCHEDULE_CURSOR_INVALID");
@@ -112,8 +116,8 @@ async function syncDailySchedules(config, client) {
           throw new Error("SPORTRADAR_DAILY_SCHEDULES_SHAPE_INVALID");
         }
         const normalized = normalizeDailySchedule({ schedules: scheduleItems });
-        const receivedAt = new Date().toISOString();
-        await persistSportsbookSchedules(normalized, sportId, receivedAt);
+        const receivedAt = now();
+        await persistSchedules(normalized, sportId, receivedAt);
         rows.push(...normalized);
 
         const maxHeader = response.headers.get("x-max-results");
@@ -128,10 +132,10 @@ async function syncDailySchedules(config, client) {
               : scheduleItems.length >= 50
         );
         if (hasMore) {
-          await redis.set(cursorKey, String(start + scheduleItems.length), { EX: SCHEDULE_CURSOR_TTL_SECONDS });
+          await redisClient.set(cursorKey, String(start + scheduleItems.length), { EX: SCHEDULE_CURSOR_TTL_SECONDS });
         } else {
-          await redis.del(cursorKey);
-          await redis.set(completeKey, receivedAt, { EX: SCHEDULE_CACHE_TTL_SECONDS });
+          await redisClient.del(cursorKey);
+          await redisClient.set(completeKey, receivedAt, { EX: SCHEDULE_CACHE_TTL_SECONDS });
         }
         status.push({
           sportId, date, start, received: scheduleItems.length,
