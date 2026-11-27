@@ -155,6 +155,8 @@ export async function persistSoccerResultRevisions(results) {
   if (!Array.isArray(results)) throw new TypeError("SPORTSBOOK_RESULTS_INVALID");
   const { tx } = await import("./db.js");
   return tx(async client => {
+    const receiptClock = await client.query("SELECT now() AS received_at");
+    const databaseReceivedAt = receiptClock.rows[0].received_at;
     let inserted = 0;
     let duplicates = 0;
     let projected = 0;
@@ -172,9 +174,10 @@ export async function persistSoccerResultRevisions(results) {
       if (!trackedEvent.rowCount) continue;
       const storageEventId = trackedEvent.rows[0].provider_event_id;
       const providerAt = result.providerGeneratedAt ? new Date(result.providerGeneratedAt) : null;
-      const receivedAt = result.receivedAt ? new Date(result.receivedAt) : new Date();
+      // Use PostgreSQL time so result correction ordering is comparable to settled_at.
+      const receivedAt = databaseReceivedAt;
       if (providerAt && !Number.isFinite(providerAt.getTime())) continue;
-      if (!Number.isFinite(receivedAt.getTime())) continue;
+
       const payload = JSON.stringify({
         ...(result.payload ?? {}),
         soccer_v4: { replaced_by: result.replacedBy ?? null, review_required: result.reviewRequired === true }
