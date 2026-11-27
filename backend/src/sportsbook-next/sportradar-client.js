@@ -191,9 +191,6 @@ export class SportradarClient {
   getSportEventMarkets(eventId) {
     return this.request(this.config.prematchBaseUrl, `sport_events/${encodeUrnPathSegment(eventId)}/sport_event_markets`);
   }
-  getSportEventMarketsChangeLog() {
-    return this.request(this.config.prematchBaseUrl, "sport_event_markets_changelog");
-  }
   getSoccerDailySchedules(date) {
     return this.request(this.config.soccerBaseUrl, `schedules/${encodeURIComponent(date)}/schedules`);
   }
