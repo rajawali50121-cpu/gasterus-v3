@@ -12,7 +12,6 @@ const submitBet=document.querySelector("#submit-bet");
 const betslipStatus=document.querySelector("#betslip-status");
 const selectedLegs=new Map();
 let betAcceptanceEnabled=false;
-let currentSnapshot=null;
 
 function setStatus(state,label){statusEl.dataset.state=state;statusEl.querySelector("span").textContent=label;}
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=String(text);return node;}
@@ -72,8 +71,15 @@ function toggleSelection(event,market,book,outcome){
     selectedLegs.set(event.id,makeLeg(event,market,book,outcome));
   }
   renderBetslip();
+  syncSelectionButtons();
+}
+function syncSelectionButtons(){
   document.querySelectorAll(".outcome-select").forEach(button=>{
-    button.classList.toggle("selected",button.dataset.selected==="true");
+    const selected=selectedLegs.get(button.dataset.eventId);
+    const active=Boolean(selected&&selected.providerMarketKey===button.dataset.marketKey&&
+      selected.providerBookId===button.dataset.bookId&&selected.providerSelectionKey===button.dataset.selectionKey);
+    button.classList.toggle("selected",active);
+    button.dataset.selected=String(active);
   });
 }
 function makeLeg(event,market,book,outcome){
@@ -110,6 +116,10 @@ function renderEvent(event){
         const item=selectable?el("button","outcome outcome-select"):el("span","outcome");
         if(selectable){
           item.type="button";
+          item.dataset.eventId=event.id;
+          item.dataset.marketKey=market.key;
+          item.dataset.bookId=book.id;
+          item.dataset.selectionKey=outcome.selectionKey;
           const selected=selectedLegs.get(event.id);
           item.dataset.selected=String(Boolean(selected&&selected.providerSelectionKey===outcome.selectionKey&&selected.providerMarketKey===market.key&&selected.providerBookId===book.id));
           if(item.dataset.selected==="true")item.classList.add("selected");
@@ -158,7 +168,6 @@ async function load(){
     const payload=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(payload?.error?.message||payload?.message||"Feed belum tersedia.");
     const snapshot=payload.data||payload;
-    currentSnapshot=snapshot;
     betAcceptanceEnabled=snapshot.betAcceptanceEnabled===true;
     const events=Array.isArray(snapshot.events)?snapshot.events:[];
     root.replaceChildren();
