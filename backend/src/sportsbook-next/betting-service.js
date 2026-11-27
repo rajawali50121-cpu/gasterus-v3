@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { tx } from "../db.js";
+import { query, tx } from "../db.js";
 import { AppError, assert } from "../errors.js";
 import { memberAccount, postSystemTransfer, postTransfer, SYSTEM_ACCOUNTS } from "../ledger.js";
 import { enforceResponsiblePlay } from "../responsible-play.js";
@@ -188,7 +188,8 @@ async function loadBettablePrice(client, leg, nowMs) {
     SELECT e.provider_event_id, e.sport_id, e.scheduled_at, e.event_status,
            m.provider_market_key, m.provider_market_id, m.market_name,
            m.is_live, m.is_active AS market_active, m.provider_payload AS market_payload,
-           p.provider_book_id, p.provider_selection_key, p.outcome_type,
+           p.provider_book_id, p.provider_book_name, p.provider_selection_key,
+           p.outcome_type, p.outcome_name,
            p.odds_decimal::text AS odds_decimal, p.is_active AS price_active,
            p.source_updated_at, p.received_at, p.change_log_verified_at,
            mapped.market_code, mapped.settlement_rule, mapped.mapping_status,
@@ -354,12 +355,14 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
       await client.query(`
         INSERT INTO sportsbook_v2_ticket_legs(
           id,ticket_id,leg_no,provider_event_id,provider_market_key,provider_market_id,
-          provider_book_id,provider_selection_key,accepted_odds,source_updated_at,
+          provider_market_name,provider_book_id,provider_book_name,provider_selection_key,
+          provider_outcome_name,provider_outcome_type,accepted_odds,source_updated_at,
           price_received_at,market_code,outcome_code,settlement_rule,mapping_version
-        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
       `, [
         randomUUID(), ticketId, index + 1, row.provider_event_id, row.provider_market_key,
-        row.provider_market_id, row.provider_book_id, row.provider_selection_key,
+        row.provider_market_id, row.market_name, row.provider_book_id, row.provider_book_name,
+        row.provider_selection_key, row.outcome_name, row.outcome_type,
         row.odds_decimal, row.source_updated_at, row.received_at, row.market_code,
         outcomeCode, row.settlement_rule, row.mapping_version
       ]);
@@ -427,3 +430,33 @@ export const __sportsbookBetting = {
   CHANGE_LOG_LAST_SUCCESS_KEY, FEED_STATUS_KEY, SNAPSHOT_KEY,
   CHANGE_LOG_WINDOW_MS, ODDS_SCALE, MAX_LEGS, PROVIDER_PRODUCT
 };
+
+
+export async function listMemberSportsbookTickets(memberId, { limit = 20, offset = 0 } = {}) {
+  const safeLimit = Number.isInteger(limit) ? Math.min(100, Math.max(1, limit)) : 20;
+  const safeOffset = Number.isInteger(offset) ? Math.max(0, offset) : 0;
+  const result = await query(`
+    SELECT t.id,t.invoice,t.stake,t.total_odds::text AS total_odds,
+           t.potential_payout,t.status,t.accepted_at,t.settled_at,
+           COALESCE(jsonb_agg(jsonb_build_object(
+             'eventId',l.provider_event_id,
+             'home',e.home_name,
+             'away',e.away_name,
+             'scheduledAt',e.scheduled_at,
+             'market',l.provider_market_name,
+             'bookmaker',l.provider_book_name,
+             'selection',l.provider_outcome_name,
+             'outcomeType',l.provider_outcome_type,
+             'acceptedOdds',l.accepted_odds::text,
+             'resultStatus',l.result_status
+           ) ORDER BY l.leg_no) FILTER (WHERE l.id IS NOT NULL),'[]'::jsonb) AS legs
+    FROM sportsbook_v2_tickets t
+    LEFT JOIN sportsbook_v2_ticket_legs l ON l.ticket_id=t.id
+    LEFT JOIN sportsbook_v2_events e ON e.provider_event_id=l.provider_event_id
+    WHERE t.member_id=$1
+    GROUP BY t.id
+    ORDER BY t.accepted_at DESC
+    LIMIT $2 OFFSET $3
+  `, [memberId, safeLimit, safeOffset]);
+  return { tickets: result.rows, limit: safeLimit, offset: safeOffset };
+}
