@@ -127,6 +127,7 @@ test("public feed marks only an exact verified full-time 1X2 mapping as bettable
   assert.equal(result.events[0].markets[0].bettable, true);
   assert.equal(result.events[0].markets[0].books[0].outcomes[0].bettable, true);
   assert.equal(result.bettingMappingsAvailable, true);
+  assert.equal(result.betAcceptanceEnabled, true);
 });
 
 test("ambiguous or absent mapping leaves all odds display-only", async () => {
