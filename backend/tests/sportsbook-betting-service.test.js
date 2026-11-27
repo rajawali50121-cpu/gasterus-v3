@@ -3,12 +3,14 @@ import assert from "node:assert/strict";
 import {
   calculateSportsbookBetAmounts,
   decimalOddsToMicros,
+  normalizeSportsbookLegInput,
   getSportsbookBetAcceptanceReadiness,
   __sportsbookBetting
 } from "../src/sportsbook-next/betting-service.js";
 
 const readyEnv = {
   SPORTSBOOK_BET_ACCEPTANCE_ENABLED: "true",
+  SPORTSBOOK_SETTLEMENT_ENABLED: "true",
   SPORTRADAR_ODDS_ENABLED: "true",
   SPORTRADAR_CHANGELOG_ENABLED: "true",
   SPORTRADAR_ACCESS_LEVEL: "production",
@@ -32,6 +34,24 @@ function healthyRedis(now, { refreshPending = false, lastSuccessAgeMs = 15_000 }
   ]);
   return { get: async key => values.get(key) ?? null };
 }
+
+test("client bet selections must use canonical Sportradar sport-event URNs", () => {
+  const leg = normalizeSportsbookLegInput({
+    providerEventId: "sr:sport_event:123456",
+    providerMarketKey: "sr:market:1|Match Winner",
+    providerBookId: "sr:book:1",
+    providerSelectionKey: "sr:outcome:home|",
+    expectedOdds: "2.10"
+  });
+  assert.equal(leg.providerEventId, "sr:sport_event:123456");
+  assert.equal(leg.expectedOddsMicros, 2_100_000n);
+  for (const providerEventId of ["sr:match:123456", "sr:sport_event:abc", "sr:sport_event:\\123"]) {
+    assert.throws(() => normalizeSportsbookLegInput({
+      providerEventId, providerMarketKey: "m", providerBookId: "b",
+      providerSelectionKey: "s", expectedOdds: "2.10"
+    }), error => error.code === "SPORTSBOOK_EVENT_ID_INVALID");
+  }
+});
 
 test("decimal odds are parsed to exact six-decimal integer precision", () => {
   assert.equal(decimalOddsToMicros("2.10"), 2_100_000n);
