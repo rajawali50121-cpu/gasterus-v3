@@ -19,6 +19,9 @@ const env = {
 test("config defaults to 150-minute refresh, current UTC date only and official Odds Comparison/Soccer v4 base URLs", () => {
   const config = loadSportsbookConfig(env);
   assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
+  assert.equal(config.schedulePollIntervalMs, 60 * 60 * 1000);
+  assert.equal(config.minimumScheduleCalls30Days, 1440);
+  assert.equal(config.minimumMarketCalls30Days, 576);
   assert.equal(config.maxCallsPerHour, 0);
   assert.equal(config.daysAhead, 0);
   assert.equal(config.maxCallsPerCycle, 6);
@@ -73,6 +76,10 @@ test("trial configuration cannot exceed the 800-call internal budget or fan out 
   assert.throws(
     () => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800", SPORTRADAR_SPORT_IDS: "sr:sport:1,sr:sport:2" }),
     /exactly one sport/
+  );
+  assert.throws(
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800" }),
+    /30-day budget is insufficient/
   );
 });
 
