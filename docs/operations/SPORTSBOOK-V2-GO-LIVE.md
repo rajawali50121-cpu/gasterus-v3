@@ -6,7 +6,7 @@ The provider and financial paths are deliberately separate:
 
 1. **Odds Comparison Prematch v2 worker** imports event metadata and prices from every page of the official Daily Sport Event Markets feed, joined only by exact `sr:sport_event` URN. The worker completes pagination before publishing a snapshot. Change Log polling and separate Daily Schedules polling are disabled in this release.
 2. **Soccer API v4 result worker** independently polls daily summaries for tracked events after the configured result buffer. It stores provider time separately from local receipt time and treats only verified `closed` results with complete scores, or provider-confirmed `cancelled`, as settleable.
-3. **Member API** exposes only operator-approved, verified full-time Soccer 1X2 selections. The server rechecks the exact provider event, market, bookmaker, selection, odds, status, freshness, mapping and risk limits before debiting a member.
+3. **Member API** exposes only operator-approved, verified full-time Soccer 1X2 selections. The server rechecks the exact stored provider event, market, bookmaker, selection, odds, status, mapping and risk limits before debiting a member. It does not reject solely because a local polling timestamp is old.
 4. **Settlement worker** settles only verified result contracts, using the existing GASTERUS double-entry ledger. Stake is held in `SYSTEM:SPORTSBOOK_HOLD`; potential profit is reserved from `SYSTEM:SPORTSBOOK_RISK_RESERVE`. Unused reserve is released atomically.
 5. **Owner review queue** quarantines result changes received after settlement. No automatic wallet reversal or additional credit is attempted.
 
@@ -47,7 +47,7 @@ Before enabling bets, verify all of the following from the provider account dash
 
 - Odds Comparison and Soccer v4 each have **production** entitlement.
 - Record the current rolling 30-day usage separately for each product and set the matching baseline-confirmed flag only after checking provider reporting.
-- Change Log is disabled. Do not set `SPORTRADAR_CHANGELOG_ENABLED=true`; code intentionally ignores that flag. This removes Change Log polling and per-event refresh calls from this worker.
+- Change Log is disabled. Do not set `SPORTRADAR_CHANGELOG_ENABLED=true`; code intentionally ignores that flag. This removes Change Log polling and per-event refresh calls from this worker. Since bulk snapshots remain on a 150-minute cadence, betting must remain disabled until synchronous provider price/market-status revalidation at ticket placement is implemented and tested; stored snapshot status alone cannot prove current provider status.
 - Soccer v4 Daily Summaries polling is fixed at 60 minutes. The quota projection includes 720 current-date hourly requests plus one daily request for each configured historical lookback date (default seven days, 930 calls/30 days before pagination). Pagination can require additional calls; Redis quota reservation remains authoritative.
 - Daily Schedules are not polled separately and their timestamp is not a bet-acceptance gate. Daily Sport Event Markets is polled every 150 minutes, with every page fetched until the provider reports completion (page size 50; runtime rolling quota reservation counts each page). The minimum quota projection assumes one page per cycle plus 90 daily discovery calls; extra pages increase actual usage and can exhaust the provider quota. The calculator does not assume two pages or a fixed event count.
 - Configure explicit positive maximum stake and maximum payout.
