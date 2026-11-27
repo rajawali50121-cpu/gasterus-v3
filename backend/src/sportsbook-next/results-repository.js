@@ -108,19 +108,16 @@ export function buildSoccerResultCandidateGroups(events, {
   };
 }
 
-export function selectOldestDueSoccerResultDate(dates, lastPolls = {}, now = Date.now(), intervalMs = 60 * 60 * 1000, cursors = {}, intervalForDate = null) {
+export function selectOldestDueSoccerResultDate(dates, lastPolls = {}, now = Date.now(), intervalMs = 60 * 60 * 1000, cursors = {}, intervalForDate = null, priorityDate = null) {
   if (!Array.isArray(dates) || !lastPolls || typeof lastPolls !== "object" ||
-      !Number.isFinite(now) || !Number.isFinite(intervalMs) || intervalMs < 0) {
-    throw new TypeError("SOCCER_V4_RESULT_DATE_SELECTION_INVALID");
-  }
-  return [...new Set(dates)].sort().find(date => {
-    const cursor = Number(cursors[date] || 0);
-    if (cursor > 0) return true;
-    const lastPoll = Number(lastPolls[date] || 0);
+      !Number.isFinite(now) || !Number.isFinite(intervalMs) || intervalMs < 0) throw new TypeError("SOCCER_V4_RESULT_DATE_SELECTION_INVALID");
+  return [...new Set(dates)].map(date => {
+    const cursor = Number(cursors[date] || 0), lastPoll = Number(lastPolls[date] || 0);
     const dueInterval = typeof intervalForDate === "function" ? intervalForDate(date) : intervalMs;
-    return Number.isFinite(dueInterval) && dueInterval >= 0 &&
-      (!Number.isFinite(lastPoll) || lastPoll <= 0 || now - lastPoll >= dueInterval);
-  }) ?? null;
+    const due = cursor > 0 || (Number.isFinite(dueInterval) && dueInterval >= 0 &&
+      (!Number.isFinite(lastPoll) || lastPoll <= 0 || now - lastPoll >= dueInterval));
+    return { date, due, priority: date === priorityDate ? 0 : cursor > 0 ? 1 : 2 };
+  }).filter(item => item.due).sort((a,b) => a.priority-b.priority || a.date.localeCompare(b.date))[0]?.date ?? null;
 }
 
 export async function listResultCandidateDates({
