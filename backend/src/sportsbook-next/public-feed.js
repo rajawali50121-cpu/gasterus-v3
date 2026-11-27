@@ -17,7 +17,15 @@ function hasValidOdds(market) {
  * Read-only public projection of the worker-owned Redis snapshot.
  * This function never calls the Sportradar provider or writes to Redis.
  */
-export async function readPublicSportsbookSnapshot({ redis, now = Date.now(), maxAgeMs = MAX_SNAPSHOT_AGE_MS, loadMappings = query }) {
+export async function readPublicSportsbookSnapshot({
+  redis, now = Date.now(), maxAgeMs = MAX_SNAPSHOT_AGE_MS,
+  loadMappings = query,
+  loadVerifiedSchedules = async () => query(`
+    SELECT provider_event_id
+    FROM sportsbook_v2_events
+    WHERE schedule_verified_at >= now() - interval '6 hours'
+  `)
+}) {
   let raw;
   try {
     raw = await redis.get("sportsbook:next:snapshot:v1");
@@ -84,6 +92,14 @@ export async function readPublicSportsbookSnapshot({ redis, now = Date.now(), ma
     bettingMappingsAvailable = false;
   }
 
+  let verifiedScheduleIds = new Set();
+  try {
+    const scheduleRows = await loadVerifiedSchedules();
+    verifiedScheduleIds = new Set((scheduleRows.rows || []).map(row => row.provider_event_id));
+  } catch {
+    verifiedScheduleIds = new Set();
+  }
+
   const projectedEvents = events.map(event => ({
     ...event,
     markets: event.markets.map(market => {
@@ -98,12 +114,12 @@ export async function readPublicSportsbookSnapshot({ redis, now = Date.now(), ma
       const outcomeMap = mapping?.outcomes && typeof mapping.outcomes === "object" ? mapping.outcomes : {};
       return {
         ...market,
-        bettable: Boolean(mapping && !market.live),
+        bettable: Boolean(mapping && !market.live && verifiedScheduleIds.has(event.id)),
         books: market.books.map(book => ({
           ...book,
           outcomes: book.outcomes.map(outcome => ({
             ...outcome,
-            bettable: Boolean(mapping && !market.live &&
+            bettable: Boolean(mapping && !market.live && verifiedScheduleIds.has(event.id) &&
               ["HOME","DRAW","AWAY"].includes(String(outcomeMap[String(outcome.type || "").toUpperCase()] || "").toUpperCase()))
           }))
         }))
@@ -113,6 +129,8 @@ export async function readPublicSportsbookSnapshot({ redis, now = Date.now(), ma
 
   return {
     ...snapshot, events: projectedEvents, ageMs, bettingMappingsAvailable,
-    betAcceptanceEnabled: snapshot.complete === true && bettingMappingsAvailable && mappingRows.length > 0
+    verifiedScheduleCount: verifiedScheduleIds.size,
+    betAcceptanceEnabled: snapshot.complete === true && bettingMappingsAvailable &&
+      mappingRows.length > 0 && verifiedScheduleIds.size > 0
   };
 }
