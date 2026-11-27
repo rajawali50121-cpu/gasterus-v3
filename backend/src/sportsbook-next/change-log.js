@@ -23,8 +23,3 @@ export function getChangedSportEventIds(payload, trackedEventIds) {
   }))];
 }
 
-// Initialize only once: discovery must never advance a missed Change Log window.
-export async function initializeChangeLogBaseline(redis, key, timestamp = Date.now()) {
-  const result = await redis.set(key, String(timestamp), { NX: true, EX: 30 * 24 * 60 * 60 });
-  return result === "OK";
-}
