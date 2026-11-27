@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadSoccerV4Config } from "../src/sportsbook-next/soccer-v4-config.js";
 import { SoccerV4Client, parseSoccerCacheTtlMs, getSoccerNextPageStart } from "../src/sportsbook-next/soccer-v4-client.js";
-import { __soccerQuota, selectSoccerV4DueDate, reserveSoccerV4Call } from "../src/sportsbook-next/soccer-v4-quota.js";\nimport { buildSoccerResultCandidateGroups, selectOldestDueSoccerResultDate } from "../src/sportsbook-next/results-repository.js";
+import { __soccerQuota, reserveSoccerV4Call } from "../src/sportsbook-next/soccer-v4-quota.js";\nimport { buildSoccerResultCandidateGroups, selectOldestDueSoccerResultDate } from "../src/sportsbook-next/results-repository.js";
 
 test("Soccer v4 is disabled by default and does not require a key or quota", () => {
   const config = loadSoccerV4Config({});
@@ -158,11 +158,12 @@ test("Soccer result worker makes zero requests when there are no eligible candid
 
 test("Soccer result candidates outside the configured lookback are skipped for manual review", () => {
   const groups = buildSoccerResultCandidateGroups([
-    resultEvent("2026-11-18T08:00:00.000Z", { resultStatus: "ended", resultVerified: false })
+    resultEvent("2026-11-18T08:00:00.000Z", { providerEventId: "sr:sport_event:manual-review", resultStatus: "ended", resultVerified: false })
   ], { now: RESULT_NOW, maxLookbackDays: 7 });
   assert.deepEqual(groups.dates, []);
   assert.equal(groups.candidateCount, 0);
   assert.equal(groups.manualReviewCount, 1);
+  assert.deepEqual(groups.manualReviewEventIds, ["sr:sport_event:manual-review"]);
 });
 
 test("Soccer ended status is not a verified final result; invalid provider timestamps are not final", () => {
@@ -193,4 +194,16 @@ test("Soccer result buffer excludes kickoffs that have not passed the configured
   ], { now: RESULT_NOW, bufferMinutes: 150 });
   assert.deepEqual(groups.dates, []);
   assert.equal(groups.candidateCount, 0);
+});
+
+
+test("Soccer cancelled status is retained as a candidate status, not treated as a final settlement result", () => {
+  const groups = buildSoccerResultCandidateGroups([
+    resultEvent("2026-11-26T08:00:00.000Z", {
+      resultStatus: "cancelled", resultVerified: true,
+      providerGeneratedAt: "2026-11-26T10:00:00.000Z"
+    })
+  ], { now: RESULT_NOW });
+  assert.deepEqual(groups.dates, ["2026-11-26"]);
+  assert.equal(groups.candidateCount, 1);
 });
