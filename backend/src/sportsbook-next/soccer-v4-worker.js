@@ -40,7 +40,8 @@ async function runCycle(config, client) {
       return {
         skipped: "no Soccer result date is due", dates: 0, calls: 0,
         candidates: candidateResult.candidateCount,
-        manualReviewRequired: candidateResult.manualReviewCount
+        manualReviewRequired: candidateResult.manualReviewCount,
+        manualReviewEventIds: candidateResult.manualReviewEventIds
       };
     }
 
@@ -55,7 +56,8 @@ async function runCycle(config, client) {
     const completedAt = new Date().toISOString();
     await redis.set(LAST_SUCCESS_PREFIX + date, String(Date.now()), { EX: 3 * 24 * 60 * 60 });
     const status = {
-      attemptedAt: completedAt, cycleComplete: true, dateComplete: nextStart === 0, date, dates: 1,\n      candidates: candidateResult.candidateCount, manualReviewRequired: candidateResult.manualReviewCount,\n      manualReviewEventIds: candidateResult.manualReviewEventIds,
+      attemptedAt: completedAt, cycleComplete: true, dateComplete: nextStart === 0, date, dates: 1,
+      candidates: candidateResult.candidateCount, manualReviewRequired: candidateResult.manualReviewCount,\n      manualReviewEventIds: candidateResult.manualReviewEventIds,
       pagination: { start, limit, returned: results.length, maxResults: response.metadata.maxResults, nextStart, complete: nextStart === 0 },
       calls: client.cycleCalls, received: persisted.received,
       inserted: persisted.inserted, duplicates: persisted.duplicates, verified: persisted.verified,
