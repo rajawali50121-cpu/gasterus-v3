@@ -15,6 +15,12 @@ const readyEnv = {
   SPORTRADAR_CHANGELOG_ENABLED: "true",
   SPORTSBOOK_SETTLEMENT_ENABLED: "true",
   SPORTRADAR_ACCESS_LEVEL: "production",
+  SPORTRADAR_SOCCER_ENABLED: "true",
+  SPORTRADAR_SOCCER_ACCESS_LEVEL: "production",
+  SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true",
+  SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
+  SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
+  SPORTRADAR_SOCCER_POLL_MINUTES: "90",
   SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true",
   SPORTRADAR_MAX_CALLS_PER_30_DAYS: "12000",
   SPORTRADAR_INITIAL_30_DAY_USAGE: "0",
@@ -31,7 +37,11 @@ function healthyRedis(now, { refreshPending = false, lastSuccessAgeMs = 15_000 }
       reconcilePending: 0, changedPending: 0
     })],
     [__sportsbookBetting.SNAPSHOT_KEY, JSON.stringify({ complete: true, refreshPending })],
-    [__sportsbookBetting.CHANGE_LOG_LAST_SUCCESS_KEY, String(now - lastSuccessAgeMs)]
+    [__sportsbookBetting.CHANGE_LOG_LAST_SUCCESS_KEY, String(now - lastSuccessAgeMs)],
+    [__sportsbookBetting.SOCCER_STATUS_KEY, JSON.stringify({ cycleComplete: true, dateComplete: true })],
+    [__sportsbookBetting.SOCCER_HEARTBEAT_KEY, new Date(now - 15_000).toISOString()],
+    [__sportsbookBetting.SETTLEMENT_STATUS_KEY, JSON.stringify({ healthy: true })],
+    [__sportsbookBetting.SETTLEMENT_HEARTBEAT_KEY, new Date(now - 15_000).toISOString()]
   ]);
   return { get: async key => values.get(key) ?? null };
 }
@@ -124,4 +134,39 @@ test("no approved verified full-time mapping keeps betting disabled", async () =
   });
   assert.equal(readiness.enabled, false);
   assert.ok(readiness.reasons.includes("NO_VERIFIED_MARKET_MAPPINGS"));
+});
+
+test("stale Soccer result or settlement worker heartbeat blocks new bets", async () => {
+  const now = 1_800_000_000_000;
+  const values = new Map([
+    [__sportsbookBetting.FEED_STATUS_KEY, JSON.stringify({
+      complete: true, changeLogPoll: true, quotaLimited: false, errorCount: 0
+    })],
+    [__sportsbookBetting.SNAPSHOT_KEY, JSON.stringify({ complete: true, refreshPending: false })],
+    [__sportsbookBetting.CHANGE_LOG_LAST_SUCCESS_KEY, String(now - 15_000)],
+    [__sportsbookBetting.SOCCER_STATUS_KEY, JSON.stringify({ cycleComplete: true })],
+    [__sportsbookBetting.SOCCER_HEARTBEAT_KEY, new Date(now - 4 * 60 * 60 * 1000).toISOString()],
+    [__sportsbookBetting.SETTLEMENT_STATUS_KEY, JSON.stringify({ healthy: false })],
+    [__sportsbookBetting.SETTLEMENT_HEARTBEAT_KEY, new Date(now - 15_000).toISOString()]
+  ]);
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
+    redis: { get: async key => values.get(key) ?? null },
+    env: readyEnv, now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("SOCCER_RESULTS_HEARTBEAT_STALE"));
+  assert.ok(readiness.reasons.includes("SETTLEMENT_WORKER_UNHEALTHY"));
+});
+
+test("insufficient independent Soccer product quota blocks bet acceptance", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
+    redis: healthyRedis(now),
+    env: { ...readyEnv, SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "300" },
+    now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("SOCCER_QUOTA_BUDGET_INSUFFICIENT"));
 });
