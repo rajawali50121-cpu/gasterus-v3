@@ -295,6 +295,8 @@ test("Soccer match and sport_event prefixes normalize to one ID and duplicate su
   }, "2026-11-27T12:00:00Z");
   assert.equal(results.length, 1);
   assert.equal(results[0].eventId, "sr:sport_event:123");
+  assert.equal(results[0].status, "closed");
+  assert.equal(results[0].homeScore, 1);
 });
 
 
