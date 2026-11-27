@@ -32,15 +32,24 @@ test("hourly quota exhaustion has its own fail-closed signal", async () => {
   );
 });
 
-test("quota reservation stops nonessential Odds polling at 90 percent of the configured ceiling", async () => {
+test("Redis reservation script enforces the 90 percent rolling quota guard", async () => {
   let optionsSeen;
-  const redis = { eval: async (_script, options) => { optionsSeen = options; return [3, 0, 720, 0]; } };
-  const error = await assert.rejects(
+  const redis = {
+    eval: async (script, options) => {
+      assert.equal(script, __quota.RESERVE_SCRIPT);
+      assert.match(script, /if used >= softLimit then return \{3, hourly, used, 0\} end/);
+      optionsSeen = options;
+      return [3, 0, 720, 0];
+    }
+  };
+  await assert.rejects(
     reserveSportradarCall(redis, { initialCallsUsed30Days: 0, maxCallsPer30Days: 800, maxCallsPerHour: 0 }, 1_800_000_000_000),
     value => value.code === "SPORTRADAR_QUOTA_90_PERCENT_GUARD" &&
       value.quotaUsed === 720 && value.quotaLimit === 800 && value.quotaThreshold === 720
   );
-  assert.ok(optionsSeen);
+  assert.equal(optionsSeen.arguments[5], "800");
+  assert.equal(optionsSeen.arguments[6], "720");
+  assert.match(optionsSeen.arguments[7], /^[0-9a-f-]{36}$/i);
 });
 
 test("shared Sportradar QPS interval is at least 1200ms", () => {
