@@ -82,7 +82,25 @@ function parseRedisJson(raw, code) {
   }
 }
 
-export async function getSportsbookBetAcceptanceReadiness({ redis, env = process.env, now = Date.now() }) {
+export async function getSportsbookBetAcceptanceReadiness({
+  redis, env = process.env, now = Date.now(),
+  loadMappingCount = async () => {
+    const result = await query(`
+      SELECT COUNT(*)::int AS count
+      FROM sportsbook_v2_provider_market_mappings pm
+      JOIN sportsbook_v2_market_catalog catalog
+        ON catalog.market_code=pm.market_code AND catalog.enabled=TRUE
+      WHERE pm.provider_product='oddscomparison-prematch-v2'
+        AND pm.sport_id='sr:sport:1'
+        AND pm.period_code='FT'
+        AND pm.mapping_status='VERIFIED'
+        AND pm.enabled=TRUE
+        AND pm.market_code='SOCCER_1X2_3WAY'
+        AND catalog.settlement_rule='SOCCER_1X2_3WAY'
+    `);
+    return Number(result.rows[0]?.count || 0);
+  }
+}) {
   const reasons = [];
   if (String(env.SPORTSBOOK_BET_ACCEPTANCE_ENABLED || "").toLowerCase() !== "true") reasons.push("BET_ACCEPTANCE_DISABLED");
   if (String(env.SPORTRADAR_ODDS_ENABLED || "").toLowerCase() !== "true") reasons.push("ODDS_WORKER_DISABLED");
@@ -104,6 +122,16 @@ export async function getSportsbookBetAcceptanceReadiness({ redis, env = process
 
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_STAKE_IDR")) reasons.push("MAX_STAKE_NOT_CONFIGURED");
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_PAYOUT_IDR")) reasons.push("MAX_PAYOUT_NOT_CONFIGURED");
+
+  let verifiedMappingCount = 0;
+  try {
+    verifiedMappingCount = await loadMappingCount();
+    if (!Number.isSafeInteger(verifiedMappingCount) || verifiedMappingCount < 1) {
+      reasons.push("NO_VERIFIED_MARKET_MAPPINGS");
+    }
+  } catch {
+    reasons.push("MARKET_MAPPING_SCHEMA_UNAVAILABLE");
+  }
 
   let feedStatus = null;
   let snapshot = null;
@@ -135,6 +163,7 @@ export async function getSportsbookBetAcceptanceReadiness({ redis, env = process
   return {
     enabled: reasons.length === 0,
     reasons: [...new Set(reasons)],
+    verifiedMappingCount,
     lastChangeLogSuccessAt: lastSuccessAt ? new Date(lastSuccessAt).toISOString() : null,
     maxPriceAgeMs: PRICE_MAX_AGE_MINUTES * 60_000,
     kickoffCutoffMinutes: KICKOFF_CUTOFF_MINUTES
