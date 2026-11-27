@@ -253,13 +253,13 @@ test("Soccer suspended remains a result candidate", () => {
   assert.deepEqual(groups.dates, ["2026-11-26"]);
 });
 
-test("Soccer cancelled is final with no score and is not settlement-verified", () => {
+test("Soccer cancelled is provider-confirmed terminal state and can be voided without a score", () => {
   const result = normalizeSoccerResult({
     sport_event: { id: "sr:sport_event:9001" },
     sport_event_status: { status: "cancelled", home_score: 2, away_score: 1 }
   }, { generatedAt: "2026-11-26T12:00:00Z", receivedAt: "2026-11-27T12:00:00Z" });
   assert.equal(result.isFinal, true);
-  assert.equal(result.verified, false);
+  assert.equal(result.verified, true);
   assert.equal(result.homeScore, null);
   assert.equal(result.awayScore, null);
   const groups = buildSoccerResultCandidateGroups([
@@ -306,7 +306,7 @@ test("Soccer candidate repository deduplicates sr:match and sr:sport_event alias
   assert.deepEqual(groups.dates, ["2026-11-26"]);
 });
 
-test("Soccer result is not provider-timestamped or verified when generated_at is absent", () => {
+test("Soccer result remains verified when generated_at is absent and receipt time stays separate", () => {
   const results = normalizeSoccerResults({
     summaries: [{
       sport_event: { id: "sr:sport_event:9002" },
@@ -315,5 +315,6 @@ test("Soccer result is not provider-timestamped or verified when generated_at is
   }, "2026-11-27T12:00:00Z");
   assert.equal(results.length, 1);
   assert.equal(results[0].providerGeneratedAt, null);
-  assert.equal(results[0].verified, false);
+  assert.equal(results[0].verified, true);
+  assert.equal(results[0].receivedAt, "2026-11-27T12:00:00.000Z");
 });
