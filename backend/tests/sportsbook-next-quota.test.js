@@ -31,3 +31,18 @@ test("hourly quota exhaustion has its own fail-closed signal", async () => {
     error => error.code === "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED"
   );
 });
+
+test("quota reservation stops nonessential Odds polling at 90 percent of the configured ceiling", async () => {
+  let optionsSeen;
+  const redis = { eval: async (_script, options) => { optionsSeen = options; return [3, 0, 720, 0]; } };
+  const error = await assert.rejects(
+    reserveSportradarCall(redis, { initialCallsUsed30Days: 0, maxCallsPer30Days: 800, maxCallsPerHour: 0 }, 1_800_000_000_000),
+    value => value.code === "SPORTRADAR_QUOTA_90_PERCENT_GUARD" &&
+      value.quotaUsed === 720 && value.quotaLimit === 800 && value.quotaThreshold === 720
+  );
+  assert.ok(optionsSeen);
+});
+
+test("shared Sportradar QPS interval is at least 1200ms", () => {
+  assert.equal(__quota.QPS_INTERVAL_MS, 1200);
+});
