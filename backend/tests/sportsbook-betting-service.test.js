@@ -21,7 +21,7 @@ const readyEnv = {
   SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
   SPORTRADAR_SOCCER_POLL_MINUTES: "90",
   SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true",
-  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "12000",
+  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "12000",\n  SPORTRADAR_SCHEDULE_POLL_MINUTES: "60",\n  SPORTSBOOK_POLL_MINUTES: "150",\n  SPORTRADAR_DAYS_AHEAD: "0",\n  SPORTRADAR_SPORT_IDS: "sr:sport:1",
   SPORTRADAR_INITIAL_30_DAY_USAGE: "0",
   SPORTRADAR_CHANGELOG_POLL_SECONDS: "240",
   SPORTRADAR_MAX_CALLS_PER_CYCLE: "80",
@@ -90,7 +90,7 @@ test("bet acceptance requires production entitlement and continuous complete Cha
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
-    loadScheduleCount: async () => 1,
+    loadScheduleCount: async () => 1,\n    loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: readyEnv, now
   });
   assert.equal(readiness.enabled, true);
@@ -177,11 +177,25 @@ test("insufficient independent Soccer product quota blocks bet acceptance", asyn
   assert.ok(readiness.reasons.includes("SOCCER_QUOTA_BUDGET_INSUFFICIENT"));
 });
 
+test("unfunded sportsbook risk reserve blocks bet acceptance before any ticket is placed", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
+    loadScheduleCount: async () => 1,
+    loadRiskReserveBalance: async () => 9_999_999,
+    redis: healthyRedis(now), env: readyEnv, now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("RISK_RESERVE_BELOW_MAX_SINGLE_TICKET_PAYOUT"));
+  assert.equal(readiness.riskReserveBalance, 9_999_999);
+  assert.equal(readiness.requiredRiskReserveBalance, 10_000_000);
+});
+
 test("stale or missing Daily Schedules verification blocks ticket acceptance", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
-    loadScheduleCount: async () => 0,
+    loadScheduleCount: async () => 0,\n    loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: readyEnv, now
   });
   assert.equal(readiness.enabled, false);
