@@ -87,7 +87,21 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
       }
     }
     const name = market.name ?? marketId;
-    return [{ id: marketId, key: `${marketId}|${name}`, name, live: market.is_live === true, books, removedBooks }];
+    const rawSpecifiers = market.specifiers ?? null;
+    const specifiers = typeof rawSpecifiers === "string"
+      ? rawSpecifiers.trim()
+      : rawSpecifiers && typeof rawSpecifiers === "object" && !Array.isArray(rawSpecifiers)
+        ? Object.entries(rawSpecifiers).sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, value]) => `${key}=${String(value)}`).join("&")
+        : "";
+    // Same provider market ID/name may be offered on several lines (e.g. AH -0.5
+    // and AH +0.5). Keep every specifier variant as its own persistent market.
+    // Preserve legacy keys for non-parameterized markets.
+    const key = specifiers ? `${marketId}|${name}|${specifiers}` : `${marketId}|${name}`;
+    return [{
+      id: marketId, key, name, specifiers, rawSpecifiers,
+      live: market.is_live === true, books, removedBooks
+    }];
   });
   return {
     schemaVersion: 1,
