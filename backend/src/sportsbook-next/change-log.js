@@ -7,10 +7,18 @@ export function shouldReconcileChangeLog(lastSuccessfulPollAt, now = Date.now())
 
 export function getChangedSportEventIds(payload, trackedEventIds) {
   const tracked = trackedEventIds instanceof Set ? trackedEventIds : new Set(trackedEventIds || []);
-  if (!Array.isArray(payload?.changes)) {
+  // Sportradar's reference endpoint documents status.change[], while the
+  // integration guide also illustrates root-level changes[]. Accept both
+  // documented payload forms; never interpret an unknown shape as no changes.
+  const documentedChanges = [];
+  if (Array.isArray(payload?.changes)) documentedChanges.push(...payload.changes);
+  if (Array.isArray(payload?.status?.change)) documentedChanges.push(...payload.status.change);
+  if (documentedChanges.length === 0 &&
+      !Array.isArray(payload?.changes) &&
+      !Array.isArray(payload?.status?.change)) {
     throw new Error("SPORTRADAR_CHANGELOG_SHAPE_INVALID");
   }
-  const changes = payload.changes;
+  const changes = documentedChanges;
   return [...new Set(changes.flatMap(change => {
     if (change?.type && change.type !== "sport_event") return [];
     const id = change?.id;
