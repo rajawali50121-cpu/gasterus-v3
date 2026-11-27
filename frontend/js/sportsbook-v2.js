@@ -212,7 +212,7 @@ async function submitTicket(){
   if(!summary||!selectedLegs.size)return;
   if(!localStorage.getItem("gasterus_token")){window.location.href="/index.html";return;}
   submitBet.disabled=true;submitBet.textContent="Memverifikasi odds…";
-  betslipStatus.textContent="Memeriksa sesi, harga terbaru, batas risiko dan saldo.";
+  betslipStatus.textContent="Memeriksa harga pada snapshot tersimpan, status event/market, batas risiko dan saldo.";
   const requestPayload={
     stake:summary.stake,
     legs:[...selectedLegs.values()].map(({providerEventId,providerMarketKey,providerBookId,providerSelectionKey,expectedOdds})=>({
@@ -255,7 +255,7 @@ async function load(){
     setStatus(complete?"ready":"error",complete?"Feed tersinkron":"Feed belum lengkap");
     notice.textContent=complete
       ?(betAcceptanceEnabled
-        ?"Feed Sportradar tersinkron. Pilihan yang dapat dipasang sudah dipetakan operator dan akan diverifikasi ulang sebelum saldo dipotong."
+        ?"Feed Sportradar tersinkron. Server mencocokkan harga dengan snapshot tersimpan dan memeriksa status event/market; ini bukan verifikasi real-time langsung ke provider."
         :"Odds tersedia untuk dilihat. Penerimaan taruhan masih terkunci sampai entitlement, kuota, settlement worker, mapping dan risk reserve siap.")
       :snapshot.quotaLimited
         ?"Feed belum lengkap karena batas kuota Sportradar. Snapshot parsial tidak dipublikasikan."
@@ -267,7 +267,7 @@ async function load(){
     }
     renderBetslip();
     betslipStatus.textContent=betAcceptanceEnabled
-      ?"Odds akan diverifikasi ulang di server sebelum saldo dipotong."
+      ?"Server memeriksa odds pada snapshot tersimpan sebelum transaksi; status provider real-time tidak dijamin oleh polling."
       :"Penerimaan taruhan belum memenuhi seluruh pemeriksaan keamanan.";
   }catch(error){
     root.replaceChildren(el("div","empty",error.message));
