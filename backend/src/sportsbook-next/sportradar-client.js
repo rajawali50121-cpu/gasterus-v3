@@ -147,7 +147,7 @@ export class SportradarClient {
     return this.request(this.config.prematchBaseUrl,
       `sports/${encodeUrnPathSegment(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets`, { start, limit });
   }
-  async getAllDailySportEventMarkets(sportId, date, { pageSize = 50, maxPages = 10 } = {}) {
+  async getAllDailySportEventMarkets(sportId, date, { pageSize = 50, maxPages = 1000 } = {}) {
     if (!Number.isSafeInteger(pageSize) || pageSize < 1 || !Number.isSafeInteger(maxPages) || maxPages < 1) {
       throw new TypeError("SPORTRADAR_PAGINATION_CONFIG_INVALID");
     }
@@ -180,6 +180,9 @@ export class SportradarClient {
       start += rows.length || pageSize;
     }
     if (reportedTotal !== null && items.length >= reportedTotal) complete = true;
+    if (!complete && pages >= maxPages) {
+      throw providerError("SPORTRADAR_MARKET_PAGINATION_GUARD_REACHED", "Daily Sport Event Markets pagination exceeded the safety guard before completion");
+    }
     return {
       body: { sport_events: items, generated_at: providerGeneratedAt },
       pagination: { pages, received: items.length, total: reportedTotal, complete }
