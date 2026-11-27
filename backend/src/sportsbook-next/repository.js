@@ -79,11 +79,18 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
           home_name,away_name,snapshot_at,provider_generated_at,provider_payload,updated_at
         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,now())
         ON CONFLICT(provider_event_id) DO UPDATE SET
-          sport_id=excluded.sport_id,competition_id=excluded.competition_id,
-          competition_name=excluded.competition_name,scheduled_at=excluded.scheduled_at,
-          event_status=excluded.event_status,home_name=excluded.home_name,away_name=excluded.away_name,
-          snapshot_at=excluded.snapshot_at,provider_generated_at=excluded.provider_generated_at,
-          provider_payload=excluded.provider_payload,updated_at=now()
+          sport_id=excluded.sport_id,
+          competition_id=COALESCE(sportsbook_v2_events.competition_id,excluded.competition_id),
+          competition_name=COALESCE(sportsbook_v2_events.competition_name,excluded.competition_name),
+          scheduled_at=COALESCE(sportsbook_v2_events.scheduled_at,excluded.scheduled_at),
+          event_status=CASE WHEN sportsbook_v2_events.event_status IS NULL OR sportsbook_v2_events.event_status='unknown'
+            THEN excluded.event_status ELSE sportsbook_v2_events.event_status END,
+          home_name=COALESCE(sportsbook_v2_events.home_name,excluded.home_name),
+          away_name=COALESCE(sportsbook_v2_events.away_name,excluded.away_name),
+          snapshot_at=GREATEST(sportsbook_v2_events.snapshot_at,excluded.snapshot_at),
+          provider_generated_at=excluded.provider_generated_at,
+          provider_payload=sportsbook_v2_events.provider_payload || excluded.provider_payload,
+          updated_at=now()
       `,[
         event.id,event.sportId,event.competitionId||null,event.competition||null,
         event.scheduled||null,event.status||"unknown",event.home||null,event.away||null,
