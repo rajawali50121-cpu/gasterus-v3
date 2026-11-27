@@ -5,7 +5,7 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSoccerV4Config } from "./soccer-v4-config.js";
 import { SoccerV4Client, getSoccerNextPageStart } from "./soccer-v4-client.js";
-import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown } from "./soccer-v4-quota.js";
+import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown, nextSoccerPollDelayMs } from "./soccer-v4-quota.js";
 import { normalizeSoccerResults, normalizeSportEventId } from "./results.js";
 import { listResultCandidateDates, persistSoccerResultRevisions, selectOldestDueSoccerResultDate } from "./results-repository.js";
 
@@ -17,12 +17,6 @@ const PAGE_CURSOR_PREFIX = "sportsbook:soccer-v4:page-cursor:";
 const DAY_MS = 24 * 60 * 60 * 1000;
 let stopping = false;
 
-export function nextSoccerPollDelayMs(result, pollIntervalMs) {
-  if (result?.pagination?.complete === false) return 0;
-  return Number.isFinite(result?.cacheTtlMs)
-    ? Math.max(pollIntervalMs, result.cacheTtlMs)
-    : pollIntervalMs;
-}
 const shutdownController = new AbortController();
 
 async function runCycle(config, client) {
