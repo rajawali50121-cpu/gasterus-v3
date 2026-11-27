@@ -21,17 +21,17 @@ test("enabled Soccer v4 requires an explicit independent quota and usage baselin
   const config = loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
     SPORTRADAR_API_KEY: "test-key",
-    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
-    SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "120",
+    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
+    SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
     SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true"
   });
-  assert.equal(config.maxCallsPer30Days, 500);
-  assert.equal(config.initialCallsUsed30Days, 120);
+  assert.equal(config.maxCallsPer30Days, 800);
+  assert.equal(config.initialCallsUsed30Days, 0);
   assert.equal(config.baseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
   assert.throws(() => loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
     SPORTRADAR_API_KEY: "test-key",
-    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
+    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0"
   }), /requires confirmed Soccer product usage/);
   assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_POLL_MINUTES: "30" }), /at least 60 minutes/);
@@ -42,7 +42,7 @@ test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key",
   const config = loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
     SPORTRADAR_SOCCER_API_KEY: "secret-test",
-    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
+    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
     SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true"
   });
@@ -97,7 +97,7 @@ test("Soccer v4 429 stops the request and invokes the shared provider cooldown",
   const config = loadSoccerV4Config({
     SPORTRADAR_SOCCER_ENABLED: "true",
     SPORTRADAR_SOCCER_API_KEY: "test-key",
-    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
+    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "800",
     SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0"
   });
   let cooldown;
@@ -317,4 +317,24 @@ test("Soccer result remains verified when generated_at is absent and receipt tim
   assert.equal(results[0].providerGeneratedAt, null);
   assert.equal(results[0].verified, true);
   assert.equal(results[0].receivedAt, "2026-11-27T12:00:00.000Z");
+});
+
+test("Soccer v4 rejects a polling cadence that exceeds remaining rolling quota", () => {
+  assert.throws(() => loadSoccerV4Config({
+    SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_SOCCER_API_KEY: "test-key",
+    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
+    SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
+    SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true",
+    SPORTRADAR_SOCCER_POLL_MINUTES: "60"
+  }), /quota budget is insufficient/);
+  const config = loadSoccerV4Config({
+    SPORTRADAR_SOCCER_ENABLED: "true",
+    SPORTRADAR_SOCCER_API_KEY: "test-key",
+    SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "500",
+    SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
+    SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true",
+    SPORTRADAR_SOCCER_POLL_MINUTES: "90"
+  });
+  assert.equal(config.pollIntervalMs, 90 * 60 * 1000);
 });
