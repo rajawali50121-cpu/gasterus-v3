@@ -54,7 +54,7 @@ async function runCycle(config, client) {
     const limit = 200;
     const response = await client.getDailySummaries(date, { start, limit });
     const receivedAt = new Date().toISOString();
-    const results = normalizeSoccerResults(response.body, receivedAt, response.metadata.lastModified)
+    const results = normalizeSoccerResults(response.body, receivedAt)
       .map(result => ({ ...result, eventId: normalizeSportEventId(result.eventId) }))
       .filter(result => result.eventId !== null);
     const nextStart = getSoccerNextPageStart({
@@ -77,7 +77,7 @@ async function runCycle(config, client) {
       pagination: { start, limit, returned: results.length, maxResults: response.metadata.maxResults, nextStart, complete: nextStart === 0 },
       calls: client.cycleCalls, received: persisted.received,
       inserted: persisted.inserted, duplicates: persisted.duplicates, verified: persisted.verified,
-      providerGeneratedAt: response.body.generated_at || response.metadata.lastModified || null,
+      providerGeneratedAt: response.body.generated_at || null,
       cacheControl: response.metadata.cacheControl,
       cacheTtlMs: response.metadata.cacheTtlMs,
       etag: response.metadata.etag,
