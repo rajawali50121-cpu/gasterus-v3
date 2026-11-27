@@ -47,7 +47,8 @@ export function buildSoccerResultCandidateGroups(events, {
     const status = String(event.resultStatus ?? event.result_status ?? event.event_status ?? "").toLowerCase();
     const providerAt = validDate(event.providerGeneratedAt ?? event.provider_generated_at ?? event.source_updated_at);
     const verified = (event.resultVerified ?? event.result_verified ?? event.verified) === true;
-    const isVerifiedFinal = providerAt !== null &&\n      ((status === "closed" && verified) || status === "cancelled");
+    const isVerifiedFinal = providerAt !== null &&
+      ((status === "closed" && verified) || status === "cancelled");
     if (isVerifiedFinal) continue;
 
     const replacedBy = replacedByFrom(event);
