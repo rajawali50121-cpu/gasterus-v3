@@ -26,8 +26,8 @@
 - `SOCCER_V4_MAX_LOOKBACK_DAYS` bounds automatic polling (default 7). Older unresolved events are excluded from provider requests and surfaced with IDs/reasons for manual review.
 
 ## Quota and isolation
-- The worker is disabled unless `SPORTRADAR_SOCCER_ENABLED=true`; disabled mode sends no provider requests.
-- Maximum one request per worker cycle. The default worker interval remains 60 minutes; this is not a live-score feed.
+- The worker is disabled unless `SPORTRADAR_SOCCER_ENABLED=true`; disabled mode sends no provider requests. Enabled mode requires exactly 60-minute polling.
+- Maximum one request per worker cycle. The worker interval is fixed at 60 minutes to match the official non-live Daily Summaries recommendation and quota guard; this is not a live-score feed.
 - Uses dedicated Soccer v4 rolling 30-day quota keys, a separate lock/status/heartbeat, and per-date page cursor/last-success keys under `sportsbook:soccer-v4:`.
 - Retains the shared provider-wide QPS pacer and 429 cooldown. It does not share the Odds Comparison monthly quota keys.
 - Does not request Odds Comparison feeds or Live Odds. Odds Comparison discovery, parser, schedule, change-log and snapshots remain isolated.
@@ -39,8 +39,8 @@ Do not enable until Soccer API v4 entitlement, product-specific rolling 30-day q
 - `SPORTRADAR_ACCESS_LEVEL` (`trial` or `production`)
 - `SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS` (verified Soccer product quota; trial internal cap is 800)
 - `SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE` (actual current usage, not a guessed zero)
-- Optional: `SPORTRADAR_SOCCER_POLL_MINUTES` (minimum 60), `SPORTRADAR_SOCCER_LANGUAGE`
+- Optional: `SPORTRADAR_SOCCER_POLL_MINUTES` (must be 60), `SPORTRADAR_SOCCER_LANGUAGE`
 - Optional: `SOCCER_V4_RESULT_BUFFER_MINUTES` (default 150)
-- Optional: `SOCCER_V4_MAX_LOOKBACK_DAYS` (default 7)
+- Optional: `SOCCER_V4_MAX_LOOKBACK_DAYS` (default 7; minimum projected budget is 720 current-date hourly calls + 30 calls per historical lookback day, before extra pagination calls)
 
 No production environment variables, Railway services, deployments, migrations or provider calls are changed by this source branch.
