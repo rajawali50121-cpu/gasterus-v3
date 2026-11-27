@@ -45,7 +45,10 @@ export function loadSoccerV4Config(env = process.env) {
   if (accessLevel === "trial" && maxCallsPer30Days > 800) {
     throw new Error("Soccer trial internal budget must not exceed 800 calls per rolling 30 days");
   }
-  const minimumCallsForCadence = Math.ceil((30 * 24 * 60) / pollMinutes);
+  // One daily pull for each historical candidate date, plus the current
+  // date's hourly cadence. Pagination may require additional cycles; runtime
+  // quota reservation remains authoritative for those extra pages.
+  const minimumCallsForCadence = Math.ceil((30 * 24 * 60) / pollMinutes) + (30 * maxLookbackDays);
   if (maxCallsPer30Days - initialCallsUsed30Days < minimumCallsForCadence) {
     throw new Error("Soccer quota budget is insufficient for the configured polling cadence across a rolling 30-day window");
   }
