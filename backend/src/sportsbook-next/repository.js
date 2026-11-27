@@ -88,7 +88,7 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
           home_name=COALESCE(sportsbook_v2_events.home_name,excluded.home_name),
           away_name=COALESCE(sportsbook_v2_events.away_name,excluded.away_name),
           snapshot_at=GREATEST(sportsbook_v2_events.snapshot_at,excluded.snapshot_at),
-          provider_generated_at=excluded.provider_generated_at,
+          provider_generated_at=COALESCE(excluded.provider_generated_at,sportsbook_v2_events.provider_generated_at),
           provider_payload=sportsbook_v2_events.provider_payload || excluded.provider_payload,
           updated_at=now()
       `,[
