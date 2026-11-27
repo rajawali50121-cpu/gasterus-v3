@@ -3,6 +3,9 @@ BEGIN;
 -- A provider may revise a result after a ticket was settled. Never silently
 -- reverse money automatically: quarantine the ticket for owner reconciliation
 -- and stop new bet acceptance until the review is acknowledged.
+ALTER TABLE sportsbook_v2_events
+  ADD COLUMN IF NOT EXISTS schedule_verified_at TIMESTAMPTZ;
+
 ALTER TABLE sportsbook_v2_tickets
   ADD COLUMN IF NOT EXISTS review_required BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS review_reason TEXT,
