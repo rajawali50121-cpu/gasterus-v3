@@ -39,6 +39,10 @@ export function loadSoccerV4Config(env = process.env) {
   if (accessLevel === "trial" && maxCallsPer30Days > 800) {
     throw new Error("Soccer trial internal budget must not exceed 800 calls per rolling 30 days");
   }
+  const minimumCallsForCadence = Math.ceil((30 * 24 * 60) / pollMinutes);
+  if (maxCallsPer30Days - initialCallsUsed30Days < minimumCallsForCadence) {
+    throw new Error("Soccer quota budget is insufficient for the configured polling cadence across a rolling 30-day window");
+  }
   const language = String(env.SPORTRADAR_SOCCER_LANGUAGE || "en").trim();
   const requestTimeoutMs = positiveInteger("SPORTRADAR_SOCCER_TIMEOUT_MS", env.SPORTRADAR_SOCCER_TIMEOUT_MS ?? 15000);
 
