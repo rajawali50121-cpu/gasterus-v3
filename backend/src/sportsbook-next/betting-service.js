@@ -466,18 +466,26 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
     // from a separately funded risk account before the ticket can be accepted.
     const profitReserve = amounts.potentialPayout - stake;
     if (profitReserve > 0) {
-      const reserve = await postSystemTransfer(client, {
-        fromCode: SYSTEM_ACCOUNTS.SPORTSBOOK_RISK_RESERVE,
-        toCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD,
-        amount: profitReserve,
-        type: "SPORTSBOOK_PAYOUT_RESERVE",
-        referenceType: "SPORTSBOOK_TICKET",
-        referenceId: ticketId,
-        idempotencyKey: `sportsbook:ticket:${ticketId}:reserve`,
-        metadata: { invoice, stake, potentialPayout: amounts.potentialPayout, profitReserve },
-        actorId: session.userId,
-        requireFromAvailable: true
-      });
+      let reserve;
+      try {
+        reserve = await postSystemTransfer(client, {
+          fromCode: SYSTEM_ACCOUNTS.SPORTSBOOK_RISK_RESERVE,
+          toCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD,
+          amount: profitReserve,
+          type: "SPORTSBOOK_PAYOUT_RESERVE",
+          referenceType: "SPORTSBOOK_TICKET",
+          referenceId: ticketId,
+          idempotencyKey: `sportsbook:ticket:${ticketId}:reserve`,
+          metadata: { invoice, stake, potentialPayout: amounts.potentialPayout, profitReserve },
+          actorId: session.userId,
+          requireFromAvailable: true
+        });
+      } catch (error) {
+        if (error?.code === "SYSTEM_ACCOUNT_INSUFFICIENT") {
+          throw new AppError(503, "Cadangan risiko sportsbook tidak mencukupi. Tiket tidak diterima dan saldo tidak dipotong.", "SPORTSBOOK_RISK_RESERVE_INSUFFICIENT");
+        }
+        throw error;
+      }
       assert(reserve.duplicate !== true && reserve.transactionId, 500,
         "Dana risk reserve tidak berhasil dikunci.", "SPORTSBOOK_RISK_RESERVE_FAILED");
     }
