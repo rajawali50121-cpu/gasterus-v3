@@ -203,7 +203,7 @@ export async function getSportsbookBetAcceptanceReadiness({
   }
   if (settlementStatus?.healthy !== true) reasons.push("SETTLEMENT_WORKER_UNHEALTHY");
   const settlementPollSeconds = Number(env.SPORTSBOOK_SETTLEMENT_POLL_SECONDS ?? 15);
-  const maxSettlementHeartbeatAgeMs = Math.max(5 * settlementPollSeconds * 1000, 60_000);
+  const maxSettlementHeartbeatAgeMs = Math.max(10 * settlementPollSeconds * 1000, 5 * 60_000);
   if (settlementHeartbeatAt === null || settlementHeartbeatAt > now + 60_000 ||
       now - settlementHeartbeatAt > maxSettlementHeartbeatAgeMs) {
     reasons.push("SETTLEMENT_HEARTBEAT_STALE");
