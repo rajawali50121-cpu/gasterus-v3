@@ -44,3 +44,6 @@ footer{text-align:center;color:#73879f;font-size:11px;padding:22px;border-top:1p
 .ticket-meta{font-size:11px;color:var(--muted);margin-top:7px}
 .ticket-leg{display:grid;gap:3px;border-top:1px solid #23374d;margin-top:9px;padding-top:8px}
 .ticket-leg strong{font-size:12px}.ticket-leg span{font-size:10px;color:var(--muted)}
+
+.status-review{background:#4b3617;color:#ffcf72}
+.ticket-review-note{margin-top:8px;padding:8px 10px;border-left:2px solid #c58a2b;background:#2c2418;color:#f1d9a7;font-size:11px}
