@@ -1,3 +1,5 @@
+import { normalizeSportEventId } from "./results.js";
+
 function providerError(code, message, details = {}) {
   const error = new Error(message);
   error.code = code;
@@ -17,14 +19,17 @@ function parseHeaderInteger(value) {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-export function getSoccerNextPageStart({ start, limit, returned, maxResults }) {
+export function getSoccerNextPageStart({ start, limit, returned, maxResults, resultCountHeader = null }) {
   if (![start, limit, returned].every(Number.isSafeInteger) || start < 0 || limit < 1 || limit > 200 || returned < 0) {
     throw new TypeError("SOCCER_V4_PAGINATION_INVALID");
   }
   if (maxResults !== null && maxResults !== undefined) {
     if (!Number.isSafeInteger(maxResults) || maxResults < 0) throw new TypeError("SOCCER_V4_PAGINATION_INVALID");
+    if (start >= maxResults) return 0;
     if (returned === 0 && start < maxResults) throw new Error("SOCCER_V4_PAGINATION_STALLED");
-    return start + returned < maxResults ? start + returned : 0;
+    const nextStart = start + returned;
+    const reported = Number.isSafeInteger(resultCountHeader) ? resultCountHeader : nextStart;
+    return reported < maxResults && nextStart < maxResults ? nextStart : 0;
   }
   return returned === limit ? start + returned : 0;
 }
@@ -86,6 +91,14 @@ export class SoccerV4Client {
       if (!body || typeof body !== "object" || !Array.isArray(body.summaries)) {
         throw providerError("SOCCER_V4_RESULTS_SHAPE_INVALID", "Soccer v4 summaries response has an invalid shape");
       }
+      const unique = new Map();
+      for (const summary of body.summaries) {
+        const id = normalizeSportEventId(summary?.sport_event?.id);
+        if (!id) continue;
+        const normalized = { ...summary, sport_event: { ...summary.sport_event, id } };
+        if (!unique.has(id)) unique.set(id, normalized);
+      }
+      body.summaries = [...unique.values()];
       return { body, headers: response.headers, metadata };
     } finally {
       clearTimeout(timeout);
