@@ -166,18 +166,18 @@ export class SportradarClient {
         throw providerError("SPORTRADAR_BULK_MARKETS_SHAPE_INVALID", "Sportradar Prematch Daily Sport Event Markets response is missing a documented event array");
       }
       items.push(...rows);
-      const reportedHeader = result.headers.get("x-max-results");
-      const receivedHeader = result.headers.get("x-result");
-      const reported = reportedHeader === null ? null : Number(reportedHeader);
-      const received = receivedHeader === null ? null : Number(receivedHeader);
-      if (reported !== null && Number.isFinite(reported) && reported >= 0) reportedTotal = reported;
-      const hasMore = reportedTotal !== null
-        ? start + rows.length < reportedTotal
-        : received !== null && Number.isFinite(received)
-          ? received >= pageSize
-          : rows.length >= pageSize;
+      const reportedHeader = result.headers.get("x-max-results"), receivedHeader = result.headers.get("x-result");
+      const reported = reportedHeader === null ? null : Number(reportedHeader), received = receivedHeader === null ? null : Number(receivedHeader);
+      if (reportedHeader !== null && (!Number.isSafeInteger(reported) || reported < 0)) throw providerError("SPORTRADAR_MARKET_PAGINATION_HEADER_INVALID", "Invalid X-Max-Results header");
+      if (receivedHeader !== null && (!Number.isSafeInteger(received) || received < 0)) throw providerError("SPORTRADAR_MARKET_PAGINATION_HEADER_INVALID", "Invalid X-Result header");
+      const returnedCount = receivedHeader === null ? rows.length : received;
+      if (receivedHeader !== null && returnedCount !== rows.length) throw providerError("SPORTRADAR_MARKET_PAGINATION_COUNT_MISMATCH", "X-Result does not match returned event array");
+      if (reported !== null) reportedTotal = reported;
+      const nextStart = start + returnedCount;
+      const hasMore = reportedTotal !== null ? nextStart < reportedTotal : receivedHeader !== null ? returnedCount >= pageSize : rows.length >= pageSize;
+      if (hasMore && returnedCount === 0) throw providerError("SPORTRADAR_MARKET_PAGINATION_STALLED", "Empty page before X-Max-Results");
       if (!hasMore) { complete = true; break; }
-      start += rows.length || pageSize;
+      start = nextStart;
     }
     if (reportedTotal !== null && items.length >= reportedTotal) complete = true;
     if (!complete && pages >= maxPages) {
