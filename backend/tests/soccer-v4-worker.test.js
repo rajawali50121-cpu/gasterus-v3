@@ -11,8 +11,8 @@ test("Soccer v4 is disabled by default and does not require a key or quota", () 
   assert.equal(config.enabled, false);
   assert.equal(config.pollIntervalMs, 60 * 60 * 1000);
   assert.equal(config.resultBufferMinutes, 150);
-  assert.equal(config.maxLookbackDays, 7);
-  assert.equal(config.maxCallsPerCycle, 1);
+  assert.equal(config.maxLookbackDays, 2);
+  assert.equal(config.maxCallsPerCycle, 2);
 });
 
 test("Soccer cursor pages resume immediately; completed dates return to tiered cadence", () => {
@@ -48,7 +48,7 @@ test("enabled Soccer v4 requires an explicit independent quota and usage baselin
   }), /requires confirmed Soccer product usage/);
   assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_POLL_MINUTES: "30" }), /exactly 60 minutes/);
   assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_POLL_MINUTES: "90" }), /exactly 60 minutes/);
-  assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE: "2" }), /one request per cycle/);
+  assert.throws(() => loadSoccerV4Config({ SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE: "3" }), /one or two requests per hourly cycle/);
 });
 
 test("Soccer v4 client calls only the Soccer summaries endpoint with x-api-key", async () => {
@@ -204,6 +204,15 @@ test("Soccer result date rotation skips a just-polled oldest date until the next
   assert.equal(selectOldestDueSoccerResultDate(dates, { "2026-11-24": RESULT_NOW }, RESULT_NOW + 60_000, 60_000), "2026-11-24");
 });
 
+
+test("Soccer scheduler prioritizes today, then unfinished cursors, then oldest historical date", () => {
+  const now = Date.parse("2026-11-28T12:00:00.000Z"), today = "2026-11-28";
+  const dates = ["2026-11-24", "2026-11-25", today], interval = date => date === today ? 3600000 : 86400000;
+  const polls = { "2026-11-24": 0, "2026-11-25": 0, [today]: now - 3600000 };
+  assert.equal(selectOldestDueSoccerResultDate(dates, polls, now, 3600000, { "2026-11-24": 100, [today]: 0 }, interval, today), today);
+  assert.equal(selectOldestDueSoccerResultDate(dates, { ...polls, [today]: now }, now, 3600000, { "2026-11-24": 100 }, interval, today), "2026-11-24");
+  assert.equal(selectOldestDueSoccerResultDate(dates, { ...polls, [today]: now }, now, 3600000, { "2026-11-25": 100 }, interval, today), "2026-11-25");
+});
 
 test("Soccer result polling is hourly for today and daily for historical dates", () => {
   const now = Date.parse("2026-11-28T12:00:00.000Z");
