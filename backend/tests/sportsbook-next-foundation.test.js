@@ -401,6 +401,22 @@ test("normalizer accepts the documented raw sport_schedule_sport_event_markets r
   assert.equal(rows[0].markets[0].books[0].outcomes[0].oddsDecimal, 2.15);
 });
 
+test("daily markets pagination continues beyond two pages until provider total is complete", async () => {
+  const config = loadSportsbookConfig(env);
+  const offsets = [];
+  const client = new SportradarClient(config, { fetchImpl: async url => {
+    const parsed = new URL(url); const start = Number(parsed.searchParams.get("start")); offsets.push(start);
+    const count = start < 100 ? 50 : 1;
+    return { ok: true, status: 200, headers: { get: name => name === "x-max-results" ? "101" : null },
+      json: async () => ({ sport_schedule_sport_event_markets: Array.from({ length: count }, (_, i) => ({ sport_event: { id: `sr:sport_event:${start+i}` }, markets: [] })) }) };
+  }});
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-24");
+  assert.equal(result.pagination.complete, true);
+  assert.equal(result.pagination.pages, 3);
+  assert.equal(result.body.sport_events.length, 101);
+  assert.deepEqual(offsets, [0, 50, 100]);
+});
+
 test("bulk daily markets normalize embedded event boards without per-event follow-up calls", () => {
   const rows = normalizeDailySportEventMarkets({ sport_events: [{
     sport_event: {
