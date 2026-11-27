@@ -49,6 +49,7 @@ Before enabling bets, verify all of the following from the provider account dash
 - Record the current rolling 30-day usage separately for each product and set the matching baseline-confirmed flag only after checking provider reporting.
 - Change Log cadence must be 60–300 seconds. At 240 seconds it requires at least 10,800 Change Log calls per rolling 30 days before any event-market refresh calls; a trial budget of 800 or 1,000 cannot support continuous Change Log coverage. Keep bet acceptance disabled if the account quota cannot support the required cadence.
 - Soccer v4 polling cadence must fit its own remaining rolling quota. The default example is 90 minutes, one request per cycle; the worker rejects a cadence whose 30-day call requirement exceeds the remaining budget.
+- Discovery usage also includes separate Daily Schedules pages, Daily Sport Event Markets pages, and periodic Sports/Books/Competitions coverage refreshes. Measure the actual page counts and reserve retry headroom; the 800-call internal trial ceiling is not a guarantee that a particular date range or market board will fit.
 - Configure explicit positive maximum stake and maximum payout.
 - The Soccer result worker heartbeat and settlement worker heartbeat/status must be fresh and healthy.
 - At least one full-time Soccer 1X2 provider mapping must be reviewed against actual live provider payloads and enabled as `VERIFIED`.
