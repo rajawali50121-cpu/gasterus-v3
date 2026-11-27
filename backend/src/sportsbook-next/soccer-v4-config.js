@@ -9,7 +9,7 @@ function positiveInteger(name, value) {
 export function loadSoccerV4Config(env = process.env) {
   const enabled = String(env.SPORTRADAR_SOCCER_ENABLED || "false").toLowerCase() === "true";
   const pollMinutes = positiveInteger("SPORTRADAR_SOCCER_POLL_MINUTES", env.SPORTRADAR_SOCCER_POLL_MINUTES ?? 60);
-  if (pollMinutes < 60) throw new Error("Soccer v4 polling must be at least 60 minutes to protect the trial request budget");
+  if (pollMinutes !== 60) throw new Error("Soccer v4 Daily Summaries polling must be exactly 60 minutes to match the official non-live update recommendation and trial budget");
   const maxCallsPerCycle = positiveInteger("SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_SOCCER_MAX_CALLS_PER_CYCLE ?? 1);
   const resultBufferMinutes = positiveInteger("SPORTRADAR_SOCCER_RESULT_BUFFER_MINUTES", env.SPORTRADAR_SOCCER_RESULT_BUFFER_MINUTES ?? 150);
   const maxLookbackDays = positiveInteger("SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS", env.SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS ?? 7);
