@@ -346,5 +346,4 @@ test("Soccer v4 rejects a polling cadence that exceeds remaining rolling quota",
     SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED: "true",
     SPORTRADAR_SOCCER_POLL_MINUTES: "90"
   }), /exactly 60 minutes/);
-  assert.equal(config.pollIntervalMs, 90 * 60 * 1000);
 });
