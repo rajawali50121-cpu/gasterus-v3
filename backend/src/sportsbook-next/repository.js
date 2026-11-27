@@ -1,9 +1,32 @@
 import { tx } from "./db.js";
 
 const selectionKey = outcome => [
-  outcome.id || outcome.type || outcome.name || "unknown",
-  outcome.line ?? ""
+  outcome.selectionKey || [
+    outcome.id || outcome.type || outcome.name || "unknown",
+    outcome.line ?? ""
+  ].join("|")
 ].join("|");
+
+export async function confirmSportsbookPricesThrough(providerWindowEnd) {
+  const verifiedAt = providerWindowEnd instanceof Date ? providerWindowEnd : new Date(providerWindowEnd);
+  if (!Number.isFinite(verifiedAt.getTime())) throw new Error("SPORTSBOOK_CHANGELOG_TIMESTAMP_INVALID");
+  return tx(async client => {
+    const result = await client.query(`
+      UPDATE sportsbook_v2_prices
+      SET change_log_verified_at = $1
+      WHERE is_active = TRUE
+        AND EXISTS (
+          SELECT 1 FROM sportsbook_v2_markets m
+          WHERE m.provider_event_id = sportsbook_v2_prices.provider_event_id
+            AND m.provider_market_key = sportsbook_v2_prices.provider_market_key
+            AND m.is_active = TRUE
+            AND m.is_live = FALSE
+        )
+      RETURNING id
+    `, [verifiedAt]);
+    return { verifiedPrices: result.rowCount };
+  });
+}
 
 export async function persistSportsbookSnapshot(events, snapshotAt = new Date().toISOString()) {
   const fetchedAt = new Date(snapshotAt);
@@ -55,21 +78,23 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
               INSERT INTO sportsbook_v2_prices(
                 provider_event_id,provider_market_key,provider_market_id,provider_book_id,provider_book_name,
                 provider_selection_key,provider_outcome_id,external_outcome_id,external_market_id,external_sport_event_id,field_id,player_id,player_name,outcome_type,outcome_name,
-                odds_decimal,opening_odds_decimal,line_value,is_active,source_updated_at,provider_payload
-               ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,TRUE,$19,$20::jsonb)
+                odds_decimal,opening_odds_decimal,line_value,is_active,source_updated_at,received_at,change_log_verified_at,provider_payload
+               ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,TRUE,$19,$20,NULL,$21::jsonb)
               ON CONFLICT(provider_event_id,provider_market_key,provider_book_id,provider_selection_key)
               DO UPDATE SET provider_book_name=excluded.provider_book_name,
                 provider_outcome_id=excluded.provider_outcome_id,external_outcome_id=excluded.external_outcome_id,external_market_id=excluded.external_market_id,external_sport_event_id=excluded.external_sport_event_id,field_id=excluded.field_id,player_id=excluded.player_id,player_name=excluded.player_name,outcome_type=excluded.outcome_type,
                 outcome_name=excluded.outcome_name,odds_decimal=excluded.odds_decimal,
                 opening_odds_decimal=excluded.opening_odds_decimal,line_value=excluded.line_value,
-                is_active=TRUE,source_updated_at=excluded.source_updated_at,provider_payload=excluded.provider_payload
+                is_active=TRUE,source_updated_at=excluded.source_updated_at,
+                received_at=excluded.received_at,change_log_verified_at=NULL,
+                provider_payload=excluded.provider_payload
             `,[
               event.id,market.key||`${market.id}|${market.name||market.id}`,market.id,book.id,book.name||null,key,outcome.id||null,
               outcome.externalOutcomeId||null,book.externalMarketId||null,book.externalSportEventId||null,
               outcome.fieldId==null?null:String(outcome.fieldId),outcome.playerId||null,outcome.playerName||null,
               outcome.type||null,outcome.name||null,outcome.oddsDecimal,
               outcome.openingOddsDecimal,outcome.line==null?null:String(outcome.line),
-              event.providerGeneratedAt ? new Date(event.providerGeneratedAt) : null,JSON.stringify(outcome)
+              event.providerGeneratedAt ? new Date(event.providerGeneratedAt) : null,fetchedAt,JSON.stringify(outcome)
             ]);
             priceCount += 1;
           }
