@@ -26,8 +26,6 @@ export function loadSportsbookConfig(env = process.env) {
     throw new Error("SPORTRADAR_INITIAL_30_DAY_USAGE must be an integer within the configured 30-day quota");
   }
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
-  const schedulePollMinutes = requiredPositiveInteger("SPORTRADAR_SCHEDULE_POLL_MINUTES", env.SPORTRADAR_SCHEDULE_POLL_MINUTES ?? 60);
-  if (schedulePollMinutes !== 60) throw new Error("SPORTRADAR_SCHEDULE_POLL_MINUTES must be exactly 60 to keep schedule verification within its readiness freshness limit");
   const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? (accessLevel === "trial" ? 6 : 80));
   if (accessLevel === "trial" && maxCallsPerCycle > 6) {
     throw new Error("Trial max calls per cycle must not exceed 6");
@@ -35,11 +33,10 @@ export function loadSportsbookConfig(env = process.env) {
   // GASTERUS does not impose a rolling one-hour cap. The rolling 30-day
   // budget and per-cycle ceiling remain enforced as independent safeguards.
   const maxCallsPerHour = 0;
-  const changeLogEnabled = String(env.SPORTRADAR_CHANGELOG_ENABLED || "false").toLowerCase() === "true";
-  const changeLogPollSeconds = requiredPositiveInteger("SPORTRADAR_CHANGELOG_POLL_SECONDS", env.SPORTRADAR_CHANGELOG_POLL_SECONDS ?? 240);
-  if (changeLogPollSeconds < 60 || changeLogPollSeconds > 300) {
-    throw new Error("SPORTRADAR_CHANGELOG_POLL_SECONDS must be between 60 and 300 seconds");
-  }
+  // Change Log is intentionally disabled in this release. Market snapshots
+  // are refreshed through the complete paginated daily markets feed only.
+  const changeLogEnabled = false;
+  const changeLogPollSeconds = 0;
   const daysAhead = Number(env.SPORTRADAR_DAYS_AHEAD ?? 0);
   if (!Number.isSafeInteger(daysAhead) || daysAhead < 0 || daysAhead > (accessLevel === "trial" ? 0 : 14)) {
     throw new Error(accessLevel === "trial"
@@ -51,23 +48,22 @@ export function loadSportsbookConfig(env = process.env) {
   if (accessLevel === "trial" && sportIds.length !== 1) {
     throw new Error("Trial mode must track exactly one sport to protect the 30-day request budget");
   }
-  const minimumChangeLogCalls30Days = Math.ceil((30 * 24 * 60 * 60) / changeLogPollSeconds);
+  const minimumChangeLogCalls30Days = 0;
   const sportCount = sportIds.length;
   const dateCount = daysAhead + 1;
-  const minimumScheduleCalls30Days = Math.ceil((30 * 24 * 60) / schedulePollMinutes) * sportCount * dateCount * 2;
-  const minimumMarketCalls30Days = Math.ceil((30 * 24 * 60) / pollMinutes) * sportCount * dateCount * 2;
-  // Sports, Books and Sport Competitions are refreshed once per day.
+  // One page per sport/date per configured market cycle is the minimum.
+  // Additional pages are counted at runtime by the shared rolling quota guard.
+  const minimumScheduleCalls30Days = 0;
+  const minimumMarketCalls30Days = Math.ceil((30 * 24 * 60) / pollMinutes) * sportCount * dateCount;
   const minimumDiscoveryCalls30Days = 3 * 30;
-  const minimumCalls30Days = minimumScheduleCalls30Days + minimumMarketCalls30Days +
-    minimumDiscoveryCalls30Days + (changeLogEnabled ? minimumChangeLogCalls30Days + maxCallsPerCycle : 0);
+  const minimumCalls30Days = minimumMarketCalls30Days + minimumDiscoveryCalls30Days;
   if (maxCallsPer30Days - initialCallsUsed30Days < minimumCalls30Days) {
-    throw new Error("Sportradar 30-day budget is insufficient for the configured Daily Schedules, market discovery, discovery feeds and Change Log request cadence");
+    throw new Error("Sportradar 30-day budget is insufficient for the configured paginated Daily Sport Event Markets cadence and discovery feeds");
   }
   const language = String(env.SPORTRADAR_LANGUAGE || "en").trim();
   return Object.freeze({
     apiKey, accessLevel, language, sportIds, daysAhead,
     pollIntervalMs: pollMinutes * MINUTE,
-    schedulePollIntervalMs: schedulePollMinutes * MINUTE,
     maxCallsPerCycle, maxCallsPerHour, maxCallsPer30Days, initialCallsUsed30Days,
     changeLogEnabled, changeLogPollMs: changeLogPollSeconds * 1000,
     minimumChangeLogCalls30Days, minimumScheduleCalls30Days,
