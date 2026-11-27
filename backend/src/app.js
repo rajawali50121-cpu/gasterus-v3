@@ -28,6 +28,7 @@ import { requestMemberPasswordReset, resetMemberPasswordByToken } from './passwo
 import { casinoProviders, casinoGames, casinoPassthrough, casinoRapidApiStatus, diagnoseCasinoUpstream, launchCasinoGame } from './casino-rapidapi.js';
 import { processBetnexCallback, recordBetnexCallbackLog } from './casino-wallet.js';
 import { readPublicSportsbookSnapshot } from './sportsbook-next/public-feed.js';
+import { createSportsbookTicket, getSportsbookBetAcceptanceReadiness } from './sportsbook-next/betting-service.js';
 
 const startedAt=Date.now();const metrics={requests:0,errors:0,rateLimited:0,latencyTotal:0};
 const route=(method,pattern,handler,options={})=>({method,pattern,handler,...options});
@@ -51,8 +52,11 @@ add('GET',/^\/healthz$/,async({res})=>{let healthy=false;try{const raw=await red
 
 add('GET',/^\/api\/public\/sportsbook\/v2\/events$/,async({req,res})=>{
   await rateLimit(req,'sportsbook-v2-public-feed',60,60);
-  const snapshot=await readPublicSportsbookSnapshot({redis});
-  ok(res,{...snapshot,betAcceptanceEnabled:false});
+  const [snapshot,readiness]=await Promise.all([
+    readPublicSportsbookSnapshot({redis}),
+    getSportsbookBetAcceptanceReadiness({redis})
+  ]);
+  ok(res,{...snapshot,betAcceptanceEnabled:readiness.enabled,betAcceptanceReasons:readiness.reasons});
 });
 add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
   await memberSession(req);
@@ -73,7 +77,19 @@ add('GET',/^\/api\/member\/sportsbook\/v2\/events$/,async({req,res})=>{
   }
   const feedDegraded=feedStatus?.complete===false;
   const providerError=feedDegraded?(feedStatus.providerError|| (feedStatus.quotaLimited?'SPORTRADAR_QUOTA_LIMITED':'SPORTRADAR_POLL_FAILED')):null;
-  ok(res,{...snapshot,ageMs,feedDegraded,feedWarning:feedDegraded?'Pembaruan odds Sportradar gagal; menampilkan snapshot terakhir yang berhasil.':null,providerError,betAcceptanceEnabled:false});
+  const readiness=await getSportsbookBetAcceptanceReadiness({redis});
+  ok(res,{...snapshot,ageMs,feedDegraded,feedWarning:feedDegraded?'Pembaruan odds Sportradar gagal; menampilkan snapshot terakhir yang berhasil.':null,providerError,betAcceptanceEnabled:readiness.enabled,betAcceptanceReasons:readiness.reasons});
+});
+add('GET',/^\/api\/member\/sportsbook\/v2\/eligibility$/,async({req,res})=>{
+  await memberSession(req);
+  ok(res,await getSportsbookBetAcceptanceReadiness({redis}));
+});
+add('POST',/^\/api\/member\/sportsbook\/v2\/tickets$/,async({req,res,ip})=>{
+  const member=await memberSession(req);
+  requireCsrf(req,member);
+  await rateLimit(req,'sportsbook-v2-bet',12,60);
+  const result=await createSportsbookTicket(member,await body(req,65536),{redis,ip});
+  ok(res,result,201);
 });
 add('GET',/^\/health$/,async({res})=>ok(res,{status:'ok',service:'core',uptimeSeconds:Math.floor((Date.now()-startedAt)/1000)}));
 add('GET',/^\/ready$/,async({res})=>{
