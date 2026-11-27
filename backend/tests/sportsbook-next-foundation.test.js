@@ -19,9 +19,9 @@ const env = {
 test("config defaults to 150-minute refresh, current UTC date only and official Odds Comparison/Soccer v4 base URLs", () => {
   const config = loadSportsbookConfig(env);
   assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
-  assert.equal(config.schedulePollIntervalMs, 60 * 60 * 1000);
-  assert.equal(config.minimumScheduleCalls30Days, 1440);
-  assert.equal(config.minimumMarketCalls30Days, 576);
+  assert.equal(config.schedulePollIntervalMs, undefined);
+  assert.equal(config.minimumScheduleCalls30Days, 0);
+  assert.equal(config.minimumMarketCalls30Days, 288);
   assert.equal(config.maxCallsPerHour, 0);
   assert.equal(config.daysAhead, 0);
   assert.equal(config.maxCallsPerCycle, 6);
@@ -29,20 +29,14 @@ test("config defaults to 150-minute refresh, current UTC date only and official 
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/production/v4/en");
 });
 
-test("change-log configuration is opt-in and refuses a request budget too small for the documented five-minute window", () => {
+test("Change Log remains disabled and excluded from the quota calculator", () => {
   const config = loadSportsbookConfig(env);
   assert.equal(config.changeLogEnabled, false);
-  assert.equal(config.changeLogPollMs, 240_000);
-  assert.equal(config.minimumChangeLogCalls30Days, 10_800);
-  assert.throws(
-    () => loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" }),
-    /30-day budget is insufficient/
-  );
-  assert.doesNotThrow(() => loadSportsbookConfig({
-    ...env,
-    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "14000",
-    SPORTRADAR_CHANGELOG_ENABLED: "true"
-  }));
+  assert.equal(config.changeLogPollMs, 0);
+  assert.equal(config.minimumChangeLogCalls30Days, 0);
+  const forced = loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" });
+  assert.equal(forced.changeLogEnabled, false);
+  assert.equal(forced.minimumCalls30Days, 378);
 });
 
 test("change log extracts only tracked Sportradar sport-event IDs", () => {
@@ -77,10 +71,7 @@ test("trial configuration cannot exceed the 800-call internal budget or fan out 
     () => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800", SPORTRADAR_SPORT_IDS: "sr:sport:1,sr:sport:2" }),
     /exactly one sport/
   );
-  assert.throws(
-    () => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800" }),
-    /30-day budget is insufficient/
-  );
+  assert.doesNotThrow(() => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800" }));
 });
 
 test("config rejects missing API key, unsupported tier, and unverified quota baselines", () => {
