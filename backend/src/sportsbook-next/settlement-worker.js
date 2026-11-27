@@ -34,8 +34,11 @@ async function main() {
     const completedAt = new Date().toISOString();
     try {
       const summary = await settleReadySportsbookTickets({ limit: batchSize });
+      const healthy = summary.liquidityBlocked === 0 && summary.manualReview === 0;
       await redis.set(STATUS_KEY, JSON.stringify({
-        healthy: true, completedAt, summary, resultAuthority: "sportradar-soccer-v4-closed"
+        healthy, completedAt, summary,
+        state: healthy ? "ready" : "operator_attention_required",
+        resultAuthority: "sportradar-soccer-v4-closed"
       }), { EX: 900 });
       await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
       if (summary.scanned || summary.manualReview || summary.liquidityBlocked) {
