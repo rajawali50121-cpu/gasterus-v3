@@ -2,6 +2,13 @@ import { randomUUID } from "node:crypto";
 import { waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 
 const WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function nextSoccerPollDelayMs(result, pollIntervalMs) {
+  if (result?.pagination?.complete === false) return 0;
+  return Number.isFinite(result?.cacheTtlMs)
+    ? Math.max(pollIntervalMs, result.cacheTtlMs)
+    : pollIntervalMs;
+}
 const CALLS_KEY = "sportsbook:soccer-v4:quota:calls:v1";
 const BASELINE_KEY = "sportsbook:soccer-v4:quota:baseline:v1";
 const RESERVE_SCRIPT = [
