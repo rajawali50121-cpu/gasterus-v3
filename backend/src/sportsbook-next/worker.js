@@ -22,6 +22,7 @@ const COVERAGE_KEY = "sportsbook:next:coverage:v1";
 const COVERAGE_TTL_SECONDS = 24 * 60 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 let stopping = false;
+const shutdownController = new AbortController();
 
 function utcDate(offset) {
   return new Date(Date.now() + offset * DAY_MS).toISOString().slice(0, 10);
@@ -457,7 +458,6 @@ if (!isSportradarOddsEnabled()) {
   logger.info("Sportradar Odds Comparison worker disabled; no provider, Redis, or database requests will be made");
   process.exitCode = 0;
 } else {
-  const shutdownController = new AbortController();
   process.once("SIGTERM", () => { stopping = true; shutdownController.abort(); });
   process.once("SIGINT", () => { stopping = true; shutdownController.abort(); });
   main().catch(async error => {
