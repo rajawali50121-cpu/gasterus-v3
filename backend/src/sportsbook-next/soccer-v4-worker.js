@@ -42,7 +42,8 @@ async function runCycle(config, client) {
         attemptedAt: completedAt, skipped: "no Soccer result date is due",
         dates: 0, calls: 0, candidates: candidateResult.candidateCount,
         manualReviewRequired: candidateResult.manualReviewCount,
-        manualReviewEventIds: candidateResult.manualReviewEventIds
+        manualReviewEventIds: candidateResult.manualReviewEventIds,
+        manualReviewEvents: candidateResult.manualReviewEvents
       };
       await redis.set(STATUS_KEY, JSON.stringify(status), { EX: 30 * 24 * 60 * 60 });
       await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
@@ -72,6 +73,7 @@ async function runCycle(config, client) {
       attemptedAt: completedAt, cycleComplete: true, dateComplete: nextStart === 0, date, dates: 1,
       candidates: candidateResult.candidateCount, manualReviewRequired: candidateResult.manualReviewCount,
       manualReviewEventIds: candidateResult.manualReviewEventIds,
+      manualReviewEvents: candidateResult.manualReviewEvents,
       pagination: { start, limit, returned: results.length, maxResults: response.metadata.maxResults, nextStart, complete: nextStart === 0 },
       calls: client.cycleCalls, received: persisted.received,
       inserted: persisted.inserted, duplicates: persisted.duplicates, verified: persisted.verified,
