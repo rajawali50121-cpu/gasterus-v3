@@ -20,7 +20,7 @@ test("config defaults to 150-minute refresh, current UTC date only and official 
   assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
   assert.equal(config.maxCallsPerHour, 0);
   assert.equal(config.daysAhead, 0);
-  assert.equal(config.maxCallsPerCycle, 5);
+  assert.equal(config.maxCallsPerCycle, 6);
   assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
 });
@@ -96,7 +96,7 @@ test("config rejects missing API key, unsupported tier, and unverified quota bas
   assert.equal(defaults.maxCallsPer30Days, 800);
   assert.equal(defaults.initialCallsUsed30Days, 120);
   assert.equal(defaults.daysAhead, 0);
-  assert.equal(defaults.maxCallsPerCycle, 5);
+  assert.equal(defaults.maxCallsPerCycle, 6);
 });
 
 test("daily schedule normalization uses sport_event and provider SR identifiers", () => {
