@@ -87,6 +87,75 @@ async function refreshCoverage(config, client, { allowFetch = true } = {}) {
   return coverage;
 }
 
+async function syncDailySchedules(config, client) {
+  const rows = [];
+  const status = [];
+  for (const sportId of config.sportIds) {
+    for (let day = 0; day <= config.daysAhead; day += 1) {
+      const date = utcDate(day);
+      const completeKey = `${SCHEDULE_COMPLETE_PREFIX}${sportId}:${date}`;
+      if (await redis.get(completeKey)) continue;
+      if (client.cycleCalls >= config.maxCallsPerCycle) {
+        status.push({ sportId, date, deferred: true, reason: "CYCLE_BUDGET" });
+        continue;
+      }
+      const cursorKey = `${SCHEDULE_CURSOR_PREFIX}${sportId}:${date}`;
+      const cursorRaw = await redis.get(cursorKey);
+      const start = cursorRaw === null ? 0 : Number(cursorRaw);
+      if (!Number.isSafeInteger(start) || start < 0) {
+        throw new Error("SPORTRADAR_SCHEDULE_CURSOR_INVALID");
+      }
+      try {
+        const response = await client.getDailySchedules(sportId, date, { start, limit: 50 });
+        const scheduleItems = response.body?.schedules;
+        if (!Array.isArray(scheduleItems)) {
+          throw new Error("SPORTRADAR_DAILY_SCHEDULES_SHAPE_INVALID");
+        }
+        const normalized = normalizeDailySchedule({ schedules: scheduleItems });
+        const receivedAt = new Date().toISOString();
+        await persistSportsbookSchedules(normalized, sportId, receivedAt);
+        rows.push(...normalized);
+
+        const maxHeader = response.headers.get("x-max-results");
+        const resultHeader = response.headers.get("x-result");
+        const maxResults = maxHeader === null ? null : Number(maxHeader);
+        const receivedCount = resultHeader === null ? null : Number(resultHeader);
+        const hasMore = scheduleItems.length > 0 && (
+          (maxResults !== null && Number.isFinite(maxResults))
+            ? start + scheduleItems.length < maxResults
+            : (receivedCount !== null && Number.isFinite(receivedCount))
+              ? receivedCount >= 50
+              : scheduleItems.length >= 50
+        );
+        if (hasMore) {
+          await redis.set(cursorKey, String(start + scheduleItems.length), { EX: SCHEDULE_CURSOR_TTL_SECONDS });
+        } else {
+          await redis.del(cursorKey);
+          await redis.set(completeKey, receivedAt, { EX: SCHEDULE_CACHE_TTL_SECONDS });
+        }
+        status.push({
+          sportId, date, start, received: scheduleItems.length,
+          normalized: normalized.length, complete: !hasMore
+        });
+      } catch (error) {
+        if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED","SPORTRADAR_RATE_LIMITED"].includes(error?.code)) {
+          status.push({
+            sportId, date, deferred: true, quotaLimited: true,
+            code: error.code, retryAfter: error.retryAfter || null
+          });
+          break;
+        }
+        status.push({ sportId, date, deferred: true, code: error?.code || "SCHEDULE_SYNC_FAILED" });
+        logger.warn("Sportradar Daily Schedules sync deferred", {
+          sportId, date, code: error?.code || "SCHEDULE_SYNC_FAILED"
+        });
+        break;
+      }
+    }
+  }
+  return { rows, status };
+}
+
 async function runCycle(config, client) {
   const token = randomUUID();
   const lock = await redis.set(LOCK_KEY, token, { NX: true, PX: 30 * 60 * 1000 });
