@@ -1,12 +1,94 @@
+import { api } from "./api.js";
+
 const root=document.querySelector("#events");
 const statusEl=document.querySelector("#feed-status");
 const notice=document.querySelector("#notice");
 const countEl=document.querySelector("#event-count");
 const updatedEl=document.querySelector("#updated-at");
 const refreshButton=document.querySelector("#refresh");
+const betslip=document.querySelector("#betslip");
+const stakeInput=document.querySelector("#bet-stake");
+const submitBet=document.querySelector("#submit-bet");
+const betslipStatus=document.querySelector("#betslip-status");
+const selectedLegs=new Map();
+let betAcceptanceEnabled=false;
+let currentSnapshot=null;
 
 function setStatus(state,label){statusEl.dataset.state=state;statusEl.querySelector("span").textContent=label;}
 function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=String(text);return node;}
+function money(value){return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(value);}
+function preview(){
+  const stake=Number(stakeInput.value);
+  const odds=[...selectedLegs.values()].map(leg=>Number(leg.expectedOdds));
+  if(!Number.isSafeInteger(stake)||stake<=0||!odds.length)return null;
+  const totalOdds=odds.reduce((total,value)=>total*value,1);
+  const payout=Math.floor(stake*totalOdds);
+  return {stake,totalOdds,payout};
+}
+function renderBetslip(){
+  betslip.replaceChildren();
+  const heading=el("h2","","Slip Taruhan");
+  betslip.append(heading);
+  const legs=[...selectedLegs.values()];
+  if(!legs.length)betslip.append(el("p","betslip-empty","Pilih outcome yang memiliki tanda dapat dipasang untuk mulai."));
+  for(const [index,leg] of legs.entries()){
+    const row=el("div","slip-leg");
+    const info=el("div","slip-leg-info");
+    info.append(el("strong","",leg.eventLabel));
+    info.append(el("span","",`${leg.selectionLabel} · ${leg.marketLabel} · ${leg.bookLabel}`));
+    row.append(info);
+    const price=el("b","",Number(leg.expectedOdds).toFixed(2));
+    const remove=el("button","slip-remove","×");
+    remove.type="button";remove.setAttribute("aria-label","Hapus pilihan");
+    remove.addEventListener("click",()=>{selectedLegs.delete(leg.providerEventId);renderBetslip();});
+    row.append(price,remove);betslip.append(row);
+  }
+  const summary=preview();
+  const summaryEl=el("div","slip-summary");
+  summaryEl.append(el("label","","Nominal taruhan (IDR)"));
+  summaryEl.append(stakeInput);
+  summaryEl.append(el("div","slip-total",`Total odds: ${summary?summary.totalOdds.toFixed(4):"—"}`));
+  summaryEl.append(el("div","slip-total",`Potensi payout: ${summary?money(summary.payout):"—"}`));
+  betslip.append(summaryEl);
+  const loggedIn=Boolean(localStorage.getItem("gasterus_token"));
+  submitBet.disabled=!betAcceptanceEnabled||!loggedIn||!legs.length||!summary;
+  submitBet.textContent=loggedIn?"Pasang taruhan":"Login untuk bertaruh";
+  if(!loggedIn)submitBet.onclick=()=>{window.location.href="/index.html";};
+  betslipStatus.textContent=betAcceptanceEnabled
+    ? (loggedIn?"Odds akan diverifikasi ulang di server sebelum saldo dipotong.":"Login diperlukan untuk mengirim tiket.")
+    : "Penerimaan taruhan belum memenuhi seluruh pemeriksaan keamanan.";
+}
+function toggleSelection(event,market,book,outcome){
+  if(!betAcceptanceEnabled||outcome.bettable!==true)return;
+  if(selectedLegs.has(event.id)){
+    const old=selectedLegs.get(event.id);
+    if(old.providerSelectionKey===outcome.selectionKey&&old.providerMarketKey===market.key&&old.providerBookId===book.id){
+      selectedLegs.delete(event.id);
+    }else{
+      selectedLegs.set(event.id,makeLeg(event,market,book,outcome));
+    }
+  }else{
+    if(selectedLegs.size>=10){betslipStatus.textContent="Maksimal 10 pertandingan dalam satu tiket.";return;}
+    selectedLegs.set(event.id,makeLeg(event,market,book,outcome));
+  }
+  renderBetslip();
+  document.querySelectorAll(".outcome-select").forEach(button=>{
+    button.classList.toggle("selected",button.dataset.selected==="true");
+  });
+}
+function makeLeg(event,market,book,outcome){
+  return {
+    providerEventId:event.id,
+    providerMarketKey:market.key,
+    providerBookId:book.id,
+    providerSelectionKey:outcome.selectionKey,
+    expectedOdds:String(outcome.oddsDecimal),
+    eventLabel:[event.home,event.away].filter(Boolean).join(" vs ")||event.id,
+    marketLabel:market.name||market.id,
+    bookLabel:book.name||book.id,
+    selectionLabel:outcome.name||outcome.type||outcome.id
+  };
+}
 function renderEvent(event){
   const card=el("article","event");
   const top=el("div","event-top");
@@ -24,7 +106,15 @@ function renderEvent(event){
       panel.append(el("div","book",book.name||book.id));
       const outcomes=el("div","outcomes");
       for(const outcome of (book.outcomes||[])){
-        const item=el("span","outcome");
+        const selectable=betAcceptanceEnabled&&outcome.bettable===true;
+        const item=selectable?el("button","outcome outcome-select"):el("span","outcome");
+        if(selectable){
+          item.type="button";
+          const selected=selectedLegs.get(event.id);
+          item.dataset.selected=String(Boolean(selected&&selected.providerSelectionKey===outcome.selectionKey&&selected.providerMarketKey===market.key&&selected.providerBookId===book.id));
+          if(item.dataset.selected==="true")item.classList.add("selected");
+          item.addEventListener("click",()=>toggleSelection(event,market,book,outcome));
+        }
         item.append(document.createTextNode(outcome.name||outcome.type||outcome.id||"Pilihan"));
         item.append(el("b","",Number(outcome.oddsDecimal).toFixed(2)));
         outcomes.append(item);
@@ -37,6 +127,30 @@ function renderEvent(event){
   card.append(markets);
   return card;
 }
+async function submitTicket(){
+  const summary=preview();
+  if(!summary||!selectedLegs.size)return;
+  if(!localStorage.getItem("gasterus_token")){window.location.href="/index.html";return;}
+  submitBet.disabled=true;submitBet.textContent="Memverifikasi odds…";
+  betslipStatus.textContent="Memeriksa sesi, harga terbaru, batas risiko dan saldo.";
+  try{
+    const response=await api.post("/member/sportsbook/v2/tickets",{
+      stake:summary.stake,
+      idempotencyKey:crypto.randomUUID(),
+      legs:[...selectedLegs.values()].map(({providerEventId,providerMarketKey,providerBookId,providerSelectionKey,expectedOdds})=>({
+        providerEventId,providerMarketKey,providerBookId,providerSelectionKey,expectedOdds
+      }))
+    });
+    const ticket=response.data||response;
+    betslipStatus.textContent=`Tiket ${ticket.invoice} diterima. Status: ${ticket.status}. Saldo setelah transaksi: ${money(ticket.balanceAfter)}.`;
+    selectedLegs.clear();renderBetslip();
+  }catch(error){
+    betslipStatus.textContent=error.message||"Taruhan ditolak. Muat ulang odds dan coba lagi.";
+  }finally{
+    submitBet.disabled=false;
+    renderBetslip();
+  }
+}
 async function load(){
   refreshButton.disabled=true;setStatus("loading","Memeriksa feed");
   try{
@@ -44,6 +158,8 @@ async function load(){
     const payload=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(payload?.error?.message||payload?.message||"Feed belum tersedia.");
     const snapshot=payload.data||payload;
+    currentSnapshot=snapshot;
+    betAcceptanceEnabled=snapshot.betAcceptanceEnabled===true;
     const events=Array.isArray(snapshot.events)?snapshot.events:[];
     root.replaceChildren();
     if(events.length)events.forEach(event=>root.append(renderEvent(event)));
@@ -56,17 +172,27 @@ async function load(){
       && (!Array.isArray(snapshot.errors)||snapshot.errors.length===0);
     setStatus(complete?"ready":"error",complete?"Feed tersinkron":"Feed belum lengkap");
     notice.textContent=complete
-      ?'Data berasal dari Sportradar Odds Comparison Prematch v2. Mode read-only: polling katalog 150 menit tidak memenuhi cadence change-log 5 menit untuk taruhan aktif.'
+      ?(betAcceptanceEnabled
+        ?"Feed Sportradar tersinkron. Pilihan yang dapat dipasang sudah dipetakan operator dan akan diverifikasi ulang sebelum saldo dipotong."
+        :"Odds tersedia untuk dilihat. Penerimaan taruhan masih terkunci sampai entitlement, Change Log, kuota, settlement worker, mapping dan risk reserve siap.")
       :snapshot.quotaLimited
-        ?'Feed belum lengkap karena batas kuota Sportradar. Snapshot parsial tidak dipublikasikan.'
+        ?"Feed belum lengkap karena batas kuota Sportradar. Snapshot parsial tidak dipublikasikan."
         :snapshot.budgetLimited
-          ?'Feed belum lengkap karena anggaran request siklus tercapai. Snapshot parsial tidak dipublikasikan.'
-          :'Feed belum lengkap. Snapshot parsial tidak dianggap tersinkron dan taruhan tetap dinonaktifkan.';
+          ?"Feed belum lengkap karena anggaran request siklus tercapai. Snapshot parsial tidak dipublikasikan."
+          :"Feed belum lengkap. Snapshot parsial tidak dianggap tersinkron dan taruhan tetap dinonaktifkan.";
+    if(!betAcceptanceEnabled&&Array.isArray(snapshot.betAcceptanceReasons)&&snapshot.betAcceptanceReasons.length){
+      notice.textContent+=` Alasan: ${snapshot.betAcceptanceReasons.join(", ")}.`;
+    }
+    renderBetslip();
   }catch(error){
     root.replaceChildren(el("div","empty",error.message));
     countEl.textContent="—";updatedEl.textContent="—";setStatus("error","Feed tidak tersedia");
     notice.textContent="Tidak ada data odds aktif. Sistem tidak menggunakan data contoh atau fallback.";
+    betAcceptanceEnabled=false;renderBetslip();
   }finally{refreshButton.disabled=false;}
 }
+stakeInput.addEventListener("input",renderBetslip);
+submitBet.addEventListener("click",submitTicket);
 refreshButton.addEventListener("click",load);
+renderBetslip();
 load();
