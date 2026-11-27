@@ -5,7 +5,7 @@ import { closeDatabase } from "./db.js";
 import { logger } from "../logger.js";
 import { loadSoccerV4Config } from "./soccer-v4-config.js";
 import { SoccerV4Client, getSoccerNextPageStart } from "./soccer-v4-client.js";
-import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown, selectSoccerV4DueDate } from "./soccer-v4-quota.js";
+import { reserveSoccerV4Call, waitForSoccerV4RequestSlot, applySoccerV4RateLimitCooldown } from "./soccer-v4-quota.js";
 import { normalizeSoccerResults, normalizeSportEventId } from "./results.js";
 import { listResultCandidateDates, persistSoccerResultRevisions, selectOldestDueSoccerResultDate } from "./results-repository.js";
 
@@ -140,7 +140,14 @@ async function main() {
     try {
       const result = await runCycle(config, client);
       logger.info("Sportradar Soccer v4 results sync completed", result);
-      if (Number.isFinite(result.cacheTtlMs)) nextDelayMs = Math.max(nextDelayMs, result.cacheTtlMs);
+      // Continue a partially paginated date immediately. The next cycle still
+      // reserves exactly one provider call; rolling quota remains authoritative.
+      // Once the cursor completes, return to the hourly/daily date cadence.
+      if (result.pagination?.complete === false) {
+        nextDelayMs = 0;
+      } else if (Number.isFinite(result.cacheTtlMs)) {
+        nextDelayMs = Math.max(nextDelayMs, result.cacheTtlMs);
+      }
     } catch (error) {
       logger.warn("Sportradar Soccer v4 results sync stopped safely", {
         code: error?.code || "SOCCER_V4_SYNC_FAILED",
