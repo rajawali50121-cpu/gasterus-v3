@@ -19,6 +19,7 @@ export function buildSoccerResultCandidateGroups(events, {
   const oldestAllowed = nowMs - maxLookbackDays * DAY_MS;
   const groups = new Map();
   let manualReviewCount = 0;
+  const manualReviewEventIds = [];
   let candidateCount = 0;
 
   for (const event of Array.isArray(events) ? events : []) {
@@ -31,6 +32,7 @@ export function buildSoccerResultCandidateGroups(events, {
     if (isVerifiedFinal) continue;
     if (kickoff < oldestAllowed) {
       manualReviewCount += 1;
+      if (typeof event.providerEventId === "string") manualReviewEventIds.push(event.providerEventId);
       continue;
     }
     const date = new Date(kickoff).toISOString().slice(0, 10);
@@ -41,7 +43,8 @@ export function buildSoccerResultCandidateGroups(events, {
   return {
     dates: [...groups.keys()].sort(),
     candidateCount,
-    manualReviewCount
+    manualReviewCount,
+    manualReviewEventIds
   };
 }
 
