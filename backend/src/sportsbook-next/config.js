@@ -26,6 +26,8 @@ export function loadSportsbookConfig(env = process.env) {
     throw new Error("SPORTRADAR_INITIAL_30_DAY_USAGE must be an integer within the configured 30-day quota");
   }
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
+  const targetEvents = requiredPositiveInteger("SPORTRADAR_TARGET_EVENTS", env.SPORTRADAR_TARGET_EVENTS ?? 50);
+  const marketPageSize = requiredPositiveInteger("SPORTRADAR_MARKET_PAGE_SIZE", env.SPORTRADAR_MARKET_PAGE_SIZE ?? 50);
   // Complete market pagination has no artificial per-cycle truncation.
   // Every page is reserved against the authoritative rolling 30-day quota.
   // GASTERUS does not impose a rolling one-hour cap.
@@ -51,12 +53,13 @@ export function loadSportsbookConfig(env = process.env) {
   // One page per sport/date per configured market cycle is the minimum.
   // Additional pages are counted at runtime by the shared rolling quota guard.
   const minimumScheduleCalls30Days = 0;
-  const minimumMarketCalls30Days = Math.ceil((30 * 24 * 60) / pollMinutes) * sportCount * dateCount;
+  const marketPagesPerCycle = Math.ceil(targetEvents / marketPageSize);
+  const marketCycles30Days = Math.ceil((30 * 24 * 60) / pollMinutes);
+  const minimumMarketCalls30Days = marketCycles30Days * marketPagesPerCycle * sportCount * dateCount;
   const minimumDiscoveryCalls30Days = 3 * 30;
   const minimumCalls30Days = minimumMarketCalls30Days + minimumDiscoveryCalls30Days;
-  if (maxCallsPer30Days - initialCallsUsed30Days < minimumCalls30Days) {
-    throw new Error("Sportradar 30-day budget is insufficient for the configured paginated Daily Sport Event Markets cadence and discovery feeds");
-  }
+  const availableCalls30Days = maxCallsPer30Days - initialCallsUsed30Days;
+  if (availableCalls30Days < minimumCalls30Days) throw new Error(`Sportradar 30-day budget is insufficient: target ${targetEvents} events at page size ${marketPageSize} requires ${marketPagesPerCycle} market pages/cycle and ${minimumCalls30Days} calls/30 days (available ${availableCalls30Days})`);
   const language = String(env.SPORTRADAR_LANGUAGE || "en").trim();
   return Object.freeze({
     apiKey, accessLevel, language, sportIds, daysAhead,
@@ -64,6 +67,7 @@ export function loadSportsbookConfig(env = process.env) {
     maxCallsPerHour, maxCallsPer30Days, initialCallsUsed30Days,
     changeLogEnabled, changeLogPollMs: changeLogPollSeconds * 1000,
     minimumChangeLogCalls30Days, minimumScheduleCalls30Days,
+    targetEvents, marketPageSize, marketPagesPerCycle,
     minimumMarketCalls30Days, minimumDiscoveryCalls30Days, minimumCalls30Days,
     maxSnapshotAgeMs: pollMinutes * MINUTE * 2,
     prematchBaseUrl: `https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${language}`,
