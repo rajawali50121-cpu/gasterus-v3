@@ -23,11 +23,12 @@
 - `abandoned` is not treated as final; it is excluded from automatic polling and flagged for manual review.
 - A delay over 48 hours is treated by Sportradar as postponed. A continuation within 48 hours retains the event ID; a restart or continuation after more than 48 hours uses a new event ID and the old event may expose `replaced_by`.
 - Candidate dates are grouped by UTC kickoff date. Only dates with candidates are eligible. The current UTC date is polled hourly; historical candidate dates are polled every 24 hours. An incomplete pagination cursor takes priority and resumes immediately; after the final page, the date returns to its hourly/daily interval.
-- `SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS` bounds automatic polling (default 7). Older unresolved events are excluded from provider requests and surfaced with IDs/reasons for manual review.
+- `SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS` bounds automatic polling (default 2 for trial). Older unresolved events are excluded from provider requests and surfaced with IDs/reasons for manual review.
 
 ## Quota and isolation
 - The worker is disabled unless `SPORTRADAR_SOCCER_ENABLED=true`; disabled mode sends no provider requests. Enabled mode requires exactly 60-minute polling.
-- Maximum one request per worker cycle. The normal idle interval is 60 minutes, matching the official non-live Daily Summaries recommendation. Incomplete pagination resumes immediately in a new one-request cycle; this is not a live-score feed.
+- Up to two requests per hourly worker cycle. The current UTC date is first priority when due; unfinished cursors are second; then the oldest due historical date. Incomplete pagination resumes in the next available request slot. The shared QPS pacer spaces requests; this is not a live-score feed.
+- Two requests per cycle support the current-date hourly pull plus historical daily pulls without delaying today's due pull. Two historical dates require 720 current-date + 60 historical = 780 calls/30 days before pagination. Seven historical dates require 930. Trial default lookback is two days; increase only with verified quota.
 - Uses dedicated Soccer v4 rolling 30-day quota keys, a separate lock/status/heartbeat, and per-date page cursor/last-success keys under `sportsbook:soccer-v4:`.
 - Retains the shared provider-wide QPS pacer and 429 cooldown. It does not share the Odds Comparison monthly quota keys.
 - Does not request Odds Comparison feeds or Live Odds. Odds Comparison discovery, parser, schedule, change-log and snapshots remain isolated.
@@ -41,6 +42,6 @@ Do not enable until Soccer API v4 entitlement, product-specific rolling 30-day q
 - `SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE` (actual current usage, not a guessed zero)
 - Optional: `SPORTRADAR_SOCCER_POLL_MINUTES` (must be 60), `SPORTRADAR_SOCCER_LANGUAGE`
 - Optional: `SPORTRADAR_SOCCER_RESULT_BUFFER_MINUTES` (default 150)
-- Optional: `SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS` (default 7; minimum projected budget is 720 current-date hourly calls + 30 calls per historical lookback day, before extra pagination calls)
+- Optional: `SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS` (default 2 for trial; minimum projected budget is 720 current-date hourly calls + 30 calls per historical lookback day, before extra pagination calls)
 
 No production environment variables, Railway services, deployments, migrations or provider calls are changed by this source branch.
