@@ -30,3 +30,17 @@ footer{text-align:center;color:#73879f;font-size:11px;padding:22px;border-top:1p
 #submit-bet:disabled{opacity:.45;cursor:not-allowed}
 .betslip-status{margin:10px 0 0}
 @media(max-width:650px){.betslip{padding:14px}.slip-leg{gap:8px}.slip-leg-info strong{font-size:12px}}
+
+.ticket-history{margin-top:24px}
+.history-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.history-head h2{font-size:18px;margin:0}
+.history-head button{border:1px solid var(--line);background:#14243a;color:#dbe6f2;border-radius:8px;padding:8px 12px;cursor:pointer}
+.ticket-history{display:grid;gap:10px}
+.ticket-card{border:1px solid var(--line);border-radius:11px;padding:14px;background:#0e1b2b}
+.ticket-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ticket-head strong{font-size:13px;letter-spacing:.03em}
+.ticket-status{border-radius:20px;padding:3px 9px;font-size:10px;font-weight:800;background:#25364b;color:#c5d4e5}
+.status-won{background:#123b2d;color:#71e1aa}.status-lost{background:#472323;color:#ff9a9a}.status-void,.status-cancelled{background:#3c321b;color:#f2d78c}
+.ticket-meta{font-size:11px;color:var(--muted);margin-top:7px}
+.ticket-leg{display:grid;gap:3px;border-top:1px solid #23374d;margin-top:9px;padding-top:8px}
+.ticket-leg strong{font-size:12px}.ticket-leg span{font-size:10px;color:var(--muted)}
