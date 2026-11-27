@@ -396,7 +396,7 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
     const metadata = {
       requestFingerprint: fingerprint,
       provider: PROVIDER_PRODUCT,
-      priceVerifiedBy: "sportradar-prematch-change-log",
+      priceVerifiedBy: "sportradar-prematch-snapshot",
       acceptedIp: String(ip || "").slice(0, 64),
       acceptedLegCount: resolved.length
     };
