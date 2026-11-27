@@ -148,43 +148,41 @@ export class SportradarClient {
       `sports/${encodeUrnPathSegment(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets`, { start, limit });
   }
   async getAllDailySportEventMarkets(sportId, date, { pageSize = 50, maxPages = 10 } = {}) {
+    if (!Number.isSafeInteger(pageSize) || pageSize < 1 || !Number.isSafeInteger(maxPages) || maxPages < 1) {
+      throw new TypeError("SPORTRADAR_PAGINATION_CONFIG_INVALID");
+    }
     const items = [];
     let start = 0;
-    let reportedTotal = null;
     let pages = 0;
-    let hasMore = false;
+    let reportedTotal = null;
+    let providerGeneratedAt = null;
+    let complete = false;
     for (let page = 0; page < maxPages; page += 1) {
       const result = await this.getDailySportEventMarkets(sportId, date, { start, limit: pageSize });
-      const rows = result.body?.sport_schedule_sport_event_markets;
-      if (!Array.isArray(rows)) {
-        throw providerError(
-          "SPORTRADAR_BULK_MARKETS_SHAPE_INVALID",
-          "Sportradar Prematch Daily Sport Event Markets response is missing the expected event array"
-        );
-      }
       pages += 1;
-      items.push(...rows);
-      const totalHeader = result.headers.get("x-max-results");
-      const resultHeader = result.headers.get("x-result");
-      const parsedTotal = totalHeader === null ? null : Number(totalHeader);
-      const parsedResult = resultHeader === null ? null : Number(resultHeader);
-      const validTotal = Number.isSafeInteger(parsedTotal) && parsedTotal >= 0;
-      const validResult = Number.isSafeInteger(parsedResult) && parsedResult >= 0;
-      if (validTotal) reportedTotal = parsedTotal;
-
-      if (validTotal) {
-        hasMore = reportedTotal > start + rows.length;
-      } else {
-        hasMore = (validResult && parsedResult >= pageSize) || (totalHeader === null && resultHeader === null && rows.length >= pageSize);
+      if (typeof result.body?.generated_at === "string") providerGeneratedAt = result.body.generated_at;
+      const rows = result.body?.sport_schedule_sport_event_markets ?? result.body?.sport_events ?? result.body?.events ?? result.body?.schedules;
+      if (!Array.isArray(rows)) {
+        throw providerError("SPORTRADAR_BULK_MARKETS_SHAPE_INVALID", "Sportradar Prematch Daily Sport Event Markets response is missing a documented event array");
       }
-      if (!hasMore) break;
+      items.push(...rows);
+      const reportedHeader = result.headers.get("x-max-results");
+      const receivedHeader = result.headers.get("x-result");
+      const reported = reportedHeader === null ? null : Number(reportedHeader);
+      const received = receivedHeader === null ? null : Number(receivedHeader);
+      if (reported !== null && Number.isFinite(reported) && reported >= 0) reportedTotal = reported;
+      const hasMore = reportedTotal !== null
+        ? start + rows.length < reportedTotal
+        : received !== null && Number.isFinite(received)
+          ? received >= pageSize
+          : rows.length >= pageSize;
+      if (!hasMore) { complete = true; break; }
       start += rows.length || pageSize;
     }
-    const fetched = items.length;
-    const truncated = hasMore && pages >= maxPages;
+    if (reportedTotal !== null && items.length >= reportedTotal) complete = true;
     return {
-      body: { sport_schedule_sport_event_markets: items, sport_events: items },
-      meta: { truncated, reportedTotal, fetched, pages }
+      body: { sport_events: items, generated_at: providerGeneratedAt },
+      pagination: { pages, received: items.length, total: reportedTotal, complete }
     };
   }
   getSportEventMarkets(eventId) {
