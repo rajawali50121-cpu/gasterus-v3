@@ -2,10 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadSoccerV4Config } from "../src/sportsbook-next/soccer-v4-config.js";
 import { SoccerV4Client, parseSoccerCacheTtlMs, getSoccerNextPageStart } from "../src/sportsbook-next/soccer-v4-client.js";
-import { __soccerQuota, reserveSoccerV4Call } from "../src/sportsbook-next/soccer-v4-quota.js";
+import { __soccerQuota, reserveSoccerV4Call, nextSoccerPollDelayMs } from "../src/sportsbook-next/soccer-v4-quota.js";
 import { buildSoccerResultCandidateGroups, selectOldestDueSoccerResultDate } from "../src/sportsbook-next/results-repository.js";
 import { normalizeSoccerResult, normalizeSoccerResults, normalizeSportEventId } from "../src/sportsbook-next/results.js";
-import { nextSoccerPollDelayMs } from "../src/sportsbook-next/soccer-v4-worker.js";
 
 test("Soccer v4 is disabled by default and does not require a key or quota", () => {
   const config = loadSoccerV4Config({});
