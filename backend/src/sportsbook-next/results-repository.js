@@ -19,6 +19,12 @@ function parsePayload(value) {
   return {};
 }
 
+function providerEventIdFrom(event) {
+  const payload = parsePayload(event.providerPayload ?? event.provider_payload ?? event.payload);
+  return normalizeSportEventId(payload?.sport_event?.id) ??
+    normalizeSportEventId(event.providerEventId ?? event.provider_event_id);
+}
+
 function replacedByFrom(event) {
   const payload = parsePayload(event.providerPayload ?? event.provider_payload ?? event.payload);
   const value = event.replacedBy ?? event.replaced_by ?? payload?.sport_event?.replaced_by;
@@ -43,8 +49,17 @@ export function buildSoccerResultCandidateGroups(events, {
   let candidateCount = 0;
 
   for (const event of Array.isArray(events) ? events : []) {
-    const eventId = normalizeSportEventId(event.providerEventId ?? event.provider_event_id);
-    if (!eventId) continue;
+    const eventId = providerEventIdFrom(event);
+    if (!eventId) {
+      const rawId = event.providerEventId ?? event.provider_event_id;
+      const kickoff = validDate(event.scheduledAt ?? event.scheduled_at);
+      if (typeof rawId === "string" && kickoff !== null &&
+          kickoff <= cutoff && kickoff < oldestAllowed) {
+        manualReviewEventIds.push(rawId);
+        manualReviewEvents.push({ eventId: rawId, replacedBy: null, reason: "lookback_exceeded" });
+      }
+      continue;
+    }
     const existing = uniqueEvents.get(eventId);
     const rank = value => {
       const state = String(value.resultStatus ?? value.result_status ?? value.event_status ?? "").toLowerCase();
