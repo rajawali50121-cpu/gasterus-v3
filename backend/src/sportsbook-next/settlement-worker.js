@@ -34,7 +34,8 @@ async function main() {
     const completedAt = new Date().toISOString();
     try {
       const summary = await settleReadySportsbookTickets({ limit: batchSize });
-      const healthy = summary.liquidityBlocked === 0 && summary.manualReview === 0;
+      const healthy = summary.liquidityBlocked === 0 &&
+        summary.manualReview === 0 && summary.correctionsDetected === 0;
       await redis.set(STATUS_KEY, JSON.stringify({
         healthy, completedAt, summary,
         state: healthy ? "ready" : "operator_attention_required",
