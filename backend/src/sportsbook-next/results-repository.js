@@ -157,6 +157,7 @@ export async function persistSoccerResultRevisions(results) {
   return tx(async client => {
     let inserted = 0;
     let duplicates = 0;
+    let projected = 0;
     let verified = 0;
     for (const result of results) {
       // Provider generation time may be absent from Daily Summaries. Keep it NULL;
@@ -195,7 +196,7 @@ export async function persistSoccerResultRevisions(results) {
         if (!revision.rowCount) duplicates += 1;
         else inserted += 1;
       }
-      await client.query(`
+      const projection = await client.query(`
         INSERT INTO sportsbook_v2_event_results(
           provider_event_id,result_source,event_status,home_score,away_score,source_updated_at,received_at,verified,provider_payload
         )
@@ -210,9 +211,11 @@ export async function persistSoccerResultRevisions(results) {
           source_updated_at=excluded.source_updated_at,received_at=excluded.received_at,
           verified=excluded.verified,provider_payload=excluded.provider_payload
         WHERE sportsbook_v2_event_results.received_at <= excluded.received_at
+        RETURNING provider_event_id
       `,[storageEventId,result.source,result.status,result.homeScore,result.awayScore,providerAt,receivedAt,result.verified===true,payload]);
+      if (projection.rowCount) projected += 1;
       if (result.verified === true) verified += 1;
     }
-    return { received: results.length, inserted, duplicates, verified };
+    return { received: results.length, inserted, duplicates, projected, verified };
   });
 }
