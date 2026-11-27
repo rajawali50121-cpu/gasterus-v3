@@ -296,3 +296,13 @@ test("Soccer match and sport_event prefixes normalize to one ID and duplicate su
   assert.equal(results.length, 1);
   assert.equal(results[0].eventId, "sr:sport_event:123");
 });
+
+
+test("Soccer candidate repository deduplicates sr:match and sr:sport_event aliases", () => {
+  const groups = buildSoccerResultCandidateGroups([
+    resultEvent("2026-11-26T08:00:00Z", { providerEventId: "sr:match:123" }),
+    resultEvent("2026-11-26T08:00:00Z", { providerEventId: "sr:sport_event:123" })
+  ], { now: RESULT_NOW });
+  assert.equal(groups.candidateCount, 1);
+  assert.deepEqual(groups.dates, ["2026-11-26"]);
+});
