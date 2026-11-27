@@ -9,8 +9,8 @@
 
 ## Pagination (one request per cycle)
 - The worker stores a Redis page cursor per UTC date. The next request for an incomplete date uses `start=<cursor>` and `limit=200`.
-- `X-Result` and `X-Max-Results` determine whether more pages remain. If `X-Result < X-Max-Results`, advance the cursor by the raw page result count and continue that date in the next worker cycle. The date is complete when `start >= X-Max-Results` or the reported result count reaches the maximum.
-- A date with a non-zero cursor remains due and is selected ahead of dates waiting for their next poll interval. `LAST_SUCCESS` is written only after the date's final page. Thus a 381-result date is fetched as 200 + 181 across two cycles, without exceeding one provider request in either cycle.
+- `X-Result` and `X-Max-Results` determine whether more pages remain. If `X-Result < X-Max-Results`, advance the cursor by the raw page result count and continue that date immediately in the next one-request worker cycle; do not wait for the date polling interval. The date is complete when `start >= X-Max-Results` or the reported result count reaches the maximum.
+- A date with a non-zero cursor remains due and is selected ahead of dates waiting for their next poll interval. `LAST_SUCCESS` is written only after the date's final page. Thus a 381-result date is fetched as 200 + 181 in back-to-back one-request cycles, without imposing an hourly wait between pages.
 - If result-count headers are absent, the worker falls back to page length and the advertised maximum when available; a short page ends pagination. A zero-length page before the advertised end fails closed as a pagination stall.
 - Completed dates are not re-polled until the configured interval; candidate dates with no outstanding work and no due interval cause zero requests.
 
@@ -22,12 +22,12 @@
 - `postponed` with `replaced_by` stops polling the old event and records the replacement ID plus a manual-review reason. The replacement event is tracked independently under its own event ID.
 - `abandoned` is not treated as final; it is excluded from automatic polling and flagged for manual review.
 - A delay over 48 hours is treated by Sportradar as postponed. A continuation within 48 hours retains the event ID; a restart or continuation after more than 48 hours uses a new event ID and the old event may expose `replaced_by`.
-- Candidate dates are grouped by UTC kickoff date. Only dates with candidates are eligible. The oldest due date is selected; a date with an incomplete pagination cursor takes priority and continues next cycle.
+- Candidate dates are grouped by UTC kickoff date. Only dates with candidates are eligible. The current UTC date is polled hourly; historical candidate dates are polled every 24 hours. An incomplete pagination cursor takes priority and resumes immediately; after the final page, the date returns to its hourly/daily interval.
 - `SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS` bounds automatic polling (default 7). Older unresolved events are excluded from provider requests and surfaced with IDs/reasons for manual review.
 
 ## Quota and isolation
 - The worker is disabled unless `SPORTRADAR_SOCCER_ENABLED=true`; disabled mode sends no provider requests. Enabled mode requires exactly 60-minute polling.
-- Maximum one request per worker cycle. The worker interval is fixed at 60 minutes to match the official non-live Daily Summaries recommendation and quota guard; this is not a live-score feed.
+- Maximum one request per worker cycle. The normal idle interval is 60 minutes, matching the official non-live Daily Summaries recommendation. Incomplete pagination resumes immediately in a new one-request cycle; this is not a live-score feed.
 - Uses dedicated Soccer v4 rolling 30-day quota keys, a separate lock/status/heartbeat, and per-date page cursor/last-success keys under `sportsbook:soccer-v4:`.
 - Retains the shared provider-wide QPS pacer and 429 cooldown. It does not share the Odds Comparison monthly quota keys.
 - Does not request Odds Comparison feeds or Live Odds. Odds Comparison discovery, parser, schedule, change-log and snapshots remain isolated.
