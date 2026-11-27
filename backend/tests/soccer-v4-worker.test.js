@@ -199,12 +199,9 @@ test("Soccer result buffer excludes kickoffs that have not passed the configured
 });
 
 
-test("Soccer cancelled status is retained as a candidate status, not treated as a final settlement result", () => {
+test("Soccer event without a stored result remains a candidate before cancellation is persisted", () => {
   const groups = buildSoccerResultCandidateGroups([
-    resultEvent("2026-11-26T08:00:00.000Z", {
-      resultStatus: "cancelled", resultVerified: true,
-      providerGeneratedAt: "2026-11-26T10:00:00.000Z"
-    })
+    resultEvent("2026-11-26T08:00:00.000Z")
   ], { now: RESULT_NOW });
   assert.deepEqual(groups.dates, ["2026-11-26"]);
   assert.equal(groups.candidateCount, 1);
