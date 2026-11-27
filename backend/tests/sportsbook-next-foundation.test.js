@@ -11,7 +11,6 @@ const env = {
   SPORTRADAR_ACCESS_LEVEL: "production",
   SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2500",
   SPORTRADAR_MAX_CALLS_PER_HOUR: "20",
-  SPORTRADAR_MAX_CALLS_PER_CYCLE: "6",
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10",
   SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
 };
@@ -24,7 +23,6 @@ test("config defaults to 150-minute refresh, current UTC date only and official 
   assert.equal(config.minimumMarketCalls30Days, 288);
   assert.equal(config.maxCallsPerHour, 0);
   assert.equal(config.daysAhead, 0);
-  assert.equal(config.maxCallsPerCycle, 6);
   assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/production/v2/en");
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/production/v4/en");
 });
@@ -87,14 +85,12 @@ test("config rejects missing API key, unsupported tier, and unverified quota bas
     SPORTRADAR_API_KEY: "test",
     SPORTRADAR_ACCESS_LEVEL: "production",
     SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2500",
-    SPORTRADAR_MAX_CALLS_PER_CYCLE: "6",
     SPORTRADAR_INITIAL_30_DAY_USAGE: "120",
     SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
   });
   assert.equal(defaults.maxCallsPer30Days, 2500);
   assert.equal(defaults.initialCallsUsed30Days, 120);
   assert.equal(defaults.daysAhead, 0);
-  assert.equal(defaults.maxCallsPerCycle, 6);
 });
 
 test("daily schedule normalization uses sport_event and provider SR identifiers", () => {
@@ -501,6 +497,34 @@ test("bulk daily market pagination fails explicitly instead of publishing a trun
   );
   assert.deepEqual(offsets, [0, 50]);
 });
+test("bulk daily market pagination completes every page beyond the former two-page limit", async () => {
+  const config = loadSportsbookConfig(env);
+  const offsets = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      const parsed = new URL(url);
+      const start = Number(parsed.searchParams.get("start"));
+      offsets.push(start);
+      const count = start === 0 || start === 50 ? 50 : 25;
+      return {
+        ok: true, status: 200,
+        headers: { get: name => name === "x-max-results" ? "125" : name === "x-result" ? String(count) : null },
+        json: async () => ({
+          sport_schedule_sport_event_markets: Array.from({ length: count }, (_, i) => ({
+            sport_event: { id: `sr:sport_event:${start + i + 1}` }, markets: []
+          }))
+        })
+      };
+    }
+  });
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25");
+  assert.deepEqual(offsets, [0, 50, 100]);
+  assert.equal(result.pagination.pages, 3);
+  assert.equal(result.pagination.received, 125);
+  assert.equal(result.pagination.complete, true);
+  assert.equal(result.body.sport_events.length, 125);
+});
+
 test("normalizer preserves scheduled events with no available markets and provider generated_at", () => {
   const rows = normalizeDailySportEventMarkets({
     generated_at: "2026-11-25T01:02:03Z",
