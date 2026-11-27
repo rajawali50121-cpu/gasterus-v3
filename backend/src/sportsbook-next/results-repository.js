@@ -67,7 +67,7 @@ export async function listResultCandidateDates({
   }
   return tx(async client => {
     const result = await client.query(`
-      SELECT e.scheduled_at,
+      SELECT e.provider_event_id, e.scheduled_at,
              r.event_status AS result_status,
              r.verified AS result_verified,
              r.source_updated_at AS provider_generated_at
@@ -78,7 +78,7 @@ export async function listResultCandidateDates({
         AND e.scheduled_at <= $1::timestamptz - ($2::text || ' minutes')::interval
       ORDER BY e.scheduled_at ASC
     `, [now, bufferMinutes]);
-    return buildSoccerResultCandidateGroups(result.rows, {
+    return buildSoccerResultCandidateGroups(result.rows.map(row => ({ ...row, providerEventId: row.provider_event_id })), {
       now, bufferMinutes, maxLookbackDays
     });
   });
