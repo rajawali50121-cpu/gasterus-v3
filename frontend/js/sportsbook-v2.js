@@ -256,7 +256,7 @@ async function load(){
     notice.textContent=complete
       ?(betAcceptanceEnabled
         ?"Feed Sportradar tersinkron. Pilihan yang dapat dipasang sudah dipetakan operator dan akan diverifikasi ulang sebelum saldo dipotong."
-        :"Odds tersedia untuk dilihat. Penerimaan taruhan masih terkunci sampai entitlement, Change Log, kuota, settlement worker, mapping dan risk reserve siap.")
+        :"Odds tersedia untuk dilihat. Penerimaan taruhan masih terkunci sampai entitlement, kuota, settlement worker, mapping dan risk reserve siap.")
       :snapshot.quotaLimited
         ?"Feed belum lengkap karena batas kuota Sportradar. Snapshot parsial tidak dipublikasikan."
         :snapshot.budgetLimited
