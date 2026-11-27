@@ -16,7 +16,7 @@ const SETTLEMENT_HEARTBEAT_KEY = "sportsbook:settlement:heartbeat:v1";
 const CHANGE_LOG_WINDOW_MS = 5 * 60 * 1000;
 const PRICE_MAX_AGE_MINUTES = 5;
 const KICKOFF_CUTOFF_MINUTES = 5;
-const SCHEDULE_MAX_AGE_MINUTES = 360;
+const SCHEDULE_MAX_AGE_MINUTES = 60;
 const ODDS_SCALE = 1_000_000n;
 const MAX_LEGS = 10;
 const PROVIDER_PRODUCT = "oddscomparison-prematch-v2";
@@ -112,6 +112,14 @@ export async function getSportsbookBetAcceptanceReadiness({
       WHERE schedule_verified_at >= now() - ($1::int * interval '1 minute')
     `, [SCHEDULE_MAX_AGE_MINUTES]);
     return Number(result.rows[0]?.count || 0);
+  },
+  loadRiskReserveBalance = async () => {
+    const result = await query(`
+      SELECT current_balance::bigint AS balance
+      FROM ledger_accounts
+      WHERE account_code = 'SYSTEM:SPORTSBOOK_RISK_RESERVE'
+    `);
+    return result.rows[0] ? Number(result.rows[0].balance) : null;
   }
 }) {
   const reasons = [];
@@ -142,14 +150,41 @@ export async function getSportsbookBetAcceptanceReadiness({
   const initialUsage = /^\d+$/.test(initialRaw) ? Number(initialRaw) : null;
   const pollSeconds = Number(env.SPORTRADAR_CHANGELOG_POLL_SECONDS ?? 240);
   const cycleCalls = safeIntegerEnv(env, "SPORTRADAR_MAX_CALLS_PER_CYCLE");
-  const minimumCalls = Number.isInteger(pollSeconds) && pollSeconds >= 60 && pollSeconds <= 300 && cycleCalls
+  const schedulePollMinutes = Number(env.SPORTRADAR_SCHEDULE_POLL_MINUTES ?? 60);
+  const marketPollMinutes = Number(env.SPORTSBOOK_POLL_MINUTES ?? 150);
+  const daysAhead = Number(env.SPORTRADAR_DAYS_AHEAD ?? 0);
+  const sportCount = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").filter(Boolean).length;
+  const dateCount = Number.isInteger(daysAhead) && daysAhead >= 0 ? daysAhead + 1 : Number.POSITIVE_INFINITY;
+  const cadenceValid = Number.isInteger(schedulePollMinutes) && schedulePollMinutes >= 60 &&
+    Number.isInteger(marketPollMinutes) && marketPollMinutes >= 1 && Number.isFinite(dateCount) && sportCount > 0;
+  const minimumChangeLogCalls = Number.isInteger(pollSeconds) && pollSeconds >= 60 && pollSeconds <= 300 && cycleCalls
     ? Math.ceil((30 * 24 * 60 * 60) / pollSeconds) + cycleCalls
     : Number.POSITIVE_INFINITY;
+  const minimumScheduleCalls = cadenceValid
+    ? Math.ceil((30 * 24 * 60) / schedulePollMinutes) * sportCount * dateCount
+    : Number.POSITIVE_INFINITY;
+  const minimumMarketCalls = cadenceValid
+    ? Math.ceil((30 * 24 * 60) / marketPollMinutes) * sportCount * dateCount
+    : Number.POSITIVE_INFINITY;
+  const minimumDiscoveryCalls = 90;
+  const minimumCalls = minimumChangeLogCalls + minimumScheduleCalls + minimumMarketCalls + minimumDiscoveryCalls;
   if (!maxCalls || !Number.isSafeInteger(initialUsage) || initialUsage < 0 ||
       maxCalls - initialUsage < minimumCalls) reasons.push("CHANGE_LOG_QUOTA_BUDGET_INSUFFICIENT");
 
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_STAKE_IDR")) reasons.push("MAX_STAKE_NOT_CONFIGURED");
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_PAYOUT_IDR")) reasons.push("MAX_PAYOUT_NOT_CONFIGURED");
+
+  let riskReserveBalance = null;
+  const requiredRiskReserve = safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_PAYOUT_IDR");
+  try {
+    riskReserveBalance = await loadRiskReserveBalance();
+    if (!Number.isSafeInteger(riskReserveBalance) || riskReserveBalance < 0 ||
+        !requiredRiskReserve || riskReserveBalance < requiredRiskReserve) {
+      reasons.push("RISK_RESERVE_BELOW_MAX_SINGLE_TICKET_PAYOUT");
+    }
+  } catch {
+    reasons.push("RISK_RESERVE_ACCOUNT_UNAVAILABLE");
+  }
 
   let verifiedMappingCount = 0;
   try {
@@ -232,6 +267,8 @@ export async function getSportsbookBetAcceptanceReadiness({
     reasons: [...new Set(reasons)],
     verifiedMappingCount,
     freshScheduleCount,
+    riskReserveBalance,
+    requiredRiskReserveBalance: requiredRiskReserve,
     soccerHeartbeatAt: soccerHeartbeatAt ? new Date(soccerHeartbeatAt).toISOString() : null,
     settlementHeartbeatAt: settlementHeartbeatAt ? new Date(settlementHeartbeatAt).toISOString() : null,
     lastChangeLogSuccessAt: lastSuccessAt ? new Date(lastSuccessAt).toISOString() : null,
