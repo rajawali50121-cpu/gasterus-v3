@@ -3,7 +3,7 @@
 ## Endpoint, timestamps and IDs
 - Uses only Soccer v4 `GET /schedules/{date}/summaries.json` for tracked-event results; maximum page size is 200 and the Soccer summaries TTL is 300 seconds.
 - Sends the API key in the `x-api-key` header; never in the URL.
-- Provider timestamps come only from response `generated_at` or provider `Last-Modified`. Missing/invalid provider timestamps are never replaced with server time and cannot verify a closed result.
+- `generated_at` is retained as provider-generated time when present. `Last-Modified` is transport/cache metadata only and is never substituted for provider time. When `generated_at` is absent, `provider_generated_at` stays NULL and local `received_at` is stored separately; ingestion and result verification continue.
 - `normalizeSportEventId` maps both `sr:match:N` and `sr:sport_event:N` to `sr:sport_event:N`; other formats are rejected. Duplicate aliases are collapsed before persistence.
 - Provider `sport_event.replaced_by` and `sport_event_status.status` are retained in the per-event result payload/projection. The original tracked database ID is preserved when writing the canonicalized result.
 
@@ -16,8 +16,8 @@
 
 ## Event lifecycle and candidate selection
 - Candidates are tracked sportsbook events whose UTC kickoff is at least `SOCCER_V4_RESULT_BUFFER_MINUTES` minutes in the past (default 150), with no provider-confirmed final state.
-- `closed` is final only when verified and accompanied by a valid provider timestamp. `ended` is not final; events without live coverage may remain `not_started` until a result is entered and remain candidates after kickoff.
-- `cancelled` is final and persisted with null scores and `verified=false`; it is not a settlement result.
+- `closed` plus complete non-negative home/away scores is a provider-confirmed result; an optional `generated_at` is audit metadata, not a prerequisite. `ended` is not final; events without live coverage may remain `not_started` until a result is entered and remain candidates after kickoff.
+- `cancelled` is a provider-confirmed terminal state, persisted with null scores and eligible for a mapped `VOID` result; it is distinct from `postponed` and `abandoned`.
 - `suspended` remains a candidate.
 - `postponed` with `replaced_by` stops polling the old event and records the replacement ID plus a manual-review reason. The replacement event is tracked independently under its own event ID.
 - `abandoned` is not treated as final; it is excluded from automatic polling and flagged for manual review.
