@@ -110,6 +110,45 @@ async function loadResultRevisionIds(client, eventIds) {
   return result.rows.map(row => String(row.id));
 }
 
+async function detectSettledResultCorrections(client) {
+  const result = await client.query(`
+    WITH latest_settlement AS (
+      SELECT DISTINCT ON (ticket_id) ticket_id,metadata
+      FROM sportsbook_v2_settlement_revisions
+      ORDER BY ticket_id,revision_no DESC
+    ), changed_tickets AS (
+      SELECT DISTINCT t.id
+      FROM sportsbook_v2_tickets t
+      JOIN latest_settlement ls ON ls.ticket_id=t.id
+      JOIN sportsbook_v2_ticket_legs l ON l.ticket_id=t.id
+      JOIN sportsbook_v2_event_results r ON r.provider_event_id=l.provider_event_id
+      CROSS JOIN LATERAL jsonb_array_elements(
+        COALESCE(ls.metadata->'resultPayloads','[]'::jsonb)
+      ) prior
+      WHERE t.status <> 'OPEN'
+        AND t.settled_at IS NOT NULL
+        AND prior->>'providerEventId'=l.provider_event_id
+        AND r.received_at > t.settled_at
+        AND (
+          prior->>'resultSource' IS DISTINCT FROM r.result_source
+          OR prior->>'eventStatus' IS DISTINCT FROM r.event_status
+          OR NULLIF(prior->>'homeScore','')::integer IS DISTINCT FROM r.home_score
+          OR NULLIF(prior->>'awayScore','')::integer IS DISTINCT FROM r.away_score
+          OR COALESCE(prior->>'verified','false') <> r.verified::text
+        )
+        AND (t.reviewed_at IS NULL OR t.reviewed_at < r.received_at)
+    )
+    UPDATE sportsbook_v2_tickets t
+    SET review_required=TRUE,
+        review_reason='PROVIDER_RESULT_CHANGED_AFTER_SETTLEMENT',
+        review_detected_at=COALESCE(t.review_detected_at,now())
+    FROM changed_tickets changed
+    WHERE t.id=changed.id
+    RETURNING t.id
+  `);
+  return result.rowCount || 0;
+}
+
 export async function settleReadySportsbookTickets({ limit = 50, actorId = null } = {}) {
   assert(Number.isInteger(limit) && limit >= 1 && limit <= 250, 400,
     "Batas settlement batch tidak valid.", "SPORTSBOOK_SETTLEMENT_BATCH_INVALID");
@@ -135,8 +174,9 @@ export async function settleReadySportsbookTickets({ limit = 50, actorId = null 
 
     const summary = {
       scanned: candidates.rows.length, settled: 0, won: 0, lost: 0, void: 0,
-      waiting: 0, manualReview: 0, liquidityBlocked: 0
+      waiting: 0, manualReview: 0, liquidityBlocked: 0, correctionsDetected: 0
     };
+    summary.correctionsDetected = await detectSettledResultCorrections(client);
 
     await ensureSystemAccounts(client);
     for (const ticket of candidates.rows) {
@@ -275,7 +315,11 @@ export async function settleReadySportsbookTickets({ limit = 50, actorId = null 
         revisionId,ticket.id,revisionNo,evaluation.ticketStatus,payout,ledger.transactionId,
         JSON.stringify(resultRevisionIds),actorId,
         `PROVIDER_CONFIRMED_SOCCER_1X2_${evaluation.ticketStatus}`,
-        JSON.stringify({ invoice: ticket.invoice, legs: evaluation.legStatuses })
+        JSON.stringify({
+          invoice: ticket.invoice,
+          legs: evaluation.legStatuses,
+          resultPayloads: evaluation.resultPayloads
+        })
       ]);
 
       const updated = await client.query(`
