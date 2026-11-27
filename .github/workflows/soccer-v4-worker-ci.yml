@@ -8,6 +8,7 @@ on:
       - "backend/src/sportsbook-next/results-repository.js"
       - "backend/tests/soccer-v4-worker.test.js"
       - "backend/tests/sportsbook-next-domain.test.js"
+      - "backend/migrations/045_sportsbook_v2_result_receipt_times.sql"
       - "backend/tests/schema.test.js"
       - ".github/workflows/soccer-v4-worker-ci.yml"
 
