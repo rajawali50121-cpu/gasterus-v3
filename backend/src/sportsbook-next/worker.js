@@ -481,6 +481,7 @@ async function main() {
   });
 
   let nextDiscoveryAt = Date.now();
+  let nextScheduleAt = Date.now();
   let nextChangeLogAt = Date.now() + config.changeLogPollMs;
   while (!stopping) {
     const activeHalt = await getSportsbookHalt(redis);
@@ -493,6 +494,20 @@ async function main() {
       break;
     }
     let now = Date.now();
+    if (now >= nextScheduleAt) {
+      try {
+        const result = await runScheduleCycle(config, client);
+        logger.info("Sportradar Daily Schedules hourly sync completed", result);
+      } catch (error) {
+        logger.warn("Sportradar Daily Schedules hourly sync stopped safely", {
+          code: error?.code || "SPORTRADAR_SCHEDULE_SYNC_FAILED",
+          httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
+          retryAfter: error?.retryAfter || null
+        });
+      }
+      nextScheduleAt = Date.now() + config.schedulePollIntervalMs;
+    }
+    now = Date.now();
     if (now >= nextDiscoveryAt) {
       client.cycleCalls = 0;
       try {
@@ -568,8 +583,8 @@ async function main() {
     }
 
     const nextRunAt = config.changeLogEnabled
-      ? Math.min(nextDiscoveryAt, nextChangeLogAt)
-      : nextDiscoveryAt;
+      ? Math.min(nextDiscoveryAt, nextScheduleAt, nextChangeLogAt)
+      : Math.min(nextDiscoveryAt, nextScheduleAt);
     await sleep(Math.max(250, nextRunAt - Date.now()), undefined, { signal: shutdownController.signal }).catch(() => {});
   }
 }
