@@ -59,7 +59,11 @@ export function normalizeSoccerResults(payload, receivedAt = null, generatedAtOv
       receivedAt
     });
     const previous = normalized.get(result.eventId);
-    if (!previous || (!previous.providerGeneratedAt && result.providerGeneratedAt)) {
+    const priority = value => value.status === "closed" || value.status === "cancelled" ? 2 : 1;
+    const previousAt = previous?.providerGeneratedAt ? Date.parse(previous.providerGeneratedAt) : 0;
+    const currentAt = result.providerGeneratedAt ? Date.parse(result.providerGeneratedAt) : 0;
+    if (!previous || priority(result) > priority(previous) ||
+        (priority(result) === priority(previous) && currentAt > previousAt)) {
       normalized.set(result.eventId, result);
     }
   }
