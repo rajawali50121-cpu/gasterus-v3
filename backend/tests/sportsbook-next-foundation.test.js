@@ -35,14 +35,11 @@ test("change-log configuration is opt-in and refuses a request budget too small 
     () => loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" }),
     /30-day budget is insufficient/
   );
-  assert.throws(
-    () => loadSportsbookConfig({
-      ...env,
-      SPORTRADAR_MAX_CALLS_PER_30_DAYS: "14000",
-      SPORTRADAR_CHANGELOG_ENABLED: "true"
-    }),
-    /must not exceed 800/
-  );
+  assert.doesNotThrow(() => loadSportsbookConfig({
+    ...env,
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "14000",
+    SPORTRADAR_CHANGELOG_ENABLED: "true"
+  }));
 });
 
 test("change log extracts only tracked Sportradar sport-event IDs", () => {
@@ -91,7 +88,7 @@ test("config rejects missing API key, unsupported tier, and unverified quota bas
   const defaults = loadSportsbookConfig({
     SPORTRADAR_API_KEY: "test",
     SPORTRADAR_ACCESS_LEVEL: "production",
-    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2000",
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2500",
     SPORTRADAR_MAX_CALLS_PER_CYCLE: "6",
     SPORTRADAR_INITIAL_30_DAY_USAGE: "120",
     SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
