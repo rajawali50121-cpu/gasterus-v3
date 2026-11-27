@@ -170,9 +170,8 @@ async function runCycle(config, client) {
   let budgetLimited = false;
   let coverage = null;
   try {
-    // Discover entitled sports/books/competitions once per day before pulling
-    // the selected sport's current-day bulk market board.
-    coverage = await refreshCoverage(config, client);
+    // Market snapshots and schedules are separate official feeds. The market
+    // board supplies prices; Daily Schedules independently owns event metadata.
     for (const sportId of config.sportIds) {
       for (let day = 0; day <= config.daysAhead; day += 1) {
         if (client.cycleCalls >= config.maxCallsPerCycle) { budgetLimited = true; break; }
@@ -200,6 +199,23 @@ async function runCycle(config, client) {
       if (quotaLimited || budgetLimited) break;
     }
 
+    const scheduleSync = (!quotaLimited && !budgetLimited)
+      ? await syncDailySchedules(config, client)
+      : { rows: [], status: [{ deferred: true, reason: quotaReason || "MARKET_CYCLE_INCOMPLETE" }] };
+    for (const schedule of scheduleSync.rows) {
+      const event = events.get(schedule.id);
+      if (!event) continue;
+      event.scheduled = schedule.scheduled ?? event.scheduled;
+      event.status = schedule.status && schedule.status !== "unknown" ? schedule.status : event.status;
+      event.home = schedule.home ?? event.home;
+      event.away = schedule.away ?? event.away;
+      event.competition = schedule.competition ?? event.competition;
+      event.competitionId = schedule.competitionId ?? event.competitionId;
+    }
+    coverage = await refreshCoverage(config, client, {
+      allowFetch: !quotaLimited && !budgetLimited && client.cycleCalls + 3 <= config.maxCallsPerCycle
+    });
+
     const pricedEvents = [...events.values()];
 
     const receivedAt = new Date().toISOString();
@@ -218,6 +234,7 @@ async function runCycle(config, client) {
       quotaDetails,
       budgetLimited,
       coverage,
+      scheduleSync: scheduleSync.status,
       events: pricedEvents,
       errors
     };
@@ -228,12 +245,13 @@ async function runCycle(config, client) {
     if (snapshot.complete) {
       await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     }
-    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.receivedAt, complete: snapshot.complete, quotaLimited, quotaReason, quotaDetails, budgetLimited, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
+    await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: snapshot.receivedAt, complete: snapshot.complete, quotaLimited, quotaReason, quotaDetails, budgetLimited, scheduleSync: scheduleSync.status, errorCount: errors.length }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
     await redis.set(HEARTBEAT_KEY, snapshot.receivedAt, { EX: 600 });
     return {
       events: pricedEvents.length, scheduled: events.size, calls: snapshot.callsThisCycle,
       persisted, errors: errors.length, quotaLimited, quotaReason, quotaDetails, budgetLimited, emptyFeed: snapshot.emptyFeed,
       complete: snapshot.complete,
+      scheduleSync: scheduleSync.status,
       coverageFeeds: coverage ? {
         sport: coverage.sport,
         bookmakers: coverage.books.length,
