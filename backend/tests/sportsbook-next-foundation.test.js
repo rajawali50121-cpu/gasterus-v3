@@ -135,6 +135,45 @@ test("event market normalization follows documented odds_decimal and removed boo
   assert.equal(snapshot.markets[0].key, "sr:market:251|Winner");
 });
 
+test("market specifiers remain part of identity so Asian Handicap lines cannot overwrite each other", () => {
+  const snapshot = normalizeEventMarkets({
+    sport_event: { id: "sr:sport_event:specifiers", start_time: "2026-11-28T12:00:00Z" },
+    markets: [
+      {
+        id: "sr:market:16", name: "Asian Handicap", is_live: false, specifiers: "hcp=-0.5",
+        books: [{ id: "sr:book:1", outcomes: [
+          { id: "sr:outcome:home", type: "home", handicap: "-0.5", odds_decimal: "1.91" }
+        ] }]
+      },
+      {
+        id: "sr:market:16", name: "Asian Handicap", is_live: false, specifiers: "hcp=+0.5",
+        books: [{ id: "sr:book:1", outcomes: [
+          { id: "sr:outcome:home", type: "home", handicap: "+0.5", odds_decimal: "1.95" }
+        ] }]
+      }
+    ]
+  });
+  assert.equal(snapshot.markets.length, 2);
+  assert.deepEqual(snapshot.markets.map(market => market.key), [
+    "sr:market:16|Asian Handicap|hcp=-0.5",
+    "sr:market:16|Asian Handicap|hcp=+0.5"
+  ]);
+  assert.deepEqual(snapshot.markets.map(market => market.specifiers), ["hcp=-0.5", "hcp=+0.5"]);
+  assert.deepEqual(snapshot.markets.map(market => market.books[0].outcomes[0].line), ["-0.5", "+0.5"]);
+});
+
+test("object market specifiers are normalized deterministically", () => {
+  const snapshot = normalizeEventMarkets({
+    sport_event: { id: "sr:sport_event:specifier-object" },
+    markets: [{
+      id: "sr:market:18", name: "Totals", specifiers: { total: "2.5", period: "regular_time" },
+      books: [{ id: "sr:book:1", outcomes: [{ type: "over", odds_decimal: "1.9" }] }]
+    }]
+  });
+  assert.equal(snapshot.markets[0].specifiers, "period=regular_time&total=2.5");
+  assert.equal(snapshot.markets[0].key, "sr:market:18|Totals|period=regular_time&total=2.5");
+});
+
 test("Soccer result normalizer requires a Sportradar event ID", () => {
   assert.equal(normalizeSoccerResult({ sport_event: { id: "bad" } }), null);
   assert.deepEqual(normalizeSoccerResult({
