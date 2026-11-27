@@ -478,7 +478,7 @@ test("Sportradar 429 propagates Retry-After into shared cooldown callback", asyn
   assert.deepEqual(cooldown,{retryAfter:"12",httpStatus:429});
 });
 
-test("bulk daily market pagination reports incomplete when the hard page cap truncates results", async () => {
+test("bulk daily market pagination fails explicitly instead of publishing a truncated result", async () => {
   const config = loadSportsbookConfig(env);
   const offsets = [];
   const client = new SportradarClient(config, {
@@ -495,13 +495,12 @@ test("bulk daily market pagination reports incomplete when the hard page cap tru
       };
     }
   });
-  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25", { pageSize: 50, maxPages: 2 });
+  await assert.rejects(
+    client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25", { pageSize: 50, maxPages: 2 }),
+    error => error.code === "SPORTRADAR_MARKET_PAGINATION_GUARD_REACHED"
+  );
   assert.deepEqual(offsets, [0, 50]);
-  assert.equal(result.pagination.complete, false);
-  assert.equal(result.pagination.received, 100);
-  assert.equal(result.body.generated_at, "2026-11-25T00:00:00Z");
 });
-
 test("normalizer preserves scheduled events with no available markets and provider generated_at", () => {
   const rows = normalizeDailySportEventMarkets({
     generated_at: "2026-11-25T01:02:03Z",
