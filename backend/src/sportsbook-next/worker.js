@@ -22,7 +22,8 @@ const COVERAGE_KEY = "sportsbook:next:coverage:v1";
 const COVERAGE_TTL_SECONDS = 24 * 60 * 60;
 const SCHEDULE_CURSOR_PREFIX = "sportsbook:next:schedule-cursor:v1:";
 const SCHEDULE_COMPLETE_PREFIX = "sportsbook:next:schedule-complete:v1:";
-const SCHEDULE_CACHE_TTL_SECONDS = 6 * 60 * 60;
+const SCHEDULE_CACHE_TTL_SECONDS = 60 * 60;
+const SCHEDULE_STATUS_KEY = "sportsbook:next:schedule-status:v1";
 const SCHEDULE_CURSOR_TTL_SECONDS = 48 * 60 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
 let stopping = false;
@@ -204,19 +205,9 @@ async function runCycle(config, client) {
       if (quotaLimited || budgetLimited) break;
     }
 
-    const scheduleSync = (!quotaLimited && !budgetLimited)
-      ? await syncDailySchedules(config, client)
-      : { rows: [], status: [{ deferred: true, reason: quotaReason || "MARKET_CYCLE_INCOMPLETE" }] };
-    for (const schedule of scheduleSync.rows) {
-      const event = events.get(schedule.id);
-      if (!event) continue;
-      event.scheduled = schedule.scheduled ?? event.scheduled;
-      event.status = schedule.status && schedule.status !== "unknown" ? schedule.status : event.status;
-      event.home = schedule.home ?? event.home;
-      event.away = schedule.away ?? event.away;
-      event.competition = schedule.competition ?? event.competition;
-      event.competitionId = schedule.competitionId ?? event.competitionId;
-    }
+    // Daily Schedules run on their own hourly cadence; market discovery must
+    // not delay schedule corrections behind the 150-minute odds refresh.
+    const scheduleSync = { rows: [], status: [] };
     coverage = await refreshCoverage(config, client, {
       allowFetch: !quotaLimited && !budgetLimited && client.cycleCalls + 3 <= config.maxCallsPerCycle
     });
@@ -266,6 +257,35 @@ async function runCycle(config, client) {
     };
   } catch (error) {
     await redis.set(FEED_STATUS_KEY, JSON.stringify({ attemptedAt: new Date().toISOString(), complete: false, providerError: error?.code || "SPORTRADAR_POLL_FAILED", httpStatus: error?.httpStatus || null, retryAfter: error?.retryAfter || null }), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) }).catch(() => {});
+    throw error;
+  } finally {
+    await redis.eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", {
+      keys: [LOCK_KEY], arguments: [token]
+    });
+  }
+}
+
+async function runScheduleCycle(config, client) {
+  const token = randomUUID();
+  const lock = await redis.set(LOCK_KEY, token, { NX: true, PX: 30 * 60 * 1000 });
+  if (!lock) return { skipped: "another worker owns the poll lock" };
+  client.cycleCalls = 0;
+  try {
+    const result = await syncDailySchedules(config, client);
+    const completedAt = new Date().toISOString();
+    const complete = result.status.length > 0 && result.status.every(item => item.complete === true);
+    const status = {
+      attemptedAt: completedAt, complete, calls: client.cycleCalls,
+      rows: result.rows.length, dates: result.status
+    };
+    await redis.set(SCHEDULE_STATUS_KEY, JSON.stringify(status), { EX: 7 * 24 * 60 * 60 });
+    await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
+    return status;
+  } catch (error) {
+    await redis.set(SCHEDULE_STATUS_KEY, JSON.stringify({
+      attemptedAt: new Date().toISOString(), complete: false,
+      code: error?.code || "SPORTRADAR_SCHEDULE_SYNC_FAILED"
+    }), { EX: 7 * 24 * 60 * 60 }).catch(() => {});
     throw error;
   } finally {
     await redis.eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) else return 0 end", {
@@ -449,7 +469,7 @@ async function main() {
   logger.info("Sportradar sportsbook replacement worker started", {
     pollMinutes: config.pollIntervalMs / 60_000,
     changeLogEnabled: config.changeLogEnabled,
-    changeLogPollSeconds: config.changeLogPollMs / 1000,
+    changeLogPollSeconds: config.changeLogPollMs / 1000,\n    schedulePollMinutes: config.schedulePollIntervalMs / 60_000,\n    minimumCalls30Days: config.minimumCalls30Days,
     minimumChangeLogCalls30Days: config.minimumChangeLogCalls30Days,
     sportCount: config.sportIds.length,
     daysAhead: config.daysAhead,
