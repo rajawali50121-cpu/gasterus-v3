@@ -21,7 +21,11 @@ const readyEnv = {
   SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE: "0",
   SPORTRADAR_SOCCER_POLL_MINUTES: "90",
   SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true",
-  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "12000",\n  SPORTRADAR_SCHEDULE_POLL_MINUTES: "60",\n  SPORTSBOOK_POLL_MINUTES: "150",\n  SPORTRADAR_DAYS_AHEAD: "0",\n  SPORTRADAR_SPORT_IDS: "sr:sport:1",
+  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "12000",
+  SPORTRADAR_SCHEDULE_POLL_MINUTES: "60",
+  SPORTSBOOK_POLL_MINUTES: "150",
+  SPORTRADAR_DAYS_AHEAD: "0",
+  SPORTRADAR_SPORT_IDS: "sr:sport:1",
   SPORTRADAR_INITIAL_30_DAY_USAGE: "0",
   SPORTRADAR_CHANGELOG_POLL_SECONDS: "240",
   SPORTRADAR_MAX_CALLS_PER_CYCLE: "80",
@@ -90,7 +94,8 @@ test("bet acceptance requires production entitlement and continuous complete Cha
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
-    loadScheduleCount: async () => 1,\n    loadRiskReserveBalance: async () => 10_000_000,
+    loadScheduleCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: readyEnv, now
   });
   assert.equal(readiness.enabled, true);
@@ -103,6 +108,7 @@ test("trial quota and an unverified Change Log window fail closed", async () => 
   const trial = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
     loadScheduleCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: { ...readyEnv, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800" }, now
   });
   assert.equal(trial.enabled, false);
@@ -112,6 +118,7 @@ test("trial quota and an unverified Change Log window fail closed", async () => 
   const pending = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
     loadScheduleCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now, { refreshPending: true }), env: readyEnv, now
   });
   assert.equal(pending.enabled, false);
@@ -123,6 +130,7 @@ test("stale Change Log coverage blocks ticket acceptance", async () => {
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
     loadScheduleCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now, { lastSuccessAgeMs: 5 * 60 * 1000 + 1 }), env: readyEnv, now
   });
   assert.equal(readiness.enabled, false);
@@ -134,6 +142,7 @@ test("no approved verified full-time mapping keeps betting disabled", async () =
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 0,
     loadScheduleCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: readyEnv, now
   });
   assert.equal(readiness.enabled, false);
@@ -156,6 +165,7 @@ test("stale Soccer result or settlement worker heartbeat blocks new bets", async
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
     loadScheduleCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
     redis: { get: async key => values.get(key) ?? null },
     env: readyEnv, now
   });
@@ -169,6 +179,7 @@ test("insufficient independent Soccer product quota blocks bet acceptance", asyn
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
     loadScheduleCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now),
     env: { ...readyEnv, SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS: "300" },
     now
@@ -195,7 +206,8 @@ test("stale or missing Daily Schedules verification blocks ticket acceptance", a
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
-    loadScheduleCount: async () => 0,\n    loadRiskReserveBalance: async () => 10_000_000,
+    loadScheduleCount: async () => 0,
+    loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: readyEnv, now
   });
   assert.equal(readiness.enabled, false);
