@@ -9,7 +9,7 @@ import { getChangedSportEventIds, shouldReconcileChangeLog, SPORTRADAR_CHANGE_LO
 const env = {
   SPORTRADAR_API_KEY: "test-key",
   SPORTRADAR_ACCESS_LEVEL: "production",
-  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2000",
+  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2500",
   SPORTRADAR_MAX_CALLS_PER_HOUR: "20",
   SPORTRADAR_MAX_CALLS_PER_CYCLE: "6",
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10",
@@ -38,7 +38,7 @@ test("change-log configuration is opt-in and refuses a request budget too small 
   assert.throws(
     () => loadSportsbookConfig({
       ...env,
-      SPORTRADAR_MAX_CALLS_PER_30_DAYS: "12000",
+      SPORTRADAR_MAX_CALLS_PER_30_DAYS: "14000",
       SPORTRADAR_CHANGELOG_ENABLED: "true"
     }),
     /must not exceed 800/
@@ -96,7 +96,7 @@ test("config rejects missing API key, unsupported tier, and unverified quota bas
     SPORTRADAR_INITIAL_30_DAY_USAGE: "120",
     SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
   });
-  assert.equal(defaults.maxCallsPer30Days, 2000);
+  assert.equal(defaults.maxCallsPer30Days, 2500);
   assert.equal(defaults.initialCallsUsed30Days, 120);
   assert.equal(defaults.daysAhead, 0);
   assert.equal(defaults.maxCallsPerCycle, 6);
