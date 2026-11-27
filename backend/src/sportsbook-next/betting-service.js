@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { tx } from "../db.js";
 import { AppError, assert } from "../errors.js";
-import { memberAccount, postTransfer, SYSTEM_ACCOUNTS } from "../ledger.js";
+import { memberAccount, postSystemTransfer, postTransfer, SYSTEM_ACCOUNTS } from "../ledger.js";
 import { enforceResponsiblePlay } from "../responsible-play.js";
 import { audit } from "../audit.js";
 import { evaluateOddsFreshness } from "./prematch-freshness-guard.js";
@@ -378,6 +378,27 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
     });
     assert(ledger.duplicate !== true && ledger.transactionId, 500,
       "Ledger mendeteksi transaksi duplikat yang tidak diharapkan.", "SPORTSBOOK_LEDGER_IDEMPOTENCY_CONFLICT");
+
+    // Stake is held from the member; the additional potential profit is reserved
+    // from a separately funded risk account before the ticket can be accepted.
+    const profitReserve = amounts.potentialPayout - stake;
+    if (profitReserve > 0) {
+      const reserve = await postSystemTransfer(client, {
+        fromCode: SYSTEM_ACCOUNTS.SPORTSBOOK_RISK_RESERVE,
+        toCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD,
+        amount: profitReserve,
+        type: "SPORTSBOOK_PAYOUT_RESERVE",
+        referenceType: "SPORTSBOOK_TICKET",
+        referenceId: ticketId,
+        idempotencyKey: `sportsbook:ticket:${ticketId}:reserve`,
+        metadata: { invoice, stake, potentialPayout: amounts.potentialPayout, profitReserve },
+        actorId: session.userId,
+        requireFromAvailable: true
+      });
+      assert(reserve.duplicate !== true && reserve.transactionId, 500,
+        "Dana risk reserve tidak berhasil dikunci.", "SPORTSBOOK_RISK_RESERVE_FAILED");
+    }
+
     const ticketUpdate = await client.query(`
       UPDATE sportsbook_v2_tickets
       SET ledger_transaction_id=$1,balance_before=$2,balance_after=$3
