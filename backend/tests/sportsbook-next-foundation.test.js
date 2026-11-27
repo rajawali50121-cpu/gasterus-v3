@@ -11,7 +11,8 @@ const env = {
   SPORTRADAR_ACCESS_LEVEL: "trial",
   SPORTRADAR_MAX_CALLS_PER_30_DAYS: "100",
   SPORTRADAR_MAX_CALLS_PER_HOUR: "20",
-  SPORTRADAR_INITIAL_30_DAY_USAGE: "10"
+  SPORTRADAR_INITIAL_30_DAY_USAGE: "10",
+  SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
 };
 
 test("config defaults to 150-minute refresh, current UTC date only and official Odds Comparison/Soccer v4 base URLs", () => {
@@ -77,11 +78,23 @@ test("trial configuration cannot exceed the 800-call internal budget or fan out 
   );
 });
 
-test("config rejects missing API key and unsupported tier, and defaults trial budget conservatively", () => {
+test("config rejects missing API key, unsupported tier, and unverified quota baselines", () => {
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_API_KEY: "" }), /SPORTRADAR_API_KEY/);
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "free" }), /trial or production/);
-  const defaults = loadSportsbookConfig({ SPORTRADAR_API_KEY: "test" });
+  assert.throws(() => loadSportsbookConfig({ SPORTRADAR_API_KEY: "test" }), /explicit SPORTRADAR_MAX_CALLS_PER_30_DAYS/);
+  assert.throws(() => loadSportsbookConfig({
+    SPORTRADAR_API_KEY: "test",
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800",
+    SPORTRADAR_INITIAL_30_DAY_USAGE: "0"
+  }), /baseline is unconfirmed/);
+  const defaults = loadSportsbookConfig({
+    SPORTRADAR_API_KEY: "test",
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800",
+    SPORTRADAR_INITIAL_30_DAY_USAGE: "120",
+    SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
+  });
   assert.equal(defaults.maxCallsPer30Days, 800);
+  assert.equal(defaults.initialCallsUsed30Days, 120);
   assert.equal(defaults.daysAhead, 0);
   assert.equal(defaults.maxCallsPerCycle, 5);
 });
@@ -489,4 +502,48 @@ test("Sportradar 429 propagates Retry-After into shared cooldown callback", asyn
   });
   await assert.rejects(client.getSports(),error=>error.code==="SPORTRADAR_RATE_LIMITED");
   assert.deepEqual(cooldown,{retryAfter:"12",httpStatus:429});
+});
+
+test("bulk daily market pagination reports incomplete when the hard page cap truncates results", async () => {
+  const config = loadSportsbookConfig(env);
+  const offsets = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      const parsed = new URL(url);
+      offsets.push(Number(parsed.searchParams.get("start")));
+      return {
+        ok: true, status: 200,
+        headers: { get: name => name === "x-max-results" ? "150" : name === "x-result" ? "50" : null },
+        json: async () => ({
+          generated_at: "2026-11-25T00:00:00Z",
+          sport_schedule_sport_event_markets: Array.from({ length: 50 }, (_, i) => ({ sport_event: { id: `sr:sport_event:${offsets.at(-1)+i}` }, markets: [] }))
+        })
+      };
+    }
+  });
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25", { pageSize: 50, maxPages: 2 });
+  assert.deepEqual(offsets, [0, 50]);
+  assert.equal(result.pagination.complete, false);
+  assert.equal(result.pagination.received, 100);
+  assert.equal(result.body.generated_at, "2026-11-25T00:00:00Z");
+});
+
+test("normalizer preserves scheduled events with no available markets and provider generated_at", () => {
+  const rows = normalizeDailySportEventMarkets({
+    generated_at: "2026-11-25T01:02:03Z",
+    sport_schedule_sport_event_markets: [{
+      sport_event: { id: "sr:sport_event:888", start_time: "2026-11-25T20:00:00Z", status: "not_started" },
+      markets: []
+    }]
+  }, "sr:sport:1", "2026-11-25T01:02:05Z");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, "sr:sport_event:888");
+  assert.deepEqual(rows[0].markets, []);
+  assert.equal(rows[0].providerGeneratedAt, "2026-11-25T01:02:03.000Z");
+});
+
+test("normalizer rejects malformed event identity instead of silently dropping the row", () => {
+  assert.throws(() => normalizeDailySportEventMarkets({
+    sport_schedule_sport_event_markets: [{ sport_event: { id: "not-a-provider-event" }, markets: [] }]
+  }, "sr:sport:1"), /SPORTRADAR_EVENT_ID_INVALID/);
 });

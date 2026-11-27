@@ -41,40 +41,59 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
   }
   const markets = arr(payload?.markets).flatMap(market => {
     const marketId = market?.id;
-    if (typeof marketId !== "string" || !marketId.startsWith("sr:market:")) return [];
-    const books = arr(market?.books).flatMap(book => {
-      if (!book?.id || isRemoved(book.removed)) return [];
-      const outcomes = arr(book.outcomes).flatMap(outcome => {
-        if (isRemoved(outcome?.removed)) return [];
-        const price = Number(outcome?.odds_decimal);
-        if (!Number.isFinite(price) || price <= 1) return [];
-        return [{
-          id: outcome.id ?? null,
-          type: outcome.type ?? null,
-          name: outcome.name ?? null,
-          oddsDecimal: price,
-          openingOddsDecimal: outcome.open_odds_decimal != null && Number.isFinite(Number(outcome.open_odds_decimal)) ? Number(outcome.open_odds_decimal) : null,
-          line: outcome.handicap ?? outcome.total ?? outcome.spread ?? outcome.line ?? null,
-          fieldId: outcome.field_id ?? null,
-          externalOutcomeId: outcome.external_outcome_id ?? null,
-          playerId: outcome.player_id ?? null,
-          playerName: outcome.player_name ?? null
-        }];
-      });
-      return outcomes.length ? [{
+    if (typeof marketId !== "string" || !/^sr:market:\d+$/.test(marketId)) return [];
+    const normalizeOutcome = outcome => {
+      const price = outcome?.odds_decimal == null ? null : Number(outcome.odds_decimal);
+      return {
+        id: outcome.id ?? null,
+        type: outcome.type ?? null,
+        name: outcome.name ?? null,
+        oddsDecimal: Number.isFinite(price) ? price : null,
+        oddsAmerican: outcome.odds_american ?? null,
+        oddsFraction: outcome.odds_fraction ?? null,
+        openingOddsDecimal: outcome.open_odds_decimal != null && Number.isFinite(Number(outcome.open_odds_decimal)) ? Number(outcome.open_odds_decimal) : null,
+        openingOddsAmerican: outcome.open_odds_american ?? null,
+        openingOddsFraction: outcome.open_odds_fraction ?? null,
+        line: outcome.handicap ?? outcome.total ?? outcome.spread ?? outcome.line ?? null,
+        openingLine: outcome.open_handicap ?? outcome.open_total ?? outcome.open_spread ?? null,
+        fieldId: outcome.field_id ?? null,
+        externalOutcomeId: outcome.external_outcome_id ?? null,
+        playerId: outcome.player_id ?? null,
+        playerName: outcome.player_name ?? null,
+        removed: isRemoved(outcome.removed)
+      };
+    };
+    const books = [];
+    const removedBooks = [];
+    for (const book of arr(market?.books)) {
+      if (!book?.id) continue;
+      const normalizedOutcomes = arr(book.outcomes).map(normalizeOutcome);
+      const normalizedBook = {
         id: book.id, name: book.name ?? null,
         externalMarketId: book.external_market_id ?? null,
         externalSportEventId: book.external_sport_event_id ?? null,
-        outcomes
-      }] : [];
-    });
+        outcomes: normalizedOutcomes
+      };
+      if (isRemoved(book.removed)) {
+        removedBooks.push({ ...normalizedBook, removed: true });
+        continue;
+      }
+      const activeOutcomes = normalizedOutcomes.filter(outcome =>
+        !isRemoved(outcome.removed) && Number.isFinite(outcome.oddsDecimal) && outcome.oddsDecimal > 1
+      );
+      const removedOutcomes = normalizedOutcomes.filter(outcome => isRemoved(outcome.removed));
+      if (activeOutcomes.length || removedOutcomes.length) {
+        books.push({ ...normalizedBook, removed: false, outcomes: activeOutcomes, removedOutcomes });
+      }
+    }
     const name = market.name ?? marketId;
-    return [{ id: marketId, key: `${marketId}|${name}`, name, live: market.is_live === true, books }];
+    return [{ id: marketId, key: `${marketId}|${name}`, name, live: market.is_live === true, books, removedBooks }];
   });
   return {
     schemaVersion: 1,
     provider: "sportradar-odds-comparison-prematch-v2",
     fetchedAt,
+    providerGeneratedAt: typeof payload?.generated_at === "string" && Number.isFinite(Date.parse(payload.generated_at)) ? new Date(payload.generated_at).toISOString() : null,
     event: {
       id: eventId,
       scheduled: event.start_time ?? null,
@@ -91,20 +110,17 @@ export function normalizeDailySportEventMarkets(payload, sportId, fetchedAt = ne
   return rows.flatMap(item => {
     const event = item?.sport_event ?? item;
     const marketsPayload = item?.sport_event_markets ?? item;
-    const markets = arr(marketsPayload?.markets ?? item?.markets);
-    if (!event?.id || !markets.length) return [];
-    try {
-      const normalized = normalizeEventMarkets({ sport_event: event, markets }, fetchedAt);
-      return [{
-        ...normalized.event,
-        sportId,
-        competition: item?.sport_event_context?.competition?.name ?? item?.competition?.name ?? null,
-        competitionId: item?.sport_event_context?.competition?.id ?? item?.competition?.id ?? null,
-        markets: normalized.markets
-      }];
-    } catch {
-      return [];
-    }
+    const markets = marketsPayload?.markets ?? item?.markets ?? [];
+    if (!Array.isArray(markets)) throw new Error("SPORTRADAR_MARKETS_SHAPE_INVALID");
+    const normalized = normalizeEventMarkets({ generated_at: payload?.generated_at, sport_event: event, markets }, fetchedAt);
+    return [{
+      ...normalized.event,
+      providerGeneratedAt: normalized.providerGeneratedAt,
+      sportId,
+      competition: item?.sport_event_context?.competition?.name ?? item?.competition?.name ?? null,
+      competitionId: item?.sport_event_context?.competition?.id ?? item?.competition?.id ?? null,
+      markets: normalized.markets
+    }];
   });
 }
 
