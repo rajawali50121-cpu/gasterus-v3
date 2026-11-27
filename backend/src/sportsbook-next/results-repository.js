@@ -1,16 +1,86 @@
 import { tx } from "./db.js";
 
-export async function listResultCandidateDates() {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function validDate(value) {
+  const time = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(time) ? time : null;
+}
+
+export function buildSoccerResultCandidateGroups(events, {
+  now = Date.now(), bufferMinutes = 150, maxLookbackDays = 7
+} = {}) {
+  const nowMs = validDate(now);
+  if (nowMs === null || !Number.isFinite(bufferMinutes) || bufferMinutes < 0 ||
+      !Number.isInteger(maxLookbackDays) || maxLookbackDays < 1) {
+    throw new TypeError("SOCCER_V4_RESULT_CANDIDATE_CONFIG_INVALID");
+  }
+  const cutoff = nowMs - bufferMinutes * 60_000;
+  const oldestAllowed = nowMs - maxLookbackDays * DAY_MS;
+  const groups = new Map();
+  let manualReviewCount = 0;
+  let candidateCount = 0;
+
+  for (const event of Array.isArray(events) ? events : []) {
+    const kickoff = validDate(event.scheduledAt ?? event.scheduled_at);
+    if (kickoff === null || kickoff > cutoff) continue;
+    const status = String(event.resultStatus ?? event.event_status ?? "").toLowerCase();
+    const generatedAt = validDate(event.providerGeneratedAt ?? event.source_updated_at);
+    const isVerifiedFinal = status === "closed" &&
+      (event.resultVerified ?? event.verified) === true && generatedAt !== null;
+    if (isVerifiedFinal) continue;
+    if (kickoff < oldestAllowed) {
+      manualReviewCount += 1;
+      continue;
+    }
+    const date = new Date(kickoff).toISOString().slice(0, 10);
+    groups.set(date, (groups.get(date) || 0) + 1);
+    candidateCount += 1;
+  }
+
+  return {
+    dates: [...groups.keys()].sort(),
+    candidateCount,
+    manualReviewCount
+  };
+}
+
+export function selectOldestDueSoccerResultDate(dates, lastPolls = {}, now = Date.now(), intervalMs = 60 * 60 * 1000) {
+  if (!Array.isArray(dates) || !lastPolls || typeof lastPolls !== "object" ||
+      !Number.isFinite(now) || !Number.isFinite(intervalMs) || intervalMs < 0) {
+    throw new TypeError("SOCCER_V4_RESULT_DATE_SELECTION_INVALID");
+  }
+  return [...new Set(dates)].sort().find(date => {
+    const lastPoll = Number(lastPolls[date] || 0);
+    return !Number.isFinite(lastPoll) || lastPoll <= 0 || now - lastPoll >= intervalMs;
+  }) ?? null;
+}
+
+export async function listResultCandidateDates({
+  bufferMinutes = Number(process.env.SOCCER_V4_RESULT_BUFFER_MINUTES ?? 150),
+  maxLookbackDays = Number(process.env.SOCCER_V4_MAX_LOOKBACK_DAYS ?? 7),
+  now = new Date()
+} = {}) {
+  if (!Number.isFinite(bufferMinutes) || bufferMinutes < 0 ||
+      !Number.isInteger(maxLookbackDays) || maxLookbackDays < 1) {
+    throw new TypeError("SOCCER_V4_RESULT_CANDIDATE_CONFIG_INVALID");
+  }
   return tx(async client => {
     const result = await client.query(`
-      SELECT DISTINCT to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date
-      FROM sportsbook_v2_events
-      WHERE (scheduled_at AT TIME ZONE 'UTC')::date
-        BETWEEN ((now() AT TIME ZONE 'UTC')::date - 1)
-            AND (now() AT TIME ZONE 'UTC')::date
-      ORDER BY date
-    `);
-    return result.rows.map(row => row.date);
+      SELECT e.scheduled_at,
+             r.event_status AS result_status,
+             r.verified AS result_verified,
+             r.source_updated_at AS provider_generated_at
+      FROM sportsbook_v2_events e
+      LEFT JOIN sportsbook_v2_event_results r
+        ON r.provider_event_id = e.provider_event_id
+      WHERE e.scheduled_at IS NOT NULL
+        AND e.scheduled_at <= $1::timestamptz - ($2::text || ' minutes')::interval
+      ORDER BY e.scheduled_at ASC
+    `, [now, bufferMinutes]);
+    return buildSoccerResultCandidateGroups(result.rows, {
+      now, bufferMinutes, maxLookbackDays
+    });
   });
 }
 
