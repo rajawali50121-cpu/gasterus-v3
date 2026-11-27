@@ -36,7 +36,8 @@ function redisWith(value) {
 
 test("public feed returns a fresh complete snapshot with odds from Redis only", async () => {
   const redis = redisWith(validSnapshot);
-  const result = await readPublicSportsbookSnapshot({ redis, now, loadMappings: async () => ({ rows: [] }) });
+  const result = await readPublicSportsbookSnapshot({ redis, now, loadMappings: async () => ({ rows: [] }),
+    loadVerifiedSchedules: async () => ({ rows: [] }) });
   assert.equal(result.events.length, 1);
   assert.equal(result.events[0].markets[0].books[0].outcomes[0].oddsDecimal, 1.95);
   assert.equal(result.ageMs, 60_000);
@@ -85,7 +86,8 @@ test("public feed reports Redis read failures without attempting provider calls"
   const calls = [];
   const redis = { get: async key => { calls.push(key); throw new Error("redis unavailable"); } };
   await assert.rejects(
-    readPublicSportsbookSnapshot({ redis, now, loadMappings: async () => ({ rows: [] }) }),
+    readPublicSportsbookSnapshot({ redis, now, loadMappings: async () => ({ rows: [] }),
+    loadVerifiedSchedules: async () => ({ rows: [] }) }),
     error => error.code === "SPORTSBOOK_CACHE_UNAVAILABLE" && error.status === 503
   );
   assert.deepEqual(calls, ["sportsbook:next:snapshot:v1"]);
@@ -132,7 +134,8 @@ test("public feed marks only an exact verified full-time 1X2 mapping as bettable
 test("ambiguous or absent mapping leaves all odds display-only", async () => {
   const result = await readPublicSportsbookSnapshot({
     redis: redisWith(validSnapshot), now,
-    loadMappings: async () => ({ rows: [] })
+    loadMappings: async () => ({ rows: [] }),
+    loadVerifiedSchedules: async () => ({ rows: [] })
   });
   assert.equal(result.events[0].markets[0].bettable, false);
   assert.equal(result.events[0].markets[0].books[0].outcomes[0].bettable, false);
