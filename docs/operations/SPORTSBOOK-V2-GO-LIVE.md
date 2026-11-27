@@ -4,7 +4,7 @@
 
 The provider and financial paths are deliberately separate:
 
-1. **Odds Comparison Prematch v2 worker** discovers Soccer schedules and prices, then refreshes only events returned by the official five-minute Change Log. It writes the last-known-good snapshot to Redis and normalized prices to PostgreSQL.
+1. **Odds Comparison Prematch v2 worker** imports event metadata from the official Daily Schedules `schedules.json` feed into the events table, separately imports prices from the official Daily Sport Event Markets feed, and joins them only by exact `sr:sport_event` URN. It then refreshes changed events from the official five-minute Change Log. Schedule sync never writes markets or prices; the market feed never overwrites schedule-owned event metadata.
 2. **Soccer API v4 result worker** independently polls daily summaries for tracked events after the configured result buffer. It stores provider time separately from local receipt time and treats only verified `closed` results with complete scores, or provider-confirmed `cancelled`, as settleable.
 3. **Member API** exposes only operator-approved, verified full-time Soccer 1X2 selections. The server rechecks the exact provider event, market, bookmaker, selection, odds, status, freshness, mapping and risk limits before debiting a member.
 4. **Settlement worker** settles only verified result contracts, using the existing GASTERUS double-entry ledger. Stake is held in `SYSTEM:SPORTSBOOK_HOLD`; potential profit is reserved from `SYSTEM:SPORTSBOOK_RISK_RESERVE`. Unused reserve is released atomically.
@@ -15,7 +15,7 @@ The provider and financial paths are deliberately separate:
 - Odds Comparison Prematch v2 base: `https://api.sportradar.com/oddscomparison-prematch/{trial|production}/v2/{language}`.
 - Soccer API v4 base: `https://api.sportradar.com/soccer/{trial|production}/v4/{language}`.
 - Both products authenticate server-side using the `x-api-key` header.
-- Prematch flow: Daily Schedules → per-event Sport Event Markets → Sport Event Markets Change Log. The Change Log reports changed events in a five-minute window; if a gap exceeds that window, reconcile every tracked event before restoring betting.
+- Prematch flow: Daily Schedules (`schedules.json`) for event metadata; Daily Sport Event Markets for market prices; Sport Event Markets Change Log for incremental updates. The Change Log reports changed events in a five-minute window; if a gap exceeds that window, reconcile every tracked event before restoring betting.
 - Soccer results use Soccer v4 Daily Summaries and preserve the exact `sr:sport_event:` URN. Do not join by team names, kickoff time, or legacy `sr:match:` IDs.
 
 Official references:
