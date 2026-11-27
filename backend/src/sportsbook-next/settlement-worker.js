@@ -24,7 +24,7 @@ async function main() {
   const pollSeconds = positiveInteger(process.env.SPORTSBOOK_SETTLEMENT_POLL_SECONDS, 15, 5, 300);
   const batchSize = positiveInteger(process.env.SPORTSBOOK_SETTLEMENT_BATCH_SIZE, 50, 1, 250);
   await connectRedis();
-  await redis.set(STATUS_KEY, JSON.stringify({ healthy: false, state: "starting", attemptedAt: new Date().toISOString() }), { EX: 300 });
+  await redis.set(STATUS_KEY, JSON.stringify({ healthy: false, state: "starting", attemptedAt: new Date().toISOString() }), { EX: 900 });
   logger.info("Sportsbook settlement worker started", {
     pollSeconds, batchSize, resultAuthority: "sportradar-soccer-v4-closed",
     supportedMarket: "SOCCER_1X2_3WAY"
@@ -36,8 +36,8 @@ async function main() {
       const summary = await settleReadySportsbookTickets({ limit: batchSize });
       await redis.set(STATUS_KEY, JSON.stringify({
         healthy: true, completedAt, summary, resultAuthority: "sportradar-soccer-v4-closed"
-      }), { EX: 300 });
-      await redis.set(HEARTBEAT_KEY, completedAt, { EX: 120 });
+      }), { EX: 900 });
+      await redis.set(HEARTBEAT_KEY, completedAt, { EX: 600 });
       if (summary.scanned || summary.manualReview || summary.liquidityBlocked) {
         logger.info("Sportsbook settlement cycle", summary);
       }
