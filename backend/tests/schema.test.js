@@ -36,12 +36,12 @@ test('sportsbook source timestamps remain distinct from ingestion time without d
 test('sportsbook market mapping, result and settlement revisions are additive and auditable',()=>{for(const token of ['sportsbook_v2_market_catalog','sportsbook_v2_provider_market_mappings','sportsbook_v2_event_result_revisions','sportsbook_v2_settlement_revisions','UNIQUE(ticket_id,revision_no)','ledger_transaction_id'])assert.ok(sportsbookSettlementSchema.includes(token),token);assert.doesNotMatch(sportsbookSettlementSchema,/\bDROP\s+TABLE\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);});
 
 test('sportsbook bet acceptance separates receipt time, change-log verification and immutable settlement mapping',()=>{
-  for(const token of ['received_at','change_log_verified_at','price_received_at','market_code','outcome_code','settlement_rule','mapping_version','ALTER COLUMN source_updated_at DROP NOT NULL']) assert.ok(sportsbookBetAcceptanceSchema.includes(token),token);
+  for(const token of ['received_at','change_log_verified_at','provider_market_name','provider_book_name','provider_outcome_name','provider_outcome_type','price_received_at','market_code','outcome_code','settlement_rule','mapping_version','ALTER COLUMN source_updated_at DROP NOT NULL']) assert.ok(sportsbookBetAcceptanceSchema.includes(token),token);
   assert.doesNotMatch(sportsbookBetAcceptanceSchema,/\\bDROP\\s+TABLE\\b|\\bTRUNCATE\\b|\\bDELETE\\s+FROM\\b/i);
 });
 
 test('sportsbook ticket acceptance is gated by a fresh complete Change Log and uses the existing double-entry ledger',()=>{
-  for(const token of ['SPORTRADAR_CHANGELOG_ENABLED','SPORTRADAR_ACCESS_LEVEL','PRODUCTION_ENTITLEMENT_REQUIRED','CHANGE_LOG_WINDOW_STALE','change_log_verified_at','postTransfer','SPORTSBOOK_HOLD','enforceResponsiblePlay','requestFingerprint']) assert.ok(sportsbookBettingService.includes(token),token);
+  for(const token of ['SPORTRADAR_CHANGELOG_ENABLED','SPORTRADAR_ACCESS_LEVEL','PRODUCTION_ENTITLEMENT_REQUIRED','CHANGE_LOG_WINDOW_STALE','change_log_verified_at','postTransfer','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','enforceResponsiblePlay','requestFingerprint','NO_VERIFIED_MARKET_MAPPINGS','listMemberSportsbookTickets']) assert.ok(sportsbookBettingService.includes(token),token);
   assert.ok(sportsbookBettingService.includes('SUPPORTED_MARKET_CODE'));
   assert.ok(sportsbookBettingService.includes('SPORTSBOOK_SETTLEMENT_RULE_UNSUPPORTED'));
 });
@@ -52,7 +52,7 @@ test('sportsbook acceptance cannot start before settlement is explicitly enabled
 });
 
 test('sportsbook settlement uses confirmed results, SKIP LOCKED and the existing double-entry ledger',()=>{
-  for(const token of ['FOR UPDATE OF t SKIP LOCKED','evaluateSoccer1x2Leg','SPORTSBOOK_HOLD','postSystemTransfer','postTransfer','SPORTSBOOK_TICKET_SETTLED']) assert.ok(sportsbookSettlementService.includes(token),token);
+  for(const token of ['FOR UPDATE OF t SKIP LOCKED','evaluateSoccer1x2Leg','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','PAYOUT_RESERVE_RELEASE','postSystemTransfer','postTransfer','SPORTSBOOK_TICKET_SETTLED']) assert.ok(sportsbookSettlementService.includes(token),token);
   assert.ok(sportsbookBetAcceptanceSchema.includes('settlement_ledger_transaction_id'));
 });
 
