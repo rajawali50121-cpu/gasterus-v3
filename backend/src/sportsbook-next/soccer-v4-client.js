@@ -93,14 +93,10 @@ export class SoccerV4Client {
         throw providerError("SOCCER_V4_RESULTS_SHAPE_INVALID", "Soccer v4 summaries response has an invalid shape");
       }
       metadata.pageResultCount = body.summaries.length;
-      const unique = new Map();
-      for (const summary of body.summaries) {
+      body.summaries = body.summaries.flatMap(summary => {
         const id = normalizeSportEventId(summary?.sport_event?.id);
-        if (!id) continue;
-        const normalized = { ...summary, sport_event: { ...summary.sport_event, id } };
-        if (!unique.has(id)) unique.set(id, normalized);
-      }
-      body.summaries = [...unique.values()];
+        return id ? [{ ...summary, sport_event: { ...summary.sport_event, id } }] : [];
+      });
       return { body, headers: response.headers, metadata };
     } finally {
       clearTimeout(timeout);
