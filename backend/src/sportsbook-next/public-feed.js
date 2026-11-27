@@ -19,12 +19,7 @@ function hasValidOdds(market) {
  */
 export async function readPublicSportsbookSnapshot({
   redis, now = Date.now(), maxAgeMs = MAX_SNAPSHOT_AGE_MS,
-  loadMappings = query,
-  loadVerifiedSchedules = async () => query(`
-    SELECT provider_event_id
-    FROM sportsbook_v2_events
-    WHERE schedule_verified_at >= now() - interval '6 hours'
-  `)
+  loadMappings = query
 }) {
   let raw;
   try {
@@ -65,8 +60,9 @@ export async function readPublicSportsbookSnapshot({
     throw new AppError(503, "Belum ada pertandingan dengan market berodds pada snapshot terakhir.", "SPORTSBOOK_ODDS_UNAVAILABLE");
   }
 
-  // Only operator-approved, verified full-time Soccer 1X2 mappings are selectable.
-  // If mappings are absent or the catalog cannot be read, odds remain display-only.
+  // Selectability depends on an exact, operator-approved settlement mapping
+  // and a prematch market. Daily Schedules timestamps are not a bet gate:
+  // this worker's active feed is Daily Sport Event Markets.
   let mappingRows = [];
   let bettingMappingsAvailable = false;
   try {
@@ -92,14 +88,6 @@ export async function readPublicSportsbookSnapshot({
     bettingMappingsAvailable = false;
   }
 
-  let verifiedScheduleIds = new Set();
-  try {
-    const scheduleRows = await loadVerifiedSchedules();
-    verifiedScheduleIds = new Set((scheduleRows.rows || []).map(row => row.provider_event_id));
-  } catch {
-    verifiedScheduleIds = new Set();
-  }
-
   const projectedEvents = events.map(event => ({
     ...event,
     markets: event.markets.map(market => {
@@ -114,12 +102,12 @@ export async function readPublicSportsbookSnapshot({
       const outcomeMap = mapping?.outcomes && typeof mapping.outcomes === "object" ? mapping.outcomes : {};
       return {
         ...market,
-        bettable: Boolean(mapping && !market.live && verifiedScheduleIds.has(event.id)),
+        bettable: Boolean(mapping && !market.live),
         books: market.books.map(book => ({
           ...book,
           outcomes: book.outcomes.map(outcome => ({
             ...outcome,
-            bettable: Boolean(mapping && !market.live && verifiedScheduleIds.has(event.id) &&
+            bettable: Boolean(mapping && !market.live &&
               ["HOME","DRAW","AWAY"].includes(String(outcomeMap[String(outcome.type || "").toUpperCase()] || "").toUpperCase()))
           }))
         }))
@@ -129,8 +117,7 @@ export async function readPublicSportsbookSnapshot({
 
   return {
     ...snapshot, events: projectedEvents, ageMs, bettingMappingsAvailable,
-    verifiedScheduleCount: verifiedScheduleIds.size,
     betAcceptanceEnabled: snapshot.complete === true && bettingMappingsAvailable &&
-      mappingRows.length > 0 && verifiedScheduleIds.size > 0
+      mappingRows.length > 0
   };
 }
