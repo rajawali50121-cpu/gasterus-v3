@@ -41,7 +41,6 @@ function healthyRedis(now, { refreshPending = false, lastSuccessAgeMs = 15_000 }
       reconcilePending: 0, changedPending: 0
     })],
     [__sportsbookBetting.SNAPSHOT_KEY, JSON.stringify({ complete: true, refreshPending })],
-    [__sportsbookBetting.CHANGE_LOG_LAST_SUCCESS_KEY, String(now - lastSuccessAgeMs)],
     [__sportsbookBetting.SOCCER_STATUS_KEY, JSON.stringify({ cycleComplete: true, dateComplete: true })],
     [__sportsbookBetting.SOCCER_HEARTBEAT_KEY, new Date(now - 15_000).toISOString()],
     [__sportsbookBetting.SETTLEMENT_STATUS_KEY, JSON.stringify({ healthy: true })],
@@ -155,7 +154,6 @@ test("stale Soccer result or settlement worker heartbeat blocks new bets", async
       complete: true, changeLogPoll: true, quotaLimited: false, errorCount: 0
     })],
     [__sportsbookBetting.SNAPSHOT_KEY, JSON.stringify({ complete: true, refreshPending: false })],
-    [__sportsbookBetting.CHANGE_LOG_LAST_SUCCESS_KEY, String(now - 15_000)],
     [__sportsbookBetting.SOCCER_STATUS_KEY, JSON.stringify({ cycleComplete: true })],
     [__sportsbookBetting.SOCCER_HEARTBEAT_KEY, new Date(now - 5 * 60 * 60 * 1000).toISOString()],
     [__sportsbookBetting.SETTLEMENT_STATUS_KEY, JSON.stringify({ healthy: false })],
