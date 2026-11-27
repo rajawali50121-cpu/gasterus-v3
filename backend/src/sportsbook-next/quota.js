@@ -23,6 +23,7 @@ end
 local hourlyWindow = tonumber(ARGV[4])
 local hourlyLimit = tonumber(ARGV[5])
 local monthlyLimit = tonumber(ARGV[6])
+local softLimit = tonumber(ARGV[7])
 local hourly = redis.call('ZCOUNT', KEYS[1], now - hourlyWindow, '+inf')
 local used = tonumber(baselineCount) + redis.call('ZCARD', KEYS[1])
 local oldest = redis.call('ZRANGEBYSCORE', KEYS[1], now - hourlyWindow, '+inf', 'WITHSCORES', 'LIMIT', 0, 1)
@@ -32,9 +33,10 @@ if #oldest >= 2 then
 end
 
 if hourlyLimit > 0 and hourly >= hourlyLimit then return {2, hourly, used, retryAfter} end
+if used >= softLimit then return {3, hourly, used, 0} end
 if used >= monthlyLimit then return {0, hourly, used, 0} end
 
-redis.call('ZADD', KEYS[1], now, ARGV[7])
+redis.call('ZADD', KEYS[1], now, ARGV[8])
 redis.call('EXPIRE', KEYS[1], 2678400)
 return {1, hourly + 1, used + 1, 0}
 `;
@@ -49,6 +51,7 @@ export async function reserveSportradarCall(redis, config, now = Date.now()) {
       String(HOUR_MS),
       String(config.maxCallsPerHour),
       String(config.maxCallsPer30Days),
+      String(Math.ceil(config.maxCallsPer30Days * 0.9)),
       randomUUID()
     ]
   });
@@ -56,11 +59,14 @@ export async function reserveSportradarCall(redis, config, now = Date.now()) {
   const [allowed, hourlyUsed, monthlyUsed, retryAfterMs] = values;
   if (allowed === 1) return;
   const hourly = allowed === 2;
-  const error = new Error(hourly ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED");
-  error.code = hourly ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED";
+  const softLimited = allowed === 3;
+  const code = hourly ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" : softLimited ? "SPORTRADAR_QUOTA_90_PERCENT_GUARD" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED";
+  const error = new Error(code);
+  error.code = code;
   error.quotaScope = hourly ? "hour" : "30_days";
   error.quotaUsed = hourly ? hourlyUsed : monthlyUsed;
   error.quotaLimit = hourly ? config.maxCallsPerHour : config.maxCallsPer30Days;
+  error.quotaThreshold = softLimited ? Math.ceil(config.maxCallsPer30Days * 0.9) : null;
   error.retryAfter = hourly && retryAfterMs > 0 ? String(Math.ceil(retryAfterMs / 1000)) : null;
   throw error;
 }
@@ -89,7 +95,10 @@ export async function getSportradarQuotaUsage(redis, config, now = Date.now()) {
     hourlyEnforced: config.maxCallsPerHour > 0,
     monthlyUsed,
     monthlyLimit: config.maxCallsPer30Days,
-    monthlyRemaining: Math.max(0, config.maxCallsPer30Days - monthlyUsed)
+    monthlyRemaining: Math.max(0, config.maxCallsPer30Days - monthlyUsed),
+    monthlyPercent: config.maxCallsPer30Days > 0 ? Math.min(100, Math.round((monthlyUsed / config.maxCallsPer30Days) * 10000) / 100) : 100,
+    criticalAlert: config.maxCallsPer30Days > 0 && monthlyUsed >= Math.ceil(config.maxCallsPer30Days * 0.9),
+    throttledAt: Math.ceil(config.maxCallsPer30Days * 0.9)
   };
 }
 
@@ -97,7 +106,7 @@ export const __quota = { KEY, BASELINE_KEY, RESERVE_SCRIPT, USAGE_SCRIPT, WINDOW
 
 const QPS_NEXT_KEY = "sportsbook:next:sportradar:qps-next:v1";
 const QPS_COOLDOWN_KEY = "sportsbook:next:sportradar:qps-cooldown:v1";
-const QPS_INTERVAL_MS = 1100;
+const QPS_INTERVAL_MS = 1200;
 const QPS_RESERVE_SCRIPT = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
