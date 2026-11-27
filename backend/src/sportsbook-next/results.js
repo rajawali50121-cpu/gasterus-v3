@@ -3,35 +3,65 @@ const validTimestamp = value => typeof value === "string" && Number.isFinite(Dat
   ? new Date(value).toISOString()
   : null;
 
-export function normalizeSoccerResult(item, { generatedAt = null, receivedAt = new Date().toISOString() } = {}) {
+export function normalizeSportEventId(value) {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^sr:(?:match|sport_event):(\d+)$/);
+  return match ? "sr:sport_event:" + match[1] : null;
+}
+
+function normalizeReplacedBy(value) {
+  if (typeof value === "string") return normalizeSportEventId(value);
+  if (value && typeof value === "object") return normalizeSportEventId(value.id);
+  return null;
+}
+
+export function normalizeSoccerResult(item, { generatedAt = null, receivedAt = null } = {}) {
   const event = item?.sport_event;
   const status = item?.sport_event_status;
-  const eventId = event?.id;
-  if (typeof eventId !== "string" || !/^sr:sport_event:\d+$/.test(eventId)) {
-    throw new Error("SPORTRADAR_RESULT_EVENT_ID_INVALID");
-  }
+  const eventId = normalizeSportEventId(event?.id);
+  if (!eventId) throw new Error("SPORTRADAR_RESULT_EVENT_ID_INVALID");
+
   const eventStatus = typeof status?.status === "string" ? status.status.toLowerCase() : "unknown";
-  const homeScore = Number.isInteger(status?.home_score) && status.home_score >= 0 ? status.home_score : null;
-  const awayScore = Number.isInteger(status?.away_score) && status.away_score >= 0 ? status.away_score : null;
+  const replacedBy = normalizeReplacedBy(event?.replaced_by);
+  const homeScore = eventStatus === "cancelled" ? null
+    : Number.isInteger(status?.home_score) && status.home_score >= 0 ? status.home_score : null;
+  const awayScore = eventStatus === "cancelled" ? null
+    : Number.isInteger(status?.away_score) && status.away_score >= 0 ? status.away_score : null;
   const providerGeneratedAt = validTimestamp(generatedAt || item?.generated_at);
   const isFinal = FINAL_STATUSES.has(eventStatus);
   const scoreComplete = eventStatus === "cancelled" || (homeScore !== null && awayScore !== null);
+  const reviewRequired = eventStatus === "abandoned" ||
+    (eventStatus === "postponed" && replacedBy !== null);
+
   return {
     eventId,
+    replacedBy,
+    reviewRequired,
     source: "sportradar-soccer-v4",
     status: eventStatus,
     homeScore,
     awayScore,
     providerGeneratedAt,
-    receivedAt: validTimestamp(receivedAt) || new Date().toISOString(),
+    receivedAt: validTimestamp(receivedAt),
     isFinal,
     verified: isFinal && scoreComplete && providerGeneratedAt !== null,
     payload: item
   };
 }
 
-export function normalizeSoccerResults(payload, receivedAt = new Date().toISOString(), generatedAtOverride = null) {
+export function normalizeSoccerResults(payload, receivedAt = null, generatedAtOverride = null) {
   const summaries = payload?.summaries;
   if (!Array.isArray(summaries)) throw new Error("SPORTRADAR_RESULTS_SHAPE_INVALID");
-  return summaries.map(item => normalizeSoccerResult(item, { generatedAt: generatedAtOverride || payload.generated_at, receivedAt }));
+  const normalized = new Map();
+  for (const item of summaries) {
+    const result = normalizeSoccerResult(item, {
+      generatedAt: generatedAtOverride || payload.generated_at,
+      receivedAt
+    });
+    const previous = normalized.get(result.eventId);
+    if (!previous || (!previous.providerGeneratedAt && result.providerGeneratedAt)) {
+      normalized.set(result.eventId, result);
+    }
+  }
+  return [...normalized.values()];
 }
