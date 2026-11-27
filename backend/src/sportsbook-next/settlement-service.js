@@ -180,42 +180,71 @@ export async function settleReadySportsbookTickets({ limit = 50, actorId = null 
       assert(payout <= Number(ticket.potential_payout) || evaluation.ticketStatus === "VOID", 500,
         "Payout settlement melebihi potensi payout saat diterima.", "SPORTSBOOK_SETTLEMENT_PAYOUT_EXCEEDS_ACCEPTED");
 
-      const idempotencyKey = `sportsbook:settlement:${ticket.id}:v1`;
       let ledger;
-      try {
-        if (evaluation.ticketStatus === "LOST") {
-          ledger = await postSystemTransfer(client, {
+      const profitReserve = Number(ticket.potential_payout) - Number(ticket.stake);
+      assert(profitReserve >= 0, 500, "Cadangan payout tiket tidak valid.", "SPORTSBOOK_RISK_RESERVE_INVALID");
+
+      if (evaluation.ticketStatus === "LOST") {
+        ledger = await postSystemTransfer(client, {
+          fromCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD,
+          toCode: SYSTEM_ACCOUNTS.CLEARING,
+          amount: Number(ticket.stake),
+          type: "SPORTSBOOK_BET_LOST",
+          referenceType: "SPORTSBOOK_TICKET_SETTLEMENT",
+          referenceId: ticket.id,
+          idempotencyKey: `sportsbook:settlement:${ticket.id}:lost-stake:v1`,
+          metadata: { invoice: ticket.invoice, payout: 0 },
+          actorId,
+          requireFromAvailable: true
+        });
+        if (profitReserve > 0) {
+          const released = await postSystemTransfer(client, {
             fromCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD,
-            toCode: SYSTEM_ACCOUNTS.CLEARING,
-            amount: Number(ticket.stake),
-            type: "SPORTSBOOK_BET_LOST",
+            toCode: SYSTEM_ACCOUNTS.SPORTSBOOK_RISK_RESERVE,
+            amount: profitReserve,
+            type: "SPORTSBOOK_PAYOUT_RESERVE_RELEASE",
             referenceType: "SPORTSBOOK_TICKET_SETTLEMENT",
             referenceId: ticket.id,
-            idempotencyKey,
-            metadata: { invoice: ticket.invoice, payout: 0 },
+            idempotencyKey: `sportsbook:settlement:${ticket.id}:reserve-release:v1`,
+            metadata: { invoice: ticket.invoice, reason: "LOST", released: profitReserve },
             actorId,
             requireFromAvailable: true
           });
-        } else {
-          ledger = await postTransfer(client, {
-            memberId: ticket.member_id,
-            systemCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD,
-            memberDelta: payout,
-            type: evaluation.ticketStatus === "VOID" ? "SPORTSBOOK_BET_VOID_REFUND" : "SPORTSBOOK_BET_PAYOUT",
+          assert(released?.duplicate !== true && released?.transactionId, 500,
+            "Pelepasan risk reserve gagal.", "SPORTSBOOK_RISK_RESERVE_RELEASE_FAILED");
+        }
+      } else {
+        ledger = await postTransfer(client, {
+          memberId: ticket.member_id,
+          systemCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD,
+          memberDelta: payout,
+          type: evaluation.ticketStatus === "VOID" ? "SPORTSBOOK_BET_VOID_REFUND" : "SPORTSBOOK_BET_PAYOUT",
+          referenceType: "SPORTSBOOK_TICKET_SETTLEMENT",
+          referenceId: ticket.id,
+          idempotencyKey: `sportsbook:settlement:${ticket.id}:payout:v1`,
+          metadata: { invoice: ticket.invoice, payout, resultStatus: evaluation.ticketStatus },
+          actorId,
+          requireSystemAvailable: true
+        });
+        const unusedReserve = Number(ticket.potential_payout) - payout;
+        assert(unusedReserve >= 0, 500,
+          "Payout melebihi cadangan tiket.", "SPORTSBOOK_RISK_RESERVE_UNDERFUNDED");
+        if (unusedReserve > 0) {
+          const released = await postSystemTransfer(client, {
+            fromCode: SYSTEM_ACCOUNTS.SPORTSBOOK_HOLD,
+            toCode: SYSTEM_ACCOUNTS.SPORTSBOOK_RISK_RESERVE,
+            amount: unusedReserve,
+            type: "SPORTSBOOK_PAYOUT_RESERVE_RELEASE",
             referenceType: "SPORTSBOOK_TICKET_SETTLEMENT",
             referenceId: ticket.id,
-            idempotencyKey,
-            metadata: { invoice: ticket.invoice, payout, resultStatus: evaluation.ticketStatus },
+            idempotencyKey: `sportsbook:settlement:${ticket.id}:reserve-release:v1`,
+            metadata: { invoice: ticket.invoice, reason: evaluation.ticketStatus, released: unusedReserve },
             actorId,
-            requireSystemAvailable: true
+            requireFromAvailable: true
           });
+          assert(released?.duplicate !== true && released?.transactionId, 500,
+            "Pelepasan risk reserve gagal.", "SPORTSBOOK_RISK_RESERVE_RELEASE_FAILED");
         }
-      } catch (error) {
-        if (error?.code === "SYSTEM_ACCOUNT_INSUFFICIENT") {
-          summary.liquidityBlocked += 1;
-          continue;
-        }
-        throw error;
       }
       assert(ledger?.duplicate !== true && ledger?.transactionId, 500,
         "Settlement menemukan transaksi ledger duplikat yang tidak diharapkan.", "SPORTSBOOK_SETTLEMENT_LEDGER_CONFLICT");
