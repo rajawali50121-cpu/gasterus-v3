@@ -9,6 +9,10 @@ import { evaluateOddsFreshness } from "./prematch-freshness-guard.js";
 const CHANGE_LOG_LAST_SUCCESS_KEY = "sportsbook:next:changelog:last-success-ms:v1";
 const FEED_STATUS_KEY = "sportsbook:next:feed-status:v1";
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
+const SOCCER_STATUS_KEY = "sportsbook:soccer-v4:status:v1";
+const SOCCER_HEARTBEAT_KEY = "sportsbook:soccer-v4:worker-heartbeat:v1";
+const SETTLEMENT_STATUS_KEY = "sportsbook:settlement:status:v1";
+const SETTLEMENT_HEARTBEAT_KEY = "sportsbook:settlement:heartbeat:v1";
 const CHANGE_LOG_WINDOW_MS = 5 * 60 * 1000;
 const PRICE_MAX_AGE_MINUTES = 5;
 const KICKOFF_CUTOFF_MINUTES = 5;
@@ -108,6 +112,21 @@ export async function getSportsbookBetAcceptanceReadiness({
   if (String(env.SPORTSBOOK_SETTLEMENT_ENABLED || "").toLowerCase() !== "true") reasons.push("SETTLEMENT_ENGINE_DISABLED");
   if (String(env.SPORTRADAR_ACCESS_LEVEL || "").toLowerCase() !== "production") reasons.push("PRODUCTION_ENTITLEMENT_REQUIRED");
   if (String(env.SPORTRADAR_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() !== "true") reasons.push("QUOTA_BASELINE_UNCONFIRMED");
+  if (String(env.SPORTRADAR_SOCCER_ENABLED || "").toLowerCase() !== "true") reasons.push("SOCCER_RESULTS_WORKER_DISABLED");
+  const soccerAccessLevel = String(env.SPORTRADAR_SOCCER_ACCESS_LEVEL || env.SPORTRADAR_ACCESS_LEVEL || "").toLowerCase();
+  if (soccerAccessLevel !== "production") reasons.push("SOCCER_PRODUCTION_ENTITLEMENT_REQUIRED");
+  if (String(env.SPORTRADAR_SOCCER_QUOTA_BASELINE_CONFIRMED || "").toLowerCase() !== "true") reasons.push("SOCCER_QUOTA_BASELINE_UNCONFIRMED");
+  const soccerMaxCalls = safeIntegerEnv(env, "SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS");
+  const soccerInitialRaw = String(env.SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE ?? "").trim();
+  const soccerInitialUsage = /^\\d+$/.test(soccerInitialRaw) ? Number(soccerInitialRaw) : null;
+  const soccerPollMinutes = Number(env.SPORTRADAR_SOCCER_POLL_MINUTES ?? 60);
+  const soccerMinimumCalls = Number.isInteger(soccerPollMinutes) && soccerPollMinutes >= 60
+    ? Math.ceil((30 * 24 * 60) / soccerPollMinutes)
+    : Number.POSITIVE_INFINITY;
+  if (!soccerMaxCalls || !Number.isSafeInteger(soccerInitialUsage) || soccerInitialUsage < 0 ||
+      soccerInitialUsage > soccerMaxCalls || soccerMaxCalls - soccerInitialUsage < soccerMinimumCalls) {
+    reasons.push("SOCCER_QUOTA_BUDGET_INSUFFICIENT");
+  }
 
   const maxCalls = safeIntegerEnv(env, "SPORTRADAR_MAX_CALLS_PER_30_DAYS");
   const initialRaw = String(env.SPORTRADAR_INITIAL_30_DAY_USAGE ?? "").trim();
@@ -135,15 +154,30 @@ export async function getSportsbookBetAcceptanceReadiness({
 
   let feedStatus = null;
   let snapshot = null;
+  let soccerStatus = null;
+  let settlementStatus = null;
   let lastSuccessAt = null;
+  let soccerHeartbeatAt = null;
+  let settlementHeartbeatAt = null;
   try {
-    const [statusRaw, snapshotRaw, lastSuccessRaw] = await Promise.all([
-      redis.get(FEED_STATUS_KEY), redis.get(SNAPSHOT_KEY), redis.get(CHANGE_LOG_LAST_SUCCESS_KEY)
+    const [
+      statusRaw, snapshotRaw, lastSuccessRaw, soccerStatusRaw,
+      soccerHeartbeatRaw, settlementStatusRaw, settlementHeartbeatRaw
+    ] = await Promise.all([
+      redis.get(FEED_STATUS_KEY), redis.get(SNAPSHOT_KEY), redis.get(CHANGE_LOG_LAST_SUCCESS_KEY),
+      redis.get(SOCCER_STATUS_KEY), redis.get(SOCCER_HEARTBEAT_KEY),
+      redis.get(SETTLEMENT_STATUS_KEY), redis.get(SETTLEMENT_HEARTBEAT_KEY)
     ]);
     feedStatus = parseRedisJson(statusRaw, "SPORTSBOOK_FEED_STATUS_INVALID");
     snapshot = parseRedisJson(snapshotRaw, "SPORTSBOOK_SNAPSHOT_INVALID");
+    soccerStatus = parseRedisJson(soccerStatusRaw, "SOCCER_RESULTS_STATUS_INVALID");
+    settlementStatus = parseRedisJson(settlementStatusRaw, "SPORTSBOOK_SETTLEMENT_STATUS_INVALID");
     const timestamp = Number(lastSuccessRaw);
     if (Number.isFinite(timestamp) && timestamp > 0) lastSuccessAt = timestamp;
+    const soccerTime = Date.parse(String(soccerHeartbeatRaw || ""));
+    if (Number.isFinite(soccerTime)) soccerHeartbeatAt = soccerTime;
+    const settlementTime = Date.parse(String(settlementHeartbeatRaw || ""));
+    if (Number.isFinite(settlementTime)) settlementHeartbeatAt = settlementTime;
   } catch (error) {
     reasons.push(error?.code || "SPORTSBOOK_FEED_STATE_UNAVAILABLE");
   }
@@ -159,11 +193,28 @@ export async function getSportsbookBetAcceptanceReadiness({
       now - lastSuccessAt > CHANGE_LOG_WINDOW_MS) {
     reasons.push("CHANGE_LOG_WINDOW_STALE");
   }
+  if (soccerStatus?.complete === false || soccerStatus?.code) {
+    reasons.push("SOCCER_RESULTS_WORKER_UNHEALTHY");
+  }
+  const maxSoccerHeartbeatAgeMs = Math.max(3 * soccerPollMinutes * 60_000, 3 * 60 * 60_000);
+  if (soccerHeartbeatAt === null || soccerHeartbeatAt > now + 60_000 ||
+      now - soccerHeartbeatAt > maxSoccerHeartbeatAgeMs) {
+    reasons.push("SOCCER_RESULTS_HEARTBEAT_STALE");
+  }
+  if (settlementStatus?.healthy !== true) reasons.push("SETTLEMENT_WORKER_UNHEALTHY");
+  const settlementPollSeconds = Number(env.SPORTSBOOK_SETTLEMENT_POLL_SECONDS ?? 15);
+  const maxSettlementHeartbeatAgeMs = Math.max(5 * settlementPollSeconds * 1000, 60_000);
+  if (settlementHeartbeatAt === null || settlementHeartbeatAt > now + 60_000 ||
+      now - settlementHeartbeatAt > maxSettlementHeartbeatAgeMs) {
+    reasons.push("SETTLEMENT_HEARTBEAT_STALE");
+  }
 
   return {
     enabled: reasons.length === 0,
     reasons: [...new Set(reasons)],
     verifiedMappingCount,
+    soccerHeartbeatAt: soccerHeartbeatAt ? new Date(soccerHeartbeatAt).toISOString() : null,
+    settlementHeartbeatAt: settlementHeartbeatAt ? new Date(settlementHeartbeatAt).toISOString() : null,
     lastChangeLogSuccessAt: lastSuccessAt ? new Date(lastSuccessAt).toISOString() : null,
     maxPriceAgeMs: PRICE_MAX_AGE_MINUTES * 60_000,
     kickoffCutoffMinutes: KICKOFF_CUTOFF_MINUTES
