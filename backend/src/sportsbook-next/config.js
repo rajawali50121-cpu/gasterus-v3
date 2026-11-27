@@ -26,8 +26,8 @@ export function loadSportsbookConfig(env = process.env) {
     throw new Error("SPORTRADAR_INITIAL_30_DAY_USAGE must be an integer within the configured 30-day quota");
   }
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
-  const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? (accessLevel === "trial" ? 5 : 80));
-  if (accessLevel === "trial" && maxCallsPerCycle > 5) {
+  const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? (accessLevel === "trial" ? 6 : 80));
+  if (accessLevel === "trial" && maxCallsPerCycle > 6) {
     throw new Error("Trial max calls per cycle must not exceed 5");
   }
   // GASTERUS does not impose a rolling one-hour cap. The rolling 30-day
