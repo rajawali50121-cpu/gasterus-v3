@@ -212,6 +212,7 @@ async function loadBettablePrice(client, leg, nowMs) {
         AND pm.sport_id = e.sport_id
         AND pm.provider_market_id = m.provider_market_id
         AND pm.provider_market_name = m.market_name
+        AND pm.period_code = 'FT'
         AND pm.mapping_status = 'VERIFIED'
         AND pm.enabled = TRUE
         AND COALESCE(pm.provider_definition->>'specifiers', '') =
