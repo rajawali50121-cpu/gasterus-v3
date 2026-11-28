@@ -157,8 +157,14 @@ export async function getSportsbookBetAcceptanceReadiness({
     ? Math.ceil((30 * 24 * 60) / marketPollMinutes) * sportCount * dateCount
     : Number.POSITIVE_INFINITY;
   const minimumCalls = minimumMarketCalls + 90;
+  const betRevalidationBudget = safeIntegerEnv(env, "SPORTSBOOK_PROVIDER_REVALIDATION_MAX_CALLS_PER_30_DAYS");
   if (!maxCalls || !Number.isSafeInteger(initialUsage) || initialUsage < 0 ||
       maxCalls - initialUsage < minimumCalls) reasons.push("ODDS_COMPARISON_QUOTA_BUDGET_INSUFFICIENT");
+  if (String(env.SPORTSBOOK_PROVIDER_REVALIDATION_ENABLED || "").toLowerCase() === "true" &&
+      (!betRevalidationBudget || !maxCalls || !Number.isSafeInteger(initialUsage) ||
+       maxCalls - initialUsage < minimumCalls + betRevalidationBudget)) {
+    reasons.push("PROVIDER_REVALIDATION_QUOTA_BUDGET_INSUFFICIENT");
+  }
 
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_STAKE_IDR")) reasons.push("MAX_STAKE_NOT_CONFIGURED");
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_PAYOUT_IDR")) reasons.push("MAX_PAYOUT_NOT_CONFIGURED");
