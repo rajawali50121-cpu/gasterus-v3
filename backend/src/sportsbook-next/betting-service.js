@@ -150,11 +150,17 @@ export async function getSportsbookBetAcceptanceReadiness({
   const initialUsage = /^\d+$/.test(initialRaw) ? Number(initialRaw) : null;
   const marketPollMinutes = Number(env.SPORTSBOOK_POLL_MINUTES ?? 150);
   const daysAhead = Number(env.SPORTRADAR_DAYS_AHEAD ?? 0);
-  const sportCount = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").filter(Boolean).length;
+  const sportCount = String(env.SPORTRADAR_SPORT_IDS || "sr:sport:1").split(",").map(value => value.trim()).filter(Boolean).length;
+  const targetEvents = Number(env.SPORTRADAR_TARGET_EVENTS ?? 50);
+  const marketPageSize = Number(env.SPORTRADAR_MARKET_PAGE_SIZE ?? 50);
   const dateCount = Number.isInteger(daysAhead) && daysAhead >= 0 ? daysAhead + 1 : Number.POSITIVE_INFINITY;
-  const marketCadenceValid = Number.isInteger(marketPollMinutes) && marketPollMinutes >= 1 && Number.isFinite(dateCount) && sportCount > 0;
+  const marketCadenceValid = Number.isInteger(marketPollMinutes) && marketPollMinutes >= 1 &&
+    Number.isFinite(dateCount) && sportCount > 0 &&
+    Number.isSafeInteger(targetEvents) && targetEvents > 0 &&
+    Number.isSafeInteger(marketPageSize) && marketPageSize > 0;
+  const marketPagesPerCycle = marketCadenceValid ? Math.ceil(targetEvents / marketPageSize) : Number.POSITIVE_INFINITY;
   const minimumMarketCalls = marketCadenceValid
-    ? Math.ceil((30 * 24 * 60) / marketPollMinutes) * sportCount * dateCount
+    ? Math.ceil((30 * 24 * 60) / marketPollMinutes) * marketPagesPerCycle * sportCount * dateCount
     : Number.POSITIVE_INFINITY;
   const minimumCalls = minimumMarketCalls + 90;
   const betRevalidationBudget = safeIntegerEnv(env, "SPORTSBOOK_PROVIDER_REVALIDATION_MAX_CALLS_PER_30_DAYS");
