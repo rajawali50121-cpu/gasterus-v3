@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { syncDailySchedules } from "../src/sportsbook-next/worker.js";
+import { syncDailySchedules, assertSportradarCycleBudget } from "../src/sportsbook-next/worker.js";
 
 function scheduleRows(start, count) {
   return Array.from({ length: count }, (_, index) => ({
@@ -16,6 +16,14 @@ function scheduleRows(start, count) {
     sport_event_context: { competition: { id: "sr:competition:1", name: "League" } }
   }));
 }
+
+test("Odds provider request cap rejects before another quota reservation", () => {
+  assert.doesNotThrow(() => assertSportradarCycleBudget({ cycleCalls: 3 }, { maxCallsPerCycle: 4 }));
+  assert.throws(() => assertSportradarCycleBudget({ cycleCalls: 4 }, { maxCallsPerCycle: 4 }),
+    error => error.code === "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED");
+  assert.throws(() => assertSportradarCycleBudget({ cycleCalls: 0 }, { maxCallsPerCycle: 0 }),
+    error => error.message === "SPORTRADAR_CYCLE_BUDGET_CONFIG_INVALID");
+});
 
 test("Daily Schedules sync paginates independently and persists only schedule records", async () => {
   const values = new Map();
