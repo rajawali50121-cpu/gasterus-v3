@@ -91,13 +91,13 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,now())
         ON CONFLICT(provider_event_id) DO UPDATE SET
           sport_id=excluded.sport_id,
-          competition_id=COALESCE(sportsbook_v2_events.competition_id,excluded.competition_id),
-          competition_name=COALESCE(sportsbook_v2_events.competition_name,excluded.competition_name),
+          competition_id=COALESCE(excluded.competition_id,sportsbook_v2_events.competition_id),
+          competition_name=COALESCE(excluded.competition_name,sportsbook_v2_events.competition_name),
           scheduled_at=COALESCE(excluded.scheduled_at,sportsbook_v2_events.scheduled_at),
           event_status=CASE WHEN excluded.event_status IS NULL OR excluded.event_status='unknown'
             THEN sportsbook_v2_events.event_status ELSE excluded.event_status END,
-          home_name=COALESCE(sportsbook_v2_events.home_name,excluded.home_name),
-          away_name=COALESCE(sportsbook_v2_events.away_name,excluded.away_name),
+          home_name=COALESCE(excluded.home_name,sportsbook_v2_events.home_name),
+          away_name=COALESCE(excluded.away_name,sportsbook_v2_events.away_name),
           snapshot_at=GREATEST(sportsbook_v2_events.snapshot_at,excluded.snapshot_at),
           provider_generated_at=COALESCE(excluded.provider_generated_at,sportsbook_v2_events.provider_generated_at),
           provider_payload=sportsbook_v2_events.provider_payload || excluded.provider_payload,
