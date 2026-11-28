@@ -281,6 +281,23 @@ test("Redis quota reservation remains authoritative when local process counter i
   assert.deepEqual(result.body, { sports: [] });
 });
 
+test("ticket revalidation requests the official prematch-only Sport Event Markets endpoint", async () => {
+  const config = loadSportsbookConfig(env);
+  let requested;
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      requested = new URL(url);
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => ({ sport_event: { id: "sr:sport_event:123" }, markets: [] })
+      };
+    }
+  });
+  await client.getSportEventMarkets("sr:sport_event:123", { live: false });
+  assert.equal(requested.pathname, "/oddscomparison-prematch/trial/v2/en/sport_events/sr:sport_event:123/sport_event_markets.json");
+  assert.equal(requested.searchParams.get("live"), "false");
+});
+
 test("client preserves safe HTTP status codes for provider diagnostics", async () => {
   const config = loadSportsbookConfig(env);
   const client = new SportradarClient(config, {
