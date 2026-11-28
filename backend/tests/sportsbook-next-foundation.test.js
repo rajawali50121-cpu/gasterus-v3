@@ -112,7 +112,7 @@ test("config rejects missing API key, unsupported tier, and unverified quota bas
 test("daily schedule normalization uses sport_event and provider SR identifiers", () => {
   const rows = normalizeDailySchedule({ schedules: [{
     sport_event: {
-      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", status: "not_started",
+      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", start_time_confirmed: true, status: "not_started", replaced_by: "sr:sport_event:456", resume_time: "2026-11-23T12:30:00Z",
       competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }]
     },
     sport_event_context: { competition: { name: "League" } }
@@ -143,6 +143,9 @@ test("event market normalization follows documented odds_decimal and removed boo
   assert.equal(snapshot.markets[0].books[0].outcomes.length, 1);
   assert.equal(snapshot.markets[0].books[0].outcomes[0].oddsDecimal, 2.1);
   assert.equal(snapshot.markets[0].key, "sr:market:251|Winner");
+  assert.equal(snapshot.event.startTimeConfirmed, true);
+  assert.equal(snapshot.event.replacedBy, "sr:sport_event:456");
+  assert.equal(snapshot.event.resumeTime, "2026-11-23T12:30:00Z");
 });
 
 test("Soccer result normalizer requires a Sportradar event ID", () => {
