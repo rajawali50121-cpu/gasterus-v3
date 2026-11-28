@@ -77,10 +77,11 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
     const snapshotScopes = new Map();
     for (const scope of scopes) {
       if (typeof scope?.sportId !== "string" || !/^sr:sport:\d+$/.test(scope.sportId) ||
-          typeof scope?.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(scope.date)) {
+          typeof scope?.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(scope.date) ||
+          !Array.isArray(scope.ids) || scope.ids.some(id => typeof id !== "string" || !/^sr:sport_event:\d+$/.test(id))) {
         throw new Error("SPORTSBOOK_SNAPSHOT_SCOPE_INVALID");
       }
-      snapshotScopes.set(`${scope.sportId}:${scope.date}`, { sportId: scope.sportId, date: scope.date, ids: [] });
+      snapshotScopes.set(`${scope.sportId}:${scope.date}`, { sportId: scope.sportId, date: scope.date, ids: [...new Set(scope.ids)] });
     }
     for (const event of events) {
       await client.query(`
@@ -107,10 +108,6 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
         fetchedAt,event.providerGeneratedAt ? new Date(event.providerGeneratedAt) : null,JSON.stringify(event)
       ]);
       eventCount += 1;
-      for (const feedDate of (Array.isArray(event.feedDates) ? event.feedDates : [])) {
-        const scope = snapshotScopes.get(`${event.sportId}:${feedDate}`);
-        if (scope && !scope.ids.includes(event.id)) scope.ids.push(event.id);
-      }
       await client.query("UPDATE sportsbook_v2_markets SET is_active=FALSE WHERE provider_event_id=$1",[event.id]);
       await client.query("UPDATE sportsbook_v2_prices SET is_active=FALSE WHERE provider_event_id=$1",[event.id]);
 
