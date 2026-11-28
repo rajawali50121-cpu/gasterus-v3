@@ -35,6 +35,20 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: gasterus_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d gasterus_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -50,9 +64,17 @@ jobs:
         run: npm ci
       - name: Install backend dependencies
         run: npm ci --prefix backend
+      - name: Apply and verify migrations against isolated PostgreSQL 18
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/gasterus_test
+        run: |
+          npm run db:migrate --prefix backend
+          npm run db:migrate --prefix backend
+          node backend/migrations/verify-sportsbook-v2-go-live.js
       - name: Check backend source syntax
         run: |
           find backend/src -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --check frontend/js/sportsbook-v2.js
           node --check deploy/predeploy.js
           node --check deploy/launcher.js
           node --check scripts/reset-admin-password.mjs

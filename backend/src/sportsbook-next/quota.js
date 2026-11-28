@@ -4,11 +4,15 @@ const WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const KEY = "sportsbook:next:sportradar:quota:v1";
 const BASELINE_KEY = "sportsbook:next:sportradar:quota-baseline:v1";
+const WORKER_KEY = "sportsbook:next:sportradar:quota-worker:v1";
+const BET_KEY = "sportsbook:next:sportradar:quota-bet-revalidation:v1";
 
 const RESERVE_SCRIPT = `
 local now = tonumber(ARGV[2])
 local cutoff = tonumber(ARGV[1])
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', cutoff)
+redis.call('ZREMRANGEBYSCORE', KEYS[3], '-inf', cutoff)
+redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', cutoff)
 
 local baselineCount = redis.call('HGET', KEYS[2], 'count')
 local baselineAt = redis.call('HGET', KEYS[2], 'captured_at')
@@ -23,8 +27,13 @@ end
 local hourlyWindow = tonumber(ARGV[4])
 local hourlyLimit = tonumber(ARGV[5])
 local monthlyLimit = tonumber(ARGV[6])
+local workerLimit = tonumber(ARGV[8])
+local betLimit = tonumber(ARGV[9])
+local purpose = ARGV[10]
 local hourly = redis.call('ZCOUNT', KEYS[1], now - hourlyWindow, '+inf')
 local used = tonumber(baselineCount) + redis.call('ZCARD', KEYS[1])
+local workerUsed = tonumber(baselineCount) + redis.call('ZCARD', KEYS[3])
+local betUsed = redis.call('ZCARD', KEYS[4])
 local oldest = redis.call('ZRANGEBYSCORE', KEYS[1], now - hourlyWindow, '+inf', 'WITHSCORES', 'LIMIT', 0, 1)
 local retryAfter = 0
 if #oldest >= 2 then
@@ -33,15 +42,24 @@ end
 
 if hourlyLimit > 0 and hourly >= hourlyLimit then return {2, hourly, used, retryAfter} end
 if used >= monthlyLimit then return {0, hourly, used, 0} end
+if purpose == 'bet' and (betLimit < 1 or betUsed >= betLimit) then return {3, betUsed, used, 0} end
+if purpose ~= 'bet' and workerUsed >= workerLimit then return {0, hourly, workerUsed, 0} end
 
 redis.call('ZADD', KEYS[1], now, ARGV[7])
+if purpose == 'bet' then
+  redis.call('ZADD', KEYS[4], now, ARGV[7])
+else
+  redis.call('ZADD', KEYS[3], now, ARGV[7])
+end
 redis.call('EXPIRE', KEYS[1], 2678400)
+redis.call('EXPIRE', KEYS[3], 2678400)
+redis.call('EXPIRE', KEYS[4], 2678400)
 return {1, hourly + 1, used + 1, 0}
 `;
 
-export async function reserveSportradarCall(redis, config, now = Date.now()) {
+export async function reserveSportradarCall(redis, config, now = Date.now(), { purpose = "worker" } = {}) {
   const result = await redis.eval(RESERVE_SCRIPT, {
-    keys: [KEY, BASELINE_KEY],
+    keys: [KEY, BASELINE_KEY, WORKER_KEY, BET_KEY],
     arguments: [
       String(now - WINDOW_MS),
       String(now),
@@ -49,18 +67,26 @@ export async function reserveSportradarCall(redis, config, now = Date.now()) {
       String(HOUR_MS),
       String(config.maxCallsPerHour),
       String(config.maxCallsPer30Days),
-      randomUUID()
+      randomUUID(),
+      String(config.maxCallsPer30Days - (config.betRevalidationCallsPer30Days || 0)),
+      String(config.betRevalidationCallsPer30Days || 0),
+      purpose
     ]
   });
   const values = Array.isArray(result) ? result.map(Number) : [Number(result), 0, config.initialCallsUsed30Days, 0];
   const [allowed, hourlyUsed, monthlyUsed, retryAfterMs] = values;
   if (allowed === 1) return;
   const hourly = allowed === 2;
-  const error = new Error(hourly ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED");
-  error.code = hourly ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED";
-  error.quotaScope = hourly ? "hour" : "30_days";
-  error.quotaUsed = hourly ? hourlyUsed : monthlyUsed;
-  error.quotaLimit = hourly ? config.maxCallsPerHour : config.maxCallsPer30Days;
+  const betBudget = allowed === 3;
+  const errorCode = hourly ? "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED"
+    : betBudget ? "SPORTRADAR_BET_REVALIDATION_BUDGET_EXHAUSTED" : "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED";
+  const error = new Error(errorCode);
+  error.code = errorCode;
+  error.quotaScope = hourly ? "hour" : betBudget ? "bet_revalidation_30_days" : "30_days";
+  error.quotaUsed = hourly || betBudget ? hourlyUsed : monthlyUsed;
+  error.quotaLimit = hourly ? config.maxCallsPerHour : betBudget
+    ? (config.betRevalidationCallsPer30Days || 0)
+    : purpose === "bet" ? config.maxCallsPer30Days : config.maxCallsPer30Days - (config.betRevalidationCallsPer30Days || 0);
   error.retryAfter = hourly && retryAfterMs > 0 ? String(Math.ceil(retryAfterMs / 1000)) : null;
   throw error;
 }
@@ -73,15 +99,20 @@ local baselineAt = tonumber(redis.call('HGET', KEYS[2], 'captured_at') or now)
 if baselineAt < cutoff then baselineCount = 0 end
 local hourly = redis.call('ZCOUNT', KEYS[1], now - tonumber(ARGV[4]), '+inf')
 local rolling = redis.call('ZCOUNT', KEYS[1], cutoff, '+inf')
-return {hourly, baselineCount + rolling}
+local worker = baselineCount + redis.call('ZCOUNT', KEYS[3], cutoff, '+inf')
+local bet = redis.call('ZCOUNT', KEYS[4], cutoff, '+inf')
+return {hourly, baselineCount + rolling, worker, bet}
 `;
 
 export async function getSportradarQuotaUsage(redis, config, now = Date.now()) {
   const result = await redis.eval(USAGE_SCRIPT, {
-    keys: [KEY, BASELINE_KEY],
+    keys: [KEY, BASELINE_KEY, WORKER_KEY, BET_KEY],
     arguments: [String(now), String(WINDOW_MS), String(config.initialCallsUsed30Days), String(HOUR_MS)]
   });
-  const [hourlyUsed, monthlyUsed] = Array.isArray(result) ? result.map(Number) : [0, config.initialCallsUsed30Days];
+  const [hourlyUsed, monthlyUsed, workerUsed, betUsed] = Array.isArray(result)
+    ? result.map(Number) : [0, config.initialCallsUsed30Days, config.initialCallsUsed30Days, 0];
+  const betLimit = config.betRevalidationCallsPer30Days || 0;
+  const workerLimit = config.maxCallsPer30Days - betLimit;
   return {
     hourlyUsed,
     hourlyLimit: config.maxCallsPerHour > 0 ? config.maxCallsPerHour : null,
@@ -89,11 +120,17 @@ export async function getSportradarQuotaUsage(redis, config, now = Date.now()) {
     hourlyEnforced: config.maxCallsPerHour > 0,
     monthlyUsed,
     monthlyLimit: config.maxCallsPer30Days,
-    monthlyRemaining: Math.max(0, config.maxCallsPer30Days - monthlyUsed)
+    monthlyRemaining: Math.max(0, config.maxCallsPer30Days - monthlyUsed),
+    workerUsed,
+    workerLimit,
+    workerRemaining: Math.max(0, workerLimit - workerUsed),
+    betRevalidationUsed: betUsed,
+    betRevalidationLimit: betLimit,
+    betRevalidationRemaining: Math.max(0, betLimit - betUsed)
   };
 }
 
-export const __quota = { KEY, BASELINE_KEY, RESERVE_SCRIPT, USAGE_SCRIPT, WINDOW_MS, HOUR_MS };
+export const __quota = { KEY, BASELINE_KEY, WORKER_KEY, BET_KEY, RESERVE_SCRIPT, USAGE_SCRIPT, WINDOW_MS, HOUR_MS };
 
 const QPS_NEXT_KEY = "sportsbook:next:sportradar:qps-next:v1";
 const QPS_COOLDOWN_KEY = "sportsbook:next:sportradar:qps-cooldown:v1";

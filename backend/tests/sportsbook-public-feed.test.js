@@ -36,7 +36,7 @@ function redisWith(value) {
 
 test("public feed returns a fresh complete snapshot with odds from Redis only", async () => {
   const redis = redisWith(validSnapshot);
-  const result = await readPublicSportsbookSnapshot({ redis, now });
+  const result = await readPublicSportsbookSnapshot({ redis, now, loadMappings: async () => ({ rows: [] }) });
   assert.equal(result.events.length, 1);
   assert.equal(result.events[0].markets[0].books[0].outcomes[0].oddsDecimal, 1.95);
   assert.equal(result.ageMs, 60_000);
@@ -85,8 +85,57 @@ test("public feed reports Redis read failures without attempting provider calls"
   const calls = [];
   const redis = { get: async key => { calls.push(key); throw new Error("redis unavailable"); } };
   await assert.rejects(
-    readPublicSportsbookSnapshot({ redis, now }),
+    readPublicSportsbookSnapshot({ redis, now, loadMappings: async () => ({ rows: [] }) }),
     error => error.code === "SPORTSBOOK_CACHE_UNAVAILABLE" && error.status === 503
   );
   assert.deepEqual(calls, ["sportsbook:next:snapshot:v1"]);
+});
+
+test("public feed marks only an exact verified full-time 1X2 mapping as bettable", async () => {
+  const snapshot = {
+    ...validSnapshot,
+    events: [{
+      ...validSnapshot.events[0],
+      sportId: "sr:sport:1",
+      markets: [{
+        ...validSnapshot.events[0].markets[0],
+        key: "sr:market:1|1X2",
+        specifiers: null,
+        books: [{
+          id: "book-1",
+          outcomes: [{
+            id: "outcome-home", type: "HOME", name: "Home",
+            selectionKey: "outcome-home|", oddsDecimal: 1.95
+          }]
+        }]
+      }]
+    }]
+  };
+  const rows = [{
+    sport_id: "sr:sport:1",
+    provider_market_id: "sr:market:1",
+    provider_market_name: "1X2",
+    specifiers: "",
+    outcomes: { HOME: "HOME" },
+    market_code: "SOCCER_1X2_3WAY",
+    settlement_rule: "SOCCER_1X2_3WAY"
+  }];
+  const result = await readPublicSportsbookSnapshot({
+    redis: redisWith(snapshot), now,
+    loadMappings: async () => ({ rows })
+  });
+  assert.equal(result.events[0].markets[0].bettable, true);
+  assert.equal(result.events[0].markets[0].books[0].outcomes[0].bettable, true);
+  assert.equal(result.bettingMappingsAvailable, true);
+  assert.equal(result.betAcceptanceEnabled, true);
+});
+
+test("ambiguous or absent mapping leaves all odds display-only", async () => {
+  const result = await readPublicSportsbookSnapshot({
+    redis: redisWith(validSnapshot), now,
+    loadMappings: async () => ({ rows: [] })
+  });
+  assert.equal(result.events[0].markets[0].bettable, false);
+  assert.equal(result.events[0].markets[0].books[0].outcomes[0].bettable, false);
+  assert.equal(result.betAcceptanceEnabled, false);
 });

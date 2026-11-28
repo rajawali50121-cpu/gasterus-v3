@@ -44,17 +44,23 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
     if (typeof marketId !== "string" || !/^sr:market:\d+$/.test(marketId)) return [];
     const normalizeOutcome = outcome => {
       const price = outcome?.odds_decimal == null ? null : Number(outcome.odds_decimal);
+      const line = outcome.handicap ?? outcome.total ?? outcome.spread ?? outcome.line ?? null;
+      const outcomeType = outcome.type ?? null;
+      const outcomeName = outcome.name ?? null;
+      const outcomeId = outcome.id ?? null;
+      const selectionKey = [outcomeId || outcomeType || outcomeName || "unknown", line ?? ""].join("|");
       return {
-        id: outcome.id ?? null,
-        type: outcome.type ?? null,
-        name: outcome.name ?? null,
+        id: outcomeId,
+        type: outcomeType,
+        name: outcomeName,
+        selectionKey,
         oddsDecimal: Number.isFinite(price) ? price : null,
         oddsAmerican: outcome.odds_american ?? null,
         oddsFraction: outcome.odds_fraction ?? null,
         openingOddsDecimal: outcome.open_odds_decimal != null && Number.isFinite(Number(outcome.open_odds_decimal)) ? Number(outcome.open_odds_decimal) : null,
         openingOddsAmerican: outcome.open_odds_american ?? null,
         openingOddsFraction: outcome.open_odds_fraction ?? null,
-        line: outcome.handicap ?? outcome.total ?? outcome.spread ?? outcome.line ?? null,
+        line,
         openingLine: outcome.open_handicap ?? outcome.open_total ?? outcome.open_spread ?? null,
         fieldId: outcome.field_id ?? null,
         externalOutcomeId: outcome.external_outcome_id ?? null,
@@ -87,7 +93,11 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
       }
     }
     const name = market.name ?? marketId;
-    return [{ id: marketId, key: `${marketId}|${name}`, name, live: market.is_live === true, books, removedBooks }];
+    return [{
+      id: marketId, key: `${marketId}|${name}`, name,
+      specifiers: market.specifiers ?? null,
+      live: market.is_live === true, books, removedBooks
+    }];
   });
   return {
     schemaVersion: 1,
@@ -98,6 +108,9 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
       id: eventId,
       scheduled: event.start_time ?? null,
       status: event.status ?? "unknown",
+      startTimeConfirmed: event.start_time_confirmed === true,
+      replacedBy: typeof event.replaced_by === "string" ? event.replaced_by : null,
+      resumeTime: typeof event.resume_time === "string" ? event.resume_time : null,
       home: event.competitors?.find(c => c.qualifier === "home")?.name ?? null,
       away: event.competitors?.find(c => c.qualifier === "away")?.name ?? null
     },

@@ -3,7 +3,14 @@ const schema=await readFile(new URL('../migrations/001_platform.sql',import.meta
 const sportsbookSchema=await readFile(new URL('../migrations/042_sportsbook_v2_core.sql',import.meta.url),'utf8');
 const sportsbookTimestampSchema=await readFile(new URL('../migrations/043_sportsbook_v2_provider_timestamps.sql',import.meta.url),'utf8');
 const sportsbookSettlementSchema=await readFile(new URL('../migrations/044_sportsbook_v2_market_results_settlement.sql',import.meta.url),'utf8');
+const sportsbookResultReceiptSchema=await readFile(new URL('../migrations/045_sportsbook_v2_result_receipt_times.sql',import.meta.url),'utf8');
+const sportsbookBetAcceptanceSchema=await readFile(new URL('../migrations/046_sportsbook_v2_bet_acceptance.sql',import.meta.url),'utf8');
+const sportsbookCorrectionReviewSchema=await readFile(new URL('../migrations/047_sportsbook_v2_result_correction_review.sql',import.meta.url),'utf8');
+const sportsbookBettingService=await readFile(new URL('../src/sportsbook-next/betting-service.js',import.meta.url),'utf8');
+const sportsbookSettlementService=await readFile(new URL('../src/sportsbook-next/settlement-service.js',import.meta.url),'utf8');
 const sportsbookResultsRepository=await readFile(new URL('../src/sportsbook-next/results-repository.js',import.meta.url),'utf8');
+const sportsbookRepository=await readFile(new URL('../src/sportsbook-next/repository.js',import.meta.url),'utf8');
+const sportsbookWorker=await readFile(new URL('../src/sportsbook-next/worker.js',import.meta.url),'utf8');
 const memberExperienceSchema=await readFile(new URL('../migrations/003_member_experience.sql',import.meta.url),'utf8');
 const lotterySchema=await readFile(new URL('../migrations/004_lottery_enterprise.sql',import.meta.url),'utf8');
 const enterpriseBackofficeSchema=await readFile(new URL('../migrations/005_enterprise_backoffice.sql',import.meta.url),'utf8');
@@ -31,4 +38,58 @@ test('sportsbook source timestamps remain distinct from ingestion time without d
 
 test('sportsbook market mapping, result and settlement revisions are additive and auditable',()=>{for(const token of ['sportsbook_v2_market_catalog','sportsbook_v2_provider_market_mappings','sportsbook_v2_event_result_revisions','sportsbook_v2_settlement_revisions','UNIQUE(ticket_id,revision_no)','ledger_transaction_id'])assert.ok(sportsbookSettlementSchema.includes(token),token);assert.doesNotMatch(sportsbookSettlementSchema,/\bDROP\s+TABLE\b|\bTRUNCATE\b|\bDELETE\s+FROM\b/i);});
 
-test('sportsbook result persistence deduplicates provider versions and never stores ingestion time as source time',()=>{assert.ok(sportsbookSettlementSchema.includes('sportsbook_v2_result_revisions_source_version_uq'));assert.ok(sportsbookResultsRepository.includes('ON CONFLICT (provider_event_id,result_source,provider_generated_at)'));assert.ok(sportsbookResultsRepository.includes('if (!result?.providerGeneratedAt) continue;'));});
+test('sportsbook bet acceptance separates receipt time, change-log verification and immutable settlement mapping',()=>{
+  for(const token of ['received_at','change_log_verified_at','provider_market_name','provider_book_name','provider_outcome_name','provider_outcome_type','price_received_at','market_code','outcome_code','settlement_rule','mapping_version','ALTER COLUMN source_updated_at DROP NOT NULL']) assert.ok(sportsbookBetAcceptanceSchema.includes(token),token);
+  assert.doesNotMatch(sportsbookBetAcceptanceSchema,/\\bDROP\\s+TABLE\\b|\\bTRUNCATE\\b|\\bDELETE\\s+FROM\\b/i);
+});
+
+test('sportsbook ticket acceptance does not depend on internal schedule or Change Log timestamps and keeps ledger safeguards',()=>{
+  for(const token of ['SPORTRADAR_ACCESS_LEVEL','PRODUCTION_ENTITLEMENT_REQUIRED','postTransfer','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','enforceResponsiblePlay','requestFingerprint','NO_VERIFIED_MARKET_MAPPINGS','listMemberSportsbookTickets']) assert.ok(sportsbookBettingService.includes(token),token);
+  for(const token of ['CHANGE_LOG_WINDOW_STALE','change_log_verified_at','NO_FRESH_DAILY_SCHEDULES','SPORTSBOOK_SCHEDULE_NOT_VERIFIED','SCHEDULE_MAX_AGE_MINUTES']) assert.ok(!sportsbookBettingService.includes(token),token);
+  assert.ok(sportsbookBettingService.includes('SUPPORTED_MARKET_CODE'));
+  assert.ok(sportsbookBettingService.includes('SPORTSBOOK_SETTLEMENT_RULE_UNSUPPORTED'));
+  assert.ok(sportsbookWorker.includes('getAllDailySportEventMarkets'));
+  assert.ok(!sportsbookWorker.includes('runChangeLogCycle'));
+});
+
+test('sportsbook acceptance cannot start before settlement is explicitly enabled',()=>{
+  assert.ok(sportsbookBettingService.includes('SPORTSBOOK_SETTLEMENT_ENABLED'));
+  assert.ok(sportsbookBettingService.includes('SETTLEMENT_ENGINE_DISABLED'));
+});
+
+test('sportsbook settlement uses confirmed results, SKIP LOCKED and the existing double-entry ledger',()=>{
+  for(const token of ['FOR UPDATE OF t SKIP LOCKED','evaluateSoccer1x2Leg','SPORTSBOOK_HOLD','SPORTSBOOK_RISK_RESERVE','PAYOUT_RESERVE_RELEASE','postSystemTransfer','postTransfer','SPORTSBOOK_TICKET_SETTLED']) assert.ok(sportsbookSettlementService.includes(token),token);
+  assert.ok(sportsbookBetAcceptanceSchema.includes('settlement_ledger_transaction_id'));
+});
+
+test('Daily Schedules and Odds Comparison market ingestion are separate feeds and persistence paths',()=>{
+  const start=sportsbookRepository.indexOf('export async function persistSportsbookSchedules');
+  const end=sportsbookRepository.indexOf('export async function persistSportsbookSnapshot',start);
+  assert.ok(start>=0&&end>start);
+  const scheduleWriter=sportsbookRepository.slice(start,end);
+  assert.ok(scheduleWriter.includes('INSERT INTO sportsbook_v2_events'));
+  assert.doesNotMatch(scheduleWriter,/INSERT INTO sportsbook_v2_(markets|prices)/);
+  assert.ok(sportsbookWorker.includes('client.getDailySchedules'));
+  assert.ok(sportsbookWorker.includes('client.getAllDailySportEventMarkets'));
+  assert.ok(sportsbookWorker.includes('normalizeDailySchedule'));
+  assert.ok(sportsbookWorker.includes('SCHEDULE_CURSOR_PREFIX'));
+});
+
+test('settled result corrections are quarantined for audited owner review',()=>{
+  for(const token of ['schedule_verified_at','review_required','review_reason','review_detected_at','reviewed_at','reviewed_by','review_note']) assert.ok(sportsbookCorrectionReviewSchema.includes(token),token);
+  assert.doesNotMatch(sportsbookCorrectionReviewSchema,/\\bDROP\\s+TABLE\\b|\\bTRUNCATE\\b|\\bDELETE\\s+FROM\\b/i);
+  for(const token of ['PROVIDER_RESULT_CHANGED_AFTER_SETTLEMENT','resultPayloads','financiallyReconciled','SPORTSBOOK_RESULT_CORRECTION_REVIEWED']) assert.ok(sportsbookSettlementService.includes(token),token);
+});
+
+test('sportsbook result persistence allows optional provider time and records receipt time separately',()=>{
+  assert.ok(sportsbookSettlementSchema.includes('sportsbook_v2_result_revisions_source_version_uq'));
+  assert.ok(sportsbookResultReceiptSchema.includes('ADD COLUMN IF NOT EXISTS received_at'));
+  assert.ok(sportsbookResultReceiptSchema.includes('ALTER COLUMN source_updated_at DROP NOT NULL'));
+  assert.ok(sportsbookResultReceiptSchema.includes('sportsbook_v2_result_revisions_receipt_version_uq'));
+  assert.ok(sportsbookResultsRepository.includes('ON CONFLICT (provider_event_id,result_source,provider_generated_at)'));
+  assert.ok(sportsbookResultsRepository.includes('received_at=excluded.received_at'));
+  assert.ok(sportsbookResultsRepository.includes('SELECT now() AS received_at'));
+  assert.doesNotMatch(sportsbookResultsRepository,/new Date\\(\\)/);
+  assert.ok(sportsbookResultsRepository.includes('ON CONFLICT (provider_event_id,result_source,received_at)'));
+  assert.doesNotMatch(sportsbookResultsRepository,/if \\(!result\\?\\.providerGeneratedAt\\) continue;/);
+});

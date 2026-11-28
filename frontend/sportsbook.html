@@ -27,9 +27,25 @@
     <section class="notice" id="notice" role="status">Mode read-only. Polling discovery 150 menit tidak memenuhi pembaruan odds 5 menit yang disyaratkan provider untuk menerima taruhan.</section>
     <section class="board-head"><h2>Pertandingan tersedia</h2><button id="refresh" type="button">Periksa feed</button></section>
     <section id="events" class="events" aria-live="polite"><div class="empty">Menghubungkan ke feed Sportradar…</div></section>
+    <aside class="betslip" id="betslip" aria-live="polite">
+      <h2>Slip Taruhan</h2>
+      <p class="betslip-empty">Pilih outcome yang memiliki tanda dapat dipasang untuk mulai.</p>
+      <div class="slip-summary">
+        <label for="bet-stake">Nominal taruhan (IDR)</label>
+        <input id="bet-stake" type="number" min="1" step="1" value="10000" inputmode="numeric">
+        <div class="slip-total">Total odds: —</div>
+        <div class="slip-total">Potensi payout: —</div>
+      </div>
+      <button id="submit-bet" type="button" disabled>Pasang taruhan</button>
+      <p id="betslip-status" class="betslip-status">Penerimaan taruhan terkunci sampai seluruh pemeriksaan keamanan lulus.</p>
+    </aside>
+    <section class="ticket-history" aria-live="polite">
+      <div class="history-head"><h2>Tiket Terakhir</h2><button id="refresh-tickets" type="button">Perbarui</button></div>
+      <div id="ticket-history"><p class="betslip-empty">Login untuk melihat riwayat tiket sportsbook.</p></div>
+    </section>
   </main>
   <footer>GASTERUS · Sportsbook data powered by Sportradar</footer>
   <script type="module" src="/js/loader-3d.js?v=20260925-1"></script>
-  <script type="module" src="/js/sportsbook-v2.js?v=public-feed-1"></script>
+  <script type="module" src="/js/sportsbook-v2.js?v=bet-slip-2"></script>
 </body>
 </html>

@@ -8,3 +8,42 @@
 .events{display:grid;gap:12px}.event{border:1px solid var(--line);background:linear-gradient(150deg,#13243a,#0d1928);border-radius:13px;overflow:hidden}.event-top{display:flex;justify-content:space-between;gap:16px;padding:15px 17px;border-bottom:1px solid #22364c}.teams{font-weight:800;font-size:15px}.meta{color:var(--muted);font-size:11px;margin-top:4px}.kickoff{color:#c2d0df;font-size:11px;white-space:nowrap}.markets{display:flex;gap:9px;flex-wrap:wrap;padding:13px 16px}.market{min-width:185px;flex:1 1 185px;border:1px solid #2a3e56;border-radius:9px;padding:10px}.market-name{font-size:11px;color:var(--gold);font-weight:800;margin-bottom:8px}.book{font-size:10px;color:#91a5bc;margin:6px 0 3px}.outcomes{display:flex;gap:5px;flex-wrap:wrap}.outcome{background:#1b3048;border:1px solid #314b67;border-radius:6px;padding:6px 8px;font-size:11px}.outcome b{color:#fff;margin-left:5px;font-variant-numeric:tabular-nums}.empty{padding:32px;text-align:center;border:1px dashed #334a63;border-radius:12px;color:var(--muted)}
 footer{text-align:center;color:#73879f;font-size:11px;padding:22px;border-top:1px solid #1b2b40}
 @media(max-width:650px){.topbar{height:58px;padding:0 16px}.shell{width:calc(100% - 24px);margin-top:24px}.hero{align-items:flex-start;flex-direction:column}.stats{gap:7px}.stats>div{padding:11px 9px}.stats strong{font-size:14px}.stats span{font-size:9px}.event-top{padding:12px}.markets{padding:10px}.market{min-width:100%;}.kickoff{font-size:10px}}
+
+/* Verified bet slip */
+.outcome-select{font:inherit;color:inherit;cursor:pointer;transition:border-color .15s,background .15s}
+.outcome-select:hover{border-color:var(--gold);background:#263d58}
+.outcome-select.selected{border-color:var(--gold);background:#3a3018;box-shadow:0 0 0 1px #8b6c25}
+.betslip{margin-top:22px;padding:18px;border:1px solid #8b6c25;border-radius:13px;background:linear-gradient(145deg,#17283d,#0d1928)}
+.betslip h2{font-size:18px;margin:0 0 12px}
+.betslip-empty,.betslip-status{color:var(--muted);font-size:12px}
+.slip-leg{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+.slip-leg-info{display:grid;gap:3px;min-width:0}
+.slip-leg-info strong{font-size:13px}
+.slip-leg-info span{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.slip-leg>b{font-variant-numeric:tabular-nums;color:var(--gold)}
+.slip-remove{border:0;background:transparent;color:#ef8b8b;font-size:20px;cursor:pointer}
+.slip-summary{display:grid;gap:8px;margin-top:14px}
+.slip-summary label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.slip-summary input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:8px;background:#071321;color:#fff;font:inherit}
+.slip-total{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+#submit-bet{width:100%;margin-top:14px;padding:13px;border:1px solid #a27b22;border-radius:8px;background:#3b2e12;color:var(--gold);font-weight:800;cursor:pointer}
+#submit-bet:disabled{opacity:.45;cursor:not-allowed}
+.betslip-status{margin:10px 0 0}
+@media(max-width:650px){.betslip{padding:14px}.slip-leg{gap:8px}.slip-leg-info strong{font-size:12px}}
+
+.ticket-history{margin-top:24px}
+.history-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.history-head h2{font-size:18px;margin:0}
+.history-head button{border:1px solid var(--line);background:#14243a;color:#dbe6f2;border-radius:8px;padding:8px 12px;cursor:pointer}
+.ticket-history{display:grid;gap:10px}
+.ticket-card{border:1px solid var(--line);border-radius:11px;padding:14px;background:#0e1b2b}
+.ticket-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ticket-head strong{font-size:13px;letter-spacing:.03em}
+.ticket-status{border-radius:20px;padding:3px 9px;font-size:10px;font-weight:800;background:#25364b;color:#c5d4e5}
+.status-won{background:#123b2d;color:#71e1aa}.status-lost{background:#472323;color:#ff9a9a}.status-void,.status-cancelled{background:#3c321b;color:#f2d78c}
+.ticket-meta{font-size:11px;color:var(--muted);margin-top:7px}
+.ticket-leg{display:grid;gap:3px;border-top:1px solid #23374d;margin-top:9px;padding-top:8px}
+.ticket-leg strong{font-size:12px}.ticket-leg span{font-size:10px;color:var(--muted)}
+
+.status-review{background:#4b3617;color:#ffcf72}
+.ticket-review-note{margin-top:8px;padding:8px 10px;border-left:2px solid #c58a2b;background:#2c2418;color:#f1d9a7;font-size:11px}

@@ -19,29 +19,24 @@ export function loadSportsbookConfig(env = process.env) {
   }
   const maxCallsPer30Days = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_30_DAYS", env.SPORTRADAR_MAX_CALLS_PER_30_DAYS);
   if (accessLevel === "trial" && maxCallsPer30Days > 800) {
-    throw new Error("Trial internal budget must not exceed 800 calls per rolling 30 days (provider trial ceiling: 1,000)");
+    throw new Error("Trial internal budget must not exceed 800 calls per rolling 30 days; provider entitlement is account-specific");
   }
   const initialCallsUsed30Days = Number(env.SPORTRADAR_INITIAL_30_DAY_USAGE);
   if (!Number.isSafeInteger(initialCallsUsed30Days) || initialCallsUsed30Days < 0 || initialCallsUsed30Days > maxCallsPer30Days) {
     throw new Error("SPORTRADAR_INITIAL_30_DAY_USAGE must be an integer within the configured 30-day quota");
   }
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
-  const maxCallsPerCycle = requiredPositiveInteger("SPORTRADAR_MAX_CALLS_PER_CYCLE", env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? (accessLevel === "trial" ? 5 : 80));
-  if (accessLevel === "trial" && maxCallsPerCycle > 5) {
-    throw new Error("Trial max calls per cycle must not exceed 5");
-  }
-  // GASTERUS does not impose a rolling one-hour cap. The rolling 30-day
-  // budget and per-cycle ceiling remain enforced as independent safeguards.
+  const targetEvents = requiredPositiveInteger("SPORTRADAR_TARGET_EVENTS", env.SPORTRADAR_TARGET_EVENTS ?? 50);
+  const marketPageSize = requiredPositiveInteger("SPORTRADAR_MARKET_PAGE_SIZE", env.SPORTRADAR_MARKET_PAGE_SIZE ?? 50);
+  // Every provider request is reserved against the rolling 30-day quota and
+  // the strict per-cycle ceiling. If the ceiling prevents full pagination,
+  // the cycle is incomplete and its snapshot is never published.
+  // GASTERUS does not impose a rolling one-hour cap.
   const maxCallsPerHour = 0;
-  const changeLogEnabled = String(env.SPORTRADAR_CHANGELOG_ENABLED || "false").toLowerCase() === "true";
-  const changeLogPollSeconds = requiredPositiveInteger("SPORTRADAR_CHANGELOG_POLL_SECONDS", env.SPORTRADAR_CHANGELOG_POLL_SECONDS ?? 240);
-  if (changeLogPollSeconds < 60 || changeLogPollSeconds > 300) {
-    throw new Error("SPORTRADAR_CHANGELOG_POLL_SECONDS must be between 60 and 300 seconds");
-  }
-  const minimumChangeLogCalls30Days = Math.ceil((30 * 24 * 60 * 60) / changeLogPollSeconds);
-  if (changeLogEnabled && maxCallsPer30Days < minimumChangeLogCalls30Days + maxCallsPerCycle) {
-    throw new Error("SPORTRADAR_CHANGELOG_ENABLED requires a 30-day request budget covering every change-log poll plus the per-cycle safety reserve");
-  }
+  // Change Log is intentionally disabled in this release. Market snapshots
+  // are refreshed through the complete paginated daily markets feed only.
+  const changeLogEnabled = false;
+  const changeLogPollSeconds = 0;
   const daysAhead = Number(env.SPORTRADAR_DAYS_AHEAD ?? 0);
   if (!Number.isSafeInteger(daysAhead) || daysAhead < 0 || daysAhead > (accessLevel === "trial" ? 0 : 14)) {
     throw new Error(accessLevel === "trial"
@@ -53,13 +48,44 @@ export function loadSportsbookConfig(env = process.env) {
   if (accessLevel === "trial" && sportIds.length !== 1) {
     throw new Error("Trial mode must track exactly one sport to protect the 30-day request budget");
   }
+  const minimumChangeLogCalls30Days = 0;
+  const sportCount = sportIds.length;
+  const dateCount = daysAhead + 1;
+  // One page per sport/date per configured market cycle is the minimum.
+  // Additional pages are counted at runtime by the shared rolling quota guard.
+  const minimumScheduleCalls30Days = 0;
+  const marketPagesPerCycle = Math.ceil(targetEvents / marketPageSize);
+  const expectedMarketCallsPerCycle = marketPagesPerCycle * sportCount * dateCount;
+  const minimumCallsPerCycle = expectedMarketCallsPerCycle + 3;
+  const maxCallsPerCycle = requiredPositiveInteger(
+    "SPORTRADAR_MAX_CALLS_PER_CYCLE",
+    env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? minimumCallsPerCycle
+  );
+  if (maxCallsPerCycle < minimumCallsPerCycle) {
+    throw new Error(`SPORTRADAR_MAX_CALLS_PER_CYCLE must be at least ${minimumCallsPerCycle} for the configured target and discovery feeds`);
+  }
+  const marketCycles30Days = Math.ceil((30 * 24 * 60) / pollMinutes);
+  const minimumMarketCalls30Days = marketCycles30Days * marketPagesPerCycle * sportCount * dateCount;
+  const minimumDiscoveryCalls30Days = 3 * 30;
+  const minimumCalls30Days = minimumMarketCalls30Days + minimumDiscoveryCalls30Days;
+  const betRevalidationCallsPer30Days = Number(env.SPORTSBOOK_PROVIDER_REVALIDATION_MAX_CALLS_PER_30_DAYS ?? 0);
+  if (!Number.isSafeInteger(betRevalidationCallsPer30Days) || betRevalidationCallsPer30Days < 0 ||
+      (String(env.SPORTSBOOK_PROVIDER_REVALIDATION_ENABLED || "").toLowerCase() === "true" && betRevalidationCallsPer30Days < 1)) {
+    throw new Error("SPORTSBOOK_PROVIDER_REVALIDATION_MAX_CALLS_PER_30_DAYS must be a positive integer when provider revalidation is enabled");
+  }
+  const availableCalls30Days = maxCallsPer30Days - initialCallsUsed30Days;
+  if (availableCalls30Days < minimumCalls30Days + betRevalidationCallsPer30Days) {
+    throw new Error(`Sportradar 30-day budget is insufficient: target ${targetEvents} events at page size ${marketPageSize} requires ${marketPagesPerCycle} market pages/cycle and ${minimumCalls30Days} calls/30 days; worker requires ${minimumCalls30Days}, provider revalidation reserve requires ${betRevalidationCallsPer30Days}, available ${availableCalls30Days}`);
+  }
   const language = String(env.SPORTRADAR_LANGUAGE || "en").trim();
   return Object.freeze({
     apiKey, accessLevel, language, sportIds, daysAhead,
     pollIntervalMs: pollMinutes * MINUTE,
-    maxCallsPerCycle, maxCallsPerHour, maxCallsPer30Days, initialCallsUsed30Days,
+    maxCallsPerHour, maxCallsPer30Days, initialCallsUsed30Days,
     changeLogEnabled, changeLogPollMs: changeLogPollSeconds * 1000,
-    minimumChangeLogCalls30Days,
+    minimumChangeLogCalls30Days, minimumScheduleCalls30Days,
+    targetEvents, marketPageSize, marketPagesPerCycle, maxCallsPerCycle, betRevalidationCallsPer30Days,
+    minimumMarketCalls30Days, minimumDiscoveryCalls30Days, minimumCalls30Days,
     maxSnapshotAgeMs: pollMinutes * MINUTE * 2,
     prematchBaseUrl: `https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${language}`,
     soccerBaseUrl: `https://api.sportradar.com/soccer/${accessLevel}/v4/${language}`,

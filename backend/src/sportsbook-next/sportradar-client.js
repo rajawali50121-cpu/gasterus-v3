@@ -147,7 +147,7 @@ export class SportradarClient {
     return this.request(this.config.prematchBaseUrl,
       `sports/${encodeUrnPathSegment(sportId)}/schedules/${encodeURIComponent(date)}/sport_event_markets`, { start, limit });
   }
-  async getAllDailySportEventMarkets(sportId, date, { pageSize = 50, maxPages = 10 } = {}) {
+  async getAllDailySportEventMarkets(sportId, date, { pageSize = 50, maxPages = 1000 } = {}) {
     if (!Number.isSafeInteger(pageSize) || pageSize < 1 || !Number.isSafeInteger(maxPages) || maxPages < 1) {
       throw new TypeError("SPORTRADAR_PAGINATION_CONFIG_INVALID");
     }
@@ -166,30 +166,30 @@ export class SportradarClient {
         throw providerError("SPORTRADAR_BULK_MARKETS_SHAPE_INVALID", "Sportradar Prematch Daily Sport Event Markets response is missing a documented event array");
       }
       items.push(...rows);
-      const reportedHeader = result.headers.get("x-max-results");
-      const receivedHeader = result.headers.get("x-result");
-      const reported = reportedHeader === null ? null : Number(reportedHeader);
-      const received = receivedHeader === null ? null : Number(receivedHeader);
-      if (reported !== null && Number.isFinite(reported) && reported >= 0) reportedTotal = reported;
-      const hasMore = reportedTotal !== null
-        ? start + rows.length < reportedTotal
-        : received !== null && Number.isFinite(received)
-          ? received >= pageSize
-          : rows.length >= pageSize;
+      const reportedHeader = result.headers.get("x-max-results"), receivedHeader = result.headers.get("x-result");
+      const reported = reportedHeader === null ? null : Number(reportedHeader), received = receivedHeader === null ? null : Number(receivedHeader);
+      if (reportedHeader !== null && (!Number.isSafeInteger(reported) || reported < 0)) throw providerError("SPORTRADAR_MARKET_PAGINATION_HEADER_INVALID", "Invalid X-Max-Results header");
+      if (receivedHeader !== null && (!Number.isSafeInteger(received) || received < 0)) throw providerError("SPORTRADAR_MARKET_PAGINATION_HEADER_INVALID", "Invalid X-Result header");
+      const returnedCount = receivedHeader === null ? rows.length : received;
+      if (receivedHeader !== null && returnedCount !== rows.length) throw providerError("SPORTRADAR_MARKET_PAGINATION_COUNT_MISMATCH", "X-Result does not match returned event array");
+      if (reported !== null) reportedTotal = reported;
+      const nextStart = start + returnedCount;
+      const hasMore = reportedTotal !== null ? nextStart < reportedTotal : receivedHeader !== null ? returnedCount >= pageSize : rows.length >= pageSize;
+      if (hasMore && returnedCount === 0) throw providerError("SPORTRADAR_MARKET_PAGINATION_STALLED", "Empty page before X-Max-Results");
       if (!hasMore) { complete = true; break; }
-      start += rows.length || pageSize;
+      start = nextStart;
     }
     if (reportedTotal !== null && items.length >= reportedTotal) complete = true;
+    if (!complete && pages >= maxPages) {
+      throw providerError("SPORTRADAR_MARKET_PAGINATION_GUARD_REACHED", "Daily Sport Event Markets pagination exceeded the safety guard before completion");
+    }
     return {
       body: { sport_events: items, generated_at: providerGeneratedAt },
       pagination: { pages, received: items.length, total: reportedTotal, complete }
     };
   }
-  getSportEventMarkets(eventId) {
-    return this.request(this.config.prematchBaseUrl, `sport_events/${encodeUrnPathSegment(eventId)}/sport_event_markets`);
-  }
-  getSportEventMarketsChangeLog() {
-    return this.request(this.config.prematchBaseUrl, "sport_event_markets_changelog");
+  getSportEventMarkets(eventId, { live = false } = {}) {
+    return this.request(this.config.prematchBaseUrl, `sport_events/${encodeUrnPathSegment(eventId)}/sport_event_markets`, { live });
   }
   getSoccerDailySchedules(date) {
     return this.request(this.config.soccerBaseUrl, `schedules/${encodeURIComponent(date)}/schedules`);

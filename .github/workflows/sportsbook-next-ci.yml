@@ -7,7 +7,10 @@ on:
       - "backend/migrations/042_sportsbook_v2_core.sql"
       - "backend/migrations/043_sportsbook_v2_provider_timestamps.sql"
       - "backend/migrations/044_sportsbook_v2_market_results_settlement.sql"
+      - "backend/migrations/046_sportsbook_v2_bet_acceptance.sql"
+      - "backend/src/ledger.js"
       - "backend/tests/sportsbook-next-*.test.js"
+      - "backend/tests/sportsbook-*-service.test.js"
       - "backend/tests/schema.test.js"
       - ".github/workflows/sportsbook-next-ci.yml"
 
@@ -19,6 +22,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.23.2"
+      - name: Install backend dependencies
+        run: npm ci --prefix backend
       - name: Run all Sportradar sportsbook and schema tests
         working-directory: backend
-        run: node --test --test-reporter=spec tests/sportsbook-next-*.test.js tests/schema.test.js && node --check src/sportsbook-next/worker.js && node --check src/sportsbook-next/repository.js && node --check src/sportsbook-next/results-repository.js && node --check src/sportsbook-next/market-catalog.js && node --check src/sportsbook-next/results.js && node --check src/sportsbook-next/settlement-rules.js && node --check src/sportsbook-next/index.js
+        run: node --test --test-reporter=spec tests/sportsbook-next-*.test.js tests/sportsbook-*-service.test.js tests/sportsbook-public-feed.test.js tests/soccer-v4-worker.test.js tests/schema.test.js && node --check src/sportsbook-next/worker.js && node --check src/sportsbook-next/repository.js && node --check src/sportsbook-next/results-repository.js && node --check src/sportsbook-next/market-catalog.js && node --check src/sportsbook-next/results.js && node --check src/sportsbook-next/settlement-rules.js && node --check src/sportsbook-next/betting-service.js && node --check src/sportsbook-next/settlement-service.js && node --check src/sportsbook-next/settlement-worker.js && node --check src/sportsbook-next/soccer-v4-worker.js && node --check src/sportsbook-next/soccer-v4-client.js && node --check src/sportsbook-next/soccer-v4-config.js && node --check src/sportsbook-next/soccer-v4-quota.js && node --check src/sportsbook-next/index.js && node --check src/ledger.js

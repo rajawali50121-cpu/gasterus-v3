@@ -4,12 +4,12 @@ import { loadSportsbookConfig } from "../src/sportsbook-next/config.js";
 import { SportradarClient } from "../src/sportsbook-next/sportradar-client.js";
 import { getSportradarQuotaUsage, reserveSportradarCall } from "../src/sportsbook-next/quota.js";
 import { normalizeDailySchedule, normalizeDailySportEventMarkets, normalizeEventMarkets, normalizeSoccerResult } from "../src/sportsbook-next/normalize.js";
-import { getChangedSportEventIds, shouldReconcileChangeLog, initializeChangeLogBaseline, SPORTRADAR_CHANGE_LOG_WINDOW_MS } from "../src/sportsbook-next/change-log.js";
+import { getChangedSportEventIds, shouldReconcileChangeLog, SPORTRADAR_CHANGE_LOG_WINDOW_MS } from "../src/sportsbook-next/change-log.js";
 
 const env = {
   SPORTRADAR_API_KEY: "test-key",
-  SPORTRADAR_ACCESS_LEVEL: "trial",
-  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "100",
+  SPORTRADAR_ACCESS_LEVEL: "production",
+  SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2500",
   SPORTRADAR_MAX_CALLS_PER_HOUR: "20",
   SPORTRADAR_INITIAL_30_DAY_USAGE: "10",
   SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
@@ -18,30 +18,39 @@ const env = {
 test("config defaults to 150-minute refresh, current UTC date only and official Odds Comparison/Soccer v4 base URLs", () => {
   const config = loadSportsbookConfig(env);
   assert.equal(config.pollIntervalMs, 150 * 60 * 1000);
-  assert.equal(config.maxCallsPerHour, 0);
+  assert.equal(config.schedulePollIntervalMs, undefined);
+  assert.equal(config.minimumScheduleCalls30Days, 0);
+  assert.equal(config.minimumMarketCalls30Days, 288);
+  assert.equal(config.targetEvents, 50); assert.equal(config.marketPageSize, 50);
+  assert.equal(config.marketPagesPerCycle, 1); assert.equal(config.maxCallsPerCycle, 4); assert.equal(config.maxCallsPerHour, 0);
   assert.equal(config.daysAhead, 0);
-  assert.equal(config.maxCallsPerCycle, 5);
-  assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/trial/v2/en");
-  assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/trial/v4/en");
+  assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/production/v2/en");
+  assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/production/v4/en");
 });
 
-test("change-log configuration is opt-in and refuses a request budget too small for the documented five-minute window", () => {
+test("Change Log remains disabled and excluded from the quota calculator", () => {
   const config = loadSportsbookConfig(env);
   assert.equal(config.changeLogEnabled, false);
-  assert.equal(config.changeLogPollMs, 240_000);
-  assert.equal(config.minimumChangeLogCalls30Days, 10_800);
-  assert.throws(
-    () => loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" }),
-    /requires a 30-day request budget/
-  );
-  assert.throws(
-    () => loadSportsbookConfig({
-      ...env,
-      SPORTRADAR_MAX_CALLS_PER_30_DAYS: "11000",
-      SPORTRADAR_CHANGELOG_ENABLED: "true"
-    }),
-    /must not exceed 800/
-  );
+  assert.equal(config.changeLogPollMs, 0);
+  assert.equal(config.minimumChangeLogCalls30Days, 0);
+  const forced = loadSportsbookConfig({ ...env, SPORTRADAR_CHANGELOG_ENABLED: "true" });
+  assert.equal(forced.changeLogEnabled, false);
+  assert.equal(forced.minimumCalls30Days, 378);
+});
+
+test("quota calculator scales market pages and rejects insufficient budget", () => {
+  const target150 = loadSportsbookConfig({ ...env, SPORTRADAR_TARGET_EVENTS: "150", SPORTRADAR_MARKET_PAGE_SIZE: "50" });
+  assert.equal(target150.marketPagesPerCycle, 3); assert.equal(target150.maxCallsPerCycle, 6); assert.equal(target150.minimumMarketCalls30Days, 864);
+  assert.equal(target150.minimumCalls30Days, 954);
+  assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial",
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800", SPORTRADAR_TARGET_EVENTS: "150", SPORTRADAR_MARKET_PAGE_SIZE: "50"
+  }), /target 150 events at page size 50 requires 3 market pages\/cycle and 954 calls\/30 days/);
+});
+
+test("cycle request cap cannot be configured below target pages plus discovery feeds", () => {
+  assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_MAX_CALLS_PER_CYCLE: "3" }),
+    /SPORTRADAR_MAX_CALLS_PER_CYCLE must be at least 4/);
+  assert.equal(loadSportsbookConfig({ ...env, SPORTRADAR_MAX_CALLS_PER_CYCLE: "4" }).maxCallsPerCycle, 4);
 });
 
 test("change log extracts only tracked Sportradar sport-event IDs", () => {
@@ -69,13 +78,14 @@ test("change log reconciles after startup or a gap longer than five minutes", ()
 
 test("trial configuration cannot exceed the 800-call internal budget or fan out across sports", () => {
   assert.throws(
-    () => loadSportsbookConfig({ ...env, SPORTRADAR_MAX_CALLS_PER_30_DAYS: "801" }),
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "801" }),
     /must not exceed 800/
   );
   assert.throws(
-    () => loadSportsbookConfig({ ...env, SPORTRADAR_SPORT_IDS: "sr:sport:1,sr:sport:2" }),
+    () => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800", SPORTRADAR_SPORT_IDS: "sr:sport:1,sr:sport:2" }),
     /exactly one sport/
   );
+  assert.doesNotThrow(() => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial", SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800" }));
 });
 
 test("config rejects missing API key, unsupported tier, and unverified quota baselines", () => {
@@ -89,20 +99,20 @@ test("config rejects missing API key, unsupported tier, and unverified quota bas
   }), /baseline is unconfirmed/);
   const defaults = loadSportsbookConfig({
     SPORTRADAR_API_KEY: "test",
-    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800",
+    SPORTRADAR_ACCESS_LEVEL: "production",
+    SPORTRADAR_MAX_CALLS_PER_30_DAYS: "2500",
     SPORTRADAR_INITIAL_30_DAY_USAGE: "120",
     SPORTRADAR_QUOTA_BASELINE_CONFIRMED: "true"
   });
-  assert.equal(defaults.maxCallsPer30Days, 800);
+  assert.equal(defaults.maxCallsPer30Days, 2500);
   assert.equal(defaults.initialCallsUsed30Days, 120);
   assert.equal(defaults.daysAhead, 0);
-  assert.equal(defaults.maxCallsPerCycle, 5);
 });
 
 test("daily schedule normalization uses sport_event and provider SR identifiers", () => {
   const rows = normalizeDailySchedule({ schedules: [{
     sport_event: {
-      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", status: "not_started",
+      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", start_time_confirmed: true, status: "not_started", replaced_by: "sr:sport_event:456", resume_time: "2026-11-23T12:30:00Z",
       competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }]
     },
     sport_event_context: { competition: { name: "League" } }
@@ -115,7 +125,7 @@ test("daily schedule normalization uses sport_event and provider SR identifiers"
 test("event market normalization follows documented odds_decimal and removed bookmaker fields", () => {
   const snapshot = normalizeEventMarkets({
     sport_event: {
-      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", status: "not_started",
+      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", start_time_confirmed: true, status: "not_started", replaced_by: "sr:sport_event:456", resume_time: "2026-11-23T12:30:00Z",
       competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }]
     },
     markets: [{
@@ -133,6 +143,9 @@ test("event market normalization follows documented odds_decimal and removed boo
   assert.equal(snapshot.markets[0].books[0].outcomes.length, 1);
   assert.equal(snapshot.markets[0].books[0].outcomes[0].oddsDecimal, 2.1);
   assert.equal(snapshot.markets[0].key, "sr:market:251|Winner");
+  assert.equal(snapshot.event.startTimeConfirmed, true);
+  assert.equal(snapshot.event.replacedBy, "sr:sport_event:456");
+  assert.equal(snapshot.event.resumeTime, "2026-11-23T12:30:00Z");
 });
 
 test("Soccer result normalizer requires a Sportradar event ID", () => {
@@ -177,28 +190,6 @@ test("client calls documented endpoints, authenticates by x-api-key and captures
   assert.equal(diagnostic.retryAfter, "900");
   assert.ok(requested.includes("/sports/sr:sport:1/schedules/2026-11-23/schedules.json?start=0&limit=50"));
   assert.equal(calls, 1);
-});
-
-test("client calls the documented Prematch change-log and per-event market endpoints", async () => {
-  const config = loadSportsbookConfig(env);
-  const requested = [];
-  const client = new SportradarClient(config, {
-    fetchImpl: async url => {
-      requested.push(String(url));
-      return {
-        ok: true, status: 200, headers: { get: () => null },
-        json: async () => requested.length === 1
-          ? { changes: [{ type: "sport_event", id: "sr:sport_event:123", sport_event_markets_odds_change: 123 }] }
-          : { sport_event: { id: "sr:sport_event:123" }, markets: [] }
-      };
-    }
-  });
-  const changeLog = await client.getSportEventMarketsChangeLog();
-  assert.equal(changeLog.body.changes[0].id, "sr:sport_event:123");
-  const markets = await client.getSportEventMarkets("sr:sport_event:123");
-  assert.equal(markets.body.sport_event.id, "sr:sport_event:123");
-  assert.match(requested[0], /sport_event_markets_changelog\.json$/);
-  assert.match(requested[1], /sport_events\/sr:sport_event:123\/sport_event_markets\.json$/);
 });
 
 test("Prematch discovery uses official Sports, Books and Sport Competitions endpoints", async () => {
@@ -290,6 +281,23 @@ test("Redis quota reservation remains authoritative when local process counter i
   assert.deepEqual(result.body, { sports: [] });
 });
 
+test("ticket revalidation requests the official prematch-only Sport Event Markets endpoint", async () => {
+  const config = loadSportsbookConfig(env);
+  let requested;
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      requested = new URL(url);
+      return {
+        ok: true, status: 200, headers: { get: () => null },
+        json: async () => ({ sport_event: { id: "sr:sport_event:123" }, markets: [] })
+      };
+    }
+  });
+  await client.getSportEventMarkets("sr:sport_event:123", { live: false });
+  assert.equal(requested.pathname, "/oddscomparison-prematch/production/v2/en/sport_events/sr:sport_event:123/sport_event_markets.json");
+  assert.equal(requested.searchParams.get("live"), "false");
+});
+
 test("client preserves safe HTTP status codes for provider diagnostics", async () => {
   const config = loadSportsbookConfig(env);
   const client = new SportradarClient(config, {
@@ -307,12 +315,14 @@ test("client preserves safe HTTP status codes for provider diagnostics", async (
 test("quota usage reports rolling hourly and 30-day consumption without exposing keys", async () => {
   const config = { initialCallsUsed30Days: 10, maxCallsPer30Days: 500, maxCallsPerHour: 0 };
   const usage = await getSportradarQuotaUsage({ eval: async (_script, args) => {
-    assert.deepEqual(args.keys, ["sportsbook:next:sportradar:quota:v1", "sportsbook:next:sportradar:quota-baseline:v1"]);
-    return [7, 123];
+    assert.deepEqual(args.keys, ["sportsbook:next:sportradar:quota:v1", "sportsbook:next:sportradar:quota-baseline:v1", "sportsbook:next:sportradar:quota-worker:v1", "sportsbook:next:sportradar:quota-bet-revalidation:v1"]);
+    return [7, 123, 110, 13];
   } }, config, 1_800_000_000_000);
   assert.deepEqual(usage, {
     hourlyUsed: 7, hourlyLimit: null, hourlyRemaining: null, hourlyEnforced: false,
-    monthlyUsed: 123, monthlyLimit: 500, monthlyRemaining: 377
+    monthlyUsed: 123, monthlyLimit: 500, monthlyRemaining: 377,
+    workerUsed: 110, workerLimit: 500, workerRemaining: 390,
+    betRevalidationUsed: 13, betRevalidationLimit: 0, betRevalidationRemaining: 0
   });
 });
 
@@ -336,6 +346,19 @@ test("bulk pagination continues on a full page when provider pagination headers 
   assert.deepEqual(offsets, [0, 50]);
 });
 
+
+test("bulk market pagination advances by X-Result for a short page", async () => {
+  const config = loadSportsbookConfig(env), offsets = [];
+  const client = new SportradarClient(config, { fetchImpl: async url => {
+    const parsed = new URL(url), start = Number(parsed.searchParams.get("start")); offsets.push(start);
+    const count = start === 0 ? 20 : 50;
+    return { ok: true, status: 200, headers: { get: name => name === "x-max-results" ? "70" : name === "x-result" ? String(count) : null },
+      json: async () => ({ sport_schedule_sport_event_markets: Array.from({ length: count }, (_, i) => ({ sport_event: { id: `sr:sport_event:${start+i}` }, markets: [] })) }) };
+  }});
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-24");
+  assert.equal(result.pagination.pages, 2); assert.equal(result.pagination.received, 70);
+  assert.equal(result.pagination.total, 70); assert.deepEqual(offsets, [0, 20]);
+});
 
 test("bulk daily markets reads the official Prematch root key and logs safe response metadata", async () => {
   const config = loadSportsbookConfig(env);
@@ -403,6 +426,22 @@ test("normalizer accepts the documented raw sport_schedule_sport_event_markets r
   assert.equal(rows[0].markets[0].books[0].outcomes[0].oddsDecimal, 2.15);
 });
 
+test("daily markets pagination continues beyond two pages until provider total is complete", async () => {
+  const config = loadSportsbookConfig(env);
+  const offsets = [];
+  const client = new SportradarClient(config, { fetchImpl: async url => {
+    const parsed = new URL(url); const start = Number(parsed.searchParams.get("start")); offsets.push(start);
+    const count = start < 100 ? 50 : 1;
+    return { ok: true, status: 200, headers: { get: name => name === "x-max-results" ? "101" : null },
+      json: async () => ({ sport_schedule_sport_event_markets: Array.from({ length: count }, (_, i) => ({ sport_event: { id: `sr:sport_event:${start+i}` }, markets: [] })) }) };
+  }});
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-24");
+  assert.equal(result.pagination.complete, true);
+  assert.equal(result.pagination.pages, 3);
+  assert.equal(result.body.sport_events.length, 101);
+  assert.deepEqual(offsets, [0, 50, 100]);
+});
+
 test("bulk daily markets normalize embedded event boards without per-event follow-up calls", () => {
   const rows = normalizeDailySportEventMarkets({ sport_events: [{
     sport_event: {
@@ -460,24 +499,6 @@ test("bulk daily markets fails loudly when the documented response array is miss
 });
 
 
-test("discovery initializes a missing Change Log baseline but never advances an existing cursor", async () => {
-  let value = null;
-  const writes = [];
-  const redis = { set: async (key, next, options) => {
-    writes.push({ key, next, options });
-    if (options?.NX && value !== null) return null;
-    value = next;
-    return "OK";
-  } };
-  assert.equal(await initializeChangeLogBaseline(redis, "change-log-cursor", 1000), true);
-  assert.equal(value, "1000");
-  assert.equal(await initializeChangeLogBaseline(redis, "change-log-cursor", 9000), false);
-  assert.equal(value, "1000");
-  assert.equal(writes[0].options.NX, true);
-  assert.equal(writes[0].options.EX, 30 * 24 * 60 * 60);
-});
-
-
 test("global Sportradar QPS limiter uses Redis server time and shared cooldown", async () => {
   const { waitForSportradarRequestSlot, applySportradarRateLimitCooldown, __qps } = await import("../src/sportsbook-next/quota.js");
   assert.match(__qps.QPS_RESERVE_SCRIPT, /redis.call\('TIME'\)/);
@@ -504,7 +525,7 @@ test("Sportradar 429 propagates Retry-After into shared cooldown callback", asyn
   assert.deepEqual(cooldown,{retryAfter:"12",httpStatus:429});
 });
 
-test("bulk daily market pagination reports incomplete when the hard page cap truncates results", async () => {
+test("bulk daily market pagination fails explicitly instead of publishing a truncated result", async () => {
   const config = loadSportsbookConfig(env);
   const offsets = [];
   const client = new SportradarClient(config, {
@@ -521,11 +542,38 @@ test("bulk daily market pagination reports incomplete when the hard page cap tru
       };
     }
   });
-  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25", { pageSize: 50, maxPages: 2 });
+  await assert.rejects(
+    client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25", { pageSize: 50, maxPages: 2 }),
+    error => error.code === "SPORTRADAR_MARKET_PAGINATION_GUARD_REACHED"
+  );
   assert.deepEqual(offsets, [0, 50]);
-  assert.equal(result.pagination.complete, false);
-  assert.equal(result.pagination.received, 100);
-  assert.equal(result.body.generated_at, "2026-11-25T00:00:00Z");
+});
+test("bulk daily market pagination completes every page beyond the former two-page limit", async () => {
+  const config = loadSportsbookConfig(env);
+  const offsets = [];
+  const client = new SportradarClient(config, {
+    fetchImpl: async url => {
+      const parsed = new URL(url);
+      const start = Number(parsed.searchParams.get("start"));
+      offsets.push(start);
+      const count = start === 0 || start === 50 ? 50 : 25;
+      return {
+        ok: true, status: 200,
+        headers: { get: name => name === "x-max-results" ? "125" : name === "x-result" ? String(count) : null },
+        json: async () => ({
+          sport_schedule_sport_event_markets: Array.from({ length: count }, (_, i) => ({
+            sport_event: { id: `sr:sport_event:${start + i + 1}` }, markets: []
+          }))
+        })
+      };
+    }
+  });
+  const result = await client.getAllDailySportEventMarkets("sr:sport:1", "2026-11-25");
+  assert.deepEqual(offsets, [0, 50, 100]);
+  assert.equal(result.pagination.pages, 3);
+  assert.equal(result.pagination.received, 125);
+  assert.equal(result.pagination.complete, true);
+  assert.equal(result.body.sport_events.length, 125);
 });
 
 test("normalizer preserves scheduled events with no available markets and provider generated_at", () => {
