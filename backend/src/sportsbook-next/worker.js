@@ -25,6 +25,19 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const shutdownController = new AbortController();
 let stopping = false;
 
+export function assertSportradarCycleBudget(client, config) {
+  const limit = config?.maxCallsPerCycle;
+  if (!Number.isSafeInteger(limit) || limit < 1 ||
+      !Number.isSafeInteger(client?.cycleCalls) || client.cycleCalls < 0) {
+    throw new Error("SPORTRADAR_CYCLE_BUDGET_CONFIG_INVALID");
+  }
+  if (client.cycleCalls >= limit) {
+    const error = new Error("SPORTRADAR_CYCLE_BUDGET_EXHAUSTED");
+    error.code = error.message;
+    throw error;
+  }
+}
+
 function utcDate(offset) {
   return new Date(Date.now() + offset * DAY_MS).toISOString().slice(0, 10);
 }
@@ -191,6 +204,10 @@ async function runCycle(config, client) {
           const rows = normalizeDailySportEventMarkets(result.body, sportId, new Date().toISOString());
           for (const event of rows) events.set(event.id, event);
         } catch (error) {
+          if (error?.code === "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED") {
+            budgetLimited = true;
+            break;
+          }
           if (["SPORTRADAR_HOURLY_QUOTA_EXHAUSTED","SPORTRADAR_30_DAY_QUOTA_EXHAUSTED"].includes(error?.code)) {
             quotaLimited = true;
             quotaReason = error.code;
@@ -284,6 +301,7 @@ async function main() {
     onResponse: details => logger.info("Sportradar provider response", details),
     onRateLimit: ({ retryAfter }) => applySportradarRateLimitCooldown(redis, retryAfter),
     beforeRequest: async () => {
+      assertSportradarCycleBudget(client, config);
       await waitForSportradarRequestSlot(redis);
       await reserveSportradarCall(redis, config);
       client.cycleCalls += 1;
