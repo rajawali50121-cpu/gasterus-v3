@@ -582,7 +582,7 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
         current.outcomeCode === preflight[index].outcomeCode &&
         current.row.mapping_version === before.mapping_version,
       409, "Snapshot atau mapping berubah selama verifikasi provider. Kirim ulang tiket dengan odds terbaru.", "SPORTSBOOK_PROVIDER_SNAPSHOT_CHANGED");
-      assert(providerChecks[index].odds === current.odds, 409,
+      assert(decimalOddsToMicros(providerChecks[index].odds) === decimalOddsToMicros(current.odds), 409,
         "Harga provider tidak cocok dengan snapshot saat tiket diproses.", "SPORTSBOOK_PROVIDER_SNAPSHOT_MISMATCH");
       resolved.push(current);
     }
