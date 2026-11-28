@@ -54,6 +54,15 @@ export function loadSportsbookConfig(env = process.env) {
   // Additional pages are counted at runtime by the shared rolling quota guard.
   const minimumScheduleCalls30Days = 0;
   const marketPagesPerCycle = Math.ceil(targetEvents / marketPageSize);
+  const expectedMarketCallsPerCycle = marketPagesPerCycle * sportCount * dateCount;
+  const minimumCallsPerCycle = expectedMarketCallsPerCycle + 3;
+  const maxCallsPerCycle = requiredPositiveInteger(
+    "SPORTRADAR_MAX_CALLS_PER_CYCLE",
+    env.SPORTRADAR_MAX_CALLS_PER_CYCLE ?? minimumCallsPerCycle
+  );
+  if (maxCallsPerCycle < minimumCallsPerCycle) {
+    throw new Error(`SPORTRADAR_MAX_CALLS_PER_CYCLE must be at least ${minimumCallsPerCycle} for the configured target and discovery feeds`);
+  }
   const marketCycles30Days = Math.ceil((30 * 24 * 60) / pollMinutes);
   const minimumMarketCalls30Days = marketCycles30Days * marketPagesPerCycle * sportCount * dateCount;
   const minimumDiscoveryCalls30Days = 3 * 30;
@@ -67,7 +76,7 @@ export function loadSportsbookConfig(env = process.env) {
     maxCallsPerHour, maxCallsPer30Days, initialCallsUsed30Days,
     changeLogEnabled, changeLogPollMs: changeLogPollSeconds * 1000,
     minimumChangeLogCalls30Days, minimumScheduleCalls30Days,
-    targetEvents, marketPageSize, marketPagesPerCycle,
+    targetEvents, marketPageSize, marketPagesPerCycle, maxCallsPerCycle,
     minimumMarketCalls30Days, minimumDiscoveryCalls30Days, minimumCalls30Days,
     maxSnapshotAgeMs: pollMinutes * MINUTE * 2,
     prematchBaseUrl: `https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${language}`,
