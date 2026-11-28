@@ -28,8 +28,9 @@ export function loadSportsbookConfig(env = process.env) {
   const pollMinutes = requiredPositiveInteger("SPORTSBOOK_POLL_MINUTES", env.SPORTSBOOK_POLL_MINUTES ?? 150);
   const targetEvents = requiredPositiveInteger("SPORTRADAR_TARGET_EVENTS", env.SPORTRADAR_TARGET_EVENTS ?? 50);
   const marketPageSize = requiredPositiveInteger("SPORTRADAR_MARKET_PAGE_SIZE", env.SPORTRADAR_MARKET_PAGE_SIZE ?? 50);
-  // Complete market pagination has no artificial per-cycle truncation.
-  // Every page is reserved against the authoritative rolling 30-day quota.
+  // Every provider request is reserved against the rolling 30-day quota and
+  // the strict per-cycle ceiling. If the ceiling prevents full pagination,
+  // the cycle is incomplete and its snapshot is never published.
   // GASTERUS does not impose a rolling one-hour cap.
   const maxCallsPerHour = 0;
   // Change Log is intentionally disabled in this release. Market snapshots
