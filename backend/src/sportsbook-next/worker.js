@@ -235,7 +235,7 @@ async function runCycle(config, client) {
     };
     // Never replace a last-known-good snapshot with partial or quota-truncated data.
     const persisted = snapshot.complete
-      ? await persistSportsbookSnapshot(pricedEvents, snapshot.receivedAt)
+      ? await persistSportsbookSnapshot(pricedEvents, snapshot.receivedAt, { complete: snapshot.complete })
       : { skipped: true, reason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE")) };
     if (snapshot.complete) {
       await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
