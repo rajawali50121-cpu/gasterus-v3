@@ -16,6 +16,7 @@ const readyEnv = {
   SPORTSBOOK_SETTLEMENT_ENABLED: "true",
   SPORTRADAR_ODDS_ENABLED: "true",
   SPORTRADAR_API_KEY: "test-key-not-used",
+  SPORTSBOOK_PROVIDER_REVALIDATION_MAX_CALLS_PER_30_DAYS: "120",
   SPORTRADAR_CHANGELOG_ENABLED: "true",
   SPORTRADAR_ACCESS_LEVEL: "production",
   SPORTRADAR_SOCCER_ENABLED: "true",
@@ -176,6 +177,19 @@ test("bet acceptance readiness requires explicit synchronous provider revalidati
   assert.equal(readiness.enabled, false);
   assert.ok(readiness.reasons.includes("PROVIDER_PRICE_REVALIDATION_DISABLED"));
   assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_DISABLED"]);
+});
+
+test("missing provider revalidation quota reserve blocks acceptance readiness", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
+    redis: healthyRedis(now),
+    env: { ...readyEnv, SPORTSBOOK_PROVIDER_REVALIDATION_MAX_CALLS_PER_30_DAYS: "" },
+    now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("PROVIDER_REVALIDATION_QUOTA_BUDGET_INSUFFICIENT"));
 });
 
 test("trial entitlement fails closed; synchronous provider checks replace snapshot freshness gates", async () => {
