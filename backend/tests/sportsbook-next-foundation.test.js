@@ -298,12 +298,14 @@ test("client preserves safe HTTP status codes for provider diagnostics", async (
 test("quota usage reports rolling hourly and 30-day consumption without exposing keys", async () => {
   const config = { initialCallsUsed30Days: 10, maxCallsPer30Days: 500, maxCallsPerHour: 0 };
   const usage = await getSportradarQuotaUsage({ eval: async (_script, args) => {
-    assert.deepEqual(args.keys, ["sportsbook:next:sportradar:quota:v1", "sportsbook:next:sportradar:quota-baseline:v1"]);
-    return [7, 123];
+    assert.deepEqual(args.keys, ["sportsbook:next:sportradar:quota:v1", "sportsbook:next:sportradar:quota-baseline:v1", "sportsbook:next:sportradar:quota-worker:v1", "sportsbook:next:sportradar:quota-bet-revalidation:v1"]);
+    return [7, 123, 110, 13];
   } }, config, 1_800_000_000_000);
   assert.deepEqual(usage, {
     hourlyUsed: 7, hourlyLimit: null, hourlyRemaining: null, hourlyEnforced: false,
-    monthlyUsed: 123, monthlyLimit: 500, monthlyRemaining: 377
+    monthlyUsed: 123, monthlyLimit: 500, monthlyRemaining: 377,
+    workerUsed: 110, workerLimit: 500, workerRemaining: 390,
+    betRevalidationUsed: 13, betRevalidationLimit: 0, betRevalidationRemaining: 0
   });
 });
 
