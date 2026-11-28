@@ -135,7 +135,7 @@ export async function getSportsbookBetAcceptanceReadiness({
   const soccerInitialRaw = String(env.SPORTRADAR_SOCCER_INITIAL_30_DAY_USAGE ?? "").trim();
   const soccerInitialUsage = /^\d+$/.test(soccerInitialRaw) ? Number(soccerInitialRaw) : null;
   const soccerPollMinutes = Number(env.SPORTRADAR_SOCCER_POLL_MINUTES ?? 60);
-  const soccerLookbackDays = Number(env.SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS ?? 7);
+  const soccerLookbackDays = Number(env.SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS ?? 2);
   const soccerMinimumCalls = Number.isInteger(soccerPollMinutes) && soccerPollMinutes === 60 &&
     Number.isInteger(soccerLookbackDays) && soccerLookbackDays >= 1 && soccerLookbackDays <= 14
     ? Math.ceil((30 * 24 * 60) / soccerPollMinutes) + (30 * soccerLookbackDays)
@@ -172,7 +172,7 @@ export async function getSportsbookBetAcceptanceReadiness({
     reasons.push("PROVIDER_REVALIDATION_QUOTA_BUDGET_INSUFFICIENT");
   }
 
-  if (!safeIntegerEnv(env, "SPORTSBOOK_PRICE_MAX_AGE_SECONDS")) reasons.push("PRICE_MAX_AGE_NOT_CONFIGURED");
+  if (!safeIntegerEnv(env, "SPORTSBOOK_PROVIDER_MAX_AGE_SECONDS")) reasons.push("PROVIDER_TIMESTAMP_MAX_AGE_NOT_CONFIGURED");
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_STAKE_IDR")) reasons.push("MAX_STAKE_NOT_CONFIGURED");
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_PAYOUT_IDR")) reasons.push("MAX_PAYOUT_NOT_CONFIGURED");
 
@@ -408,21 +408,13 @@ async function loadBettablePrice(client, leg, nowMs, env) {
     "Status pertandingan tidak mengizinkan taruhan prematch.", "SPORTSBOOK_EVENT_NOT_PREMATCH");
   assert(row.scheduled_at && new Date(row.scheduled_at).getTime() > nowMs, 409,
     "Jadwal pertandingan sudah dimulai atau tidak valid.", "SPORTSBOOK_EVENT_STARTED");
-  const maxAgeSeconds = safeIntegerEnv(env, "SPORTSBOOK_PRICE_MAX_AGE_SECONDS");
-  const freshness = evaluateStoredBetPriceFreshness({
-    receivedAt: row.received_at,
-    scheduledAt: row.scheduled_at,
-    odds: row.odds_decimal,
-    expectedOdds: microsToDecimal(leg.expectedOddsMicros),
-    marketActive: row.market_active,
-    priceActive: row.price_active,
-    isLive: row.is_live,
-    scheduleConfirmed: row.start_time_confirmed,
-    replacedBy: row.replaced_by,
-    nowMs,
-    maxAgeSeconds
-  });
-  assert(freshness.ok, 409, freshness.reason, freshness.code);
+  // The stored snapshot is a lookup/mapping reference only. Its ingestion
+  // age must not reject a ticket when the exact selection is revalidated
+  // against the live provider immediately afterwards.
+  assert(row.start_time_confirmed === true, 409,
+    "Jadwal belum dikonfirmasi oleh Sportradar.", "SPORTSBOOK_SCHEDULE_UNCONFIRMED");
+  assert(!row.replaced_by, 409,
+    "Pertandingan telah digantikan oleh event provider lain.", "SPORTSBOOK_EVENT_REPLACED");
 
   const storedOddsMicros = decimalOddsToMicros(row.odds_decimal);
   assert(storedOddsMicros === leg.expectedOddsMicros, 409,
@@ -432,12 +424,19 @@ async function loadBettablePrice(client, leg, nowMs, env) {
   return { row, outcomeCode, odds: row.odds_decimal };
 }
 
-export function verifyProviderBetPrice(providerPayload, leg, storedRow, nowMs = Date.now()) {
+export function verifyProviderBetPrice(providerPayload, leg, storedRow, nowMs = Date.now(), maxProviderAgeSeconds = 300) {
   let normalized;
   try {
     normalized = normalizeEventMarkets(providerPayload, new Date(nowMs).toISOString());
   } catch {
     throw new AppError(503, "Respons revalidasi Sportradar tidak valid.", "SPORTSBOOK_PROVIDER_RESPONSE_INVALID");
+  }
+  const providerGeneratedAtMs = Date.parse(String(normalized.providerGeneratedAt || ""));
+  if (!Number.isSafeInteger(maxProviderAgeSeconds) || maxProviderAgeSeconds < 1 ||
+      !Number.isFinite(providerGeneratedAtMs) ||
+      providerGeneratedAtMs > nowMs + 60_000 ||
+      nowMs - providerGeneratedAtMs > maxProviderAgeSeconds * 1000) {
+    throw new AppError(503, "Timestamp data Sportradar tidak valid atau sudah kedaluwarsa.", "SPORTSBOOK_PROVIDER_DATA_STALE");
   }
   const event = normalized.event;
   assert(event.id === leg.providerEventId, 503,
@@ -492,7 +491,7 @@ function createTicketProviderClient(redis, env) {
   });
 }
 
-async function revalidateBetPriceWithProvider(providerClient, leg, storedRow, nowMs) {
+async function revalidateBetPriceWithProvider(providerClient, leg, storedRow, nowMs, env) {
   let result;
   try {
     result = await providerClient.getSportEventMarkets(leg.providerEventId, { live: false });
@@ -503,7 +502,7 @@ async function revalidateBetPriceWithProvider(providerClient, leg, storedRow, no
           : "SPORTSBOOK_PROVIDER_UNAVAILABLE";
     throw new AppError(503, "Tidak dapat memverifikasi harga langsung ke Sportradar. Taruhan ditolak.", code);
   }
-  return verifyProviderBetPrice(result.body, leg, storedRow, Date.now());
+  return verifyProviderBetPrice(result.body, leg, storedRow, Date.now(), safeIntegerEnv(env, "SPORTSBOOK_PROVIDER_MAX_AGE_SECONDS"));
 }
 
 export async function createSportsbookTicket(session, input, { redis, env = process.env, ip = "", providerClient = null } = {}) {
@@ -544,7 +543,7 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
   const liveClient = providerClient || createTicketProviderClient(redis, env);
   const providerChecks = [];
   for (let index = 0; index < legs.length; index += 1) {
-    providerChecks.push(await revalidateBetPriceWithProvider(liveClient, legs[index], preflight[index].row, Date.now()));
+    providerChecks.push(await revalidateBetPriceWithProvider(liveClient, legs[index], preflight[index].row, Date.now(), env));
   }
 
   const ticketId = randomUUID();
