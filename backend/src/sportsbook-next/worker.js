@@ -225,7 +225,12 @@ async function runCycle(config, client) {
     const scheduleSync = { rows: [], status: [] };
     // Keep the market-page count while discovery runs so callsThisCycle reports
     // every reserved provider request, not just the final discovery phase.
-    coverage = await refreshCoverage(config, client, { allowFetch: !quotaLimited && !budgetLimited });
+    // Discovery is optional metadata. Never let it consume the slots needed by a complete market feed.
+    const discoveryCalls = 3;
+    const canRefreshCoverage = client.cycleCalls + discoveryCalls <= config.maxCallsPerCycle;
+    coverage = await refreshCoverage(config, client, {
+      allowFetch: !quotaLimited && !budgetLimited && canRefreshCoverage
+    });
 
     const pricedEvents = [...events.values()];
 
