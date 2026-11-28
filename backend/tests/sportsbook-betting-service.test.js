@@ -15,6 +15,7 @@ const readyEnv = {
   SPORTSBOOK_PROVIDER_REVALIDATION_ENABLED: "true",
   SPORTSBOOK_SETTLEMENT_ENABLED: "true",
   SPORTRADAR_ODDS_ENABLED: "true",
+  SPORTRADAR_API_KEY: "test-key-not-used",
   SPORTRADAR_CHANGELOG_ENABLED: "true",
   SPORTRADAR_ACCESS_LEVEL: "production",
   SPORTRADAR_SOCCER_ENABLED: "true",
@@ -177,7 +178,7 @@ test("bet acceptance readiness requires explicit synchronous provider revalidati
   assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_DISABLED"]);
 });
 
-test("trial entitlement fails closed; Change Log budget and reconciliation timestamps are not readiness gates", async () => {
+test("trial entitlement fails closed; synchronous provider checks replace snapshot freshness gates", async () => {
   const now = 1_800_000_000_000;
   const trial = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -196,10 +197,11 @@ test("trial entitlement fails closed; Change Log budget and reconciliation times
   });
   assert.equal(pending.enabled, false);
   assert.ok(pending.reasons.includes("PROVIDER_PRICE_REVALIDATION_DISABLED"));
-  assert.deepEqual(pending.reasons, ["PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"]);
+  assert.equal(pending.enabled, true);
+  assert.deepEqual(pending.reasons, []);
 });
 
-test("stale or absent Change Log timestamps cannot bypass provider revalidation gate", async () => {
+test("provider-current validation does not depend on Change Log timestamps", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -208,7 +210,8 @@ test("stale or absent Change Log timestamps cannot bypass provider revalidation 
     redis: healthyRedis(now, { lastSuccessAgeMs: 5 * 60 * 1000 + 1 }), env: readyEnv, now
   });
   assert.equal(readiness.enabled, false);
-  assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"]);
+  assert.equal(readiness.enabled, true);
+  assert.deepEqual(readiness.reasons, []);
 });
 
 test("no approved verified full-time mapping keeps betting disabled", async () => {
@@ -275,7 +278,7 @@ test("unfunded sportsbook risk reserve blocks bet acceptance before any ticket i
   assert.equal(readiness.requiredRiskReserveBalance, 10_000_000);
 });
 
-test("missing Daily Schedules verification cannot bypass provider revalidation gate", async () => {
+test("per-ticket provider schedule validation replaces a separate Daily Schedules readiness count", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
