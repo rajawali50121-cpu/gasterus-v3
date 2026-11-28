@@ -99,15 +99,20 @@ local baselineAt = tonumber(redis.call('HGET', KEYS[2], 'captured_at') or now)
 if baselineAt < cutoff then baselineCount = 0 end
 local hourly = redis.call('ZCOUNT', KEYS[1], now - tonumber(ARGV[4]), '+inf')
 local rolling = redis.call('ZCOUNT', KEYS[1], cutoff, '+inf')
-return {hourly, baselineCount + rolling}
+local worker = baselineCount + redis.call('ZCOUNT', KEYS[3], cutoff, '+inf')
+local bet = redis.call('ZCOUNT', KEYS[4], cutoff, '+inf')
+return {hourly, baselineCount + rolling, worker, bet}
 `;
 
 export async function getSportradarQuotaUsage(redis, config, now = Date.now()) {
   const result = await redis.eval(USAGE_SCRIPT, {
-    keys: [KEY, BASELINE_KEY],
+    keys: [KEY, BASELINE_KEY, WORKER_KEY, BET_KEY],
     arguments: [String(now), String(WINDOW_MS), String(config.initialCallsUsed30Days), String(HOUR_MS)]
   });
-  const [hourlyUsed, monthlyUsed] = Array.isArray(result) ? result.map(Number) : [0, config.initialCallsUsed30Days];
+  const [hourlyUsed, monthlyUsed, workerUsed, betUsed] = Array.isArray(result)
+    ? result.map(Number) : [0, config.initialCallsUsed30Days, config.initialCallsUsed30Days, 0];
+  const betLimit = config.betRevalidationCallsPer30Days || 0;
+  const workerLimit = config.maxCallsPer30Days - betLimit;
   return {
     hourlyUsed,
     hourlyLimit: config.maxCallsPerHour > 0 ? config.maxCallsPerHour : null,
@@ -115,7 +120,13 @@ export async function getSportradarQuotaUsage(redis, config, now = Date.now()) {
     hourlyEnforced: config.maxCallsPerHour > 0,
     monthlyUsed,
     monthlyLimit: config.maxCallsPer30Days,
-    monthlyRemaining: Math.max(0, config.maxCallsPer30Days - monthlyUsed)
+    monthlyRemaining: Math.max(0, config.maxCallsPer30Days - monthlyUsed),
+    workerUsed,
+    workerLimit,
+    workerRemaining: Math.max(0, workerLimit - workerUsed),
+    betRevalidationUsed: betUsed,
+    betRevalidationLimit: betLimit,
+    betRevalidationRemaining: Math.max(0, betLimit - betUsed)
   };
 }
 
