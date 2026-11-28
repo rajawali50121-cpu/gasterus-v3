@@ -172,6 +172,7 @@ export async function getSportsbookBetAcceptanceReadiness({
     reasons.push("PROVIDER_REVALIDATION_QUOTA_BUDGET_INSUFFICIENT");
   }
 
+  if (!safeIntegerEnv(env, "SPORTSBOOK_PRICE_MAX_AGE_SECONDS")) reasons.push("PRICE_MAX_AGE_NOT_CONFIGURED");
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_STAKE_IDR")) reasons.push("MAX_STAKE_NOT_CONFIGURED");
   if (!safeIntegerEnv(env, "SPORTSBOOK_BET_MAX_PAYOUT_IDR")) reasons.push("MAX_PAYOUT_NOT_CONFIGURED");
 
