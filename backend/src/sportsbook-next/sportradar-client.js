@@ -188,8 +188,8 @@ export class SportradarClient {
       pagination: { pages, received: items.length, total: reportedTotal, complete }
     };
   }
-  getSportEventMarkets(eventId) {
-    return this.request(this.config.prematchBaseUrl, `sport_events/${encodeUrnPathSegment(eventId)}/sport_event_markets`);
+  getSportEventMarkets(eventId, { live = false } = {}) {
+    return this.request(this.config.prematchBaseUrl, `sport_events/${encodeUrnPathSegment(eventId)}/sport_event_markets`, { live });
   }
   getSoccerDailySchedules(date) {
     return this.request(this.config.soccerBaseUrl, `schedules/${encodeURIComponent(date)}/schedules`);
