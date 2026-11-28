@@ -486,7 +486,7 @@ async function revalidateBetPriceWithProvider(providerClient, leg, storedRow, no
           : "SPORTSBOOK_PROVIDER_UNAVAILABLE";
     throw new AppError(503, "Tidak dapat memverifikasi harga langsung ke Sportradar. Taruhan ditolak.", code);
   }
-  return verifyProviderBetPrice(result.body, leg, storedRow, nowMs);
+  return verifyProviderBetPrice(result.body, leg, storedRow, Date.now());
 }
 
 export async function createSportsbookTicket(session, input, { redis, env = process.env, ip = "", providerClient = null } = {}) {
@@ -551,11 +551,20 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
       const current = await loadBettablePrice(client, legs[index], nowMs, env);
       const before = preflight[index].row;
       assert(current.row.odds_decimal === before.odds_decimal &&
-        current.row.scheduled_at?.toISOString?.() === before.scheduled_at?.toISOString?.() &&
+        new Date(current.row.scheduled_at).getTime() === new Date(before.scheduled_at).getTime() &&
+        current.row.event_status === before.event_status &&
+        current.row.start_time_confirmed === before.start_time_confirmed &&
+        current.row.replaced_by === before.replaced_by &&
+        current.row.market_active === before.market_active &&
+        current.row.price_active === before.price_active &&
+        current.row.is_live === before.is_live &&
         current.row.provider_market_key === before.provider_market_key &&
+        current.row.provider_market_id === before.provider_market_id &&
         current.row.provider_book_id === before.provider_book_id &&
-        current.row.provider_selection_key === before.provider_selection_key,
-      409, "Snapshot berubah selama verifikasi provider. Kirim ulang tiket dengan odds terbaru.", "SPORTSBOOK_PROVIDER_SNAPSHOT_CHANGED");
+        current.row.provider_selection_key === before.provider_selection_key &&
+        current.outcomeCode === preflight[index].outcomeCode &&
+        current.row.mapping_version === before.mapping_version,
+      409, "Snapshot atau mapping berubah selama verifikasi provider. Kirim ulang tiket dengan odds terbaru.", "SPORTSBOOK_PROVIDER_SNAPSHOT_CHANGED");
       assert(providerChecks[index].odds === current.odds, 409,
         "Harga provider tidak cocok dengan snapshot saat tiket diproses.", "SPORTSBOOK_PROVIDER_SNAPSHOT_MISMATCH");
       resolved.push(current);
