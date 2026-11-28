@@ -5,6 +5,10 @@ import { memberAccount, postSystemTransfer, postTransfer, SYSTEM_ACCOUNTS } from
 import { enforceResponsiblePlay } from "../responsible-play.js";
 import { audit } from "../audit.js";
 import { evaluateOddsFreshness, FRESHNESS_CODES } from "./prematch-freshness-guard.js";
+import { SportradarClient } from "./sportradar-client.js";
+import { loadSportsbookConfig } from "./config.js";
+import { normalizeEventMarkets } from "./normalize.js";
+import { reserveSportradarCall, waitForSportradarRequestSlot, applySportradarRateLimitCooldown } from "./quota.js";
 
 const FEED_STATUS_KEY = "sportsbook:next:feed-status:v1";
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
@@ -111,8 +115,9 @@ export async function getSportsbookBetAcceptanceReadiness({
   }
 }) {
   const reasons = [];
-  // Snapshot-only validation is not provider-current price validation. Keep acceptance fail-closed until a quota-accounted synchronous provider check is implemented.
-  reasons.push("PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED");
+  if (String(env.SPORTSBOOK_PROVIDER_REVALIDATION_ENABLED || "").toLowerCase() !== "true") {
+    reasons.push("PROVIDER_PRICE_REVALIDATION_DISABLED");
+  }
   if (String(env.SPORTSBOOK_BET_ACCEPTANCE_ENABLED || "").toLowerCase() !== "true") reasons.push("BET_ACCEPTANCE_DISABLED");
   if (String(env.SPORTRADAR_ODDS_ENABLED || "").toLowerCase() !== "true") reasons.push("ODDS_WORKER_DISABLED");
   if (String(env.SPORTSBOOK_SETTLEMENT_ENABLED || "").toLowerCase() !== "true") reasons.push("SETTLEMENT_ENGINE_DISABLED");
@@ -410,7 +415,81 @@ async function loadBettablePrice(client, leg, nowMs, env) {
   return { row, outcomeCode, odds: row.odds_decimal };
 }
 
-export async function createSportsbookTicket(session, input, { redis, env = process.env, ip = "" } = {}) {
+export function verifyProviderBetPrice(providerPayload, leg, storedRow, nowMs = Date.now()) {
+  let normalized;
+  try {
+    normalized = normalizeEventMarkets(providerPayload, new Date(nowMs).toISOString());
+  } catch {
+    throw new AppError(503, "Respons revalidasi Sportradar tidak valid.", "SPORTSBOOK_PROVIDER_RESPONSE_INVALID");
+  }
+  const event = normalized.event;
+  assert(event.id === leg.providerEventId, 503,
+    "Sportradar mengembalikan pertandingan yang berbeda.", "SPORTSBOOK_PROVIDER_EVENT_MISMATCH");
+  assert(event.startTimeConfirmed === true, 409,
+    "Jadwal pertandingan belum dikonfirmasi Sportradar.", "SPORTSBOOK_SCHEDULE_UNCONFIRMED");
+  assert(!event.replacedBy, 409,
+    "Pertandingan telah digantikan oleh event Sportradar lain.", "SPORTSBOOK_EVENT_REPLACED");
+  assert(String(event.status || "").toLowerCase() === "not_started", 409,
+    "Status pertandingan dari Sportradar tidak mengizinkan taruhan prematch.", "SPORTSBOOK_EVENT_NOT_PREMATCH");
+  const providerStart = Date.parse(String(event.scheduled || ""));
+  const storedStart = new Date(storedRow.scheduled_at).getTime();
+  assert(Number.isFinite(providerStart) && providerStart === storedStart, 409,
+    "Jadwal pertandingan berubah di Sportradar. Muat ulang pilihan.", "SPORTSBOOK_PROVIDER_SCHEDULE_CHANGED");
+  assert(providerStart - nowMs > KICKOFF_CUTOFF_MINUTES * 60_000, 409,
+    "Taruhan ditutup lima menit sebelum kick-off.", "SPORTSBOOK_KICKOFF_CUTOFF");
+
+  const market = normalized.markets.find(item => item.key === leg.providerMarketKey);
+  assert(market && market.id === storedRow.provider_market_id && market.live === false, 409,
+    "Market tidak tersedia atau sudah live menurut Sportradar.", "SPORTSBOOK_PROVIDER_MARKET_CLOSED");
+  const book = market.books.find(item => item.id === leg.providerBookId && item.removed !== true);
+  assert(book, 409, "Bookmaker sudah tidak menyediakan market ini.", "SPORTSBOOK_PROVIDER_BOOK_REMOVED");
+  const outcome = book.outcomes.find(item => item.selectionKey === leg.providerSelectionKey && item.removed !== true);
+  assert(outcome && Number.isFinite(outcome.oddsDecimal) && outcome.oddsDecimal > 1, 409,
+    "Outcome sudah tidak tersedia di Sportradar.", "SPORTSBOOK_PROVIDER_OUTCOME_REMOVED");
+  const providerOddsMicros = decimalOddsToMicros(String(outcome.oddsDecimal));
+  assert(providerOddsMicros === leg.expectedOddsMicros, 409,
+    "Harga odds berubah di Sportradar. Periksa harga terbaru sebelum mengirim tiket.", "SPORTSBOOK_PRICE_CHANGED");
+  const storedOddsMicros = decimalOddsToMicros(storedRow.odds_decimal);
+  assert(providerOddsMicros === storedOddsMicros, 409,
+    "Harga Sportradar tidak cocok dengan snapshot sportsbook.", "SPORTSBOOK_PROVIDER_SNAPSHOT_MISMATCH");
+  return {
+    odds: String(outcome.oddsDecimal),
+    providerGeneratedAt: normalized.providerGeneratedAt,
+    verifiedAt: new Date(nowMs).toISOString()
+  };
+}
+
+function createTicketProviderClient(redis, env) {
+  let config;
+  try {
+    config = loadSportsbookConfig(env);
+  } catch (error) {
+    throw new AppError(503, "Konfigurasi koneksi atau kuota Sportradar tidak lengkap.", "SPORTSBOOK_PROVIDER_CONFIG_INVALID");
+  }
+  return new SportradarClient(config, {
+    beforeRequest: async () => {
+      await waitForSportradarRequestSlot(redis);
+      await reserveSportradarCall(redis, config);
+    },
+    onRateLimit: ({ retryAfter }) => applySportradarRateLimitCooldown(redis, retryAfter)
+  });
+}
+
+async function revalidateBetPriceWithProvider(providerClient, leg, storedRow, nowMs) {
+  let result;
+  try {
+    result = await providerClient.getSportEventMarkets(leg.providerEventId);
+  } catch (error) {
+    const code = error?.code === "SPORTRADAR_RATE_LIMITED" ? "SPORTSBOOK_PROVIDER_RATE_LIMITED"
+      : error?.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED" ? "SPORTSBOOK_PROVIDER_QUOTA_EXHAUSTED"
+        : error?.code === "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" ? "SPORTSBOOK_PROVIDER_QUOTA_EXHAUSTED"
+          : "SPORTSBOOK_PROVIDER_UNAVAILABLE";
+    throw new AppError(503, "Tidak dapat memverifikasi harga langsung ke Sportradar. Taruhan ditolak.", code);
+  }
+  return verifyProviderBetPrice(result.body, leg, storedRow, nowMs);
+}
+
+export async function createSportsbookTicket(session, input, { redis, env = process.env, ip = "", providerClient = null } = {}) {
   const readiness = await getSportsbookBetAcceptanceReadiness({ redis, env });
   if (!readiness.enabled) {
     throw new AppError(503, "Penerimaan taruhan sportsbook belum siap atau sedang dihentikan demi keamanan.", "SPORTSBOOK_BET_ACCEPTANCE_NOT_READY", readiness);
@@ -431,6 +510,26 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
   assert(new Set(eventIds).size === eventIds.length, 400,
     "Satu tiket tidak boleh memuat dua pilihan dari pertandingan yang sama.", "SPORTSBOOK_DUPLICATE_EVENT");
   const fingerprint = requestFingerprint(stake, legs);
+  const prior = await query(`
+    SELECT id,invoice,stake,total_odds,potential_payout,status,ledger_transaction_id,
+           balance_before,balance_after,metadata
+    FROM sportsbook_v2_tickets
+    WHERE member_id = $1 AND idempotency_key = $2
+  `, [session.userId, idempotencyKey]);
+  if (prior.rows[0]) return mapExistingTicket(prior.rows[0], fingerprint);
+
+  // Read the exact stored selection, then verify it directly against Sportradar
+  // before opening the financial transaction. Provider latency never holds DB locks.
+  const dbClock = await query("SELECT (EXTRACT(EPOCH FROM now()) * 1000)::bigint AS now_ms");
+  const preflightNowMs = Number(dbClock.rows[0].now_ms);
+  const preflight = [];
+  for (const leg of legs) preflight.push(await loadBettablePrice(query, leg, preflightNowMs, env));
+  const liveClient = providerClient || createTicketProviderClient(redis, env);
+  const providerChecks = [];
+  for (let index = 0; index < legs.length; index += 1) {
+    providerChecks.push(await revalidateBetPriceWithProvider(liveClient, legs[index], preflight[index].row, Date.now()));
+  }
+
   const ticketId = randomUUID();
   const invoice = `SB-${Date.now()}-${ticketId.slice(0, 8).toUpperCase()}`;
 
@@ -448,13 +547,27 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
     const dbTime = await client.query("SELECT (EXTRACT(EPOCH FROM now()) * 1000)::bigint AS now_ms");
     const nowMs = Number(dbTime.rows[0].now_ms);
     const resolved = [];
-    for (const leg of legs) resolved.push(await loadBettablePrice(client, leg, nowMs, env));
+    for (let index = 0; index < legs.length; index += 1) {
+      const current = await loadBettablePrice(client, legs[index], nowMs, env);
+      const before = preflight[index].row;
+      assert(current.row.odds_decimal === before.odds_decimal &&
+        current.row.scheduled_at?.toISOString?.() === before.scheduled_at?.toISOString?.() &&
+        current.row.provider_market_key === before.provider_market_key &&
+        current.row.provider_book_id === before.provider_book_id &&
+        current.row.provider_selection_key === before.provider_selection_key,
+      409, "Snapshot berubah selama verifikasi provider. Kirim ulang tiket dengan odds terbaru.", "SPORTSBOOK_PROVIDER_SNAPSHOT_CHANGED");
+      assert(providerChecks[index].odds === current.odds, 409,
+        "Harga provider tidak cocok dengan snapshot saat tiket diproses.", "SPORTSBOOK_PROVIDER_SNAPSHOT_MISMATCH");
+      resolved.push(current);
+    }
 
     const amounts = calculateSportsbookBetAmounts(stake, resolved.map(item => item.odds), maxPayout);
     const metadata = {
       requestFingerprint: fingerprint,
       provider: PROVIDER_PRODUCT,
-      priceVerifiedBy: "sportradar-prematch-snapshot",
+      priceVerifiedBy: "sportradar-synchronous-sport-event-markets",
+      providerVerifiedAt: providerChecks.map(check => check.verifiedAt),
+      providerGeneratedAt: providerChecks.map(check => check.providerGeneratedAt),
       acceptedIp: String(ip || "").slice(0, 64),
       acceptedLegCount: resolved.length
     };
