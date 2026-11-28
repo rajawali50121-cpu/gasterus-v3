@@ -116,7 +116,7 @@ test("bet acceptance stays disabled until synchronous provider price revalidatio
   });
   assert.equal(readiness.enabled, false);
   assert.ok(readiness.reasons.includes("PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"));
-  assert.deepEqual(readiness.reasons, []);
+  assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"]);
 });
 
 test("trial entitlement fails closed; Change Log budget and reconciliation timestamps are not readiness gates", async () => {
@@ -138,10 +138,10 @@ test("trial entitlement fails closed; Change Log budget and reconciliation times
   });
   assert.equal(pending.enabled, false);
   assert.ok(pending.reasons.includes("PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"));
-  assert.deepEqual(pending.reasons, []);
+  assert.deepEqual(pending.reasons, ["PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"]);
 });
 
-test("stale or absent Change Log timestamps do not block ticket acceptance", async () => {
+test("stale or absent Change Log timestamps cannot bypass provider revalidation gate", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -149,8 +149,8 @@ test("stale or absent Change Log timestamps do not block ticket acceptance", asy
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now, { lastSuccessAgeMs: 5 * 60 * 1000 + 1 }), env: readyEnv, now
   });
-  assert.equal(readiness.enabled, true);
-  assert.deepEqual(readiness.reasons, []);
+  assert.equal(readiness.enabled, false);
+  assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"]);
 });
 
 test("no approved verified full-time mapping keeps betting disabled", async () => {
@@ -217,7 +217,7 @@ test("unfunded sportsbook risk reserve blocks bet acceptance before any ticket i
   assert.equal(readiness.requiredRiskReserveBalance, 10_000_000);
 });
 
-test("missing Daily Schedules verification does not block ticket acceptance", async () => {
+test("missing Daily Schedules verification cannot bypass provider revalidation gate", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -225,6 +225,6 @@ test("missing Daily Schedules verification does not block ticket acceptance", as
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: readyEnv, now
   });
-  assert.equal(readiness.enabled, true);
-  assert.deepEqual(readiness.reasons, []);
+  assert.equal(readiness.enabled, false);
+  assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"]);
 });
