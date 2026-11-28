@@ -276,10 +276,16 @@ function mapExistingTicket(row, fingerprint) {
   };
 }
 
-export function evaluateStoredBetPriceFreshness({ receivedAt, scheduledAt, odds, expectedOdds, marketActive, priceActive, isLive, nowMs, maxAgeSeconds }) {
+export function evaluateStoredBetPriceFreshness({ receivedAt, scheduledAt, odds, expectedOdds, marketActive, priceActive, isLive, scheduleConfirmed, replacedBy, nowMs, maxAgeSeconds }) {
   const invalid = (code, reason) => ({ ok: false, code, reason });
   if (!Number.isSafeInteger(maxAgeSeconds) || maxAgeSeconds <= 0) {
     return invalid("SPORTSBOOK_PRICE_STALE", "Batas umur harga wajib dikonfigurasi.");
+  }
+  if (scheduleConfirmed !== true) {
+    return invalid("SPORTSBOOK_SCHEDULE_UNCONFIRMED", "Jadwal belum dikonfirmasi oleh Sportradar.");
+  }
+  if (typeof replacedBy === "string" && replacedBy) {
+    return invalid("SPORTSBOOK_EVENT_REPLACED", "Pertandingan telah digantikan oleh event provider lain.");
   }
   const capturedAt = Date.parse(String(receivedAt || ""));
   const startsAt = Date.parse(String(scheduledAt || ""));
@@ -313,6 +319,8 @@ export function evaluateStoredBetPriceFreshness({ receivedAt, scheduledAt, odds,
 async function loadBettablePrice(client, leg, nowMs, env) {
   const result = await client.query(`
     SELECT e.provider_event_id, e.sport_id, e.scheduled_at, e.event_status,
+           COALESCE((e.provider_payload->>'startTimeConfirmed')::boolean,FALSE) AS start_time_confirmed,
+           NULLIF(e.provider_payload->>'replacedBy','') AS replaced_by,
            m.provider_market_key, m.provider_market_id, m.market_name,
            m.is_live, m.is_active AS market_active, m.provider_payload AS market_payload,
            p.provider_book_id, p.provider_book_name, p.provider_selection_key,
@@ -387,6 +395,8 @@ async function loadBettablePrice(client, leg, nowMs, env) {
     marketActive: row.market_active,
     priceActive: row.price_active,
     isLive: row.is_live,
+    scheduleConfirmed: row.start_time_confirmed,
+    replacedBy: row.replaced_by,
     nowMs,
     maxAgeSeconds
   });
