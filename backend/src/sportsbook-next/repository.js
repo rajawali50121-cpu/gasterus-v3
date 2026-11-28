@@ -76,8 +76,8 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
   await transaction(async client => {
     const snapshotScopes = new Map();
     for (const scope of scopes) {
-      if (typeof scope?.sportId !== "string" || !/^sr:sport:\\d+$/.test(scope.sportId) ||
-          typeof scope?.date !== "string" || !/^\\d{4}-\\d{2}-\\d{2}$/.test(scope.date)) {
+      if (typeof scope?.sportId !== "string" || !/^sr:sport:\d+$/.test(scope.sportId) ||
+          typeof scope?.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(scope.date)) {
         throw new Error("SPORTSBOOK_SNAPSHOT_SCOPE_INVALID");
       }
       snapshotScopes.set(`${scope.sportId}:${scope.date}`, { sportId: scope.sportId, date: scope.date, ids: [] });
