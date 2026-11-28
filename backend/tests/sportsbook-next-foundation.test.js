@@ -125,7 +125,7 @@ test("daily schedule normalization uses sport_event and provider SR identifiers"
 test("event market normalization follows documented odds_decimal and removed bookmaker fields", () => {
   const snapshot = normalizeEventMarkets({
     sport_event: {
-      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", status: "not_started",
+      id: "sr:sport_event:123", start_time: "2026-11-23T12:00:00Z", start_time_confirmed: true, status: "not_started", replaced_by: "sr:sport_event:456", resume_time: "2026-11-23T12:30:00Z",
       competitors: [{ qualifier: "home", name: "Home" }, { qualifier: "away", name: "Away" }]
     },
     markets: [{
