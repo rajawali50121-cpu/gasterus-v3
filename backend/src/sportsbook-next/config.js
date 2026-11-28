@@ -68,8 +68,15 @@ export function loadSportsbookConfig(env = process.env) {
   const minimumMarketCalls30Days = marketCycles30Days * marketPagesPerCycle * sportCount * dateCount;
   const minimumDiscoveryCalls30Days = 3 * 30;
   const minimumCalls30Days = minimumMarketCalls30Days + minimumDiscoveryCalls30Days;
+  const betRevalidationCallsPer30Days = Number(env.SPORTSBOOK_PROVIDER_REVALIDATION_MAX_CALLS_PER_30_DAYS ?? 0);
+  if (!Number.isSafeInteger(betRevalidationCallsPer30Days) || betRevalidationCallsPer30Days < 0 ||
+      (String(env.SPORTSBOOK_PROVIDER_REVALIDATION_ENABLED || "").toLowerCase() === "true" && betRevalidationCallsPer30Days < 1)) {
+    throw new Error("SPORTSBOOK_PROVIDER_REVALIDATION_MAX_CALLS_PER_30_DAYS must be a positive integer when provider revalidation is enabled");
+  }
   const availableCalls30Days = maxCallsPer30Days - initialCallsUsed30Days;
-  if (availableCalls30Days < minimumCalls30Days) throw new Error(`Sportradar 30-day budget is insufficient: target ${targetEvents} events at page size ${marketPageSize} requires ${marketPagesPerCycle} market pages/cycle and ${minimumCalls30Days} calls/30 days (available ${availableCalls30Days})`);
+  if (availableCalls30Days < minimumCalls30Days + betRevalidationCallsPer30Days) {
+    throw new Error(`Sportradar 30-day budget is insufficient: worker requires ${minimumCalls30Days}, provider revalidation reserve requires ${betRevalidationCallsPer30Days}, available ${availableCalls30Days}`);
+  }
   const language = String(env.SPORTRADAR_LANGUAGE || "en").trim();
   return Object.freeze({
     apiKey, accessLevel, language, sportIds, daysAhead,
@@ -77,7 +84,7 @@ export function loadSportsbookConfig(env = process.env) {
     maxCallsPerHour, maxCallsPer30Days, initialCallsUsed30Days,
     changeLogEnabled, changeLogPollMs: changeLogPollSeconds * 1000,
     minimumChangeLogCalls30Days, minimumScheduleCalls30Days,
-    targetEvents, marketPageSize, marketPagesPerCycle, maxCallsPerCycle,
+    targetEvents, marketPageSize, marketPagesPerCycle, maxCallsPerCycle, betRevalidationCallsPer30Days,
     minimumMarketCalls30Days, minimumDiscoveryCalls30Days, minimumCalls30Days,
     maxSnapshotAgeMs: pollMinutes * MINUTE * 2,
     prematchBaseUrl: `https://api.sportradar.com/oddscomparison-prematch/${accessLevel}/v2/${language}`,
