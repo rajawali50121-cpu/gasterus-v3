@@ -22,7 +22,7 @@ test("config defaults to 150-minute refresh, current UTC date only and official 
   assert.equal(config.minimumScheduleCalls30Days, 0);
   assert.equal(config.minimumMarketCalls30Days, 288);
   assert.equal(config.targetEvents, 50); assert.equal(config.marketPageSize, 50);
-  assert.equal(config.marketPagesPerCycle, 1); assert.equal(config.maxCallsPerHour, 0);
+  assert.equal(config.marketPagesPerCycle, 1); assert.equal(config.maxCallsPerCycle, 4); assert.equal(config.maxCallsPerHour, 0);
   assert.equal(config.daysAhead, 0);
   assert.equal(config.prematchBaseUrl, "https://api.sportradar.com/oddscomparison-prematch/production/v2/en");
   assert.equal(config.soccerBaseUrl, "https://api.sportradar.com/soccer/production/v4/en");
@@ -40,11 +40,17 @@ test("Change Log remains disabled and excluded from the quota calculator", () =>
 
 test("quota calculator scales market pages and rejects insufficient budget", () => {
   const target150 = loadSportsbookConfig({ ...env, SPORTRADAR_TARGET_EVENTS: "150", SPORTRADAR_MARKET_PAGE_SIZE: "50" });
-  assert.equal(target150.marketPagesPerCycle, 3); assert.equal(target150.minimumMarketCalls30Days, 864);
+  assert.equal(target150.marketPagesPerCycle, 3); assert.equal(target150.maxCallsPerCycle, 6); assert.equal(target150.minimumMarketCalls30Days, 864);
   assert.equal(target150.minimumCalls30Days, 954);
   assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_ACCESS_LEVEL: "trial",
     SPORTRADAR_MAX_CALLS_PER_30_DAYS: "800", SPORTRADAR_TARGET_EVENTS: "150", SPORTRADAR_MARKET_PAGE_SIZE: "50"
   }), /target 150 events at page size 50 requires 3 market pages\/cycle and 954 calls\/30 days/);
+});
+
+test("cycle request cap cannot be configured below target pages plus discovery feeds", () => {
+  assert.throws(() => loadSportsbookConfig({ ...env, SPORTRADAR_MAX_CALLS_PER_CYCLE: "3" }),
+    /SPORTRADAR_MAX_CALLS_PER_CYCLE must be at least 4/);
+  assert.equal(loadSportsbookConfig({ ...env, SPORTRADAR_MAX_CALLS_PER_CYCLE: "4" }).maxCallsPerCycle, 4);
 });
 
 test("change log extracts only tracked Sportradar sport-event IDs", () => {
