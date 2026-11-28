@@ -294,7 +294,7 @@ test("ticket revalidation requests the official prematch-only Sport Event Market
     }
   });
   await client.getSportEventMarkets("sr:sport_event:123", { live: false });
-  assert.equal(requested.pathname, "/oddscomparison-prematch/trial/v2/en/sport_events/sr:sport_event:123/sport_event_markets.json");
+  assert.equal(requested.pathname, "/oddscomparison-prematch/production/v2/en/sport_events/sr:sport_event:123/sport_event_markets.json");
   assert.equal(requested.searchParams.get("live"), "false");
 });
 
