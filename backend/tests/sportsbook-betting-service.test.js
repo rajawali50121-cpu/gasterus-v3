@@ -34,7 +34,7 @@ const readyEnv = {
   SPORTRADAR_SPORT_IDS: "sr:sport:1",
   SPORTRADAR_INITIAL_30_DAY_USAGE: "0",
   SPORTRADAR_CHANGELOG_POLL_SECONDS: "240",
-  SPORTSBOOK_PRICE_MAX_AGE_SECONDS: "900",
+  SPORTSBOOK_PROVIDER_MAX_AGE_SECONDS: "300",
   SPORTSBOOK_BET_MAX_STAKE_IDR: "100000",
   SPORTSBOOK_BET_MAX_PAYOUT_IDR: "10000000"
 };
@@ -119,6 +119,12 @@ test("provider revalidation accepts only the exact active event, market, bookmak
   assert.throws(() => verifyProviderBetPrice({
     ...payload, sport_event: { ...payload.sport_event, status: "ended" }
   }, leg, stored, now), error => error.code === "SPORTSBOOK_EVENT_NOT_PREMATCH");
+  assert.throws(() => verifyProviderBetPrice({
+    ...payload, generated_at: "2026-11-28T09:50:00.000Z"
+  }, leg, stored, now), error => error.code === "SPORTSBOOK_PROVIDER_DATA_STALE");
+  assert.throws(() => verifyProviderBetPrice({
+    ...payload, generated_at: "2026-11-28T10:02:00.000Z"
+  }, leg, stored, now), error => error.code === "SPORTSBOOK_PROVIDER_DATA_STALE");
   assert.throws(() => verifyProviderBetPrice({
     ...payload, sport_event: { ...payload.sport_event, replaced_by: "sr:sport_event:456" }
   }, leg, stored, now), error => error.code === "SPORTSBOOK_EVENT_REPLACED");
@@ -304,6 +310,20 @@ test("incomplete Soccer v4 result pagination blocks bet acceptance", async () =>
   });
   assert.equal(readiness.enabled, false);
   assert.ok(readiness.reasons.includes("SOCCER_RESULTS_WORKER_UNHEALTHY"));
+});
+
+test("readiness and worker share the same two-day Soccer lookback quota default", async () => {
+  const now = 1_800_000_000_000;
+  const env = { ...readyEnv };
+  delete env.SPORTRADAR_SOCCER_MAX_LOOKBACK_DAYS;
+  env.SPORTRADAR_SOCCER_MAX_CALLS_PER_30_DAYS = "780";
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
+    redis: healthyRedis(now), env, now
+  });
+  assert.equal(readiness.enabled, true);
+  assert.deepEqual(readiness.reasons, []);
 });
 
 test("insufficient independent Soccer product quota blocks bet acceptance", async () => {
