@@ -36,6 +36,23 @@ test("snapshot persistence rejects incomplete input before opening a transaction
   assert.equal(opened, false);
 });
 
+test("complete empty feed deactivates all events in the requested sport/date scope", async () => {
+  const statements = [];
+  const transaction = async callback => callback({
+    query: async (sql, params) => { statements.push({ sql, params }); return { rowCount: 1 }; }
+  });
+  const result = await persistSportsbookSnapshot([], "2026-11-28T00:00:00.000Z", {
+    complete: true,
+    scopes: [{ sportId: "sr:sport:1", date: "2026-11-28", ids: [] }],
+    transaction
+  });
+  assert.deepEqual(result, { events: 0, markets: 0, prices: 0 });
+  const deactivateMarkets = statements.find(item => item.sql.includes("UPDATE sportsbook_v2_markets m SET is_active=FALSE"));
+  const deactivatePrices = statements.find(item => item.sql.includes("UPDATE sportsbook_v2_prices p SET is_active=FALSE"));
+  assert.deepEqual(deactivateMarkets.params, ["sr:sport:1", "2026-11-28", []]);
+  assert.deepEqual(deactivatePrices.params, ["sr:sport:1", "2026-11-28", []]);
+});
+
 test("complete snapshot refreshes event schedule/status and deactivates omitted same-sport UTC-day events", async () => {
   const statements = [];
   const transaction = async callback => callback({
@@ -44,7 +61,7 @@ test("complete snapshot refreshes event schedule/status and deactivates omitted 
   const result = await persistSportsbookSnapshot(
     [event(101, "2026-11-28T12:30:00.000Z")],
     "2026-11-28T00:00:00.000Z",
-    { complete: true, transaction }
+    { complete: true, scopes: [{ sportId: "sr:sport:1", date: "2026-11-28", ids: ["sr:sport_event:101"] }], transaction }
   );
   assert.deepEqual(result, { events: 1, markets: 1, prices: 1 });
   const upsert = statements.find(item => item.sql.includes("INSERT INTO sportsbook_v2_events"));
