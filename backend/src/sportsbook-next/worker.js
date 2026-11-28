@@ -22,6 +22,7 @@ const SCHEDULE_CACHE_TTL_SECONDS = 60 * 60;
 const SCHEDULE_STATUS_KEY = "sportsbook:next:schedule-status:v1";
 const SCHEDULE_CURSOR_TTL_SECONDS = 48 * 60 * 60;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const shutdownController = new AbortController();
 let stopping = false;
 
 function utcDate(offset) {
@@ -313,7 +314,6 @@ async function main() {
       break;
     }
     let now = Date.now();
-    now = Date.now();
     if (now >= nextDiscoveryAt) {
       client.cycleCalls = 0;
       try {
@@ -360,7 +360,6 @@ if (!isSportradarOddsEnabled()) {
   logger.info("Sportradar Odds Comparison worker disabled; no provider, Redis, or database requests will be made");
   process.exitCode = 0;
 } else {
-  const shutdownController = new AbortController();
   process.once("SIGTERM", () => { stopping = true; shutdownController.abort(); });
   process.once("SIGINT", () => { stopping = true; shutdownController.abort(); });
   main().catch(async error => {
