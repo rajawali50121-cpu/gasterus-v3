@@ -179,6 +179,25 @@ test("bet acceptance readiness requires explicit synchronous provider revalidati
   assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_DISABLED"]);
 });
 
+test("quota readiness accounts for all configured market pages and ticket reserve", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
+    redis: healthyRedis(now),
+    env: {
+      ...readyEnv,
+      SPORTRADAR_MAX_CALLS_PER_30_DAYS: "1000",
+      SPORTRADAR_TARGET_EVENTS: "150",
+      SPORTRADAR_MARKET_PAGE_SIZE: "50"
+    },
+    now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("ODDS_COMPARISON_QUOTA_BUDGET_INSUFFICIENT") ||
+    readiness.reasons.includes("PROVIDER_REVALIDATION_QUOTA_BUDGET_INSUFFICIENT"));
+});
+
 test("missing provider API key blocks acceptance readiness", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
