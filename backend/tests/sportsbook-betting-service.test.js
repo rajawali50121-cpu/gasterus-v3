@@ -6,11 +6,13 @@ import {
   normalizeSportsbookLegInput,
   getSportsbookBetAcceptanceReadiness,
   __sportsbookBetting,
-  evaluateStoredBetPriceFreshness
+  evaluateStoredBetPriceFreshness,
+  verifyProviderBetPrice
 } from "../src/sportsbook-next/betting-service.js";
 
 const readyEnv = {
   SPORTSBOOK_BET_ACCEPTANCE_ENABLED: "true",
+  SPORTSBOOK_PROVIDER_REVALIDATION_ENABLED: "true",
   SPORTSBOOK_SETTLEMENT_ENABLED: "true",
   SPORTRADAR_ODDS_ENABLED: "true",
   SPORTRADAR_CHANGELOG_ENABLED: "true",
@@ -68,6 +70,60 @@ test("stored price freshness fails closed for missing config, stale prices, and 
   assert.equal(evaluateStoredBetPriceFreshness({ ...base, scheduledAt: "2026-11-28T10:05:00.000Z" }).code, "SPORTSBOOK_KICKOFF_CUTOFF");
 });
 
+test("provider revalidation accepts only the exact active event, market, bookmaker, outcome and unchanged odds", () => {
+  const now = Date.parse("2026-11-28T10:00:00.000Z");
+  const leg = {
+    providerEventId: "sr:sport_event:123",
+    providerMarketKey: "sr:market:1|1x2",
+    providerBookId: "sr:book:10",
+    providerSelectionKey: "sr:outcome:1|",
+    expectedOddsMicros: 2_100_000n
+  };
+  const stored = {
+    scheduled_at: new Date("2026-11-28T11:00:00.000Z"),
+    provider_market_id: "sr:market:1",
+    odds_decimal: "2.100"
+  };
+  const payload = {
+    generated_at: "2026-11-28T09:59:59.000Z",
+    sport_event: {
+      id: leg.providerEventId,
+      start_time: "2026-11-28T11:00:00+00:00",
+      start_time_confirmed: true,
+      status: "not_started",
+      competitors: []
+    },
+    markets: [{
+      id: "sr:market:1", name: "1x2", is_live: false,
+      books: [{
+        id: "sr:book:10", name: "Test Book", removed: false,
+        outcomes: [{ id: "sr:outcome:1", type: "home", odds_decimal: "2.10", removed: false }]
+      }]
+    }]
+  };
+  const result = verifyProviderBetPrice(payload, leg, stored, now);
+  assert.equal(result.odds, "2.1");
+  assert.equal(result.providerGeneratedAt, "2026-11-28T09:59:59.000Z");
+  assert.throws(() => verifyProviderBetPrice({
+    ...payload, markets: [{ ...payload.markets[0], books: [{ ...payload.markets[0].books[0], outcomes: [{ ...payload.markets[0].books[0].outcomes[0], odds_decimal: "2.20" }] }] }]
+  }, leg, stored, now), error => error.code === "SPORTSBOOK_PRICE_CHANGED");
+  assert.throws(() => verifyProviderBetPrice({
+    ...payload, markets: [{ ...payload.markets[0], books: [{ ...payload.markets[0].books[0], outcomes: [{ ...payload.markets[0].books[0].outcomes[0], removed: true }] }] }]
+  }, leg, stored, now), error => error.code === "SPORTSBOOK_PROVIDER_OUTCOME_REMOVED");
+  assert.throws(() => verifyProviderBetPrice({
+    ...payload, sport_event: { ...payload.sport_event, start_time_confirmed: false }
+  }, leg, stored, now), error => error.code === "SPORTSBOOK_SCHEDULE_UNCONFIRMED");
+  assert.throws(() => verifyProviderBetPrice({
+    ...payload, sport_event: { ...payload.sport_event, status: "ended" }
+  }, leg, stored, now), error => error.code === "SPORTSBOOK_EVENT_NOT_PREMATCH");
+  assert.throws(() => verifyProviderBetPrice({
+    ...payload, sport_event: { ...payload.sport_event, replaced_by: "sr:sport_event:456" }
+  }, leg, stored, now), error => error.code === "SPORTSBOOK_EVENT_REPLACED");
+  assert.throws(() => verifyProviderBetPrice({
+    ...payload, markets: [{ ...payload.markets[0], is_live: true }]
+  }, leg, stored, now), error => error.code === "SPORTSBOOK_PROVIDER_MARKET_CLOSED");
+});
+
 test("client bet selections must use canonical Sportradar sport-event URNs", () => {
   const leg = normalizeSportsbookLegInput({
     providerEventId: "sr:sport_event:123456",
@@ -109,17 +165,16 @@ test("payout ceiling and invalid stake are enforced before ledger debit", () => 
     error => error.code === "SPORTSBOOK_STAKE_INVALID");
 });
 
-test("bet acceptance stays disabled until synchronous provider price revalidation exists", async () => {
+test("bet acceptance readiness requires explicit synchronous provider revalidation switch", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
-    loadScheduleCount: async () => 1,
     loadRiskReserveBalance: async () => 10_000_000,
-    redis: healthyRedis(now), env: readyEnv, now
+    redis: healthyRedis(now), env: { ...readyEnv, SPORTSBOOK_PROVIDER_REVALIDATION_ENABLED: "false" }, now
   });
   assert.equal(readiness.enabled, false);
-  assert.ok(readiness.reasons.includes("PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"));
-  assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"]);
+  assert.ok(readiness.reasons.includes("PROVIDER_PRICE_REVALIDATION_DISABLED"));
+  assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_DISABLED"]);
 });
 
 test("trial entitlement fails closed; Change Log budget and reconciliation timestamps are not readiness gates", async () => {
@@ -140,7 +195,7 @@ test("trial entitlement fails closed; Change Log budget and reconciliation times
     redis: healthyRedis(now, { refreshPending: true }), env: readyEnv, now
   });
   assert.equal(pending.enabled, false);
-  assert.ok(pending.reasons.includes("PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"));
+  assert.ok(pending.reasons.includes("PROVIDER_PRICE_REVALIDATION_DISABLED"));
   assert.deepEqual(pending.reasons, ["PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"]);
 });
 
