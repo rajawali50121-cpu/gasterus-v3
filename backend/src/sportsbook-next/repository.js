@@ -35,7 +35,8 @@ export async function persistSportsbookSchedules(events, sportId, snapshotAt = n
   const fetchedAt = new Date(snapshotAt);
   if (!Number.isFinite(fetchedAt.getTime())) throw new Error("SPORTSBOOK_SCHEDULE_TIMESTAMP_INVALID");
   let schedulesPersisted = 0;
-  await tx(async client => {
+  await transaction(async client => {
+    const snapshotScopes = new Map();
     for (const event of events) {
       if (!event?.id || !String(event.id).startsWith("sr:sport_event:")) continue;
       await client.query(`
@@ -67,7 +68,8 @@ export async function persistSportsbookSchedules(events, sportId, snapshotAt = n
   return { schedulesPersisted };
 }
 
-export async function persistSportsbookSnapshot(events, snapshotAt = new Date().toISOString()) {
+export async function persistSportsbookSnapshot(events, snapshotAt = new Date().toISOString(), { complete = false, transaction = tx } = {}) {
+  if (complete !== true || !Array.isArray(events) || events.length === 0) throw new Error("SPORTSBOOK_SNAPSHOT_INCOMPLETE");
   const fetchedAt = new Date(snapshotAt);
   if (!Number.isFinite(fetchedAt.getTime())) throw new Error("SPORTSBOOK_SNAPSHOT_TIMESTAMP_INVALID");
   let eventCount = 0, marketCount = 0, priceCount = 0;
@@ -83,9 +85,9 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
           sport_id=excluded.sport_id,
           competition_id=COALESCE(sportsbook_v2_events.competition_id,excluded.competition_id),
           competition_name=COALESCE(sportsbook_v2_events.competition_name,excluded.competition_name),
-          scheduled_at=COALESCE(sportsbook_v2_events.scheduled_at,excluded.scheduled_at),
-          event_status=CASE WHEN sportsbook_v2_events.event_status IS NULL OR sportsbook_v2_events.event_status='unknown'
-            THEN excluded.event_status ELSE sportsbook_v2_events.event_status END,
+          scheduled_at=COALESCE(excluded.scheduled_at,sportsbook_v2_events.scheduled_at),
+          event_status=CASE WHEN excluded.event_status IS NULL OR excluded.event_status='unknown'
+            THEN sportsbook_v2_events.event_status ELSE excluded.event_status END,
           home_name=COALESCE(sportsbook_v2_events.home_name,excluded.home_name),
           away_name=COALESCE(sportsbook_v2_events.away_name,excluded.away_name),
           snapshot_at=GREATEST(sportsbook_v2_events.snapshot_at,excluded.snapshot_at),
@@ -98,6 +100,13 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
         fetchedAt,event.providerGeneratedAt ? new Date(event.providerGeneratedAt) : null,JSON.stringify(event)
       ]);
       eventCount += 1;
+      const scheduledMs = Date.parse(String(event.scheduled || ""));
+      if (Number.isFinite(scheduledMs) && typeof event.sportId === "string" && event.sportId) {
+        const utcDate = new Date(scheduledMs).toISOString().slice(0, 10);
+        const scopeKey = `${event.sportId}:${utcDate}`;
+        if (!snapshotScopes.has(scopeKey)) snapshotScopes.set(scopeKey, { sportId: event.sportId, date: utcDate, ids: [] });
+        snapshotScopes.get(scopeKey).ids.push(event.id);
+      }
       await client.query("UPDATE sportsbook_v2_markets SET is_active=FALSE WHERE provider_event_id=$1",[event.id]);
       await client.query("UPDATE sportsbook_v2_prices SET is_active=FALSE WHERE provider_event_id=$1",[event.id]);
 
@@ -146,6 +155,26 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
           }
         }
       }
+    }
+    // Complete feed pages are required before an omitted event is considered withdrawn.
+    for (const scope of snapshotScopes.values()) {
+      const params = [scope.sportId, scope.date, scope.ids];
+      await client.query(`
+        UPDATE sportsbook_v2_markets m SET is_active=FALSE
+        FROM sportsbook_v2_events e
+        WHERE e.provider_event_id=m.provider_event_id AND e.sport_id=$1
+          AND e.scheduled_at >= ($2::date::timestamp AT TIME ZONE 'UTC')
+          AND e.scheduled_at < (($2::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'UTC')
+          AND NOT (e.provider_event_id = ANY($3::text[]))
+      `, params);
+      await client.query(`
+        UPDATE sportsbook_v2_prices p SET is_active=FALSE
+        FROM sportsbook_v2_events e
+        WHERE e.provider_event_id=p.provider_event_id AND e.sport_id=$1
+          AND e.scheduled_at >= ($2::date::timestamp AT TIME ZONE 'UTC')
+          AND e.scheduled_at < (($2::date + INTERVAL '1 day')::timestamp AT TIME ZONE 'UTC')
+          AND NOT (e.provider_event_id = ANY($3::text[]))
+      `, params);
     }
   });
   return { events:eventCount,markets:marketCount,prices:priceCount };
