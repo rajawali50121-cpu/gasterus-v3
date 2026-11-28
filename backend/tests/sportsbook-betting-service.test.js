@@ -39,14 +39,14 @@ const readyEnv = {
   SPORTSBOOK_BET_MAX_PAYOUT_IDR: "10000000"
 };
 
-function healthyRedis(now, { refreshPending = false, lastSuccessAgeMs = 15_000 } = {}) {
+function healthyRedis(now, { refreshPending = false, lastSuccessAgeMs = 15_000, soccerPaginationComplete = true } = {}) {
   const values = new Map([
     [__sportsbookBetting.FEED_STATUS_KEY, JSON.stringify({
       complete: true, changeLogPoll: true, quotaLimited: false, errorCount: 0,
       reconcilePending: 0, changedPending: 0
     })],
     [__sportsbookBetting.SNAPSHOT_KEY, JSON.stringify({ complete: true, refreshPending })],
-    [__sportsbookBetting.SOCCER_STATUS_KEY, JSON.stringify({ cycleComplete: true, dateComplete: true })],
+    [__sportsbookBetting.SOCCER_STATUS_KEY, JSON.stringify({ cycleComplete: true, dateComplete: true, pagination: { complete: soccerPaginationComplete } })],
     [__sportsbookBetting.SOCCER_HEARTBEAT_KEY, new Date(now - 15_000).toISOString()],
     [__sportsbookBetting.SETTLEMENT_STATUS_KEY, JSON.stringify({ healthy: true })],
     [__sportsbookBetting.SETTLEMENT_HEARTBEAT_KEY, new Date(now - 15_000).toISOString()]
@@ -292,6 +292,18 @@ test("stale Soccer result or settlement worker heartbeat blocks new bets", async
   assert.equal(readiness.enabled, false);
   assert.ok(readiness.reasons.includes("SOCCER_RESULTS_HEARTBEAT_STALE"));
   assert.ok(readiness.reasons.includes("SETTLEMENT_WORKER_UNHEALTHY"));
+});
+
+test("incomplete Soccer v4 result pagination blocks bet acceptance", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
+    redis: healthyRedis(now, { soccerPaginationComplete: false }),
+    env: readyEnv, now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("SOCCER_RESULTS_WORKER_UNHEALTHY"));
 });
 
 test("insufficient independent Soccer product quota blocks bet acceptance", async () => {
