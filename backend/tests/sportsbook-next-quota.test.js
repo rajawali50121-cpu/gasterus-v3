@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { reserveSportradarCall, __quota } from "../src/sportsbook-next/quota.js";
+import { reserveSportradarCall, getSportradarQuotaUsage, __quota } from "../src/sportsbook-next/quota.js";
 
 test("quota reservation uses a shared rolling 30-day Redis window", async () => {
   let args;
@@ -40,6 +40,25 @@ test("provider revalidation budget exhaustion has a dedicated fail-closed signal
     error => error.code === "SPORTRADAR_BET_REVALIDATION_BUDGET_EXHAUSTED" &&
       error.quotaScope === "bet_revalidation_30_days"
   );
+});
+
+test("quota telemetry reports worker and provider revalidation reserves independently", async () => {
+  let options;
+  const redis = { eval: async (script, args) => {
+    assert.equal(script, __quota.USAGE_SCRIPT);
+    options = args;
+    return [8, 350, 300, 50];
+  }};
+  const usage = await getSportradarQuotaUsage(redis, {
+    initialCallsUsed30Days: 100, maxCallsPer30Days: 800,
+    maxCallsPerHour: 0, betRevalidationCallsPer30Days: 120
+  }, 1_800_000_000_000);
+  assert.deepEqual(options.keys, [__quota.KEY, __quota.BASELINE_KEY, __quota.WORKER_KEY, __quota.BET_KEY]);
+  assert.equal(usage.monthlyRemaining, 450);
+  assert.equal(usage.workerLimit, 680);
+  assert.equal(usage.workerRemaining, 380);
+  assert.equal(usage.betRevalidationUsed, 50);
+  assert.equal(usage.betRevalidationRemaining, 70);
 });
 
 test("quota exhaustion fails closed without retrying", async () => {
