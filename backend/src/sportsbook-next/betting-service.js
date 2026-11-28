@@ -228,7 +228,7 @@ export async function getSportsbookBetAcceptanceReadiness({
     reasons.push("SPORTSBOOK_FEED_NOT_HEALTHY");
   }
   if (snapshot?.complete !== true) reasons.push("SPORTSBOOK_SNAPSHOT_INCOMPLETE");
-  if (soccerStatus?.complete === false || soccerStatus?.code) {
+  if (soccerStatus?.complete === false || soccerStatus?.code || soccerStatus?.pagination?.complete === false) {
     reasons.push("SOCCER_RESULTS_WORKER_UNHEALTHY");
   }
   const maxSoccerHeartbeatAgeMs = Math.max(3 * soccerPollMinutes * 60_000, 3 * 60 * 60_000);
