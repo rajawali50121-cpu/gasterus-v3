@@ -498,7 +498,7 @@ async function revalidateBetPriceWithProvider(providerClient, leg, storedRow, no
     result = await providerClient.getSportEventMarkets(leg.providerEventId, { live: false });
   } catch (error) {
     const code = error?.code === "SPORTRADAR_RATE_LIMITED" ? "SPORTSBOOK_PROVIDER_RATE_LIMITED"
-      : error?.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED" ? "SPORTSBOOK_PROVIDER_QUOTA_EXHAUSTED"
+      : ["SPORTRADAR_30_DAY_QUOTA_EXHAUSTED", "SPORTRADAR_BET_REVALIDATION_BUDGET_EXHAUSTED"].includes(error?.code) ? "SPORTSBOOK_PROVIDER_QUOTA_EXHAUSTED"
         : error?.code === "SPORTRADAR_HOURLY_QUOTA_EXHAUSTED" ? "SPORTSBOOK_PROVIDER_QUOTA_EXHAUSTED"
           : "SPORTSBOOK_PROVIDER_UNAVAILABLE";
     throw new AppError(503, "Tidak dapat memverifikasi harga langsung ke Sportradar. Taruhan ditolak.", code);
