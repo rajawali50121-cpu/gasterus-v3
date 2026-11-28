@@ -111,6 +111,8 @@ export async function getSportsbookBetAcceptanceReadiness({
   }
 }) {
   const reasons = [];
+  // Snapshot-only validation is not provider-current price validation. Keep acceptance fail-closed until a quota-accounted synchronous provider check is implemented.
+  reasons.push("PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED");
   if (String(env.SPORTSBOOK_BET_ACCEPTANCE_ENABLED || "").toLowerCase() !== "true") reasons.push("BET_ACCEPTANCE_DISABLED");
   if (String(env.SPORTRADAR_ODDS_ENABLED || "").toLowerCase() !== "true") reasons.push("ODDS_WORKER_DISABLED");
   if (String(env.SPORTSBOOK_SETTLEMENT_ENABLED || "").toLowerCase() !== "true") reasons.push("SETTLEMENT_ENGINE_DISABLED");
