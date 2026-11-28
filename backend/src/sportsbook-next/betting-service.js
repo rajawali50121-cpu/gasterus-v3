@@ -4,6 +4,7 @@ import { AppError, assert } from "../errors.js";
 import { memberAccount, postSystemTransfer, postTransfer, SYSTEM_ACCOUNTS } from "../ledger.js";
 import { enforceResponsiblePlay } from "../responsible-play.js";
 import { audit } from "../audit.js";
+import { evaluateOddsFreshness, FRESHNESS_CODES } from "./prematch-freshness-guard.js";
 
 const FEED_STATUS_KEY = "sportsbook:next:feed-status:v1";
 const SNAPSHOT_KEY = "sportsbook:next:snapshot:v1";
@@ -273,7 +274,41 @@ function mapExistingTicket(row, fingerprint) {
   };
 }
 
-async function loadBettablePrice(client, leg, nowMs) {
+export function evaluateStoredBetPriceFreshness({ receivedAt, scheduledAt, odds, expectedOdds, marketActive, priceActive, isLive, nowMs, maxAgeSeconds }) {
+  const invalid = (code, reason) => ({ ok: false, code, reason });
+  if (!Number.isSafeInteger(maxAgeSeconds) || maxAgeSeconds <= 0) {
+    return invalid("SPORTSBOOK_PRICE_STALE", "Batas umur harga wajib dikonfigurasi.");
+  }
+  const capturedAt = Date.parse(String(receivedAt || ""));
+  const startsAt = Date.parse(String(scheduledAt || ""));
+  if (!Number.isFinite(capturedAt) || !Number.isFinite(startsAt) || !Number.isFinite(nowMs)) {
+    return invalid("SPORTSBOOK_PRICE_STALE", "Timestamp harga atau jadwal tidak valid.");
+  }
+  const result = evaluateOddsFreshness({
+    snapshot: {
+      capturedAt,
+      eventStartsAt: startsAt,
+      marketStatus: marketActive === true && priceActive === true && isLive === false ? "open" : "removed",
+      price: Number(odds)
+    },
+    clientPrice: Number(expectedOdds),
+    now: nowMs,
+    config: { maxAgeMinutes: maxAgeSeconds / 60, cutoffBeforeKickoffMinutes: KICKOFF_CUTOFF_MINUTES }
+  });
+  if (result.ok) return result;
+  if (result.code === FRESHNESS_CODES.STALE_SNAPSHOT) {
+    return invalid("SPORTSBOOK_PRICE_STALE", "Harga odds sudah kedaluwarsa. Muat ulang odds terbaru.");
+  }
+  if (result.code === FRESHNESS_CODES.EVENT_NEAR_KICKOFF || result.code === FRESHNESS_CODES.EVENT_STARTED) {
+    return invalid("SPORTSBOOK_KICKOFF_CUTOFF", result.reason);
+  }
+  if (result.code === FRESHNESS_CODES.PRICE_CHANGED) {
+    return invalid("SPORTSBOOK_PRICE_CHANGED", result.reason);
+  }
+  return invalid("SPORTSBOOK_PRICE_STALE", result.reason);
+}
+
+async function loadBettablePrice(client, leg, nowMs, env) {
   const result = await client.query(`
     SELECT e.provider_event_id, e.sport_id, e.scheduled_at, e.event_status,
            m.provider_market_key, m.provider_market_id, m.market_name,
@@ -341,8 +376,19 @@ async function loadBettablePrice(client, leg, nowMs) {
     "Status pertandingan tidak mengizinkan taruhan prematch.", "SPORTSBOOK_EVENT_NOT_PREMATCH");
   assert(row.scheduled_at && new Date(row.scheduled_at).getTime() > nowMs, 409,
     "Jadwal pertandingan sudah dimulai atau tidak valid.", "SPORTSBOOK_EVENT_STARTED");
-  assert(row.received_at, 409,
-    "Waktu penerimaan harga tidak tersedia.", "SPORTSBOOK_PRICE_RECEIPT_TIME_MISSING");
+  const maxAgeSeconds = safeIntegerEnv(env, "SPORTSBOOK_PRICE_MAX_AGE_SECONDS");
+  const freshness = evaluateStoredBetPriceFreshness({
+    receivedAt: row.received_at,
+    scheduledAt: row.scheduled_at,
+    odds: row.odds_decimal,
+    expectedOdds: microsToDecimal(leg.expectedOddsMicros),
+    marketActive: row.market_active,
+    priceActive: row.price_active,
+    isLive: row.is_live,
+    nowMs,
+    maxAgeSeconds
+  });
+  assert(freshness.ok, 409, freshness.reason, freshness.code);
 
   const storedOddsMicros = decimalOddsToMicros(row.odds_decimal);
   assert(storedOddsMicros === leg.expectedOddsMicros, 409,
@@ -390,7 +436,7 @@ export async function createSportsbookTicket(session, input, { redis, env = proc
     const dbTime = await client.query("SELECT (EXTRACT(EPOCH FROM now()) * 1000)::bigint AS now_ms");
     const nowMs = Number(dbTime.rows[0].now_ms);
     const resolved = [];
-    for (const leg of legs) resolved.push(await loadBettablePrice(client, leg, nowMs));
+    for (const leg of legs) resolved.push(await loadBettablePrice(client, leg, nowMs, env));
 
     const amounts = calculateSportsbookBetAmounts(stake, resolved.map(item => item.odds), maxPayout);
     const metadata = {
@@ -515,7 +561,7 @@ export const __sportsbookBetting = {
   FEED_STATUS_KEY, SNAPSHOT_KEY,
   SOCCER_STATUS_KEY, SOCCER_HEARTBEAT_KEY,
   SETTLEMENT_STATUS_KEY, SETTLEMENT_HEARTBEAT_KEY,
-  ODDS_SCALE, MAX_LEGS, PROVIDER_PRODUCT
+  ODDS_SCALE, MAX_LEGS, PROVIDER_PRODUCT, KICKOFF_CUTOFF_MINUTES
 };
 
 
