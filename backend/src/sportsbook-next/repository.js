@@ -35,8 +35,7 @@ export async function persistSportsbookSchedules(events, sportId, snapshotAt = n
   const fetchedAt = new Date(snapshotAt);
   if (!Number.isFinite(fetchedAt.getTime())) throw new Error("SPORTSBOOK_SCHEDULE_TIMESTAMP_INVALID");
   let schedulesPersisted = 0;
-  await transaction(async client => {
-    const snapshotScopes = new Map();
+  await tx(async client => {
     for (const event of events) {
       if (!event?.id || !String(event.id).startsWith("sr:sport_event:")) continue;
       await client.query(`
@@ -74,7 +73,8 @@ export async function persistSportsbookSnapshot(events, snapshotAt = new Date().
   if (!Number.isFinite(fetchedAt.getTime())) throw new Error("SPORTSBOOK_SNAPSHOT_TIMESTAMP_INVALID");
   let eventCount = 0, marketCount = 0, priceCount = 0;
 
-  await tx(async client => {
+  await transaction(async client => {
+    const snapshotScopes = new Map();
     for (const event of events) {
       await client.query(`
         INSERT INTO sportsbook_v2_events(
