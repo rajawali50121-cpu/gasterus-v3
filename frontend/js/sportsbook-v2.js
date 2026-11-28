@@ -211,7 +211,7 @@ async function submitTicket(){
   const summary=preview();
   if(!summary||!selectedLegs.size)return;
   if(!localStorage.getItem("gasterus_token")){window.location.href="/index.html";return;}
-  submitBet.disabled=true;submitBet.textContent="Memverifikasi odds…";
+  submitBet.disabled=true;submitBet.textContent="Memeriksa snapshot odds…";
   betslipStatus.textContent="Memeriksa harga pada snapshot tersimpan, status event/market, batas risiko dan saldo.";
   const requestPayload={
     stake:summary.stake,
