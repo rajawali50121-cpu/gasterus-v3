@@ -7,7 +7,7 @@ import { evaluateSoccer1x2Leg, evaluateTicketStatus, calculateTicketPayout } fro
 const mapping = {
   sportId: "sr:sport:1",
   providerMarketId: "sr:market:1",
-  providerMarketName: "Match Winner",
+  providerMarketName: "1x2",
   periodCode: "FT",
   marketCode: "SOCCER_1X2_3WAY",
   settlementRule: "SOCCER_1X2_3WAY",
@@ -20,14 +20,14 @@ const mapping = {
 test("provider market mapping requires exact sport, market ID, name and period", () => {
   const resolved = resolveProviderMarket({
     sportId: "sr:sport:1", providerMarketId: "sr:market:1",
-    providerMarketName: "Match Winner", periodCode: "FT", mappings: [mapping]
+    providerMarketName: "1x2", periodCode: "FT", mappings: [mapping]
   });
   assert.equal(resolved.status, "MAPPED");
   assert.equal(resolved.bettable, true);
   assert.equal(resolved.marketCode, "SOCCER_1X2_3WAY");
   const wrongPeriod = resolveProviderMarket({
     sportId: "sr:sport:1", providerMarketId: "sr:market:1",
-    providerMarketName: "Match Winner", periodCode: "HT", mappings: [mapping]
+    providerMarketName: "1x2", periodCode: "HT", mappings: [mapping]
   });
   assert.equal(wrongPeriod.status, "UNMAPPED");
   assert.equal(wrongPeriod.bettable, false);
