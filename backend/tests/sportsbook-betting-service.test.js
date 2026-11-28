@@ -106,7 +106,7 @@ test("payout ceiling and invalid stake are enforced before ledger debit", () => 
     error => error.code === "SPORTSBOOK_STAKE_INVALID");
 });
 
-test("bet acceptance requires production entitlement but not Change Log or hourly schedule verification", async () => {
+test("bet acceptance stays disabled until synchronous provider price revalidation exists", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
     loadMappingCount: async () => 1,
@@ -114,7 +114,8 @@ test("bet acceptance requires production entitlement but not Change Log or hourl
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: readyEnv, now
   });
-  assert.equal(readiness.enabled, true);
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"));
   assert.deepEqual(readiness.reasons, []);
 });
 
@@ -135,7 +136,8 @@ test("trial entitlement fails closed; Change Log budget and reconciliation times
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now, { refreshPending: true }), env: readyEnv, now
   });
-  assert.equal(pending.enabled, true);
+  assert.equal(pending.enabled, false);
+  assert.ok(pending.reasons.includes("PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"));
   assert.deepEqual(pending.reasons, []);
 });
 
