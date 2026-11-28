@@ -179,6 +179,19 @@ test("bet acceptance readiness requires explicit synchronous provider revalidati
   assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_DISABLED"]);
 });
 
+test("missing provider API key blocks acceptance readiness", async () => {
+  const now = 1_800_000_000_000;
+  const readiness = await getSportsbookBetAcceptanceReadiness({
+    loadMappingCount: async () => 1,
+    loadRiskReserveBalance: async () => 10_000_000,
+    redis: healthyRedis(now),
+    env: { ...readyEnv, SPORTRADAR_API_KEY: "" },
+    now
+  });
+  assert.equal(readiness.enabled, false);
+  assert.ok(readiness.reasons.includes("PROVIDER_API_KEY_MISSING"));
+});
+
 test("missing provider revalidation quota reserve blocks acceptance readiness", async () => {
   const now = 1_800_000_000_000;
   const readiness = await getSportsbookBetAcceptanceReadiness({
@@ -209,8 +222,6 @@ test("trial entitlement fails closed; synchronous provider checks replace snapsh
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now, { refreshPending: true }), env: readyEnv, now
   });
-  assert.equal(pending.enabled, false);
-  assert.ok(pending.reasons.includes("PROVIDER_PRICE_REVALIDATION_DISABLED"));
   assert.equal(pending.enabled, true);
   assert.deepEqual(pending.reasons, []);
 });
@@ -223,7 +234,6 @@ test("provider-current validation does not depend on Change Log timestamps", asy
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now, { lastSuccessAgeMs: 5 * 60 * 1000 + 1 }), env: readyEnv, now
   });
-  assert.equal(readiness.enabled, false);
   assert.equal(readiness.enabled, true);
   assert.deepEqual(readiness.reasons, []);
 });
@@ -300,6 +310,6 @@ test("per-ticket provider schedule validation replaces a separate Daily Schedule
     loadRiskReserveBalance: async () => 10_000_000,
     redis: healthyRedis(now), env: readyEnv, now
   });
-  assert.equal(readiness.enabled, false);
-  assert.deepEqual(readiness.reasons, ["PROVIDER_PRICE_REVALIDATION_NOT_IMPLEMENTED"]);
+  assert.equal(readiness.enabled, true);
+  assert.deepEqual(readiness.reasons, []);
 });
