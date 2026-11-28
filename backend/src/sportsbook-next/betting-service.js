@@ -473,7 +473,7 @@ function createTicketProviderClient(redis, env) {
   return new SportradarClient(config, {
     beforeRequest: async () => {
       await waitForSportradarRequestSlot(redis);
-      await reserveSportradarCall(redis, config);
+      await reserveSportradarCall(redis, config, Date.now(), { purpose: "bet" });
     },
     onRateLimit: ({ retryAfter }) => applySportradarRateLimitCooldown(redis, retryAfter)
   });
