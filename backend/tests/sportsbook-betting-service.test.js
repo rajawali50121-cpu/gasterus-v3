@@ -136,7 +136,7 @@ test("provider revalidation accepts only the exact active event, market, bookmak
 test("client bet selections must use canonical Sportradar sport-event URNs", () => {
   const leg = normalizeSportsbookLegInput({
     providerEventId: "sr:sport_event:123456",
-    providerMarketKey: "sr:market:1|Match Winner",
+    providerMarketKey: "sr:market:1|1x2",
     providerBookId: "sr:book:1",
     providerSelectionKey: "sr:outcome:home|",
     expectedOdds: "2.10"
