@@ -75,7 +75,7 @@ export function loadSportsbookConfig(env = process.env) {
   }
   const availableCalls30Days = maxCallsPer30Days - initialCallsUsed30Days;
   if (availableCalls30Days < minimumCalls30Days + betRevalidationCallsPer30Days) {
-    throw new Error(`Sportradar 30-day budget is insufficient: worker requires ${minimumCalls30Days}, provider revalidation reserve requires ${betRevalidationCallsPer30Days}, available ${availableCalls30Days}`);
+    throw new Error(`Sportradar 30-day budget is insufficient: target ${targetEvents} events at page size ${marketPageSize} requires ${marketPagesPerCycle} market pages/cycle and ${minimumCalls30Days} calls/30 days; worker requires ${minimumCalls30Days}, provider revalidation reserve requires ${betRevalidationCallsPer30Days}, available ${availableCalls30Days}`);
   }
   const language = String(env.SPORTRADAR_LANGUAGE || "en").trim();
   return Object.freeze({
