@@ -495,7 +495,7 @@ function createTicketProviderClient(redis, env) {
 async function revalidateBetPriceWithProvider(providerClient, leg, storedRow, nowMs) {
   let result;
   try {
-    result = await providerClient.getSportEventMarkets(leg.providerEventId);
+    result = await providerClient.getSportEventMarkets(leg.providerEventId, { live: false });
   } catch (error) {
     const code = error?.code === "SPORTRADAR_RATE_LIMITED" ? "SPORTSBOOK_PROVIDER_RATE_LIMITED"
       : error?.code === "SPORTRADAR_30_DAY_QUOTA_EXHAUSTED" ? "SPORTSBOOK_PROVIDER_QUOTA_EXHAUSTED"
