@@ -5,7 +5,8 @@ import {
   decimalOddsToMicros,
   normalizeSportsbookLegInput,
   getSportsbookBetAcceptanceReadiness,
-  __sportsbookBetting
+  __sportsbookBetting,
+  evaluateStoredBetPriceFreshness
 } from "../src/sportsbook-next/betting-service.js";
 
 const readyEnv = {
@@ -47,6 +48,22 @@ function healthyRedis(now, { refreshPending = false, lastSuccessAgeMs = 15_000 }
   ]);
   return { get: async key => values.get(key) ?? null };
 }
+
+test("stored price freshness fails closed for missing config, stale prices, and five-minute kickoff cutoff", () => {
+  const nowMs = Date.parse("2026-11-28T10:00:00.000Z");
+  const base = {
+    receivedAt: "2026-11-28T09:55:00.000Z",
+    scheduledAt: "2026-11-28T11:00:00.000Z",
+    odds: "2.10", expectedOdds: "2.10",
+    marketActive: true, priceActive: true, isLive: false,
+    nowMs, maxAgeSeconds: 900
+  };
+  assert.equal(evaluateStoredBetPriceFreshness(base).ok, true);
+  assert.equal(evaluateStoredBetPriceFreshness({ ...base, maxAgeSeconds: null }).code, "SPORTSBOOK_PRICE_STALE");
+  assert.equal(evaluateStoredBetPriceFreshness({ ...base, receivedAt: "2026-11-28T09:30:00.000Z" }).code, "SPORTSBOOK_PRICE_STALE");
+  assert.equal(evaluateStoredBetPriceFreshness({ ...base, scheduledAt: "2026-11-28T10:04:59.000Z" }).code, "SPORTSBOOK_KICKOFF_CUTOFF");
+  assert.equal(evaluateStoredBetPriceFreshness({ ...base, scheduledAt: "2026-11-28T10:05:00.000Z" }).code, "SPORTSBOOK_KICKOFF_CUTOFF");
+});
 
 test("client bet selections must use canonical Sportradar sport-event URNs", () => {
   const leg = normalizeSportsbookLegInput({
