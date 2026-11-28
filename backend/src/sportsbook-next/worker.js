@@ -180,6 +180,7 @@ async function runCycle(config, client) {
   client.cycleCalls = 0;
   const events = new Map();
   const marketFeeds = [];
+  const marketScopes = [];
   const errors = [];
   let quotaLimited = false;
   let quotaReason = null;
@@ -202,6 +203,7 @@ async function runCycle(config, client) {
             throw error;
           }
           const rows = normalizeDailySportEventMarkets(result.body, sportId, new Date().toISOString());
+          marketScopes.push({ sportId, date, ids: rows.map(event => event.id) });
           for (const event of rows) events.set(event.id, event);
         } catch (error) {
           if (error?.code === "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED") {
@@ -242,7 +244,7 @@ async function runCycle(config, client) {
       fetchedAt: receivedAt,
       providerGeneratedAt: sourceTimes.length ? new Date(Math.max(...sourceTimes)).toISOString() : null,
       receivedAt,
-      complete: errors.length === 0 && !quotaLimited && !budgetLimited && pricedEvents.length > 0,
+      complete: errors.length === 0 && !quotaLimited && !budgetLimited && marketScopes.length === config.sportIds.length * (config.daysAhead + 1) && marketFeeds.every(feed => feed.complete === true),
       emptyFeed: pricedEvents.length === 0,
       callsThisCycle: client.cycleCalls,
       marketPagesThisCycle: marketFeeds.reduce((sum, feed) => sum + feed.pages, 0), marketFeeds,
@@ -257,7 +259,7 @@ async function runCycle(config, client) {
     };
     // Never replace a last-known-good snapshot with partial or quota-truncated data.
     const persisted = snapshot.complete
-      ? await persistSportsbookSnapshot(pricedEvents, snapshot.receivedAt, { complete: snapshot.complete })
+      ? await persistSportsbookSnapshot(pricedEvents, snapshot.receivedAt, { complete: snapshot.complete, scopes: marketScopes })
       : { skipped: true, reason: quotaReason || (budgetLimited ? "SPORTRADAR_CYCLE_BUDGET_EXHAUSTED" : (pricedEvents.length === 0 ? "SPORTRADAR_EMPTY_FEED" : "SPORTRADAR_CYCLE_INCOMPLETE")) };
     if (snapshot.complete) {
       await redis.set(SNAPSHOT_KEY, JSON.stringify(snapshot), { EX: Math.ceil(config.maxSnapshotAgeMs / 1000) });
