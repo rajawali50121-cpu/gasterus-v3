@@ -7,11 +7,39 @@ test("quota reservation uses a shared rolling 30-day Redis window", async () => 
   const redis = { eval: async (script, options) => { assert.equal(script, __quota.RESERVE_SCRIPT); args = options; return 1; } };
   const config = { initialCallsUsed30Days: 12, maxCallsPer30Days: 100, maxCallsPerHour: 20 };
   await reserveSportradarCall(redis, config, 1_800_000_000_000);
-  assert.deepEqual(args.keys, [__quota.KEY, __quota.BASELINE_KEY]);
+  assert.deepEqual(args.keys, [__quota.KEY, __quota.BASELINE_KEY, __quota.WORKER_KEY, __quota.BET_KEY]);
   assert.equal(args.arguments[2], "12");
   assert.equal(args.arguments[4], "20");
   assert.equal(args.arguments[5], "100");
+  assert.equal(args.arguments[7], "100");
+  assert.equal(args.arguments[8], "0");
+  assert.equal(args.arguments[9], "worker");
   assert.equal(Number(args.arguments[0]), 1_800_000_000_000 - __quota.WINDOW_MS);
+});
+
+test("provider revalidation quota is reserved separately from worker quota", async () => {
+  let args;
+  const redis = { eval: async (_script, options) => { args = options; return 1; } };
+  const config = {
+    initialCallsUsed30Days: 100, maxCallsPer30Days: 800,
+    maxCallsPerHour: 0, betRevalidationCallsPer30Days: 120
+  };
+  await reserveSportradarCall(redis, config, 1_800_000_000_000, { purpose: "bet" });
+  assert.equal(args.arguments[7], "680");
+  assert.equal(args.arguments[8], "120");
+  assert.equal(args.arguments[9], "bet");
+});
+
+test("provider revalidation budget exhaustion has a dedicated fail-closed signal", async () => {
+  const redis = { eval: async () => [3, 120, 500, 0] };
+  await assert.rejects(
+    reserveSportradarCall(redis, {
+      initialCallsUsed30Days: 100, maxCallsPer30Days: 800,
+      maxCallsPerHour: 0, betRevalidationCallsPer30Days: 120
+    }, 1_800_000_000_000, { purpose: "bet" }),
+    error => error.code === "SPORTRADAR_BET_REVALIDATION_BUDGET_EXHAUSTED" &&
+      error.quotaScope === "bet_revalidation_30_days"
+  );
 });
 
 test("quota exhaustion fails closed without retrying", async () => {
