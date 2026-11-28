@@ -118,6 +118,10 @@ export async function getSportsbookBetAcceptanceReadiness({
   if (String(env.SPORTSBOOK_PROVIDER_REVALIDATION_ENABLED || "").toLowerCase() !== "true") {
     reasons.push("PROVIDER_PRICE_REVALIDATION_DISABLED");
   }
+  if (String(env.SPORTSBOOK_PROVIDER_REVALIDATION_ENABLED || "").toLowerCase() === "true" &&
+      !String(env.SPORTRADAR_API_KEY || "").trim()) {
+    reasons.push("PROVIDER_API_KEY_MISSING");
+  }
   if (String(env.SPORTSBOOK_BET_ACCEPTANCE_ENABLED || "").toLowerCase() !== "true") reasons.push("BET_ACCEPTANCE_DISABLED");
   if (String(env.SPORTRADAR_ODDS_ENABLED || "").toLowerCase() !== "true") reasons.push("ODDS_WORKER_DISABLED");
   if (String(env.SPORTSBOOK_SETTLEMENT_ENABLED || "").toLowerCase() !== "true") reasons.push("SETTLEMENT_ENGINE_DISABLED");
