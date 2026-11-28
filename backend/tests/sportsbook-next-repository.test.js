@@ -66,6 +66,10 @@ test("complete snapshot refreshes event schedule/status and deactivates omitted 
   assert.deepEqual(result, { events: 1, markets: 1, prices: 1 });
   const upsert = statements.find(item => item.sql.includes("INSERT INTO sportsbook_v2_events"));
   assert.match(upsert.sql, /scheduled_at=COALESCE\(excluded\.scheduled_at,sportsbook_v2_events\.scheduled_at\)/);
+  assert.match(upsert.sql, /competition_id=COALESCE\(excluded\.competition_id,sportsbook_v2_events\.competition_id\)/);
+  assert.match(upsert.sql, /competition_name=COALESCE\(excluded\.competition_name,sportsbook_v2_events\.competition_name\)/);
+  assert.match(upsert.sql, /home_name=COALESCE\(excluded\.home_name,sportsbook_v2_events\.home_name\)/);
+  assert.match(upsert.sql, /away_name=COALESCE\(excluded\.away_name,sportsbook_v2_events\.away_name\)/);
   assert.match(upsert.sql, /THEN sportsbook_v2_events\.event_status ELSE excluded\.event_status END/);
   const deactivateMarkets = statements.find(item => item.sql.includes("UPDATE sportsbook_v2_markets m SET is_active=FALSE"));
   const deactivatePrices = statements.find(item => item.sql.includes("UPDATE sportsbook_v2_prices p SET is_active=FALSE"));
