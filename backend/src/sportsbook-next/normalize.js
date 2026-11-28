@@ -108,6 +108,9 @@ export function normalizeEventMarkets(payload, fetchedAt = new Date().toISOStrin
       id: eventId,
       scheduled: event.start_time ?? null,
       status: event.status ?? "unknown",
+      startTimeConfirmed: event.start_time_confirmed === true,
+      replacedBy: typeof event.replaced_by === "string" ? event.replaced_by : null,
+      resumeTime: typeof event.resume_time === "string" ? event.resume_time : null,
       home: event.competitors?.find(c => c.qualifier === "home")?.name ?? null,
       away: event.competitors?.find(c => c.qualifier === "away")?.name ?? null
     },
